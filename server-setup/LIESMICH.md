@@ -59,22 +59,21 @@ die Warnung im Störfall bleibt aus.
 
 ### Die Ports
 
-Für 1 und 2 müssen **Port 80 und 443** vom Router auf den Pi zeigen — sonst
-kann Let's Encrypt nicht prüfen, dass die Adresse wirklich dir gehört.
+**Mit DuckDNS braucht das Zertifikat keinen offenen Port.** Let's Encrypt prüft
+dort über einen DNS-Eintrag, den der Pi selbst setzt und wieder wegräumt. Der
+Router muss dafür gar nichts durchlassen.
 
-Das Skript nimmt dir das ab, soweit es geht: es prüft erst, ob eine Anfrage
-von außen ankommt. Kommt keine an, bittet es den Router selbst darum — über
-UPnP, sonst über NAT-PMP — und prüft danach noch einmal. Klappt das, richtet es
-gleich einen Timer ein, der die Freigabe stündlich erneuert, damit sie nicht
-abläuft.
+Damit euer Team den Pi erreicht, muss trotzdem **ein** Port durchgereicht sein
+— der HTTPS-Port. Sind 80 und 443 auf dem Pi belegt, weicht die Einrichtung
+selbständig auf 8080 und 8443 aus und nennt die Adresse dann mit Port.
 
-Erst wenn auch das scheitert (weil UPnP im Router abgeschaltet ist), musst du
-selbst ran. Dann nennt dir das Skript die genauen zwei Zeilen, deine lokale
-Adresse und deine öffentliche IP — und wo das bei einer FRITZ!Box steht.
+Am Ende prüft das Skript, ob von außen wirklich etwas ankommt. Kommt nichts an,
+steht dort genau die eine Zeile, die im Router fehlt — samt eurer öffentlichen
+Adresse. Im Heimnetz läuft Stellium bis dahin schon.
 
-Auf den Geräten im Team ist nichts zu installieren außer der Stellium-App.
+**Mit eigener Domain** ruft Let's Encrypt den Pi direkt auf Port 80 auf. Der
+muss also erreichbar sein, bevor es ein Zertifikat gibt.
 
-Wechseln geht jederzeit: Skript noch einmal ausführen, andere Zahl wählen.
 
 ## Was eingerichtet wird
 
@@ -86,7 +85,7 @@ Wechseln geht jederzeit: Skript noch einmal ausführen, andere Zahl wählen.
 | **fail2ban** | sperrt aus, wer Passwörter durchprobiert |
 | **Aktualisierungen** | Sicherheitspakete kommen automatisch, Neustart nachts um vier falls nötig |
 | **Sicherung** | jede Nacht um 3:30, vierzehn Stände unter `/var/lib/stellium/sicherungen` |
-| **Portfreigabe** | über UPnP oder NAT-PMP, stündlich erneuert |
+| **Portwahl** | 80 und 443, sonst automatisch 8080 und 8443 |
 | **Statuskonsole** | öffnet sich beim Anmelden von selbst |
 
 ## Wie die Verbindung geschützt ist
@@ -115,6 +114,12 @@ sudo STELLIUM_MODE=1 STELLIUM_DOMAIN=chat.meinefirma.de \
 ```
 
 Für DuckDNS: `STELLIUM_MODE=2 STELLIUM_DUCK=meinefirma:dein-token`.
+
+## Nichts doppelt eintippen
+
+Alle Antworten landen in `/etc/stellium-einrichtung.conf` (nur für root
+lesbar). Beim nächsten Lauf gelten sie als Vorgabe — beim Nachbessern musst du
+also nicht noch einmal Domain, Token und Schlüssel eingeben.
 
 ## Danach
 

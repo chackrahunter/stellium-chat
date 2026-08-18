@@ -75,6 +75,28 @@ fi
 TERMINAL=""
 if { : < /dev/tty; } 2>/dev/null; then TERMINAL="/dev/tty"; fi
 
+# Alle Antworten landen hier und gelten beim nächsten Lauf als Vorgabe —
+# damit man beim Nachbessern nicht alles noch einmal eintippen muss.
+GEMERKT="/etc/stellium-einrichtung.conf"
+if [[ -r "$GEMERKT" ]]; then
+  # shellcheck source=/dev/null
+  . "$GEMERKT"
+fi
+
+merken() {
+  umask 077
+  {
+    echo "# Von stellium-installieren.sh gemerkt. Enthält Zugangsdaten."
+    echo "STELLIUM_MODE=${1:-}"
+    echo "STELLIUM_DOMAIN=${2:-}"
+    echo "STELLIUM_MAIL=${3:-}"
+    echo "STELLIUM_DUCK=${4:-}"
+    echo "STELLIUM_PORT_HTTP=${5:-80}"
+    echo "STELLIUM_PORT_HTTPS=${6:-443}"
+  } > "$GEMERKT"
+  chmod 600 "$GEMERKT"
+}
+
 frage() {
   local text="$1" vorgabe="${2:-}" antwort=""
   if [[ -n "$TERMINAL" ]]; then
@@ -149,9 +171,13 @@ cat <<ERKLAERUNG
      Ohne Verschlüsselung, nur im eigenen WLAN erreichbar.
      ${GELB}Zum Ausprobieren, nicht für echte Gespräche.${AUS}
 
-  ${GRAU}Für 1 und 2 müssen Port 80 und 443 im Router auf diesen Pi
-  weitergeleitet sein — sonst kann Let's Encrypt nicht prüfen,
-  dass die Adresse wirklich dir gehört.${AUS}
+  ${GRAU}Bei ${AUS}${FETT}2${AUS}${GRAU} läuft die Prüfung von Let's Encrypt über einen
+  DNS-Eintrag — dafür muss im Router nichts freigegeben sein.
+  Damit euer Team den Pi auch erreicht, sollte trotzdem ein Port
+  durchgereicht werden; das Skript sagt dir am Ende welcher.
+
+  Bei ${AUS}${FETT}1${AUS}${GRAU} ruft Let's Encrypt den Pi direkt auf Port 80 auf,
+  der muss dafür von außen ankommen.${AUS}
 
 ERKLAERUNG
 
@@ -245,6 +271,9 @@ cat <<ERKLAERUNG
 ERKLAERUNG
 GROQ="$(frage_still "Schlüssel (bleibt unsichtbar): " "${STELLIUM_GROQ:-}")"
 
+# Die Antworten festhalten, bevor irgendetwas schiefgehen kann.
+merken "$WAHL" "$DOMAIN" "$MAIL" "${DUCK_NAME:+$DUCK_NAME:$DUCK_TOKEN}"
+
 # ── Ab hier ohne Rückfragen ─────────────────────────────────────
 schritt "System aktualisieren"
 export DEBIAN_FRONTEND=noninteractive
@@ -256,9 +285,7 @@ schritt "Grundlagen installieren"
 apt-get install -y -qq \
   curl ca-certificates gnupg git build-essential \
   nginx ufw fail2ban unattended-upgrades apt-listchanges \
-  jq bc miniupnpc natpmpc >/dev/null 2>&1 \
-  || apt-get install -y -qq curl ca-certificates gnupg git build-essential \
-       nginx ufw fail2ban unattended-upgrades apt-listchanges jq bc >/dev/null
+  jq bc iproute2 >/dev/null
 ok "nginx, Firewall, fail2ban, Werkzeuge"
 
 schritt "Node 22"
@@ -369,11 +396,19 @@ if [[ -n "${GROQ:-}" ]]; then
   # shellcheck source=/dev/null
   . "$UMGEBUNG"
   set +a
-  printf '%s\n' "$GROQ" | sudo -u "$BENUTZER" \
-    env STELLIUM_MASTER_PASSPHRASE="$STELLIUM_MASTER_PASSPHRASE" DATA_DIR="$DATEN" \
-    npx --yes tsx "$ZIEL/packages/server/src/cli/secret.ts" setzen groq >/dev/null 2>&1 \
-    && ok "Groq-Schlüssel verschlüsselt abgelegt" \
-    || warn "Groq-Schlüssel konnte nicht abgelegt werden — später nachholbar"
+
+  # Gegen das gebaute dist/, nicht über tsx: auf dem Pi soll dafür nichts
+  # nachgeladen werden. Der Wert geht über die Standardeingabe und taucht
+  # damit nie in der Prozessliste auf.
+  if AUSGABE="$(printf '%s' "$GROQ" | sudo -u "$BENUTZER" \
+       env STELLIUM_MASTER_PASSPHRASE="$STELLIUM_MASTER_PASSPHRASE" DATA_DIR="$DATEN" \
+       node "$ZIEL/server-setup/schluessel-ablegen.mjs" groq 2>&1)"; then
+    ok "Groq-Schlüssel verschlüsselt abgelegt"
+  else
+    warn "Groq-Schlüssel konnte nicht abgelegt werden:"
+    printf '    %s\n' "$AUSGABE" | head -4
+    warn "Nachholbar mit:  sudo bash $0"
+  fi
   unset GROQ
 else
   info "Kein Groq-Schlüssel — KI bleibt aus, alles andere läuft"
@@ -506,8 +541,8 @@ pruefe_nginx() {
 schreibe_nur_http() {
   cat > /etc/nginx/sites-available/stellium <<NGINX
 server {
-  listen 80 default_server;
-  listen [::]:80 default_server;
+  listen $PORT_HTTP default_server;
+  listen [::]:$PORT_HTTP default_server;
   server_name ${1:-_};
 
   include snippets/stellium-sicherheit.conf;
@@ -521,21 +556,24 @@ NGINX
 
 schreibe_mit_tls() {
   local NAME="$1"
+  # Nur wenn HTTPS woanders läuft, gehört der Port in die Weiterleitung.
+  local SUFFIX=""
+  [[ "$PORT_HTTPS" != "443" ]] && SUFFIX=":$PORT_HTTPS"
   cat > /etc/nginx/sites-available/stellium <<NGINX
 # Alles Unverschlüsselte geht nach oben — außer der Prüfung von Let's Encrypt,
 # die muss über Port 80 laufen.
 server {
-  listen 80;
-  listen [::]:80;
+  listen $PORT_HTTP;
+  listen [::]:$PORT_HTTP;
   server_name $NAME;
 
   location /.well-known/acme-challenge/ { root /var/www/html; }
-  location / { return 301 https://\$host\$request_uri; }
+  location / { return 301 https://\$host$SUFFIX\$request_uri; }
 }
 
 server {
-  listen 443 ssl;
-  listen [::]:443 ssl;
+  listen $PORT_HTTPS ssl;
+  listen [::]:$PORT_HTTPS ssl;
   http2 on;
   server_name $NAME;
 
@@ -558,6 +596,33 @@ server {
 NGINX
 }
 
+# ── Ports wählen ────────────────────────────────────────────────
+#
+# 80 und 443 sind die Wunschports: nur dort steht die Adresse ohne Anhängsel.
+# Sind sie belegt oder kommt von außen nichts an, weicht die Einrichtung auf
+# die nächsten freien aus, statt an einem verschlossenen Router zu scheitern.
+
+port_frei() {
+  ! ss -ltn "sport = :$1" 2>/dev/null | grep -q LISTEN
+}
+
+waehle_port() {
+  local wunsch="$1"; shift
+  for kandidat in "$wunsch" "$@"; do
+    port_frei "$kandidat" && { printf '%s' "$kandidat"; return 0; }
+  done
+  printf '%s' "$wunsch"
+}
+
+PORT_HTTP="$(waehle_port 80 8080 8880 8008)"
+PORT_HTTPS="$(waehle_port 443 8443 9443 4443)"
+
+if [[ "$PORT_HTTP" != "80" || "$PORT_HTTPS" != "443" ]]; then
+  schritt "Ports"
+  [[ "$PORT_HTTP"  != "80"  ]] && info "Port 80 ist belegt — nehme $PORT_HTTP"
+  [[ "$PORT_HTTPS" != "443" ]] && info "Port 443 ist belegt — nehme $PORT_HTTPS"
+fi
+
 ADRESSE=""
 
 if [[ "$WAHL" == "3" ]]; then
@@ -566,7 +631,8 @@ if [[ "$WAHL" == "3" ]]; then
   pruefe_nginx
   systemctl enable --quiet nginx
   systemctl restart nginx
-  ADRESSE="http://$(lokale_ip)"
+  if [[ "$PORT_HTTP" == "80" ]]; then ADRESSE="http://$(lokale_ip)"
+  else ADRESSE="http://$(lokale_ip):$PORT_HTTP"; fi
   warn "Unverschlüsselt. Nur im Heimnetz benutzen."
 
 else
@@ -633,145 +699,63 @@ D2
   systemctl enable --quiet nginx
   systemctl restart nginx
 
-  # ── Ports ───────────────────────────────────────────────────
-  schritt "Ports prüfen"
+  # ── Zertifikat besorgen ─────────────────────────────────────
+  #
+  # Zwei Wege, und der erste braucht keinen offenen Port:
+  #
+  #   DuckDNS  → Let's Encrypt fragt einen DNS-Eintrag ab, den wir setzen.
+  #              Der Router muss dafür gar nichts durchlassen.
+  #   Domain   → Let's Encrypt ruft Port 80 auf. Der muss erreichbar sein.
 
-  # Kommt eine Anfrage von außen wirklich hier an?
   von_aussen_erreichbar() {
     local probe="stellium-$RANDOM$RANDOM"
     echo "$probe" > "/var/www/html/.well-known/acme-challenge/$probe"
     local antwort
-    antwort="$(curl -fsS --max-time 12 "http://$DOMAIN/.well-known/acme-challenge/$probe" 2>/dev/null || true)"
+    antwort="$(curl -fsS --max-time 12 "http://$DOMAIN:$PORT_HTTP/.well-known/acme-challenge/$probe" 2>/dev/null || true)"
     rm -f "/var/www/html/.well-known/acme-challenge/$probe"
     [[ "$antwort" == "$probe" ]]
   }
 
-  # Den Router bitten, die Ports weiterzuleiten. Die meisten Heimrouter
-  # können das über UPnP oder NAT-PMP, sofern es nicht abgeschaltet ist.
-  ports_erbitten() {
-    local ip; ip="$(lokale_ip)"
-    local gelungen=0
-
-    if command -v upnpc >/dev/null; then
-      for port in 80 443; do
-        if upnpc -e "Stellium" -a "$ip" "$port" "$port" TCP 86400 >/dev/null 2>&1 \
-           || upnpc -e "Stellium" -a "$ip" "$port" "$port" TCP >/dev/null 2>&1; then
-          gelungen=1
-        fi
-      done
-      [[ $gelungen -eq 1 ]] && info "Router über UPnP gebeten, 80 und 443 weiterzuleiten"
-    fi
-
-    if [[ $gelungen -eq 0 ]] && command -v natpmpc >/dev/null; then
-      for port in 80 443; do
-        natpmpc -a "$port" "$port" tcp 86400 >/dev/null 2>&1 && gelungen=1
-      done
-      [[ $gelungen -eq 1 ]] && info "Router über NAT-PMP gebeten, 80 und 443 weiterzuleiten"
-    fi
-
-    return $(( gelungen == 1 ? 0 : 1 ))
-  }
-
-  if von_aussen_erreichbar; then
-    ok "$DOMAIN ist von außen erreichbar"
-  else
-    info "noch nicht erreichbar — ich versuche, die Ports selbst zu öffnen"
-
-    if ports_erbitten; then
-      # Der Router braucht einen Moment, bis die Regel greift.
-      for _ in 1 2 3; do
-        sleep 6
-        if von_aussen_erreichbar; then
-          ok "$DOMAIN ist jetzt erreichbar — der Router hat die Ports geöffnet"
-          PORTS_AUTOMATISCH=1
-          break
-        fi
-      done
-    fi
-
-    if [[ "${PORTS_AUTOMATISCH:-0}" != "1" ]]; then
-      OEFFENTLICH="$(curl -fsS --max-time 8 https://api.ipify.org 2>/dev/null || echo 'deine öffentliche IP')"
-      fehler "$(cat <<HINWEIS
-$DOMAIN ist von außen auf Port 80 nicht erreichbar, und der Router
-lässt sich nicht automatisch dazu bewegen.
-
-${FETT}Das musst du einmal im Router eintragen:${AUS}
-
-    Port ${FETT}80${AUS}   →  ${FETT}$(lokale_ip)${AUS}   Port 80   (TCP)
-    Port ${FETT}443${AUS}  →  ${FETT}$(lokale_ip)${AUS}   Port 443  (TCP)
-
-  Bei einer FRITZ!Box: Internet → Freigaben → Portfreigaben → Gerät
-  für Freigaben hinzufügen. Bei anderen Routern heißt es meist
-  "Portweiterleitung", "Port Forwarding" oder "Virtual Server".
-
-${FETT}Falls du UPnP im Router einschalten kannst${AUS}, geht es auch von selbst —
-  dann dieses Skript einfach noch einmal starten.
-
-${GRAU}Zur Kontrolle: dein Anschluss ist von außen $OEFFENTLICH,
-  und $DOMAIN sollte genau darauf zeigen.${AUS}
-
-Alles bisher Eingerichtete bleibt bestehen. Nach der Freigabe einfach
-dieses Skript noch einmal ausführen.
-HINWEIS
-)"
-    fi
-  fi
-
-  # UPnP-Freigaben laufen ab. Ein Timer erneuert sie, solange sie gebraucht werden.
-  if [[ "${PORTS_AUTOMATISCH:-0}" == "1" ]]; then
-    cat > /usr/local/bin/stellium-ports <<'PORTS'
+  if [[ "$WAHL" == "2" ]]; then
+    # DuckDNS beantwortet die Prüfung über einen TXT-Eintrag. Zwei kleine
+    # Skripte setzen und räumen ihn wieder weg; certbot ruft sie selbst auf.
+    cat > /usr/local/bin/stellium-duckdns-txt <<'TXT'
 #!/usr/bin/env bash
-# Erneuert die Portfreigabe im Router. UPnP-Regeln laufen nach Stunden ab.
+# Setzt oder löscht den Prüfeintrag bei DuckDNS.
 set -Eeuo pipefail
-IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
-[[ -n "$IP" ]] || exit 0
-for PORT in 80 443; do
-  if command -v upnpc >/dev/null; then
-    upnpc -e "Stellium" -a "$IP" "$PORT" "$PORT" TCP 86400 >/dev/null 2>&1 && continue
-  fi
-  command -v natpmpc >/dev/null && natpmpc -a "$PORT" "$PORT" tcp 86400 >/dev/null 2>&1 || true
-done
-PORTS
-    chmod 755 /usr/local/bin/stellium-ports
-
-    cat > /etc/systemd/system/stellium-ports.service <<'P1'
-[Unit]
-Description=Portfreigabe im Router erneuern
-After=network-online.target
-Wants=network-online.target
-[Service]
-Type=oneshot
-ExecStart=/usr/local/bin/stellium-ports
-P1
-    cat > /etc/systemd/system/stellium-ports.timer <<'P2'
-[Unit]
-Description=Portfreigabe stündlich erneuern
-[Timer]
-OnBootSec=60
-OnUnitActiveSec=1h
-[Install]
-WantedBy=timers.target
-P2
-    systemctl daemon-reload
-    systemctl enable --quiet stellium-ports.timer
-    systemctl start stellium-ports.timer
-    ok "Freigabe wird stündlich erneuert, damit sie nicht abläuft"
+. /etc/stellium-duckdns
+if [[ "${1:-setzen}" == "loeschen" ]]; then
+  curl -fsS "https://www.duckdns.org/update?domains=$DUCK_NAME&token=$DUCK_TOKEN&txt=geloescht&clear=true" >/dev/null
+else
+  [[ -n "${CERTBOT_VALIDATION:-}" ]] || { echo "CERTBOT_VALIDATION fehlt — certbot ruft dieses Skript selbst auf." >&2; exit 1; }
+  curl -fsS "https://www.duckdns.org/update?domains=$DUCK_NAME&token=$DUCK_TOKEN&txt=$CERTBOT_VALIDATION" >/dev/null
+  # Der Eintrag braucht einen Moment, bis Let's Encrypt ihn sieht.
+  sleep 35
+fi
+TXT
+    chmod 755 /usr/local/bin/stellium-duckdns-txt
   fi
 
   if [[ -d "/etc/letsencrypt/live/$DOMAIN" ]]; then
     info "Zertifikat besteht bereits"
+  elif [[ "$WAHL" == "2" ]]; then
+    info "über einen DNS-Eintrag bei DuckDNS — dafür muss kein Port offen sein"
+    if [[ -n "$MAIL" ]]; then MAIL_ARG=(-m "$MAIL" --no-eff-email)
+    else MAIL_ARG=(--register-unsafely-without-email); fi
+
+    certbot certonly --manual --preferred-challenges dns \
+      --manual-auth-hook "/usr/local/bin/stellium-duckdns-txt setzen" \
+      --manual-cleanup-hook "/usr/local/bin/stellium-duckdns-txt loeschen" \
+      -d "$DOMAIN" --non-interactive --agree-tos "${MAIL_ARG[@]}" >/dev/null 2>&1 \
+      || fehler "$(printf 'Let'"'"'s Encrypt hat kein Zertifikat ausgestellt.\n\nGenauer nachsehen:\n  sudo certbot certonly --manual --preferred-challenges dns \\\n    --manual-auth-hook "/usr/local/bin/stellium-duckdns-txt setzen" \\\n    --manual-cleanup-hook "/usr/local/bin/stellium-duckdns-txt loeschen" -d %s' "$DOMAIN")"
   else
-    if [[ -n "$MAIL" ]]; then
-      MAIL_ARG=(-m "$MAIL" --no-eff-email)
-    else
-      # Ohne Adresse verlangt Let's Encrypt diese ausdrückliche Bestätigung.
-      MAIL_ARG=(--register-unsafely-without-email)
-    fi
     certbot certonly --webroot -w /var/www/html -d "$DOMAIN" \
       --non-interactive --agree-tos "${MAIL_ARG[@]}" >/dev/null 2>&1 \
       || fehler "Let's Encrypt hat kein Zertifikat ausgestellt. Genauer:  certbot certonly --webroot -w /var/www/html -d $DOMAIN"
   fi
   ok "Zertifikat für $DOMAIN"
+
+  merken "$WAHL" "$DOMAIN" "$MAIL" "${DUCK_NAME:+$DUCK_NAME:$DUCK_TOKEN}" "$PORT_HTTP" "$PORT_HTTPS"
 
   # Jetzt die vollständige Konfiguration mit TLS.
   schreibe_mit_tls "$DOMAIN"
@@ -790,7 +774,8 @@ HOOK
   systemctl start certbot.timer 2>/dev/null || true
   ok "Verlängerung läuft automatisch"
 
-  ADRESSE="https://$DOMAIN"
+  if [[ "$PORT_HTTPS" == "443" ]]; then ADRESSE="https://$DOMAIN"
+  else ADRESSE="https://$DOMAIN:$PORT_HTTPS"; fi
 fi
 
 # ── Absichern ───────────────────────────────────────────────────
@@ -800,9 +785,9 @@ ufw --force reset >/dev/null 2>&1
 ufw default deny incoming >/dev/null
 ufw default allow outgoing >/dev/null
 ufw allow OpenSSH >/dev/null
-ufw allow 80/tcp  >/dev/null
-ufw allow 443/tcp >/dev/null
-info "Offen: SSH, 80, 443 — sonst nichts"
+ufw allow "$PORT_HTTP/tcp"  >/dev/null
+ufw allow "$PORT_HTTPS/tcp" >/dev/null
+info "Offen: SSH, $PORT_HTTP, $PORT_HTTPS — sonst nichts"
 ufw --force enable >/dev/null
 ok "Firewall aktiv"
 
@@ -924,7 +909,17 @@ ok "Jede Nacht um 3:30, vierzehn Stände werden aufgehoben"
 sleep 2
 EINMAL="$(journalctl -u stellium --no-pager -n 200 2>/dev/null | grep -oE '[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}' | tail -1 || true)"
 KONTO="$(journalctl -u stellium --no-pager -n 200 2>/dev/null | grep -A1 'Benutzername' | tail -1 | awk '{print $NF}' || true)"
-LOKAL="http://$(lokale_ip)"
+if [[ "$PORT_HTTP" == "80" ]]; then LOKAL="http://$(lokale_ip)"
+else LOKAL="http://$(lokale_ip):$PORT_HTTP"; fi
+
+# Erreicht euch das Team wirklich? Das Zertifikat allein genügt nicht — die
+# Verbindung muss auch durch den Router kommen.
+VON_AUSSEN_DA=0
+if [[ "$WAHL" != "3" ]]; then
+  if curl -fsS --max-time 10 -o /dev/null "$ADRESSE/api/health" 2>/dev/null; then
+    VON_AUSSEN_DA=1
+  fi
+fi
 
 cat <<ENDE
 
@@ -937,6 +932,27 @@ ${GRUEN}${FETT}   ✓  Fertig.${AUS}
      In der App unter ${FETT}Einstellungen → Server${AUS} eintragen.
 
 ENDE
+
+if [[ "$WAHL" != "3" && "$VON_AUSSEN_DA" == "0" ]]; then
+  OEFFENTLICH="$(curl -fsS --max-time 8 https://api.ipify.org 2>/dev/null || echo '?')"
+  cat <<OFFEN
+   ${GELB}${FETT}Noch ein Schritt: von außen kommt bisher nichts an.${AUS}
+
+   Das Zertifikat steht, aber der Router lässt niemanden zu diesem Pi
+   durch. Damit euer Team die Adresse erreicht, muss ${FETT}ein${AUS} Port
+   weitergereicht werden:
+
+       Port ${FETT}${PORT_HTTPS}${AUS}  →  ${FETT}$(lokale_ip)${AUS}   Port ${PORT_HTTPS}   (TCP)
+
+   Bei einer FRITZ!Box: Internet → Freigaben → Portfreigaben →
+   Gerät für Freigaben hinzufügen. Sonst heißt es meist
+   "Portweiterleitung" oder "Port Forwarding".
+
+   ${GRAU}Euer Anschluss ist von außen ${OEFFENTLICH}.
+   Im Heimnetz funktioniert Stellium schon jetzt über ${LOKAL}.${AUS}
+
+OFFEN
+fi
 
 if [[ -n "$EINMAL" ]]; then
 cat <<ZUGANG

@@ -36,6 +36,11 @@ mkdir -p "$W/www"
 . "$W/bausteine.sh"
 ln -sf "$W/sites-available/stellium" "$W/sites-enabled/stellium"
 
+# Die Ports lassen sich für den Test vorgeben — sonst wählt der Baustein
+# selbst, und auf einem Rechner ohne ss kommen immer 80 und 443 heraus.
+PORT_HTTP="${3:-80}"
+PORT_HTTPS="${4:-443}"
+
 VARIANTE="${2:-tls}"
 case "$VARIANTE" in
   tls)  schreibe_mit_tls chat.beispiel.de ;;
