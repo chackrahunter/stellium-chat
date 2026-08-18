@@ -468,6 +468,11 @@ add_header X-Frame-Options            "DENY"        always;
 add_header Referrer-Policy            "no-referrer" always;
 add_header Cross-Origin-Opener-Policy "same-origin" always;
 add_header Permissions-Policy         "geolocation=(), camera=(), microphone=(self), payment=()" always;
+
+# Versionsnummer verrät nur Angreifern etwas. Bewusst hier im Server-Block:
+# Debian setzt server_tokens bereits im http-Block, und zweimal im selben
+# Zusammenhang lehnt nginx rundheraus ab.
+server_tokens off;
 SICHER
 
 cat > /etc/nginx/snippets/stellium-tls.conf <<'TLS'
@@ -482,13 +487,21 @@ ssl_stapling              on;
 ssl_stapling_verify       on;
 TLS
 
-# Versionsnummer verrät nur Angreifern etwas.
-cat > /etc/nginx/conf.d/stellium-tokens.conf <<'TOK'
-server_tokens off;
-TOK
+# Aus einer früheren Fassung: die Datei setzte server_tokens ein zweites Mal
+# im http-Block, was nginx als Duplikat ablehnt.
+rm -f /etc/nginx/conf.d/stellium-tokens.conf
 
 mkdir -p /var/www/html/.well-known/acme-challenge
 rm -f /etc/nginx/sites-enabled/default
+
+# Bei einem Fehler nicht auf nginx -t verweisen, sondern gleich zeigen, was
+# es sagt — sonst muss man den Befehl selbst noch einmal von Hand tippen.
+pruefe_nginx() {
+  local ausgabe
+  if ! ausgabe="$(nginx -t 2>&1)"; then
+    fehler "$(printf 'nginx lehnt die Konfiguration ab:\n\n%s' "$ausgabe")"
+  fi
+}
 
 schreibe_nur_http() {
   cat > /etc/nginx/sites-available/stellium <<NGINX
@@ -550,7 +563,7 @@ ADRESSE=""
 if [[ "$WAHL" == "3" ]]; then
   schreibe_nur_http
   ln -sf /etc/nginx/sites-available/stellium /etc/nginx/sites-enabled/stellium
-  nginx -t >/dev/null 2>&1 || fehler "nginx-Konfiguration fehlerhaft — nginx -t zeigt warum"
+  pruefe_nginx
   systemctl enable --quiet nginx
   systemctl restart nginx
   ADRESSE="http://$(lokale_ip)"
@@ -616,7 +629,7 @@ D2
   # das es noch gar nicht gibt, und nginx startet nicht.
   schreibe_nur_http "$DOMAIN"
   ln -sf /etc/nginx/sites-available/stellium /etc/nginx/sites-enabled/stellium
-  nginx -t >/dev/null 2>&1 || fehler "nginx-Konfiguration fehlerhaft — nginx -t zeigt warum"
+  pruefe_nginx
   systemctl enable --quiet nginx
   systemctl restart nginx
 
@@ -762,7 +775,7 @@ P2
 
   # Jetzt die vollständige Konfiguration mit TLS.
   schreibe_mit_tls "$DOMAIN"
-  nginx -t >/dev/null 2>&1 || fehler "nginx-Konfiguration fehlerhaft — nginx -t zeigt warum"
+  pruefe_nginx
   systemctl reload nginx
   ok "nginx nimmt HTTPS entgegen und reicht nach innen weiter"
 
