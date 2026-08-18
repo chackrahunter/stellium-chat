@@ -26,7 +26,7 @@ export function Sidebar() {
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const toggle = (key: string) => setCollapsed((c) => ({ ...c, [key]: !c[key] }));
 
-  const { chatId: kiChatId, teamId: kiTeamId } = useKiKanaele();
+  const { chatId: kiChatId, teamId: kiTeamId, alleKiChats } = useKiKanaele();
 
   const { publicChannels, privateChannels, dms } = useMemo(() => {
     const list = Object.values(channels).filter((c) => !c.archived);
@@ -41,12 +41,17 @@ export function Sidebar() {
       privateChannels: list.filter((c) => c.kind === 'private').sort(sortieren),
       // Direktchats mit gelöschten oder gesperrten Konten verstecken —
       // sie führen nur ins Leere.
-      dms: list.filter((c) => c.kind === 'dm' && c.id !== kiChatId
+      dms: list.filter((c) => c.kind === 'dm' && !alleKiChats.has(c.id)
         && !users[c.dmPeerId ?? '']?.disabled),
     };
-  }, [channels, users, states, kiChatId, kiTeamId]);
+  }, [channels, users, states, alleKiChats, kiTeamId]);
 
-  const otherUsers = Object.values(users).filter((u) => u.id !== self?.id && !u.disabled);
+  // Wer noch keinen Direktchat hat, erscheint darunter zum Anfangen. Die KI
+  // gehört nicht dazu — sie hat oben ihren eigenen Platz und wäre hier ein
+  // zweiter Zugang zum selben Gespräch.
+  const otherUsers = Object.values(users).filter(
+    (u) => u.id !== self?.id && !u.disabled && u.role !== 'bot',
+  );
   const dmPeerIds = new Set(dms.map((c) => c.dmPeerId).filter(Boolean) as string[]);
 
   const renderChannel = (channel: Channel) => {

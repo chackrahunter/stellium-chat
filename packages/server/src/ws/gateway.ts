@@ -787,6 +787,9 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
       session.openChannelId = channelId;
       const { messages: list, hasMore } = store.channelHistory(channelId, null, 50, userId);
       send(session, { t: 'channel:history', channelId, messages: list, hasMore });
+      // Ohne diese Zeile lädt der Kanal im Hintergrund und die Ansicht bleibt,
+      // wo sie war — der Klick sähe aus, als hätte er nichts bewirkt.
+      send(session, { t: 'channel:focus', channelId });
       return;
     }
 
@@ -797,9 +800,12 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
       channels.ensureMember(channelId, userId);
       const ch = store.getChannel(channelId, userId)!;
       broadcast({ t: 'channel:upsert', channel: ch });
+      const zustand = store.channelState(channelId, userId);
+      if (zustand) send(session, { t: 'channel:state', state: zustand });
       session.openChannelId = channelId;
       const { messages: list, hasMore } = store.channelHistory(channelId, null, 50, userId);
       send(session, { t: 'channel:history', channelId, messages: list, hasMore });
+      send(session, { t: 'channel:focus', channelId });
       return;
     }
 

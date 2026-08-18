@@ -168,6 +168,8 @@ export type ServerEvent =
   | { t: 'idea:removed'; ideaId: string }
   | { t: 'idea:comments'; ideaId: string; comments: IdeaComment[] }
   | { t: 'release:available'; release: ReleaseInfo }
+  /** Bitte diesen Kanal anzeigen — etwa, wenn er gerade erst entstanden ist. */
+  | { t: 'channel:focus'; channelId: string }
 
   | { t: 'event:list'; events: CalendarEvent[] }
   | { t: 'event:upsert'; event: CalendarEvent }

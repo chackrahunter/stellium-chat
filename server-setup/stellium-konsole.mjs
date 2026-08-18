@@ -67,17 +67,6 @@ function adressen() {
     }
   } catch { /* nginx noch nicht eingerichtet */ }
 
-  // Tailscale, falls angemeldet.
-  const ts = ruf('tailscale', ['status', '--json']);
-  if (ts) {
-    try {
-      const name = JSON.parse(ts)?.Self?.DNSName?.replace(/\.$/, '');
-      if (name && !liste.some((a) => a.url.includes(name))) {
-        liste.push({ art: 'sicher', url: `https://${name}` });
-      }
-    } catch { /* Tailscale antwortet nicht */ }
-  }
-
   // Und immer die Adresse im eigenen Netz.
   for (const [, adressenDerKarte] of Object.entries(os.networkInterfaces())) {
     for (const a of adressenDerKarte ?? []) {
@@ -91,7 +80,7 @@ function adressen() {
 
 /** Wie lange gilt das Zertifikat noch? */
 function zertifikat() {
-  const orte = ['/etc/letsencrypt/live', '/var/lib/tailscale/certs'];
+  const orte = ['/etc/letsencrypt/live'];
   for (const ort of orte) {
     let dateien = [];
     try {

@@ -838,6 +838,10 @@ socket.onEvent((ev: ServerEvent) => {
       break;
     }
 
+    case 'channel:focus':
+      useStore.getState().openChannel(ev.channelId);
+      break;
+
     case 'channel:history': {
       useStore.setState((s) => {
         const existing = s.messages[ev.channelId] ?? [];

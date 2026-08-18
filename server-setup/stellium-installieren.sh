@@ -2,11 +2,18 @@
 #
 # Stellium-Server auf Raspberry Pi OS einrichten — ein Aufruf, sonst nichts.
 #
-#   curl -fsSL https://raw.githubusercontent.com/chackrahunter/stellium-chat/main/server-setup/stellium-installieren.sh | sudo bash
+# Aus dem entpackten Paket heraus (der übliche Weg):
 #
-# oder, wenn die Datei schon auf dem Pi liegt:
+#   tar xzf stellium-server.tar.gz && cd stellium-server
+#   sudo bash server-setup/stellium-installieren.sh
 #
-#   sudo bash stellium-installieren.sh
+# Aus einem öffentlichen Repository heraus:
+#
+#   curl -fsSL https://raw.githubusercontent.com/.../stellium-installieren.sh | sudo bash
+#
+# Bei einem privaten Repository einen Zugriffstoken mitgeben:
+#
+#   sudo STELLIUM_TOKEN=ghp_… bash stellium-installieren.sh
 #
 # Was danach läuft:
 #   • Node 22, nginx, Stellium als systemd-Dienst — startet bei jedem Neustart
@@ -52,13 +59,66 @@ if [[ "$ARCH" == "armhf" ]]; then
   fehler "Bitte das 64-Bit-Raspberry-Pi-OS aufsetzen."
 fi
 
+# ── Eingaben ────────────────────────────────────────────────────
+#
+# Gefragt wird am Terminal. Läuft das Skript ohne eines — in einer
+# Automatisierung etwa —, zählen stattdessen diese Umgebungsvariablen:
+#
+#   STELLIUM_MODE    1 | 2 | 3
+#   STELLIUM_DOMAIN  chat.meinefirma.de       (bei 1)
+#   STELLIUM_DUCK    name:token               (bei 2)
+#   STELLIUM_MAIL    du@meinefirma.de         (bei 1 und 2)
+#   STELLIUM_GROQ    gsk_…                    (leer erlaubt)
+
+# Gibt es ein Terminal, das wirklich antwortet? Ein Test auf die Datei genügt
+# nicht — /dev/tty existiert auch dort, wo sich nichts daran öffnen lässt.
+TERMINAL=""
+if { : < /dev/tty; } 2>/dev/null; then TERMINAL="/dev/tty"; fi
+
+frage() {
+  local text="$1" vorgabe="${2:-}" antwort=""
+  if [[ -n "$TERMINAL" ]]; then
+    read -rp "  $text" antwort < "$TERMINAL"
+  elif [[ -t 0 ]]; then
+    read -rp "  $text" antwort
+  else
+    antwort="$vorgabe"
+  fi
+  printf '%s' "$antwort"
+}
+
+frage_still() {
+  local text="$1" vorgabe="${2:-}" antwort=""
+  if [[ -n "$TERMINAL" ]]; then
+    read -rsp "  $text" antwort < "$TERMINAL"; echo
+  elif [[ -t 0 ]]; then
+    read -rsp "  $text" antwort; echo
+  else
+    antwort="$vorgabe"
+  fi
+  printf '%s' "$antwort"
+}
+
+# Die eigene Adresse im Heimnetz. Mehrere Wege, weil keiner überall geht.
+lokale_ip() {
+  local ip=""
+  ip="$(hostname -I 2>/dev/null | awk '{print $1}')" || true
+  [[ -z "$ip" ]] && ip="$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{print $7; exit}')" || true
+  [[ -z "$ip" ]] && ip="$(hostname 2>/dev/null)" || true
+  printf '%s' "${ip:-dieser-rechner}"
+}
+
 BENUTZER="stellium"
 ZIEL="/opt/stellium"
 DATEN="/var/lib/stellium"
 REPO="${STELLIUM_REPO:-https://github.com/chackrahunter/stellium-chat.git}"
 PORT="8787"
 
-clear
+# Bildschirm leeren, aber nur wenn das Terminal das kann. Über eine Pipe oder
+# ohne gesetztes TERM scheitert clear — und ohne diese Absicherung bräche das
+# ganze Skript an dieser Stelle ab, noch bevor es irgendetwas getan hat.
+clear 2>/dev/null || printf '\n\n'
+
 cat <<KOPF
 
 ${BLAU}${FETT}   ✦  Stellium${AUS}
@@ -73,43 +133,74 @@ KOPF
 schritt "Wie soll der Server erreichbar sein?"
 
 cat <<ERKLAERUNG
-  ${FETT}1)${AUS} Mit eigener Domain — ${GRUEN}empfohlen${AUS}
-     Echtes Zertifikat von Let's Encrypt, HTTPS von überall.
-     Voraussetzung: eine Domain, die auf diesen Anschluss zeigt,
-     und Port 80 und 443 im Router auf diesen Pi weitergeleitet.
+  In allen Fällen läuft die Verbindung über nginx mit HTTPS. Auf den
+  Geräten im Team ist nichts zu installieren außer der Stellium-App.
 
-  ${FETT}2)${AUS} Über Tailscale
-     Ein verschlüsseltes privates Netz zwischen euren Geräten.
-     Kein Port im Router offen, kein Zertifikat nötig — Tailscale
-     liefert eines mit. Gut, wenn du nichts freigeben willst.
+  ${FETT}1)${AUS} Eigene Domain — ${GRUEN}empfohlen${AUS}
+     z.B. chat.meinefirma.de. Echtes Zertifikat von Let's Encrypt,
+     automatisch verlängert.
+
+  ${FETT}2)${AUS} Kostenlose Adresse über DuckDNS
+     Wenn du keine Domain hast: du bekommst so etwas wie
+     meinefirma.duckdns.org, ebenfalls mit echtem Zertifikat.
+     Kostet nichts, dauert zwei Minuten.
 
   ${FETT}3)${AUS} Nur im Heimnetz
      Ohne Verschlüsselung, nur im eigenen WLAN erreichbar.
-     ${GELB}Für den Firmenbetrieb nicht geeignet.${AUS}
+     ${GELB}Zum Ausprobieren, nicht für echte Gespräche.${AUS}
+
+  ${GRAU}Für 1 und 2 müssen Port 80 und 443 im Router auf diesen Pi
+  weitergeleitet sein — sonst kann Let's Encrypt nicht prüfen,
+  dass die Adresse wirklich dir gehört.${AUS}
 
 ERKLAERUNG
 
 WAHL=""
 DOMAIN=""
 MAIL=""
+DUCK_NAME=""
+DUCK_TOKEN=""
 while [[ -z "$WAHL" ]]; do
-  read -rp "  Deine Wahl [1/2/3]: " WAHL </dev/tty
+  WAHL="$(frage "Deine Wahl [1/2/3]: " "${STELLIUM_MODE:-}")"
   case "$WAHL" in
     1)
       while [[ -z "$DOMAIN" ]]; do
-        read -rp "  Domain (z.B. chat.meinefirma.de): " DOMAIN </dev/tty
+        DOMAIN="$(frage "Domain (z.B. chat.meinefirma.de): " "${STELLIUM_DOMAIN:-}")"
         [[ "$DOMAIN" =~ ^[a-zA-Z0-9]([a-zA-Z0-9.-]*[a-zA-Z0-9])?\.[a-zA-Z]{2,}$ ]] || {
           warn "Das sieht nicht nach einer Domain aus."; DOMAIN=""; }
       done
       while [[ -z "$MAIL" ]]; do
-        read -rp "  E-Mail für Let's Encrypt (Warnung vor Ablauf): " MAIL </dev/tty
+        MAIL="$(frage "E-Mail für Let's Encrypt (Warnung vor Ablauf): " "${STELLIUM_MAIL:-}")"
         [[ "$MAIL" == *@*.* ]] || { warn "Das sieht nicht nach einer E-Mail aus."; MAIL=""; }
       done
       ;;
-    2) ;;
+    2)
+      cat <<DUCK
+
+  ${FETT}So bekommst du die Adresse:${AUS}
+    1. duckdns.org öffnen und mit Google oder GitHub anmelden
+    2. einen Namen eintragen, z.B. ${FETT}meinefirma${AUS}  →  meinefirma.duckdns.org
+    3. oben auf der Seite steht dein ${FETT}token${AUS} — den brauche ich gleich
+
+DUCK
+      while [[ -z "$DUCK_NAME" ]]; do
+        DUCK_NAME="$(frage "Dein DuckDNS-Name (ohne .duckdns.org): " "${STELLIUM_DUCK%%:*}")"
+        DUCK_NAME="${DUCK_NAME%%.duckdns.org}"
+        [[ "$DUCK_NAME" =~ ^[a-z0-9-]+$ ]] || { warn "Nur Kleinbuchstaben, Ziffern und Bindestriche."; DUCK_NAME=""; }
+      done
+      while [[ -z "$DUCK_TOKEN" ]]; do
+        DUCK_TOKEN="$(frage "Dein DuckDNS-Token: " "${STELLIUM_DUCK#*:}")"
+        [[ ${#DUCK_TOKEN} -ge 20 ]] || { warn "Das sieht zu kurz aus."; DUCK_TOKEN=""; }
+      done
+      DOMAIN="$DUCK_NAME.duckdns.org"
+      while [[ -z "$MAIL" ]]; do
+        MAIL="$(frage "E-Mail für Let's Encrypt (Warnung vor Ablauf): " "${STELLIUM_MAIL:-}")"
+        [[ "$MAIL" == *@*.* ]] || { warn "Das sieht nicht nach einer E-Mail aus."; MAIL=""; }
+      done
+      ;;
     3)
       warn "Ohne Verschlüsselung kann jeder im selben Netz mitlesen."
-      read -rp "  Wirklich? [ja/nein]: " SICHER </dev/tty
+      SICHER="$(frage "Wirklich? [ja/nein]: " "ja")"
       [[ "$SICHER" == "ja" ]] || WAHL=""
       ;;
     *) warn "Bitte 1, 2 oder 3."; WAHL="" ;;
@@ -126,7 +217,7 @@ cat <<ERKLAERUNG
   Ideenboard laufen dann ganz normal, nur ohne KI.
 
 ERKLAERUNG
-read -rsp "  Schlüssel (bleibt unsichtbar): " GROQ </dev/tty; echo
+GROQ="$(frage_still "Schlüssel (bleibt unsichtbar): " "${STELLIUM_GROQ:-}")"
 
 # ── Ab hier ohne Rückfragen ─────────────────────────────────────
 schritt "System aktualisieren"
@@ -159,14 +250,60 @@ chmod 750 "$DATEN"
 ok "Konto $BENUTZER, Daten in $DATEN"
 
 schritt "Stellium holen und bauen"
-if [[ -d "$ZIEL/.git" ]]; then
-  git -C "$ZIEL" fetch --quiet origin
-  git -C "$ZIEL" reset --hard --quiet origin/HEAD
-  info "vorhandene Installation aktualisiert"
-else
-  rm -rf "$ZIEL"
-  git clone --quiet --depth 1 "$REPO" "$ZIEL"
+
+# Drei Wege, in dieser Reihenfolge:
+#   1. Das Skript liegt in einem entpackten Paket — dann von dort kopieren.
+#      Das braucht kein Netz und funktioniert auch bei privatem Repository.
+#   2. Es gibt schon eine Installation — dann aktualisieren.
+#   3. Sonst klonen, notfalls mit Token.
+QUELLE=""
+if [[ -n "${BASH_SOURCE[0]:-}" ]]; then
+  MOEGLICH="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." 2>/dev/null && pwd || true)"
+  if [[ -n "$MOEGLICH" && -f "$MOEGLICH/package.json" && -d "$MOEGLICH/packages/server" ]]; then
+    QUELLE="$MOEGLICH"
+  fi
 fi
+
+if [[ -n "$QUELLE" && "$QUELLE" != "$ZIEL" ]]; then
+  info "aus dem mitgelieferten Paket: $QUELLE"
+  mkdir -p "$ZIEL"
+  # node_modules und fertige Pakete bleiben draußen — die entstehen hier neu.
+  tar -C "$QUELLE" \
+      --exclude=node_modules --exclude=.git --exclude=release \
+      --exclude=downloads --exclude=data --exclude=dist \
+      -cf - . | tar -C "$ZIEL" -xf -
+elif [[ -d "$ZIEL/.git" ]]; then
+  info "vorhandene Installation aktualisieren"
+  git -C "$ZIEL" fetch --quiet origin 2>/dev/null \
+    && git -C "$ZIEL" reset --hard --quiet origin/HEAD \
+    || warn "Konnte nicht aktualisieren — der bestehende Stand wird neu gebaut"
+elif [[ -n "$QUELLE" ]]; then
+  info "aus der bestehenden Installation"
+else
+  ADR="$REPO"
+  [[ -n "${STELLIUM_TOKEN:-}" ]] && ADR="${REPO/https:\/\//https:\/\/$STELLIUM_TOKEN@}"
+  rm -rf "$ZIEL"
+  if ! git clone --quiet --depth 1 "$ADR" "$ZIEL" 2>/dev/null; then
+    fehler "$(cat <<HINWEIS
+Konnte das Repository nicht holen.
+
+Bei einem privaten Repository gibt es zwei Wege:
+
+  ${FETT}a)${AUS} Das Paket auf den Pi kopieren und von dort starten:
+       ${GRAU}scp stellium-server.tar.gz pi@$(hostname):~${AUS}
+       ${GRAU}tar xzf stellium-server.tar.gz && cd stellium-server${AUS}
+       ${GRAU}sudo bash server-setup/stellium-installieren.sh${AUS}
+
+  ${FETT}b)${AUS} Mit einem Zugriffstoken starten:
+       ${GRAU}sudo STELLIUM_TOKEN=ghp_… bash stellium-installieren.sh${AUS}
+HINWEIS
+)"
+  fi
+fi
+
+# Wenn hier nichts liegt, ging beim Holen etwas schief. Ein nacktes
+# "cd: no such file or directory" hilft niemandem weiter.
+[[ -f "$ZIEL/package.json" ]] || fehler "In $ZIEL liegt kein Quelltext. Das Holen ist fehlgeschlagen."
 
 cd "$ZIEL"
 info "Abhängigkeiten — das dauert auf einem Pi ein paar Minuten"
@@ -200,7 +337,10 @@ ok "Masterpasswort in $UMGEBUNG (nur root und $BENUTZER)"
 if [[ -n "${GROQ:-}" ]]; then
   # Über das mitgelieferte Werkzeug, damit der Schlüssel verschlüsselt im
   # Tresor landet und nicht im Klartext irgendwo herumliegt.
-  set -a; . "$UMGEBUNG"; set +a
+  set -a
+  # shellcheck source=/dev/null
+  . "$UMGEBUNG"
+  set +a
   printf '%s\n' "$GROQ" | sudo -u "$BENUTZER" \
     env STELLIUM_MASTER_PASSPHRASE="$STELLIUM_MASTER_PASSPHRASE" DATA_DIR="$DATEN" \
     npx --yes tsx "$ZIEL/packages/server/src/cli/secret.ts" setzen groq >/dev/null 2>&1 \
@@ -262,11 +402,18 @@ systemctl is-active --quiet stellium && ok "Dienst läuft und startet bei jedem 
 # ── nginx ───────────────────────────────────────────────────────
 schritt "nginx einrichten"
 
-# Gemeinsamer Teil für alle drei Varianten. Der Server hört nur auf 127.0.0.1;
-# alles von außen läuft durch nginx.
+# Bausteine, die beide Varianten teilen.
+cat > /etc/nginx/conf.d/stellium-upgrade.conf <<'MAP'
+# "Connection: upgrade" nur dann, wenn der Aufrufer das auch will.
+map $http_upgrade $connection_upgrade {
+  default upgrade;
+  ''      close;
+}
+MAP
+
 cat > /etc/nginx/snippets/stellium-proxy.conf <<'PROXY'
-# Nach innen weiterreichen, mit allem was der Server über den Aufrufer
-# wissen muss — sonst hält er jede Verbindung für lokal.
+proxy_pass http://127.0.0.1:8787;
+
 proxy_http_version 1.1;
 proxy_set_header Host              $host;
 proxy_set_header X-Real-IP         $remote_addr;
@@ -282,180 +429,219 @@ proxy_set_header Connection $connection_upgrade;
 proxy_read_timeout  7d;
 proxy_send_timeout  7d;
 
-# Dateien bis 200 MB durchlassen.
 client_max_body_size 200m;
 proxy_request_buffering off;
 PROXY
 
-cat > /etc/nginx/conf.d/stellium-upgrade.conf <<'MAP'
-# "Connection: upgrade" nur dann, wenn der Aufrufer das auch will.
-map $http_upgrade $connection_upgrade {
-  default upgrade;
-  ''      close;
-}
-MAP
-
 cat > /etc/nginx/snippets/stellium-sicherheit.conf <<'SICHER'
-# Der Browser soll nichts anderes zulassen, als was die App wirklich braucht.
-add_header X-Content-Type-Options    "nosniff"        always;
-add_header X-Frame-Options           "DENY"           always;
-add_header Referrer-Policy           "no-referrer"    always;
-add_header Permissions-Policy        "geolocation=(), camera=(), microphone=(self), payment=()" always;
-add_header Cross-Origin-Opener-Policy "same-origin"   always;
-
-# Versionsnummer verrät nur Angreifern etwas.
-server_tokens off;
+# Der Browser soll nichts zulassen, was die App nicht braucht.
+add_header X-Content-Type-Options     "nosniff"     always;
+add_header X-Frame-Options            "DENY"        always;
+add_header Referrer-Policy            "no-referrer" always;
+add_header Cross-Origin-Opener-Policy "same-origin" always;
+add_header Permissions-Policy         "geolocation=(), camera=(), microphone=(self), payment=()" always;
 SICHER
 
-if [[ "$WAHL" == "1" ]]; then
-  # Erst ohne TLS aufsetzen, damit certbot die Domain überhaupt prüfen kann.
-  cat > /etc/nginx/sites-available/stellium <<NGINX
-server {
-  listen 80;
-  listen [::]:80;
-  server_name $DOMAIN;
+cat > /etc/nginx/snippets/stellium-tls.conf <<'TLS'
+# Nur noch das, was als sicher gilt. TLS 1.0 und 1.1 sind seit Jahren gebrochen.
+ssl_protocols             TLSv1.2 TLSv1.3;
+ssl_ciphers               ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305;
+ssl_prefer_server_ciphers off;
+ssl_session_timeout       1d;
+ssl_session_cache         shared:StelliumTLS:10m;
+ssl_session_tickets       off;
+ssl_stapling              on;
+ssl_stapling_verify       on;
+TLS
 
-  location /.well-known/acme-challenge/ { root /var/www/html; }
-  location / { return 301 https://\$host\$request_uri; }
-}
-NGINX
-else
+# Versionsnummer verrät nur Angreifern etwas.
+cat > /etc/nginx/conf.d/stellium-tokens.conf <<'TOK'
+server_tokens off;
+TOK
+
+mkdir -p /var/www/html/.well-known/acme-challenge
+rm -f /etc/nginx/sites-enabled/default
+
+schreibe_nur_http() {
   cat > /etc/nginx/sites-available/stellium <<NGINX
 server {
   listen 80 default_server;
   listen [::]:80 default_server;
-  server_name _;
+  server_name ${1:-_};
 
   include snippets/stellium-sicherheit.conf;
 
   location / {
-    proxy_pass http://127.0.0.1:$PORT;
     include snippets/stellium-proxy.conf;
   }
 }
 NGINX
-fi
+}
 
-rm -f /etc/nginx/sites-enabled/default
-ln -sf /etc/nginx/sites-available/stellium /etc/nginx/sites-enabled/stellium
-nginx -t >/dev/null 2>&1 || fehler "nginx-Konfiguration fehlerhaft — siehe: nginx -t"
-systemctl restart nginx
-systemctl enable --quiet nginx
-ok "nginx läuft"
-
-# ── Verschlüsselung ─────────────────────────────────────────────
-ADRESSE=""
-case "$WAHL" in
-  1)
-    schritt "Zertifikat von Let's Encrypt"
-    apt-get install -y -qq certbot python3-certbot-nginx >/dev/null
-
-    if certbot --nginx -d "$DOMAIN" --non-interactive --agree-tos -m "$MAIL" \
-         --redirect --hsts --staple-ocsp >/dev/null 2>&1; then
-      ok "Zertifikat für $DOMAIN ausgestellt"
-    else
-      warn "Das Zertifikat konnte nicht ausgestellt werden."
-      warn "Fast immer liegt es an einem davon:"
-      warn "  • $DOMAIN zeigt noch nicht auf diesen Anschluss"
-      warn "  • Port 80 und 443 sind im Router nicht auf diesen Pi weitergeleitet"
-      warn "Nachholen mit:  sudo certbot --nginx -d $DOMAIN"
-    fi
-
-    # certbot schreibt die Weiterleitung selbst; der eigentliche Durchgriff
-    # muss noch hinein.
-    if ! grep -q "stellium-proxy" /etc/nginx/sites-available/stellium; then
-      python3 - "$DOMAIN" "$PORT" <<'PYNGINX'
-import re, sys
-pfad = '/etc/nginx/sites-available/stellium'
-domain, port = sys.argv[1], sys.argv[2]
-text = open(pfad).read()
-block = f"""
-  include snippets/stellium-sicherheit.conf;
-  add_header Strict-Transport-Security "max-age=63072000; includeSubDomains" always;
-
-  location / {{
-    proxy_pass http://127.0.0.1:{port};
-    include snippets/stellium-proxy.conf;
-  }}
-"""
-# In den 443-Block hinein, den certbot angelegt hat.
-stelle = text.find('listen 443')
-if stelle != -1:
-    ende = text.find('}', text.rfind('server {', 0, stelle))
-    text = text[:ende] + block + text[ende:]
-    open(pfad, 'w').write(text)
-PYNGINX
-      nginx -t >/dev/null 2>&1 && systemctl reload nginx
-    fi
-
-    # Verlängerung: certbot bringt einen Timer mit, wir prüfen nur, dass er läuft.
-    systemctl enable --quiet certbot.timer 2>/dev/null || true
-    systemctl start certbot.timer 2>/dev/null || true
-    ok "Verlängerung läuft automatisch (certbot.timer)"
-    ADRESSE="https://$DOMAIN"
-    ;;
-
-  2)
-    schritt "Tailscale einrichten"
-    if ! command -v tailscale >/dev/null; then
-      curl -fsSL https://tailscale.com/install.sh | sh >/dev/null 2>&1
-    fi
-    systemctl enable --quiet tailscaled
-    systemctl start tailscaled
-    ok "Tailscale installiert"
-    info ""
-    info "  Zwei Befehle fehlen noch — sie brauchen deine Anmeldung im Browser:"
-    info ""
-    info "    ${FETT}sudo tailscale up${AUS}"
-    info "    ${FETT}sudo tailscale cert \$(tailscale status --json | jq -r .Self.DNSName | sed 's/\.$//')${AUS}"
-    info ""
-    info "  Danach ${FETT}sudo stellium-tailscale-tls${AUS} — das trägt das Zertifikat ein."
-    ADRESSE="(nach tailscale up sichtbar)"
-    ;;
-
-  3)
-    ADRESSE="http://$(hostname -I | awk '{print $1}')"
-    warn "Unverschlüsselt. Nur im Heimnetz benutzen."
-    ;;
-esac
-
-# Kleines Werkzeug, das Tailscales Zertifikat in nginx einträgt.
-cat > /usr/local/bin/stellium-tailscale-tls <<'TSTLS'
-#!/usr/bin/env bash
-set -Eeuo pipefail
-[[ $EUID -eq 0 ]] || { echo "Bitte mit sudo."; exit 1; }
-NAME="$(tailscale status --json | jq -r .Self.DNSName | sed 's/\.$//')"
-[[ -n "$NAME" && "$NAME" != "null" ]] || { echo "Tailscale ist noch nicht angemeldet. Erst: sudo tailscale up"; exit 1; }
-tailscale cert "$NAME"
-cat > /etc/nginx/sites-available/stellium <<NGINX
+schreibe_mit_tls() {
+  local NAME="$1"
+  cat > /etc/nginx/sites-available/stellium <<NGINX
+# Alles Unverschlüsselte geht nach oben — außer der Prüfung von Let's Encrypt,
+# die muss über Port 80 laufen.
 server {
   listen 80;
+  listen [::]:80;
   server_name $NAME;
-  return 301 https://\$host\$request_uri;
+
+  location /.well-known/acme-challenge/ { root /var/www/html; }
+  location / { return 301 https://\$host\$request_uri; }
 }
+
 server {
   listen 443 ssl;
+  listen [::]:443 ssl;
   http2 on;
   server_name $NAME;
 
-  ssl_certificate     /var/lib/tailscale/certs/$NAME.crt;
-  ssl_certificate_key /var/lib/tailscale/certs/$NAME.key;
-  ssl_protocols TLSv1.2 TLSv1.3;
-  ssl_prefer_server_ciphers off;
+  ssl_certificate     /etc/letsencrypt/live/$NAME/fullchain.pem;
+  ssl_certificate_key /etc/letsencrypt/live/$NAME/privkey.pem;
+  ssl_trusted_certificate /etc/letsencrypt/live/$NAME/chain.pem;
+  include snippets/stellium-tls.conf;
 
   include snippets/stellium-sicherheit.conf;
-  add_header Strict-Transport-Security "max-age=63072000" always;
+  # Zwei Jahre. Ein Browser, der Stellium einmal gesehen hat, fragt danach
+  # nie wieder unverschlüsselt — auch nicht, wenn jemand ihn dazu überredet.
+  add_header Strict-Transport-Security "max-age=63072000; includeSubDomains" always;
+
+  location /.well-known/acme-challenge/ { root /var/www/html; }
 
   location / {
-    proxy_pass http://127.0.0.1:8787;
     include snippets/stellium-proxy.conf;
   }
 }
 NGINX
-nginx -t && systemctl reload nginx
-echo "Fertig. Erreichbar unter: https://$NAME"
-TSTLS
-chmod 755 /usr/local/bin/stellium-tailscale-tls
+}
+
+ADRESSE=""
+
+if [[ "$WAHL" == "3" ]]; then
+  schreibe_nur_http
+  ln -sf /etc/nginx/sites-available/stellium /etc/nginx/sites-enabled/stellium
+  nginx -t >/dev/null 2>&1 || fehler "nginx-Konfiguration fehlerhaft — nginx -t zeigt warum"
+  systemctl enable --quiet nginx
+  systemctl restart nginx
+  ADRESSE="http://$(lokale_ip)"
+  warn "Unverschlüsselt. Nur im Heimnetz benutzen."
+
+else
+  # ── DuckDNS: Adresse aktuell halten ─────────────────────────
+  if [[ "$WAHL" == "2" ]]; then
+    schritt "DuckDNS"
+    cat > /etc/stellium-duckdns <<DUCK
+DUCK_NAME=$DUCK_NAME
+DUCK_TOKEN=$DUCK_TOKEN
+DUCK
+    chmod 600 /etc/stellium-duckdns
+
+    cat > /usr/local/bin/stellium-duckdns <<'DUCKSKRIPT'
+#!/usr/bin/env bash
+# Sagt DuckDNS, welche Adresse dieser Anschluss gerade hat.
+set -Eeuo pipefail
+. /etc/stellium-duckdns
+ANTWORT="$(curl -fsS "https://www.duckdns.org/update?domains=$DUCK_NAME&token=$DUCK_TOKEN&ip=")"
+[[ "$ANTWORT" == "OK" ]] || { echo "DuckDNS antwortet: $ANTWORT" >&2; exit 1; }
+DUCKSKRIPT
+    chmod 755 /usr/local/bin/stellium-duckdns
+
+    cat > /etc/systemd/system/stellium-duckdns.service <<'D1'
+[Unit]
+Description=DuckDNS-Adresse aktualisieren
+After=network-online.target
+Wants=network-online.target
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/stellium-duckdns
+D1
+    cat > /etc/systemd/system/stellium-duckdns.timer <<'D2'
+[Unit]
+Description=DuckDNS alle fünf Minuten aktualisieren
+[Timer]
+OnBootSec=45
+OnUnitActiveSec=5min
+[Install]
+WantedBy=timers.target
+D2
+    systemctl daemon-reload
+    systemctl enable --quiet stellium-duckdns.timer
+    systemctl start stellium-duckdns.timer
+
+    if /usr/local/bin/stellium-duckdns; then
+      ok "$DOMAIN zeigt auf diesen Anschluss und bleibt aktuell"
+    else
+      fehler "DuckDNS hat den Namen abgelehnt. Stimmen Name und Token?"
+    fi
+    # Der Name braucht einen Moment, bis ihn alle kennen.
+    info "kurz warten, damit die Adresse überall bekannt ist"
+    sleep 20
+  fi
+
+  # ── Zertifikat ──────────────────────────────────────────────
+  schritt "Zertifikat von Let's Encrypt"
+  apt-get install -y -qq certbot >/dev/null
+
+  # Zuerst nur Port 80 — sonst verweist die Konfiguration auf ein Zertifikat,
+  # das es noch gar nicht gibt, und nginx startet nicht.
+  schreibe_nur_http "$DOMAIN"
+  ln -sf /etc/nginx/sites-available/stellium /etc/nginx/sites-enabled/stellium
+  nginx -t >/dev/null 2>&1 || fehler "nginx-Konfiguration fehlerhaft — nginx -t zeigt warum"
+  systemctl enable --quiet nginx
+  systemctl restart nginx
+
+  # Für die Prüfung muss Port 80 von außen erreichbar sein. Vorher kurz testen,
+  # damit die Fehlermeldung nicht von Let's Encrypt kommt, sondern von hier.
+  PROBE="stellium-$(date +%s)"
+  echo "$PROBE" > "/var/www/html/.well-known/acme-challenge/$PROBE"
+  if [[ "$(curl -fsS --max-time 12 "http://$DOMAIN/.well-known/acme-challenge/$PROBE" 2>/dev/null || true)" != "$PROBE" ]]; then
+    rm -f "/var/www/html/.well-known/acme-challenge/$PROBE"
+    fehler "$(cat <<HINWEIS
+$DOMAIN ist von außen auf Port 80 nicht erreichbar.
+
+Fast immer fehlt eine Portweiterleitung. Im Router einrichten:
+
+    ${FETT}Port 80  → $(lokale_ip)  Port 80${AUS}
+    ${FETT}Port 443 → $(lokale_ip)  Port 443${AUS}
+
+Danach dieses Skript einfach noch einmal ausführen. Alles bisher
+Eingerichtete bleibt bestehen.
+HINWEIS
+)"
+  fi
+  rm -f "/var/www/html/.well-known/acme-challenge/$PROBE"
+  ok "$DOMAIN ist von außen erreichbar"
+
+  if [[ -d "/etc/letsencrypt/live/$DOMAIN" ]]; then
+    info "Zertifikat besteht bereits"
+  else
+    certbot certonly --webroot -w /var/www/html -d "$DOMAIN" \
+      --non-interactive --agree-tos -m "$MAIL" --no-eff-email >/dev/null 2>&1 \
+      || fehler "Let's Encrypt hat kein Zertifikat ausgestellt. Genauer:  certbot certonly --webroot -w /var/www/html -d $DOMAIN"
+  fi
+  ok "Zertifikat für $DOMAIN"
+
+  # Jetzt die vollständige Konfiguration mit TLS.
+  schreibe_mit_tls "$DOMAIN"
+  nginx -t >/dev/null 2>&1 || fehler "nginx-Konfiguration fehlerhaft — nginx -t zeigt warum"
+  systemctl reload nginx
+  ok "nginx nimmt HTTPS entgegen und reicht nach innen weiter"
+
+  # Verlängerung läuft automatisch; nginx muss danach neu laden.
+  mkdir -p /etc/letsencrypt/renewal-hooks/deploy
+  cat > /etc/letsencrypt/renewal-hooks/deploy/stellium-nginx.sh <<'HOOK'
+#!/usr/bin/env bash
+systemctl reload nginx
+HOOK
+  chmod 755 /etc/letsencrypt/renewal-hooks/deploy/stellium-nginx.sh
+  systemctl enable --quiet certbot.timer 2>/dev/null || true
+  systemctl start certbot.timer 2>/dev/null || true
+  ok "Verlängerung läuft automatisch"
+
+  ADRESSE="https://$DOMAIN"
+fi
 
 # ── Absichern ───────────────────────────────────────────────────
 schritt "Firewall und Einbruchsschutz"
@@ -464,14 +650,9 @@ ufw --force reset >/dev/null 2>&1
 ufw default deny incoming >/dev/null
 ufw default allow outgoing >/dev/null
 ufw allow OpenSSH >/dev/null
-if [[ "$WAHL" == "2" ]]; then
-  ufw allow in on tailscale0 >/dev/null 2>&1 || true
-  info "Nur SSH und Tailscale offen — kein Port aus dem Internet erreichbar"
-else
-  ufw allow 80/tcp  >/dev/null
-  ufw allow 443/tcp >/dev/null
-  info "Offen: SSH, 80, 443 — sonst nichts"
-fi
+ufw allow 80/tcp  >/dev/null
+ufw allow 443/tcp >/dev/null
+info "Offen: SSH, 80, 443 — sonst nichts"
 ufw --force enable >/dev/null
 ok "Firewall aktiv"
 
@@ -518,12 +699,6 @@ cat > /usr/local/bin/stellium <<KONSOLE
 exec /usr/bin/node /usr/local/lib/stellium/konsole.mjs "\$@"
 KONSOLE
 chmod 755 /usr/local/bin/stellium
-
-# Damit die Konsole Dinge zeigen darf, die sonst nur root sieht.
-cat > /etc/sudoers.d/stellium-konsole <<'SUDO'
-%sudo ALL=(root) NOPASSWD: /usr/bin/systemctl is-active stellium, /usr/bin/systemctl is-active nginx
-SUDO
-chmod 440 /etc/sudoers.d/stellium-konsole
 
 # Beim Anmelden von selbst öffnen.
 if [[ -d /etc/xdg/autostart ]] && command -v lxterminal >/dev/null 2>&1; then
@@ -599,7 +774,7 @@ ok "Jede Nacht um 3:30, vierzehn Stände werden aufgehoben"
 sleep 2
 EINMAL="$(journalctl -u stellium --no-pager -n 200 2>/dev/null | grep -oE '[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}' | tail -1 || true)"
 KONTO="$(journalctl -u stellium --no-pager -n 200 2>/dev/null | grep -A1 'Benutzername' | tail -1 | awk '{print $NF}' || true)"
-LOKAL="http://$(hostname -I | awk '{print $1}')"
+LOKAL="http://$(lokale_ip)"
 
 cat <<ENDE
 
