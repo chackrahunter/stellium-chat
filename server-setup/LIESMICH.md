@@ -47,9 +47,20 @@ Das Skript hält sie aktuell, auch wenn euer Anschluss die IP-Adresse wechselt.
 **3 · Nur im Heimnetz.** Ohne Verschlüsselung. Zum Ausprobieren in Ordnung, für
 echte Gespräche nicht.
 
-Bei 1 und 2 müssen im Router **Port 80 und 443** auf den Pi weitergeleitet sein
-— sonst kann Let's Encrypt nicht prüfen, dass die Adresse wirklich dir gehört.
-Das Skript testet das vorher und sagt dir genau, was einzutragen ist.
+### Die Ports
+
+Für 1 und 2 müssen **Port 80 und 443** vom Router auf den Pi zeigen — sonst
+kann Let's Encrypt nicht prüfen, dass die Adresse wirklich dir gehört.
+
+Das Skript nimmt dir das ab, soweit es geht: es prüft erst, ob eine Anfrage
+von außen ankommt. Kommt keine an, bittet es den Router selbst darum — über
+UPnP, sonst über NAT-PMP — und prüft danach noch einmal. Klappt das, richtet es
+gleich einen Timer ein, der die Freigabe stündlich erneuert, damit sie nicht
+abläuft.
+
+Erst wenn auch das scheitert (weil UPnP im Router abgeschaltet ist), musst du
+selbst ran. Dann nennt dir das Skript die genauen zwei Zeilen, deine lokale
+Adresse und deine öffentliche IP — und wo das bei einer FRITZ!Box steht.
 
 Auf den Geräten im Team ist nichts zu installieren außer der Stellium-App.
 
@@ -65,6 +76,7 @@ Wechseln geht jederzeit: Skript noch einmal ausführen, andere Zahl wählen.
 | **fail2ban** | sperrt aus, wer Passwörter durchprobiert |
 | **Aktualisierungen** | Sicherheitspakete kommen automatisch, Neustart nachts um vier falls nötig |
 | **Sicherung** | jede Nacht um 3:30, vierzehn Stände unter `/var/lib/stellium/sicherungen` |
+| **Portfreigabe** | über UPnP oder NAT-PMP, stündlich erneuert |
 | **Statuskonsole** | öffnet sich beim Anmelden von selbst |
 
 ## Wie die Verbindung geschützt ist
@@ -95,6 +107,15 @@ sudo STELLIUM_MODE=1 STELLIUM_DOMAIN=chat.meinefirma.de \
 Für DuckDNS: `STELLIUM_MODE=2 STELLIUM_DUCK=meinefirma:dein-token`.
 
 ## Danach
+
+Die Statuskonsole zeigt: Adressen zum Verbinden, Zustand von Chat-Dienst und
+nginx, gewählte KI-Modelle, Zahl der Konten, Kanäle und Nachrichten, Restlaufzeit
+des Zertifikats, Firewall und fail2ban, Auslastung von Prozessor, Arbeitsspeicher,
+Auslagerung und Platte, Temperaturen, Taktrate, Grafikspeicher, Netzverkehr,
+Fassungen aller beteiligten Programme und das Alter der letzten Sicherung.
+
+Was dieser Rechner nicht hat, wird auch nicht angezeigt — keine leeren Zeilen
+für eine Grafikeinheit, die es nicht gibt.
 
 ```bash
 stellium                          # Statuskonsole

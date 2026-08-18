@@ -160,6 +160,7 @@ DOMAIN=""
 MAIL=""
 DUCK_NAME=""
 DUCK_TOKEN=""
+DUCK_VORGABE=""
 while [[ -z "$WAHL" ]]; do
   WAHL="$(frage "Deine Wahl [1/2/3]: " "${STELLIUM_MODE:-}")"
   case "$WAHL" in
@@ -183,13 +184,16 @@ while [[ -z "$WAHL" ]]; do
     3. oben auf der Seite steht dein ${FETT}token${AUS} — den brauche ich gleich
 
 DUCK
+      # Erst in eine eigene Variable holen: mit set -u bricht jede Kürzung an
+      # einer nie gesetzten Variablen das ganze Skript ab.
+      DUCK_VORGABE="${STELLIUM_DUCK:-}"
       while [[ -z "$DUCK_NAME" ]]; do
-        DUCK_NAME="$(frage "Dein DuckDNS-Name (ohne .duckdns.org): " "${STELLIUM_DUCK%%:*}")"
+        DUCK_NAME="$(frage "Dein DuckDNS-Name (ohne .duckdns.org): " "${DUCK_VORGABE%%:*}")"
         DUCK_NAME="${DUCK_NAME%%.duckdns.org}"
         [[ "$DUCK_NAME" =~ ^[a-z0-9-]+$ ]] || { warn "Nur Kleinbuchstaben, Ziffern und Bindestriche."; DUCK_NAME=""; }
       done
       while [[ -z "$DUCK_TOKEN" ]]; do
-        DUCK_TOKEN="$(frage "Dein DuckDNS-Token: " "${STELLIUM_DUCK#*:}")"
+        DUCK_TOKEN="$(frage "Dein DuckDNS-Token: " "${DUCK_VORGABE#*:}")"
         [[ ${#DUCK_TOKEN} -ge 20 ]] || { warn "Das sieht zu kurz aus."; DUCK_TOKEN=""; }
       done
       DOMAIN="$DUCK_NAME.duckdns.org"
@@ -230,7 +234,9 @@ schritt "Grundlagen installieren"
 apt-get install -y -qq \
   curl ca-certificates gnupg git build-essential \
   nginx ufw fail2ban unattended-upgrades apt-listchanges \
-  jq bc >/dev/null
+  jq bc miniupnpc natpmpc >/dev/null 2>&1 \
+  || apt-get install -y -qq curl ca-certificates gnupg git build-essential \
+       nginx ufw fail2ban unattended-upgrades apt-listchanges jq bc >/dev/null
 ok "nginx, Firewall, fail2ban, Werkzeuge"
 
 schritt "Node 22"
@@ -592,27 +598,130 @@ D2
   systemctl enable --quiet nginx
   systemctl restart nginx
 
-  # Für die Prüfung muss Port 80 von außen erreichbar sein. Vorher kurz testen,
-  # damit die Fehlermeldung nicht von Let's Encrypt kommt, sondern von hier.
-  PROBE="stellium-$(date +%s)"
-  echo "$PROBE" > "/var/www/html/.well-known/acme-challenge/$PROBE"
-  if [[ "$(curl -fsS --max-time 12 "http://$DOMAIN/.well-known/acme-challenge/$PROBE" 2>/dev/null || true)" != "$PROBE" ]]; then
-    rm -f "/var/www/html/.well-known/acme-challenge/$PROBE"
-    fehler "$(cat <<HINWEIS
-$DOMAIN ist von außen auf Port 80 nicht erreichbar.
+  # ── Ports ───────────────────────────────────────────────────
+  schritt "Ports prüfen"
 
-Fast immer fehlt eine Portweiterleitung. Im Router einrichten:
+  # Kommt eine Anfrage von außen wirklich hier an?
+  von_aussen_erreichbar() {
+    local probe="stellium-$RANDOM$RANDOM"
+    echo "$probe" > "/var/www/html/.well-known/acme-challenge/$probe"
+    local antwort
+    antwort="$(curl -fsS --max-time 12 "http://$DOMAIN/.well-known/acme-challenge/$probe" 2>/dev/null || true)"
+    rm -f "/var/www/html/.well-known/acme-challenge/$probe"
+    [[ "$antwort" == "$probe" ]]
+  }
 
-    ${FETT}Port 80  → $(lokale_ip)  Port 80${AUS}
-    ${FETT}Port 443 → $(lokale_ip)  Port 443${AUS}
+  # Den Router bitten, die Ports weiterzuleiten. Die meisten Heimrouter
+  # können das über UPnP oder NAT-PMP, sofern es nicht abgeschaltet ist.
+  ports_erbitten() {
+    local ip; ip="$(lokale_ip)"
+    local gelungen=0
 
-Danach dieses Skript einfach noch einmal ausführen. Alles bisher
-Eingerichtete bleibt bestehen.
+    if command -v upnpc >/dev/null; then
+      for port in 80 443; do
+        if upnpc -e "Stellium" -a "$ip" "$port" "$port" TCP 86400 >/dev/null 2>&1 \
+           || upnpc -e "Stellium" -a "$ip" "$port" "$port" TCP >/dev/null 2>&1; then
+          gelungen=1
+        fi
+      done
+      [[ $gelungen -eq 1 ]] && info "Router über UPnP gebeten, 80 und 443 weiterzuleiten"
+    fi
+
+    if [[ $gelungen -eq 0 ]] && command -v natpmpc >/dev/null; then
+      for port in 80 443; do
+        natpmpc -a "$port" "$port" tcp 86400 >/dev/null 2>&1 && gelungen=1
+      done
+      [[ $gelungen -eq 1 ]] && info "Router über NAT-PMP gebeten, 80 und 443 weiterzuleiten"
+    fi
+
+    return $(( gelungen == 1 ? 0 : 1 ))
+  }
+
+  if von_aussen_erreichbar; then
+    ok "$DOMAIN ist von außen erreichbar"
+  else
+    info "noch nicht erreichbar — ich versuche, die Ports selbst zu öffnen"
+
+    if ports_erbitten; then
+      # Der Router braucht einen Moment, bis die Regel greift.
+      for _ in 1 2 3; do
+        sleep 6
+        if von_aussen_erreichbar; then
+          ok "$DOMAIN ist jetzt erreichbar — der Router hat die Ports geöffnet"
+          PORTS_AUTOMATISCH=1
+          break
+        fi
+      done
+    fi
+
+    if [[ "${PORTS_AUTOMATISCH:-0}" != "1" ]]; then
+      OEFFENTLICH="$(curl -fsS --max-time 8 https://api.ipify.org 2>/dev/null || echo 'deine öffentliche IP')"
+      fehler "$(cat <<HINWEIS
+$DOMAIN ist von außen auf Port 80 nicht erreichbar, und der Router
+lässt sich nicht automatisch dazu bewegen.
+
+${FETT}Das musst du einmal im Router eintragen:${AUS}
+
+    Port ${FETT}80${AUS}   →  ${FETT}$(lokale_ip)${AUS}   Port 80   (TCP)
+    Port ${FETT}443${AUS}  →  ${FETT}$(lokale_ip)${AUS}   Port 443  (TCP)
+
+  Bei einer FRITZ!Box: Internet → Freigaben → Portfreigaben → Gerät
+  für Freigaben hinzufügen. Bei anderen Routern heißt es meist
+  "Portweiterleitung", "Port Forwarding" oder "Virtual Server".
+
+${FETT}Falls du UPnP im Router einschalten kannst${AUS}, geht es auch von selbst —
+  dann dieses Skript einfach noch einmal starten.
+
+${GRAU}Zur Kontrolle: dein Anschluss ist von außen $OEFFENTLICH,
+  und $DOMAIN sollte genau darauf zeigen.${AUS}
+
+Alles bisher Eingerichtete bleibt bestehen. Nach der Freigabe einfach
+dieses Skript noch einmal ausführen.
 HINWEIS
 )"
+    fi
   fi
-  rm -f "/var/www/html/.well-known/acme-challenge/$PROBE"
-  ok "$DOMAIN ist von außen erreichbar"
+
+  # UPnP-Freigaben laufen ab. Ein Timer erneuert sie, solange sie gebraucht werden.
+  if [[ "${PORTS_AUTOMATISCH:-0}" == "1" ]]; then
+    cat > /usr/local/bin/stellium-ports <<'PORTS'
+#!/usr/bin/env bash
+# Erneuert die Portfreigabe im Router. UPnP-Regeln laufen nach Stunden ab.
+set -Eeuo pipefail
+IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
+[[ -n "$IP" ]] || exit 0
+for PORT in 80 443; do
+  if command -v upnpc >/dev/null; then
+    upnpc -e "Stellium" -a "$IP" "$PORT" "$PORT" TCP 86400 >/dev/null 2>&1 && continue
+  fi
+  command -v natpmpc >/dev/null && natpmpc -a "$PORT" "$PORT" tcp 86400 >/dev/null 2>&1 || true
+done
+PORTS
+    chmod 755 /usr/local/bin/stellium-ports
+
+    cat > /etc/systemd/system/stellium-ports.service <<'P1'
+[Unit]
+Description=Portfreigabe im Router erneuern
+After=network-online.target
+Wants=network-online.target
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/stellium-ports
+P1
+    cat > /etc/systemd/system/stellium-ports.timer <<'P2'
+[Unit]
+Description=Portfreigabe stündlich erneuern
+[Timer]
+OnBootSec=60
+OnUnitActiveSec=1h
+[Install]
+WantedBy=timers.target
+P2
+    systemctl daemon-reload
+    systemctl enable --quiet stellium-ports.timer
+    systemctl start stellium-ports.timer
+    ok "Freigabe wird stündlich erneuert, damit sie nicht abläuft"
+  fi
 
   if [[ -d "/etc/letsencrypt/live/$DOMAIN" ]]; then
     info "Zertifikat besteht bereits"
