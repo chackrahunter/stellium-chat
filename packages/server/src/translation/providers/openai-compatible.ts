@@ -1,5 +1,6 @@
 import { config } from '../../config.js';
 import { languageInfo } from '@stellium/shared';
+import { ModelRegistry } from './model-registry.js';
 import {
   type AssistantProvider, type ChatMessage, type ChatOptions,
   ProviderError, type TranslateRequest, type TranslateResult, type TranslationProvider,
@@ -9,23 +10,26 @@ interface Endpoint {
   name: string;
   apiKey: string;
   baseUrl: string;
-  model: string;
-  fastModel: string;
 }
 
 /**
  * Deckt Groq und jede andere OpenAI-kompatible API ab.
  * Groq ist der Standard: sehr schnell, damit Live-Übersetzung nicht ruckelt.
+ *
+ * Welches Modell benutzt wird, entscheidet die ModelRegistry anhand der
+ * Modell-Liste des Anbieters — feste IDs stehen nur noch als Notnagel in der
+ * Konfiguration.
  */
 export class OpenAICompatibleProvider implements TranslationProvider, AssistantProvider {
   readonly supportsAssistant = true;
 
-  constructor(private readonly ep: Endpoint) {}
+  constructor(private readonly ep: Endpoint, readonly registry: ModelRegistry) {}
 
   get name(): string { return this.ep.name; }
-  get model(): string | null { return this.ep.model; }
+  get model(): string | null { return this.registry.current.quality; }
+  get fastModel(): string { return this.registry.current.fast; }
 
-  private async request(body: unknown): Promise<any> {
+  private async request(body: Record<string, unknown>, modelId: string): Promise<any> {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), config.ai.requestTimeoutMs);
     try {
@@ -35,11 +39,19 @@ export class OpenAICompatibleProvider implements TranslationProvider, AssistantP
           'content-type': 'application/json',
           authorization: `Bearer ${this.ep.apiKey}`,
         },
-        body: JSON.stringify(body),
+        body: JSON.stringify({ ...body, model: modelId }),
         signal: ctrl.signal,
       });
       if (!res.ok) {
         const detail = await res.text().catch(() => '');
+        // Modell weg oder kann kein JSON-Format? Aussortieren und neu wählen.
+        if (looksLikeModelProblem(res.status, detail) && this.registry.markBroken(modelId)) {
+          throw new ProviderError(
+            `${this.ep.name}: ${modelId} nicht verwendbar, wechsle das Modell`,
+            res.status,
+            true,   // erneut versuchen — jetzt mit dem Nachfolger
+          );
+        }
         throw new ProviderError(
           `${this.ep.name} ${res.status}: ${detail.slice(0, 400)}`,
           res.status,
@@ -59,13 +71,14 @@ export class OpenAICompatibleProvider implements TranslationProvider, AssistantP
   }
 
   async chat(messages: ChatMessage[], opts: ChatOptions = {}): Promise<string> {
+    const modelId = opts.fast ? this.fastModel : this.registry.current.quality;
     const data = await this.request({
-      model: opts.fast ? this.ep.fastModel : this.ep.model,
       messages,
       temperature: opts.temperature ?? 0.2,
       max_tokens: opts.maxTokens ?? 1024,
       ...(opts.json ? { response_format: { type: 'json_object' } } : {}),
-    });
+    }, modelId);
+
     const content = data?.choices?.[0]?.message?.content;
     if (typeof content !== 'string') throw new ProviderError(`${this.ep.name}: leere Antwort`);
     return content.trim();
@@ -76,7 +89,7 @@ export class OpenAICompatibleProvider implements TranslationProvider, AssistantP
     try {
       return JSON.parse(raw) as T;
     } catch {
-      // Manche Modelle packen JSON in einen Codeblock.
+      // Manche Modelle packen JSON in einen Codeblock oder stellen Text voran.
       const m = raw.match(/\{[\s\S]*\}/);
       if (m) {
         try { return JSON.parse(m[0]) as T; } catch { /* fällt durch */ }
@@ -122,27 +135,41 @@ export class OpenAICompatibleProvider implements TranslationProvider, AssistantP
       text: data.translation,
       detectedSourceLang: data.detected_source_language?.toLowerCase().slice(0, 2) ?? null,
       confidence: typeof data.confidence === 'number' ? Math.max(0, Math.min(1, data.confidence)) : null,
-      model: this.ep.model,
+      model: this.registry.current.quality,
     };
   }
 }
 
+/** Fehler, die am gewählten Modell liegen — nicht an der Anfrage. */
+function looksLikeModelProblem(status: number, detail: string): boolean {
+  if (status !== 400 && status !== 404) return false;
+  return /model|decommission|deprecat|does not exist|not found|response_format|json_object/i.test(detail);
+}
+
 export function createGroqProvider(): OpenAICompatibleProvider {
-  return new OpenAICompatibleProvider({
+  const baseUrl = config.ai.groq.baseUrl.replace(/\/+$/, '');
+  const registry = new ModelRegistry({
     name: 'groq',
+    baseUrl,
     apiKey: config.ai.groq.apiKey,
-    baseUrl: config.ai.groq.baseUrl.replace(/\/+$/, ''),
-    model: config.ai.groq.model,
-    fastModel: config.ai.groq.fastModel,
+    pinnedQuality: config.ai.groq.model || undefined,
+    pinnedFast: config.ai.groq.fastModel || undefined,
+    fallbackQuality: 'llama-3.3-70b-versatile',
+    fallbackFast: 'llama-3.1-8b-instant',
   });
+  return new OpenAICompatibleProvider({ name: 'groq', apiKey: config.ai.groq.apiKey, baseUrl }, registry);
 }
 
 export function createOpenAIProvider(): OpenAICompatibleProvider {
-  return new OpenAICompatibleProvider({
+  const baseUrl = config.ai.openai.baseUrl.replace(/\/+$/, '');
+  const registry = new ModelRegistry({
     name: 'openai',
+    baseUrl,
     apiKey: config.ai.openai.apiKey,
-    baseUrl: config.ai.openai.baseUrl.replace(/\/+$/, ''),
-    model: config.ai.openai.model,
-    fastModel: config.ai.openai.fastModel,
+    pinnedQuality: config.ai.openai.model || undefined,
+    pinnedFast: config.ai.openai.fastModel || undefined,
+    fallbackQuality: 'gpt-4o-mini',
+    fallbackFast: 'gpt-4o-mini',
   });
+  return new OpenAICompatibleProvider({ name: 'openai', apiKey: config.ai.openai.apiKey, baseUrl }, registry);
 }

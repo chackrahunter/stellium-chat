@@ -6,7 +6,7 @@ import { config } from './config.js';
 import { initDb, db } from './db/index.js';
 import { registerRoutes } from './http/routes.js';
 import { handleConnection, startBackgroundJobs } from './ws/gateway.js';
-import { aiCapabilities } from './translation/index.js';
+import { aiCapabilities, warmUpModels } from './translation/index.js';
 import { ensureSeed } from './seed.js';
 
 const app = Fastify({
@@ -17,6 +17,10 @@ const app = Fastify({
 async function main(): Promise<void> {
   initDb();
   await ensureSeed();
+
+  // Modell-Liste beim Anbieter holen, damit der erste Chat schon das
+  // passende Modell trifft. Schlägt es fehl, greifen die Standardwerte.
+  await warmUpModels();
 
   await app.register(cors, { origin: true, credentials: true });
   await app.register(multipart, { limits: { fileSize: config.maxUploadBytes, files: 1 } });
@@ -49,8 +53,16 @@ async function main(): Promise<void> {
     WebSocket ws://localhost:${config.port}/ws
     Daten     ${config.dbFile}
     Volltext  ${db.fts ? 'FTS5' : 'LIKE (FTS5 nicht verfügbar)'}
-    KI        ${caps.provider}${caps.model ? ` · ${caps.model}` : ''} — Übersetzung ${caps.translation ? 'an' : 'aus'}, Assistent ${caps.assistant ? 'an' : 'aus'}
+    KI        ${caps.provider} — Übersetzung ${caps.translation ? 'an' : 'aus'}, Assistent ${caps.assistant ? 'an' : 'aus'}
+${caps.model ? `    Modelle   ${caps.model} (Übersetzung/Zusammenfassung)\n              ${caps.fastModel} (Antwortvorschläge)\n              ${describeSource(caps.modelSource, caps.modelsAvailable)}\n` : ''}
 ${caps.note ? `    Hinweis   ${caps.note}\n` : ''}`);
+}
+
+function describeSource(source: string | null, available: number | null): string {
+  if (source === 'auto') return `automatisch gewählt aus ${available ?? '?'} verfügbaren Modellen`;
+  if (source === 'pinned') return 'per .env festgelegt';
+  if (source === 'fallback') return 'Standardwerte — Modell-Liste war nicht abrufbar';
+  return '';
 }
 
 main().catch((err) => {

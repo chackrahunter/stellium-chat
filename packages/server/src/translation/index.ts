@@ -33,11 +33,27 @@ export function assistant(): AssistantProvider | null {
   return provider instanceof OpenAICompatibleProvider ? provider : null;
 }
 
+/** Modell-Liste beim Anbieter holen, damit die Auswahl aktuell ist. */
+export async function warmUpModels(): Promise<void> {
+  if (!(provider instanceof OpenAICompatibleProvider)) return;
+  await provider.registry.refresh();
+  provider.registry.startAutoRefresh();
+}
+
+export function modelRegistry() {
+  return provider instanceof OpenAICompatibleProvider ? provider.registry : null;
+}
+
 export function aiCapabilities() {
   const a = assistant();
+  const registry = modelRegistry();
+  const selection = registry?.current ?? null;
   return {
     provider: provider.name,
     model: provider.model,
+    fastModel: provider instanceof OpenAICompatibleProvider ? provider.fastModel : null,
+    modelSource: selection?.source ?? null,
+    modelsAvailable: registry ? registry.usable.length || null : null,
     translation: provider.name !== 'demo',
     assistant: a !== null,
     note: provider.name === 'demo'

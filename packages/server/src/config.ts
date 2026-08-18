@@ -53,14 +53,16 @@ export const config = {
     groq: {
       apiKey: str('GROQ_API_KEY'),
       baseUrl: str('GROQ_BASE_URL', 'https://api.groq.com/openai/v1'),
-      model: str('GROQ_MODEL', 'llama-3.3-70b-versatile'),
-      fastModel: str('GROQ_FAST_MODEL', 'llama-3.1-8b-instant'),
+      // Leer = der Server holt die Modell-Liste bei Groq und wählt selbst.
+      // Eine gesetzte ID nagelt das Modell fest.
+      model: str('GROQ_MODEL'),
+      fastModel: str('GROQ_FAST_MODEL'),
     },
     openai: {
       apiKey: str('OPENAI_API_KEY'),
       baseUrl: str('OPENAI_BASE_URL', 'https://api.openai.com/v1'),
-      model: str('OPENAI_MODEL', 'gpt-4o-mini'),
-      fastModel: str('OPENAI_FAST_MODEL', 'gpt-4o-mini'),
+      model: str('OPENAI_MODEL'),
+      fastModel: str('OPENAI_FAST_MODEL'),
     },
     deepl: {
       apiKey: str('DEEPL_API_KEY'),

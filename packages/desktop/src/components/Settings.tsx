@@ -76,9 +76,35 @@ export function Settings({ onClose }: { onClose: () => void }) {
 
               <div className="ai-card" style={{ marginTop: 'var(--sp-4)' }}>
                 <div className="ai-card__head"><Sparkles size={12} /> Übersetzungs-Dienst</div>
-                <div style={{ fontSize: 14 }}>
-                  <b>{ai?.provider ?? 'unbekannt'}</b>{ai?.model ? ` · ${ai.model}` : ''}
+                <div style={{ fontSize: 14, marginBottom: ai?.model ? 8 : 0 }}>
+                  <b>{ai?.provider ?? 'unbekannt'}</b>
                 </div>
+
+                {ai?.model && (
+                  <div className="stack gap-1" style={{ fontSize: 13 }}>
+                    <div className="hstack gap-2">
+                      <span className="muted" style={{ minWidth: 148 }}>Übersetzung, Zusammenfassung</span>
+                      <span className="mono">{ai.model}</span>
+                    </div>
+                    {ai.fastModel && ai.fastModel !== ai.model && (
+                      <div className="hstack gap-2">
+                        <span className="muted" style={{ minWidth: 148 }}>Antwortvorschläge</span>
+                        <span className="mono">{ai.fastModel}</span>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {ai?.modelSource && (
+                  <p className="muted" style={{ fontSize: 12, margin: '8px 0 0' }}>
+                    {ai.modelSource === 'auto'
+                      ? `Automatisch gewählt aus ${ai.modelsAvailable ?? '?'} Modellen, die ${ai.provider} gerade anbietet. Der Server sieht alle sechs Stunden nach, ob es etwas Besseres gibt.`
+                      : ai.modelSource === 'pinned'
+                        ? 'Fest in der .env eingetragen. Lösche GROQ_MODEL, damit der Server wieder selbst wählt.'
+                        : 'Standardwerte — die Modell-Liste war beim Start nicht abrufbar.'}
+                  </p>
+                )}
+
                 {ai?.note && <p className="muted" style={{ fontSize: 12.5, margin: '6px 0 0' }}>{ai.note}</p>}
               </div>
             </>

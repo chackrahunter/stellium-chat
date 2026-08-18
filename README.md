@@ -44,14 +44,28 @@ Melde dich in zwei Fenstern mit unterschiedlichen Konten an — dann siehst du d
 ## KI einrichten (Groq)
 
 1. Kostenlosen Key holen: <https://console.groq.com/keys>
-2. In `.env` eintragen:
+2. In `.env` eintragen — mehr als den Schlüssel braucht es nicht:
 
 ```env
 AI_PROVIDER=groq
 GROQ_API_KEY=gsk_...
-GROQ_MODEL=llama-3.3-70b-versatile     # Übersetzung, Zusammenfassungen
-GROQ_FAST_MODEL=llama-3.1-8b-instant   # Smart Replies, schnelle Aufgaben
 ```
+
+**Die Modelle sucht der Server sich selbst.** Beim Start fragt er Groqs
+Modell-Liste ab, sortiert alles aus, was keine Chat-Anfragen beantwortet
+(Whisper, TTS, Guard-Klassifikatoren, abgeschaltete Modelle) und wählt zwei:
+
+- das **größte brauchbare** für Übersetzung und Zusammenfassungen
+- das **kleinste brauchbare** für Antwortvorschläge und kurze Aufgaben
+
+Die Größe liest er aus der Modell-ID (`70b` → 70 Mrd., `8x7b` → 56 Mrd.), das
+Kontextfenster fließt mit ein. Alle sechs Stunden sieht er nach, ob Groq etwas
+Neues anbietet. Wirft ein Modell im Betrieb Fehler, weil es abgeschaltet wurde,
+fliegt es raus und der Nächstbeste übernimmt — ohne Neustart.
+
+Welche Modelle gerade laufen, steht im Server-Log und in den App-Einstellungen
+unter *Sprache & Übersetzung*. Ein bestimmtes Modell erzwingst du bei Bedarf mit
+`GROQ_MODEL=` und `GROQ_FAST_MODEL=` in der `.env`.
 
 Ohne Key startet die App trotzdem — dann läuft der `demo`-Provider, der nur
 markiert, wo eine Übersetzung erscheinen würde. Alles andere funktioniert normal.

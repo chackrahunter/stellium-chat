@@ -7,7 +7,7 @@ import { avatarColorFor, hashPassword, signToken, verifyPassword, verifyToken } 
 import { config } from '../config.js';
 import { db } from '../db/index.js';
 import { newId } from '../util/id.js';
-import { addGlossaryEntry, aiCapabilities, listGlossary, removeGlossaryEntry } from '../translation/index.js';
+import { addGlossaryEntry, aiCapabilities, listGlossary, modelRegistry, removeGlossaryEntry } from '../translation/index.js';
 import { search } from '../services/search.js';
 import * as store from '../services/store.js';
 
@@ -39,6 +39,24 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   }));
 
   app.get('/api/languages', async () => LANGUAGES);
+
+  /** Was der Anbieter anbietet und was davon gerade benutzt wird. */
+  app.get('/api/ai/models', async (req) => {
+    requireUser(req);
+    const registry = modelRegistry();
+    if (!registry) return { selection: null, models: [] };
+    return {
+      selection: registry.current,
+      models: registry.discovered.map((m) => ({
+        id: m.id,
+        contextWindow: m.contextWindow,
+        params: m.params,
+        ownedBy: m.ownedBy,
+        usable: m.rejected === null,
+        rejected: m.rejected,
+      })),
+    };
+  });
 
   /* ── Registrierung & Login ─────────────────────────────────── */
 

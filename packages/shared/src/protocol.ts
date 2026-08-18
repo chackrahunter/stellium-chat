@@ -79,7 +79,14 @@ export type ServerEvent =
 
 export interface AiCapabilities {
   provider: string;
+  /** Modell für Übersetzung und Zusammenfassungen. */
   model: string | null;
+  /** Kleineres Modell für Antwortvorschläge und kurze Aufgaben. */
+  fastModel: string | null;
+  /** Wie das Modell zustande kam. */
+  modelSource: 'auto' | 'pinned' | 'fallback' | null;
+  /** Wie viele brauchbare Modelle der Anbieter gerade anbietet. */
+  modelsAvailable: number | null;
   translation: boolean;
   assistant: boolean;
   /** Menschenlesbarer Hinweis, wenn KI deaktiviert ist. */
