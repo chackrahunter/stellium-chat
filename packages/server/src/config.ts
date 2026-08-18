@@ -103,6 +103,17 @@ export const config = {
   maxUploadBytes: int('MAX_UPLOAD_MB', 50) * 1024 * 1024,
   workspaceName: str('WORKSPACE_NAME', 'Stellium'),
 
+  /**
+   * Das erste Konto beim Erststart. Bewusst nicht "admin" oder "root" als
+   * Vorgabe: das sind die ersten Namen, die bei Anmeldeversuchen durchprobiert
+   * werden. Ohne Angabe wird der Name des angemeldeten Systembenutzers
+   * verwendet.
+   */
+  owner: {
+    handle: str('OWNER_HANDLE'),
+    name: str('OWNER_NAME'),
+  },
+
   ai: {
     provider: (str('AI_PROVIDER', 'groq') as AiProvider),
     groq: {

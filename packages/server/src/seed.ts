@@ -1,3 +1,4 @@
+import os from 'node:os';
 import { db, initDb } from './db/index.js';
 import { newId } from './util/id.js';
 import { createAccount } from './services/users.js';
@@ -14,12 +15,50 @@ const STARTKANAELE = [
   { name: 'allgemein', topic: 'Alles, was das ganze Team angeht' },
 ];
 
+/**
+ * Name des ersten Kontos. Reihenfolge: OWNER_HANDLE/OWNER_NAME aus der
+ * Umgebung, sonst der Systembenutzer. "admin" und "root" werden bewusst
+ * vermieden — genau diese Namen probieren automatisierte Anmeldeversuche
+ * zuerst durch.
+ */
+function ownerVorgabe(): { handle: string; name: string } {
+  const ausUmgebung = config.owner.handle.trim().toLowerCase();
+  if (ausUmgebung) {
+    return {
+      handle: ausUmgebung,
+      name: config.owner.name.trim() || grossschreiben(ausUmgebung),
+    };
+  }
+
+  const system = (() => {
+    try { return os.userInfo().username; } catch { return ''; }
+  })();
+  const bereinigt = system
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]/g, '.')
+    .replace(/^[._-]+|[._-]+$/g, '')
+    .slice(0, 32);
+
+  const unbrauchbar = !bereinigt || ['admin', 'root', 'administrator', 'user', 'node'].includes(bereinigt);
+  const handle = unbrauchbar ? 'inhaber' : bereinigt;
+  return { handle, name: config.owner.name.trim() || grossschreiben(handle) };
+}
+
+function grossschreiben(wert: string): string {
+  return wert
+    .split(/[.\-_]/)
+    .filter(Boolean)
+    .map((teil) => teil.charAt(0).toUpperCase() + teil.slice(1))
+    .join(' ');
+}
+
 export async function ensureSeed(): Promise<void> {
   if (db.get('SELECT 1 AS x FROM users LIMIT 1')) return;
 
+  const { handle, name } = ownerVorgabe();
   const konto = createAccount({
-    displayName: 'Administrator',
-    handle: 'admin',
+    displayName: name,
+    handle,
     role: 'owner',
     language: 'de',
     timezone: 'Europe/Berlin',
