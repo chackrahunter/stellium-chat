@@ -978,11 +978,20 @@ a:hover { text-decoration: underline; }
 
 .auth {
   position: relative; z-index: 1;
-  display: grid; place-items: center;
-  height: 100vh; padding: var(--sp-4);
+  height: 100vh;
+  height: 100dvh;
+  padding: var(--sp-5) var(--sp-4);
+  /* Flexbox mit margin:auto am Kind statt place-items:center. Zentriert
+     genauso, schneidet aber nicht oben ab, sobald der Inhalt höher als das
+     Fenster ist — sonst ist der Knopf unten nicht erreichbar. */
+  display: flex;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
+.auth > * { margin: auto; }
 .auth__card {
   width: min(430px, 100%);
+  flex: 0 0 auto;
   padding: var(--sp-6);
   border-radius: var(--r-xl);
   border: 1px solid var(--line-strong);
