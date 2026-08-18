@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
-  AtSign, Clock, Languages, Loader2, Paperclip, Send, Smile, Sparkles, Wand2, X,
+  AtSign, BarChart3, Clock, Languages, Loader2, Mic, Paperclip, Send, Smile,
+  Sparkles, Wand2, X,
 } from 'lucide-react';
 import type { Attachment, RewriteTone } from '@stellium/shared';
 import { normalizeLang } from '@stellium/shared';
@@ -9,6 +10,7 @@ import { useStore } from '../state/store.js';
 import { api } from '../net/api.js';
 import { EmojiPicker } from './EmojiPicker.jsx';
 import { Avatar } from './Avatar.jsx';
+import { VoiceRecorder } from './VoiceRecorder.jsx';
 import { clsx, fileSize, languageInfo } from '../lib/format.js';
 
 interface Props {
@@ -47,6 +49,7 @@ export function Composer({ channelId, parentId = null, placeholder, autoFocus }:
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const [mentionIndex, setMentionIndex] = useState(0);
   const [scheduleOpen, setScheduleOpen] = useState(false);
+  const [recording, setRecording] = useState(false);
 
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -60,6 +63,12 @@ export function Composer({ channelId, parentId = null, placeholder, autoFocus }:
   }, [text]);
 
   useEffect(() => { if (autoFocus) inputRef.current?.focus(); }, [autoFocus, channelId]);
+
+  // Beim Kanalwechsel den gespeicherten Entwurf zurückholen.
+  useEffect(() => {
+    setText(useStore.getState().draftFor(channelId, parentId));
+    setPreview(null);
+  }, [channelId, parentId]);
 
   /* Compose-Vorschau: so kommt die Nachricht bei den anderen an */
   const targetLang = channel?.primaryLanguage ? normalizeLang(channel.primaryLanguage) : null;
@@ -144,6 +153,7 @@ export function Composer({ channelId, parentId = null, placeholder, autoFocus }:
     setText('');
     setAttachments([]);
     setPreview(null);
+    useStore.getState().saveDraft(channelId, parentId, '');
     useStore.getState().clearSmartReplies();
   };
 
@@ -196,6 +206,10 @@ export function Composer({ channelId, parentId = null, placeholder, autoFocus }:
         )}
       </AnimatePresence>
 
+      {recording && (
+        <VoiceRecorder channelId={channelId} parentId={parentId} onDone={() => setRecording(false)} />
+      )}
+
       <div
         className={clsx('composer', focused && 'composer--focus', dragging && 'composer--drag')}
         onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
@@ -205,7 +219,7 @@ export function Composer({ channelId, parentId = null, placeholder, autoFocus }:
           setDragging(false);
           if (e.dataTransfer.files.length) void uploadFiles(e.dataTransfer.files);
         }}
-        style={{ position: 'relative' }}
+        style={{ position: 'relative', ...(recording ? { display: 'none' } : {}) }}
       >
         {parentId && (
           <div className="composer__reply">
@@ -242,7 +256,11 @@ export function Composer({ channelId, parentId = null, placeholder, autoFocus }:
           placeholder={placeholder ?? `Nachricht an ${channel?.kind === 'dm'
             ? users[channel.dmPeerId ?? '']?.displayName ?? '…'
             : `#${channel?.name ?? '…'}`}`}
-          onChange={(e) => { setText(e.target.value); useStore.getState().sendTyping(channelId, parentId); }}
+          onChange={(e) => {
+            setText(e.target.value);
+            useStore.getState().sendTyping(channelId, parentId);
+            useStore.getState().saveDraft(channelId, parentId, e.target.value);
+          }}
           onKeyDown={onKeyDown}
           onFocus={() => setFocused(true)}
           onBlur={() => setFocused(false)}
@@ -273,6 +291,22 @@ export function Composer({ channelId, parentId = null, placeholder, autoFocus }:
           >
             <AtSign size={16} />
           </button>
+          <button
+            className="icon-btn icon-btn--sm"
+            onClick={() => setRecording(true)}
+            title="Sprachnachricht aufnehmen"
+          >
+            <Mic size={16} />
+          </button>
+          {!parentId && (
+            <button
+              className="icon-btn icon-btn--sm"
+              onClick={() => useStore.getState().setOverlay('poll')}
+              title="Umfrage starten"
+            >
+              <BarChart3 size={16} />
+            </button>
+          )}
 
           {ai?.assistant && (
             <div style={{ position: 'relative' }}>

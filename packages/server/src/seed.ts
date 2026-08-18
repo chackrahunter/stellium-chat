@@ -79,8 +79,8 @@ export function seed(): void {
       userIds.set(u.handle, id);
       db.run(
         `INSERT INTO users (id, handle, email, display_name, password_hash, avatar_color, title, timezone, language,
-                            auto_translate, status, role, theme, created_at)
-         VALUES (?,?,?,?,?,?,?,?,?,1,'offline',?, 'dark', ?)`,
+                            auto_translate, status, role, theme, notification_sound, translation_speed, created_at)
+         VALUES (?,?,?,?,?,?,?,?,?,1,'offline',?, 'dark', 'ping', 'balanced', ?)`,
         id, u.handle, u.email, u.displayName, hashPassword(DEMO_PASSWORD), avatarColorFor(u.handle),
         u.title, u.timezone, u.language, u.role, at,
       );

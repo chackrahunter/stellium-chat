@@ -12,6 +12,10 @@ export interface CreateMessageInput {
   attachmentIds?: string[];
   sourceLang?: string | null;
   systemKind?: string | null;
+  /** "text" | "voice" | "poll" */
+  kind?: string;
+  /** Herkunft bei Weiterleitungen: "<messageId>|<channelId>|<userId>" */
+  forwardedFrom?: string | null;
 }
 
 export function createMessage(input: CreateMessageInput): Message {
@@ -26,9 +30,10 @@ export function createMessage(input: CreateMessageInput): Message {
 
   db.transaction(() => {
     db.run(
-      `INSERT INTO messages (id, channel_id, user_id, parent_id, text, source_lang, system_kind, pinned, created_at)
-       VALUES (?,?,?,?,?,?,?,0,?)`,
-      id, input.channelId, input.userId, input.parentId ?? null, text, sourceLang, input.systemKind ?? null, at,
+      `INSERT INTO messages (id, channel_id, user_id, parent_id, text, source_lang, system_kind, pinned, kind, forwarded_from, created_at)
+       VALUES (?,?,?,?,?,?,?,0,?,?,?)`,
+      id, input.channelId, input.userId, input.parentId ?? null, text, sourceLang,
+      input.systemKind ?? null, input.kind ?? 'text', input.forwardedFrom ?? null, at,
     );
 
     for (const handle of extractMentions(text)) {
@@ -48,7 +53,7 @@ export function createMessage(input: CreateMessageInput): Message {
   });
 
   reindexMessage(id);
-  return getMessage(id)!;
+  return getMessage(id, input.userId)!;
 }
 
 export function editMessage(messageId: string, userId: string, text: string): Message {

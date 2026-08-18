@@ -15,10 +15,9 @@
     "dist:linux": "electron-builder --linux",
     "dist:all": "electron-builder -mwl",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.electron.json --noEmit",
-    "build:electron": "tsc -p tsconfig.electron.json && node -e \"const fs=require('fs');fs.renameSync('dist-electron/preload.js','dist-electron/preload.mjs')\""
-  },
-  "dependencies": {
-    "@stellium/shared": "*"
+    "build:electron": "tsc -p tsconfig.electron.json && node -e \"const fs=require('fs');fs.renameSync('dist-electron/preload.js','dist-electron/preload.mjs')\"",
+    "dist:mac:universal": "electron-builder --mac --universal",
+    "dist:mac:intel": "electron-builder --mac --x64"
   },
   "devDependencies": {
     "@types/react": "^19.0.7",
@@ -32,7 +31,8 @@
     "react-dom": "^19.0.0",
     "typescript": "^5.7.3",
     "vite": "^6.0.7",
-    "zustand": "^5.0.3"
+    "zustand": "^5.0.3",
+    "@stellium/shared": "*"
   },
   "build": {
     "appId": "com.stellium.chat",
@@ -59,16 +59,17 @@
         {
           "target": "dmg",
           "arch": [
-            "universal"
+            "arm64"
           ]
         },
         {
           "target": "zip",
           "arch": [
-            "universal"
+            "arm64"
           ]
         }
-      ]
+      ],
+      "identity": null
     },
     "dmg": {
       "title": "Stellium ${version}"
@@ -123,6 +124,15 @@
           ]
         }
       ]
-    }
-  }
+    },
+    "electronVersion": "33.4.11",
+    "npmRebuild": false,
+    "nodeGypRebuild": false,
+    "buildDependenciesFromSource": false
+  },
+  "description": "Stellium \u2014 Team-Chat mit Live-\u00dcbersetzung und KI",
+  "author": {
+    "name": "Stellium"
+  },
+  "license": "MIT"
 }

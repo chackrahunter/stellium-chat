@@ -26,8 +26,9 @@ export interface ModelSelection {
   quality: string;
   fast: string;
   /** 'auto' = von der API gewählt, 'pinned' = per .env festgelegt,
+   *  'manual' = in den Einstellungen gewählt,
    *  'fallback' = API nicht erreichbar, bekannte Standardwerte. */
-  source: 'auto' | 'pinned' | 'fallback';
+  source: 'auto' | 'pinned' | 'manual' | 'fallback';
   refreshedAt: number;
 }
 
@@ -121,6 +122,8 @@ export class ModelRegistry {
   private selection: ModelSelection;
   /** Modelle, die im Betrieb Fehler geworfen haben. */
   private broken = new Set<string>();
+  /** Von Hand in den Einstellungen gewählt — schlägt die Automatik. */
+  private manual: { quality: string | null; fast: string | null } = { quality: null, fast: null };
   private timer: NodeJS.Timeout | null = null;
   private inflight: Promise<void> | null = null;
 
@@ -177,8 +180,30 @@ export class ModelRegistry {
     }
   }
 
+  /**
+   * Wahl aus den Einstellungen übernehmen. Beide Werte null bedeutet:
+   * zurück zur automatischen Auswahl.
+   */
+  applyManualChoice(quality: string | null, fast: string | null): void {
+    this.manual = { quality: quality || null, fast: fast || null };
+    this.select();
+  }
+
   private select(): void {
     const usable = this.usable;
+
+    // Von Hand gewählt: gilt, auch wenn die Liste gerade nicht abrufbar ist.
+    if (this.manual.quality || this.manual.fast) {
+      const quality = this.manual.quality || this.selection.quality;
+      this.selection = {
+        quality,
+        fast: this.manual.fast || quality,
+        source: 'manual',
+        refreshedAt: Date.now(),
+      };
+      return;
+    }
+
     if (!usable.length) return;
 
     const quality = this.opts.pinnedQuality || usable[0].id;

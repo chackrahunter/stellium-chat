@@ -3,6 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 import { config } from '../config.js';
+import { migrate } from './migrate.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -66,6 +67,7 @@ export const placeholders = Db.placeholders;
 export function initDb(): void {
   const schema = fs.readFileSync(path.join(here, 'schema.sql'), 'utf8');
   db.exec(schema);
+  migrate();
   setupFts();
 }
 

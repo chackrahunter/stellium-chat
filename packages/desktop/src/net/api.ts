@@ -1,5 +1,6 @@
-import type { GlossaryEntry, Message, SearchHit, SelfUser } from '@stellium/shared';
-import type { AiCapabilities } from '@stellium/shared';
+import type {
+  AiCapabilities, AiModelInfo, AiModelSelection, GlossaryEntry, Message, SearchHit, SelfUser,
+} from '@stellium/shared';
 
 const STORAGE_SERVER = 'stellium.serverUrl';
 const STORAGE_TOKEN = 'stellium.token';
@@ -80,6 +81,13 @@ export const api = {
 
   saved: () => request<{ messages: Message[] }>('/api/saved'),
   pins: (channelId: string) => request<{ messages: Message[] }>(`/api/channels/${channelId}/pins`),
+
+  models: () => request<{ selection: AiModelSelection | null; models: AiModelInfo[] }>('/api/ai/models'),
+
+  selectModels: (input: { quality?: string | null; fast?: string | null; auto?: boolean }) =>
+    request<{ selection: AiModelSelection; ai: AiCapabilities }>('/api/ai/models', {
+      method: 'POST', body: JSON.stringify(input),
+    }),
 
   glossary: () => request<{ entries: GlossaryEntry[] }>('/api/glossary'),
   addGlossary: (input: { term: string; translations: Record<string, string> | null; note?: string }) =>

@@ -1,8 +1,8 @@
 import { memo, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
-  AlertTriangle, Bookmark, Check, CornerUpLeft, Languages, MessageSquare,
-  MoreHorizontal, Pencil, Pin, RefreshCw, Smile, Sparkles, Trash2, X,
+  AlertTriangle, Bell, Bookmark, Check, Copy, Forward, Languages, MessageSquare,
+  MoreHorizontal, Pencil, Pin, RefreshCw, Smile, Sparkles, Trash2,
 } from 'lucide-react';
 import type { Message } from '@stellium/shared';
 import { useStore } from '../state/store.js';
@@ -10,6 +10,9 @@ import { fileUrl } from '../net/api.js';
 import { Avatar } from './Avatar.jsx';
 import { Markdown } from './Markdown.jsx';
 import { EmojiPicker } from './EmojiPicker.jsx';
+import { PollCard } from './PollCard.jsx';
+import { VoiceMessage } from './VoiceMessage.jsx';
+import { LinkPreviewCard } from './LinkPreviewCard.jsx';
 import { clsx, fileSize, languageInfo, timeOfDay } from '../lib/format.js';
 
 interface Props {
@@ -26,9 +29,11 @@ export const MessageItem = memo(function MessageItem({ message, grouped, inThrea
   const showOriginal = useStore((s) => s.showOriginal[message.id] ?? false);
   const translating = useStore((s) => s.translating[message.id] ?? false);
   const roundTrip = useStore((s) => s.roundTrips[message.id]);
+  const highlighted = useStore((s) => s.highlightMessageId === message.id);
   const {
     react, toggleOriginal, requestTranslation, requestRoundTrip,
     openThread, deleteMessage, editMessage, pin, save, setLightbox,
+    startForward, startReminder, setProfileUser,
   } = useStore.getState();
 
   const [editing, setEditing] = useState(false);
@@ -74,24 +79,39 @@ export const MessageItem = memo(function MessageItem({ message, grouped, inThrea
       initial={message.pending ? false : { opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+      data-message-id={message.id}
       className={clsx(
         'msg',
         grouped && 'msg--grouped',
         isMention && 'msg--mention',
         message.pending && 'msg--pending',
         message.failed && 'msg--failed',
+        highlighted && 'msg--highlight',
       )}
     >
       <div className="msg__gutter">
         {grouped
           ? <span className="msg__time-hover">{timeOfDay(message.createdAt)}</span>
-          : <Avatar user={author} size={38} showPresence />}
+          : (
+            <button onClick={() => setProfileUser(message.userId)} title={`Profil von ${author?.displayName ?? ''}`}>
+              <Avatar user={author} size={38} showPresence />
+            </button>
+          )}
       </div>
 
       <div style={{ minWidth: 0 }}>
+        {message.forwardedFrom && (
+          <div className="msg__forwarded">
+            <Forward size={11} />
+            Weitergeleitet von {useStore.getState().users[message.forwardedFrom.userId]?.displayName ?? 'jemandem'}
+          </div>
+        )}
+
         {!grouped && (
           <div className="msg__head">
-            <span className="msg__author">{author?.displayName ?? 'Unbekannt'}</span>
+            <button className="msg__author" onClick={() => setProfileUser(message.userId)}>
+              {author?.displayName ?? 'Unbekannt'}
+            </button>
             <span className="msg__time">{timeOfDay(message.createdAt)}</span>
             {message.editedAt && <span className="msg__tag">bearbeitet</span>}
             {message.pinned && <Pin size={12} className="muted" />}
@@ -121,9 +141,18 @@ export const MessageItem = memo(function MessageItem({ message, grouped, inThrea
               <span className="muted" style={{ fontSize: 12 }}>Enter speichert, Esc bricht ab</span>
             </div>
           </div>
+        ) : message.kind === 'voice' && message.voice ? (
+          <VoiceMessage
+            voice={message.voice}
+            messageId={message.id}
+            translatedText={hasTranslation ? translation!.text : null}
+            showOriginal={showOriginal}
+          />
         ) : (
           <div className="msg__body translated">
-            <Markdown text={bodyText} selfHandle={self?.handle} />
+            {message.kind === 'poll' && message.poll
+              ? <PollCard poll={message.poll} />
+              : <Markdown text={bodyText} selfHandle={self?.handle} />}
 
             {translating && !hasTranslation && (
               <div className="tr-pending">
@@ -152,7 +181,11 @@ export const MessageItem = memo(function MessageItem({ message, grouped, inThrea
                   </div>
                 )}
 
-                {translation!.confidence != null && translation!.confidence < 0.45 && (
+                {/* Der Demo-Provider übersetzt gar nicht und meldet darum immer
+                    niedrige Konfidenz — die Warnung wäre dort reines Rauschen. */}
+                {translation!.provider !== 'demo'
+                  && translation!.confidence != null
+                  && translation!.confidence < 0.45 && (
                   <div className="confidence-low">
                     <AlertTriangle size={11} />
                     Übersetzung unsicher — im Zweifel nachfragen
@@ -173,9 +206,22 @@ export const MessageItem = memo(function MessageItem({ message, grouped, inThrea
           </div>
         )}
 
-        {message.attachments.length > 0 && (
+        {message.kind === 'voice' && hasTranslation && (
+          <button className="translated__meta" onClick={() => toggleOriginal(message.id)}>
+            <Languages size={11} className="spark" />
+            {showOriginal ? 'Übersetzung anzeigen' : `Original · ${languageInfo(message.sourceLang).native}`}
+          </button>
+        )}
+
+        {message.links.length > 0 && (
+          <div className="link-cards">
+            {message.links.map((preview) => <LinkPreviewCard key={preview.url} preview={preview} />)}
+          </div>
+        )}
+
+        {message.attachments.filter((a) => message.kind !== 'voice' || !a.mime.startsWith('audio/')).length > 0 && (
           <div className="attachments">
-            {message.attachments.map((att) => (
+            {message.attachments.filter((a) => message.kind !== 'voice' || !a.mime.startsWith('audio/')).map((att) => (
               att.mime.startsWith('image/') ? (
                 <img
                   key={att.id}
@@ -264,8 +310,10 @@ export const MessageItem = memo(function MessageItem({ message, grouped, inThrea
               onMouseLeave={() => setMenuOpen(false)}
             >
               <MenuItem icon={<Bookmark size={14} />} label="Für später merken" onClick={() => { save(message.id, true); setMenuOpen(false); }} />
+              <MenuItem icon={<Bell size={14} />} label="Später erinnern" onClick={() => { startReminder(message); setMenuOpen(false); }} />
+              <MenuItem icon={<Forward size={14} />} label="Weiterleiten" onClick={() => { startForward(message); setMenuOpen(false); }} />
               <MenuItem icon={<Pin size={14} />} label={message.pinned ? 'Nicht mehr anpinnen' : 'Anpinnen'} onClick={() => { pin(message.id, !message.pinned); setMenuOpen(false); }} />
-              <MenuItem icon={<CornerUpLeft size={14} />} label="Text kopieren" onClick={() => { void navigator.clipboard.writeText(message.text); setMenuOpen(false); }} />
+              <MenuItem icon={<Copy size={14} />} label="Text kopieren" onClick={() => { void navigator.clipboard.writeText(message.text); setMenuOpen(false); }} />
               {isMine && <MenuItem icon={<Pencil size={14} />} label="Bearbeiten" onClick={() => { setEditing(true); setMenuOpen(false); }} />}
               {isMine && <MenuItem icon={<Trash2 size={14} />} label="Löschen" danger onClick={() => { deleteMessage(message.id); setMenuOpen(false); }} />}
             </motion.div>

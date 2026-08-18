@@ -1,10 +1,11 @@
-import { Bookmark, MessageSquare, Settings, Sparkles, Star } from 'lucide-react';
+import { Bell, Bookmark, MessageSquare, Settings, Sparkles, Star } from 'lucide-react';
 import { useStore } from '../state/store.js';
 import { Avatar } from './Avatar.jsx';
 
 export function Rail() {
   const self = useStore((s) => s.self);
   const states = useStore((s) => s.states);
+  const reminders = useStore((s) => s.reminders);
   const { setOverlay } = useStore.getState();
 
   const totalUnread = Object.values(states).reduce((sum, s) => sum + (s.muted ? 0 : s.unreadCount), 0);
@@ -29,6 +30,11 @@ export function Rail() {
 
       <button className="rail-btn no-drag" onClick={() => setOverlay('search')} title="Gemerkte Nachrichten">
         <Bookmark size={20} />
+      </button>
+
+      <button className="rail-btn no-drag" onClick={() => setOverlay('reminders')} title="Erinnerungen">
+        <Bell size={20} />
+        {reminders.length > 0 && <span className="rail-btn__dot">{reminders.length}</span>}
       </button>
 
       <span className="rail__spacer" />

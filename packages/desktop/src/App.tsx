@@ -14,6 +14,8 @@ import { QuickSwitcher } from './components/QuickSwitcher.jsx';
 import { SearchOverlay } from './components/SearchOverlay.jsx';
 import { Settings } from './components/Settings.jsx';
 import { CatchupPanel, GlossaryPanel, NewChannelDialog, PeoplePanel } from './components/Panels.jsx';
+import { ForwardDialog, PollDialog, ReminderDialog, RemindersPanel } from './components/Dialogs.jsx';
+import { ProfileCard } from './components/ProfileCard.jsx';
 import { Login } from './components/Login.jsx';
 import { Toasts } from './components/Toasts.jsx';
 import { clsx } from './lib/format.js';
@@ -27,6 +29,9 @@ export function App() {
   const threadParentId = useStore((s) => s.threadParentId);
   const overlay = useStore((s) => s.overlay);
   const lightbox = useStore((s) => s.lightbox);
+  const forwarding = useStore((s) => s.forwarding);
+  const remindingAbout = useStore((s) => s.remindingAbout);
+  const profileUserId = useStore((s) => s.profileUserId);
 
   /* Tastenkürzel */
   useEffect(() => {
@@ -42,6 +47,9 @@ export function App() {
         if (store.activeChannelId) store.runCatchup(store.activeChannelId);
       } else if (e.key === 'Escape') {
         if (store.lightbox) store.setLightbox(null);
+        else if (store.profileUserId) store.setProfileUser(null);
+        else if (store.forwarding) store.startForward(null);
+        else if (store.remindingAbout) store.startReminder(null);
         else if (store.overlay) store.setOverlay(null);
         else if (store.threadParentId) store.openThread(null);
       }
@@ -139,6 +147,22 @@ export function App() {
         {overlay === 'glossary' && <GlossaryPanel key="glossary" onClose={closeOverlay} />}
         {overlay === 'people' && <PeoplePanel key="people" onClose={closeOverlay} />}
         {overlay === 'catchup' && <CatchupPanel key="catchup" onClose={closeOverlay} />}
+        {overlay === 'reminders' && <RemindersPanel key="reminders" onClose={closeOverlay} />}
+        {overlay === 'poll' && activeChannelId && (
+          <PollDialog key="poll" channelId={activeChannelId} onClose={closeOverlay} />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {forwarding && (
+          <ForwardDialog key="forward" message={forwarding} onClose={() => useStore.getState().startForward(null)} />
+        )}
+        {remindingAbout && (
+          <ReminderDialog key="remind" message={remindingAbout} onClose={() => useStore.getState().startReminder(null)} />
+        )}
+        {profileUserId && (
+          <ProfileCard key="profile" userId={profileUserId} onClose={() => useStore.getState().setProfileUser(null)} />
+        )}
       </AnimatePresence>
 
       <AnimatePresence>

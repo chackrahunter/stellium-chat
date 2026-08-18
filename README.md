@@ -63,9 +63,17 @@ Kontextfenster fließt mit ein. Alle sechs Stunden sieht er nach, ob Groq etwas
 Neues anbietet. Wirft ein Modell im Betrieb Fehler, weil es abgeschaltet wurde,
 fliegt es raus und der Nächstbeste übernimmt — ohne Neustart.
 
-Welche Modelle gerade laufen, steht im Server-Log und in den App-Einstellungen
-unter *Sprache & Übersetzung*. Ein bestimmtes Modell erzwingst du bei Bedarf mit
-`GROQ_MODEL=` und `GROQ_FAST_MODEL=` in der `.env`.
+Für Sprachnachrichten wählt er zusätzlich das beste Whisper-Modell.
+
+Welche Modelle laufen, steht im Server-Log und in den Einstellungen unter
+*KI-Modell*. Dort kann die Team-Leitung auch ein bestimmtes Modell festlegen —
+die Auswahlliste kommt direkt von Groq. Alternativ per `GROQ_MODEL=` und
+`GROQ_FAST_MODEL=` in der `.env`.
+
+**Wichtig zu verstehen:** Es gibt keinen separaten Übersetzungsdienst.
+Das Sprachmodell selbst übersetzt — mit dem Kontext des Kanals, dem Glossar
+und dem Auftrag, den Tonfall zu erhalten. Deshalb klingt das Ergebnis wie ein
+Mensch und nicht wie ein Wörterbuch.
 
 Ohne Key startet die App trotzdem — dann läuft der `demo`-Provider, der nur
 markiert, wo eine Übersetzung erscheinen würde. Alles andere funktioniert normal.
@@ -111,7 +119,25 @@ verlassen das Haus nicht), `AI_PROVIDER=openai`.
 - **Schreibhilfe** — korrigieren, förmlicher, freundlicher, kürzen, in Stichpunkte
 - **Frage an den Kanal** — beantwortet Fragen aus dem Verlauf und nennt die Quellen
 
+### Sprachnachrichten
+- Aufnehmen direkt im Fenster, mit Pegelanzeige
+- **Groqs Whisper transkribiert**, das Transkript wird zum Nachrichtentext
+- Damit greift alles Weitere automatisch: eine japanische Sprachnachricht
+  erscheint bei dir als deutscher Text, und die Volltextsuche findet sie
+- Wellenform-Abspieler mit Sprungmarken
+
+### Umfragen
+- Einfach- oder Mehrfachwahl, wahlweise anonym
+- Live-Ergebnis mit Balken, Gesichter der Abstimmenden
+- Beenden durch Ersteller:in oder Team-Leitung
+
 ### Weitere Funktionen
+- **Link-Vorschauen** — Titel, Text und Bild zu geteilten Links.
+  Der Server prüft vorher, dass die Adresse nicht ins interne Netz zeigt
+- **Weiterleiten** in einen anderen Kanal, mit Kommentar und Herkunftsangabe
+- **Erinnerungen** an einzelne Nachrichten („in 20 Minuten", „morgen früh")
+- **Entwürfe** überleben Kanalwechsel und Neustart, serverseitig gespeichert
+- **Profilkarten** mit Ortszeit, Sprache und Status
 - **Später senden** — über Zeitzonen hinweg zur richtigen Uhrzeit
 - **Ortszeit der Kolleg:innen** in Kopfzeile und Team-Liste (🌙 = wahrscheinlich Feierabend)
 - **Ruhezeiten** — nachts still, direkte Erwähnungen kommen trotzdem durch

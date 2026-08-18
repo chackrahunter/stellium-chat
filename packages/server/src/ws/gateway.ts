@@ -11,6 +11,13 @@ import * as ai from '../services/ai.js';
 import * as channels from '../services/channels.js';
 import * as messages from '../services/messages.js';
 import * as store from '../services/store.js';
+import * as polls from '../services/polls.js';
+import * as reminders from '../services/reminders.js';
+import * as drafts from '../services/drafts.js';
+import { attachPreviews, extractUrls } from '../services/links.js';
+import { saveTranscript, transcribe, voiceNoteFor } from '../services/voice.js';
+import { db as database } from '../db/index.js';
+import { reindexMessage } from '../db/index.js';
 
 interface Session {
   id: string;
@@ -154,18 +161,23 @@ function deliverMessage(message: Message, senderClientId?: string): void {
 
 /* ── Presence ─────────────────────────────────────────────────── */
 
-function setStatus(userId: string, status: UserStatus, emoji?: string | null, text?: string | null): void {
+function setStatus(
+  userId: string, status: UserStatus,
+  emoji?: string | null, text?: string | null, expiresAt?: number | null,
+): void {
   const sets = ['status = ?', 'last_seen_at = ?'];
   const vals: any[] = [status, Date.now()];
   if (emoji !== undefined) { sets.push('status_emoji = ?'); vals.push(emoji); }
   if (text !== undefined) { sets.push('status_text = ?'); vals.push(text); }
+  if (expiresAt !== undefined) { sets.push('status_expires_at = ?'); vals.push(expiresAt); }
   db.run(`UPDATE users SET ${sets.join(', ')} WHERE id = ?`, ...vals, userId);
 
   const u = store.getUser(userId);
   if (u) {
     broadcast({
       t: 'presence', userId, status: u.status,
-      statusEmoji: u.statusEmoji, statusText: u.statusText, lastSeenAt: u.lastSeenAt,
+      statusEmoji: u.statusEmoji, statusText: u.statusText,
+      statusExpiresAt: u.statusExpiresAt, lastSeenAt: u.lastSeenAt,
     });
   }
 }
@@ -240,6 +252,8 @@ async function authenticate(session: Session, ev: Extract<ClientEvent, { t: 'aut
     channels: store.visibleChannels(userId),
     states: store.channelStates(userId),
     scheduled: store.scheduledFor(userId),
+    reminders: reminders.remindersFor(userId),
+    drafts: drafts.draftsFor(userId),
     serverTime: Date.now(),
     ai: aiCapabilities(),
   });
@@ -265,7 +279,7 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
       }
       session.openChannelId = ch.id;
 
-      const { messages: list, hasMore } = store.channelHistory(ch.id, ev.before ?? null, Math.min(ev.limit ?? 50, 100));
+      const { messages: list, hasMore } = store.channelHistory(ch.id, ev.before ?? null, Math.min(ev.limit ?? 50, 100), userId);
       const missing = session.autoTranslate ? fillCachedTranslations(list, session.language) : [];
       send(session, { t: 'channel:history', channelId: ch.id, messages: list, hasMore });
       if (missing.length) translateInBackground(missing, session.language, userId, channelContext(ch.id));
@@ -319,7 +333,7 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
         if (st) sendToUser(uid, { t: 'channel:state', state: st });
       }
       session.openChannelId = ch.id;
-      const { messages: list, hasMore } = store.channelHistory(ch.id, null, 50);
+      const { messages: list, hasMore } = store.channelHistory(ch.id, null, 50, userId);
       const missing = session.autoTranslate ? fillCachedTranslations(list, session.language) : [];
       send(session, { t: 'channel:history', channelId: ch.id, messages: list, hasMore });
       if (missing.length) translateInBackground(missing, session.language, userId, null);
@@ -340,6 +354,7 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
       });
       messages.markRead(ch.id, userId, msg.id);
       deliverMessage(msg, ev.clientId);
+      enrichLinks(msg.id, msg.text, ch.id);
       return;
     }
 
@@ -409,7 +424,7 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
       return;
 
     case 'thread:open': {
-      const list = store.threadHistory(ev.messageId);
+      const list = store.threadHistory(ev.messageId, userId);
       if (!list.length) return fail(session, 'not_found', 'Thread nicht gefunden');
       const missing = session.autoTranslate ? fillCachedTranslations(list, session.language) : [];
       send(session, { t: 'thread:history', parentId: ev.messageId, channelId: list[0].channelId, messages: list });
@@ -433,7 +448,7 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
     }
 
     case 'presence:set':
-      setStatus(userId, ev.status, ev.statusEmoji, ev.statusText);
+      setStatus(userId, ev.status, ev.statusEmoji, ev.statusText, ev.statusExpiresAt);
       return;
 
     case 'prefs:update': {
@@ -537,6 +552,118 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
       return;
     }
 
+    /* ── Umfragen ─────────────────────────────────────────── */
+
+    case 'poll:create': {
+      const ch = store.getChannel(ev.channelId, userId);
+      if (!ch) return fail(session, 'not_found', 'Kanal nicht gefunden');
+      if (ch.kind !== 'public' && !store.isMember(ch.id, userId)) {
+        return fail(session, 'forbidden', 'Kein Zugriff auf diesen Kanal');
+      }
+      const msg = messages.createMessage({
+        channelId: ch.id, userId, text: ev.question.trim(),
+        parentId: ev.parentId ?? null, kind: 'poll',
+      });
+      polls.createPoll({
+        messageId: msg.id, question: ev.question, options: ev.options,
+        multiple: ev.multiple, anonymous: ev.anonymous, closesAt: ev.closesAt ?? null, userId,
+      });
+      // Neu laden, damit die Umfrage dranhängt.
+      deliverMessage(store.getMessage(msg.id, userId)!, ev.clientId);
+      return;
+    }
+
+    case 'poll:vote': {
+      polls.vote(ev.pollId, userId, ev.optionIds);
+      broadcastPoll(ev.pollId);
+      return;
+    }
+
+    case 'poll:close': {
+      const self = store.getSelf(userId);
+      polls.closePoll(ev.pollId, userId, self?.role === 'owner' || self?.role === 'admin');
+      broadcastPoll(ev.pollId);
+      return;
+    }
+
+    /* ── Weiterleiten ─────────────────────────────────────── */
+
+    case 'message:forward': {
+      const original = store.getMessage(ev.messageId, userId);
+      if (!original) return fail(session, 'not_found', 'Nachricht nicht gefunden');
+      const target = store.getChannel(ev.toChannelId, userId);
+      if (!target) return fail(session, 'not_found', 'Zielkanal nicht gefunden');
+      if (target.kind !== 'public' && !store.isMember(target.id, userId)) {
+        return fail(session, 'forbidden', 'Kein Zugriff auf den Zielkanal');
+      }
+      if (!store.isMember(original.channelId, userId) && store.getChannel(original.channelId)?.kind !== 'public') {
+        return fail(session, 'forbidden', 'Kein Zugriff auf die Ursprungsnachricht');
+      }
+
+      const text = [ev.comment?.trim(), original.text].filter(Boolean).join('\n\n');
+      const msg = messages.createMessage({
+        channelId: target.id, userId, text,
+        forwardedFrom: `${original.id}|${original.channelId}|${original.userId}`,
+      });
+      deliverMessage(msg, ev.clientId);
+      enrichLinks(msg.id, msg.text, target.id);
+      return;
+    }
+
+    /* ── Erinnerungen ─────────────────────────────────────── */
+
+    case 'reminder:create': {
+      const reminder = reminders.createReminder({
+        userId, channelId: ev.channelId, messageId: ev.messageId ?? null,
+        note: ev.note ?? null, remindAt: ev.remindAt,
+      });
+      send(session, { t: 'reminder:upsert', reminder });
+      return;
+    }
+
+    case 'reminder:cancel':
+      if (reminders.cancel(ev.reminderId, userId)) {
+        sendToUser(userId, { t: 'reminder:removed', reminderId: ev.reminderId });
+      }
+      return;
+
+    case 'reminder:done':
+      if (reminders.markDone(ev.reminderId, userId)) {
+        sendToUser(userId, { t: 'reminder:removed', reminderId: ev.reminderId });
+      }
+      return;
+
+    /* ── Entwürfe ─────────────────────────────────────────── */
+
+    case 'draft:save':
+      drafts.saveDraft(userId, ev.channelId, ev.parentId ?? null, ev.text);
+      return;
+
+    /* ── Sprachnachrichten ────────────────────────────────── */
+
+    case 'voice:send': {
+      const ch = store.getChannel(ev.channelId, userId);
+      if (!ch) return fail(session, 'not_found', 'Kanal nicht gefunden');
+      if (ch.kind !== 'public' && !store.isMember(ch.id, userId)) {
+        return fail(session, 'forbidden', 'Kein Zugriff auf diesen Kanal');
+      }
+      const msg = messages.createMessage({
+        channelId: ch.id, userId, text: '🎙️ Sprachnachricht',
+        parentId: ev.parentId ?? null, attachmentIds: [ev.attachmentId], kind: 'voice',
+      });
+      messages.markRead(ch.id, userId, msg.id);
+      deliverMessage(msg, ev.clientId);
+      void runTranscription(msg.id, ev.attachmentId);
+      return;
+    }
+
+    case 'voice:retranscribe': {
+      const voice = voiceNoteFor(ev.messageId);
+      if (!voice) return fail(session, 'not_found', 'Keine Aufnahme an dieser Nachricht');
+      void runTranscription(ev.messageId, voice.attachmentId);
+      return;
+    }
+
     case 'ai:ask': {
       const ch = store.getChannel(ev.channelId, userId);
       if (!ch) return fail(session, 'not_found', 'Kanal nicht gefunden', ev.requestId);
@@ -546,6 +673,89 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
       });
       send(session, { t: 'ai:ask', requestId: ev.requestId, ...result });
       return;
+    }
+  }
+}
+
+
+/* ── Helfer für die neuen Funktionen ──────────────────────────── */
+
+/** Umfrage-Stand an alle im Kanal schicken — jede:r sieht die eigene Wahl. */
+function broadcastPoll(pollId: string): void {
+  const row = database.get<{ message_id: string }>('SELECT message_id FROM polls WHERE id = ?', pollId);
+  if (!row) return;
+  const msg = database.get<{ channel_id: string }>('SELECT channel_id FROM messages WHERE id = ?', row.message_id);
+  if (!msg) return;
+  for (const uid of store.memberIds(msg.channel_id)) {
+    const poll = polls.getPoll(pollId, uid);
+    if (poll) sendToUser(uid, { t: 'poll:updated', poll, channelId: msg.channel_id });
+  }
+}
+
+/**
+ * Link-Vorschauen nachreichen. Läuft bewusst nach der Zustellung —
+ * eine langsame fremde Website darf den Chat nicht aufhalten.
+ */
+function enrichLinks(messageId: string, text: string, channelId: string): void {
+  if (!extractUrls(text).length) return;
+  void attachPreviews(messageId, text)
+    .then((links) => {
+      if (!links.length) return;
+      broadcast({ t: 'links', messageId, links }, store.memberIds(channelId));
+    })
+    .catch((err) => console.warn('[links]', (err as Error).message));
+}
+
+/**
+ * Aufnahme transkribieren und das Ergebnis zum Nachrichtentext machen.
+ * Damit greifen Suche und Übersetzung genauso wie bei getippten Nachrichten:
+ * eine japanische Sprachnachricht landet auf Deutsch im Fenster.
+ */
+async function runTranscription(messageId: string, attachmentId: string): Promise<void> {
+  const msg = store.getMessage(messageId);
+  if (!msg) return;
+  const audience = store.memberIds(msg.channelId);
+
+  try {
+    const result = await transcribe(attachmentId);
+    saveTranscript(attachmentId, result);
+
+    // Das Transkript ist ab jetzt der Text der Nachricht.
+    database.run(
+      'UPDATE messages SET text = ?, source_lang = ? WHERE id = ?',
+      result.text, result.lang, messageId,
+    );
+    reindexMessage(messageId);
+
+    const updated = store.getMessage(messageId)!;
+    for (const uid of audience) {
+      sendToUser(uid, { t: 'message:updated', message: store.getMessage(messageId, uid)! });
+      sendToUser(uid, { t: 'voice:transcript', messageId, voice: voiceNoteFor(messageId)! });
+    }
+
+    // Und jetzt wie jede andere Nachricht in die Sprachen der Empfänger bringen.
+    const context = channelContext(updated.channelId);
+    const langs = new Map<string, string[]>();
+    for (const uid of audience) {
+      if (uid === updated.userId) continue;
+      const u = store.getUser(uid);
+      if (!u?.autoTranslate) continue;
+      const target = normalizeLang(u.language);
+      if (target === (result.lang ?? 'unknown')) continue;
+      langs.set(target, [...(langs.get(target) ?? []), uid]);
+    }
+    for (const [target, users] of langs) {
+      void translateMessage(messageId, target, { force: true, context })
+        .then((view) => {
+          if (!view) return;
+          for (const uid of users) sendToUser(uid, { t: 'translation', messageId, translation: view });
+        })
+        .catch(() => { /* Original bleibt sichtbar */ });
+    }
+  } catch (err) {
+    console.warn('[voice]', (err as Error).message);
+    for (const uid of audience) {
+      sendToUser(uid, { t: 'voice:transcript', messageId, voice: voiceNoteFor(messageId)! });
     }
   }
 }
@@ -574,6 +784,44 @@ export function startBackgroundJobs(): () => void {
     }
   }, 5_000);
 
+  // Fällige Erinnerungen zustellen
+  const reminderTimer = setInterval(() => {
+    try {
+      for (const reminder of reminders.due(Date.now())) {
+        const owner = ownerOfReminder(reminder.id);
+        database.run('UPDATE reminders SET done = 1 WHERE id = ?', reminder.id);
+        const message = reminder.messageId ? store.getMessage(reminder.messageId, owner) : null;
+        if (owner) sendToUser(owner, { t: 'reminder:fire', reminder, message });
+      }
+    } catch (err) {
+      console.error('[reminders]', (err as Error).message);
+    }
+  }, 15_000);
+
+  // Abgelaufene Status zurücksetzen ("bin gleich zurück" soll nicht ewig stehen)
+  const statusTimer = setInterval(() => {
+    try {
+      const expired = database.all<{ id: string }>(
+        'SELECT id FROM users WHERE status_expires_at IS NOT NULL AND status_expires_at <= ?', Date.now(),
+      );
+      for (const row of expired) {
+        database.run(
+          "UPDATE users SET status_emoji = NULL, status_text = NULL, status_expires_at = NULL WHERE id = ?",
+          row.id,
+        );
+        const u = store.getUser(row.id);
+        if (u) {
+          broadcast({
+            t: 'presence', userId: row.id, status: u.status,
+            statusEmoji: null, statusText: null, statusExpiresAt: null, lastSeenAt: u.lastSeenAt,
+          });
+        }
+      }
+    } catch (err) {
+      console.error('[status]', (err as Error).message);
+    }
+  }, 30_000);
+
   // Tote Sockets aussortieren
   const heartbeat = setInterval(() => {
     for (const s of sessions.values()) {
@@ -583,7 +831,17 @@ export function startBackgroundJobs(): () => void {
     }
   }, 30_000);
 
-  return () => { clearInterval(scheduler); clearInterval(heartbeat); };
+  return () => {
+    clearInterval(scheduler);
+    clearInterval(reminderTimer);
+    clearInterval(statusTimer);
+    clearInterval(heartbeat);
+  };
+}
+
+/** Zu wem gehört die Erinnerung? Die Liste liefert sie ohne Besitzer mit. */
+function ownerOfReminder(reminderId: string): string {
+  return database.get<{ user_id: string }>('SELECT user_id FROM reminders WHERE id = ?', reminderId)?.user_id ?? '';
 }
 
 export function onlineUserIds(): string[] {

@@ -1,13 +1,13 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Bell, Globe, LogOut, Moon, Palette, Server, Sparkles, User, X } from 'lucide-react';
-import { LANGUAGES } from '@stellium/shared';
+import { Bell, Cpu, Globe, Loader2, LogOut, Palette, Server, Sparkles, User, Volume2, X } from 'lucide-react';
+import { LANGUAGES, type AiModelInfo } from '@stellium/shared';
 import { useStore } from '../state/store.js';
-import { serverUrl, setServerUrl } from '../net/api.js';
+import { api, serverUrl, setServerUrl } from '../net/api.js';
 import { Avatar } from './Avatar.jsx';
 import { languageInfo } from '../lib/format.js';
 
-type Tab = 'profil' | 'sprache' | 'benachrichtigungen' | 'darstellung' | 'server';
+type Tab = 'profil' | 'sprache' | 'modelle' | 'benachrichtigungen' | 'darstellung' | 'server';
 
 export function Settings({ onClose }: { onClose: () => void }) {
   const self = useStore((s) => s.self);
@@ -73,6 +73,24 @@ export function Settings({ onClose }: { onClose: () => void }) {
                 checked={self.composeTargetPreview}
                 onChange={(v) => updatePrefs({ composeTargetPreview: v })}
               />
+
+              <div className="field" style={{ marginTop: 'var(--sp-4)' }}>
+                <label className="field__label">Wie soll übersetzt werden?</label>
+                <div className="hstack gap-2">
+                  {([
+                    ['fast', 'Schnell', 'Kleines Modell, Antwort in Sekundenbruchteilen'],
+                    ['balanced', 'Ausgewogen', 'Kurzes schnell, Längeres gründlich'],
+                    ['accurate', 'Genau', 'Immer das große Modell'],
+                  ] as const).map(([value, label, hint]) => (
+                    <button
+                      key={value}
+                      className={`btn${self.translationSpeed === value ? ' btn--primary' : ''}`}
+                      title={hint}
+                      onClick={() => updatePrefs({ translationSpeed: value })}
+                    >{label}</button>
+                  ))}
+                </div>
+              </div>
 
               <div className="ai-card" style={{ marginTop: 'var(--sp-4)' }}>
                 <div className="ai-card__head"><Sparkles size={12} /> Übersetzungs-Dienst</div>
@@ -142,6 +160,8 @@ export function Settings({ onClose }: { onClose: () => void }) {
             </>
           )}
 
+          {tab === 'modelle' && <ModelPicker />}
+
           {tab === 'benachrichtigungen' && (
             <>
               <div className="field">
@@ -156,6 +176,20 @@ export function Settings({ onClose }: { onClose: () => void }) {
                   <option value="none">Nie</option>
                 </select>
               </div>
+              <div className="field">
+                <label className="field__label">Klang</label>
+                <select
+                  className="select"
+                  value={self.notificationSound}
+                  onChange={(e) => updatePrefs({ notificationSound: e.target.value })}
+                >
+                  <option value="ping">Ping</option>
+                  <option value="blip">Blip</option>
+                  <option value="chime">Glocke</option>
+                  <option value="aus">Kein Ton</option>
+                </select>
+              </div>
+
               <div className="field">
                 <label className="field__label">Ruhezeiten</label>
                 <div className="hstack gap-2">
@@ -241,6 +275,7 @@ export function Settings({ onClose }: { onClose: () => void }) {
 function Tabs({ tab, setTab }: { tab: Tab; setTab: (t: Tab) => void }) {
   const items: { id: Tab; label: string; icon: React.ReactNode }[] = [
     { id: 'sprache', label: 'Sprache & Übersetzung', icon: <Globe size={14} /> },
+    { id: 'modelle', label: 'KI-Modell', icon: <Cpu size={14} /> },
     { id: 'profil', label: 'Profil', icon: <User size={14} /> },
     { id: 'benachrichtigungen', label: 'Benachrichtigungen', icon: <Bell size={14} /> },
     { id: 'darstellung', label: 'Darstellung', icon: <Palette size={14} /> },
@@ -286,3 +321,149 @@ const TIMEZONES = [
   'Asia/Dubai', 'Asia/Kolkata', 'Asia/Singapore', 'Asia/Shanghai', 'Asia/Tokyo', 'Asia/Seoul',
   'Australia/Sydney', 'Pacific/Auckland', 'UTC',
 ];
+
+
+/* ── Modellauswahl ────────────────────────────────────────────── */
+
+function ModelPicker() {
+  const self = useStore((s) => s.self);
+  const ai = useStore((s) => s.ai);
+  const { selectModels } = useStore.getState();
+
+  const [models, setModels] = useState<AiModelInfo[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    api.models()
+      .then((r) => setModels(r.models))
+      .catch(() => setModels([]))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const mayChange = self?.role === 'owner' || self?.role === 'admin';
+  const usable = models.filter((m) => m.usable);
+  const rejected = models.filter((m) => !m.usable);
+
+  const apply = async (input: { quality?: string | null; fast?: string | null; auto?: boolean }) => {
+    setBusy(true);
+    await selectModels(input);
+    setBusy(false);
+  };
+
+  if (!ai?.assistant) {
+    return (
+      <p className="muted" style={{ fontSize: 13.5 }}>
+        Für die Modellwahl braucht der Server einen Groq-Schlüssel.
+        {ai?.note ? ` ${ai.note}` : ''}
+      </p>
+    );
+  }
+
+  return (
+    <>
+      <p className="muted" style={{ marginTop: 0, fontSize: 13.5 }}>
+        Die Übersetzung macht ein Sprachmodell — kein separater Übersetzungsdienst.
+        Welches Modell das ist, entscheidet der Server normalerweise selbst.
+        Hier kannst du es festlegen.
+      </p>
+
+      <div className="ai-card">
+        <div className="ai-card__head"><Sparkles size={12} /> Aktuell im Einsatz</div>
+        <div className="stack gap-1" style={{ fontSize: 13 }}>
+          <div className="hstack gap-2">
+            <span className="muted" style={{ minWidth: 152 }}>Übersetzung, Zusammenfassung</span>
+            <span className="mono">{ai.model ?? '—'}</span>
+          </div>
+          <div className="hstack gap-2">
+            <span className="muted" style={{ minWidth: 152 }}>Antwortvorschläge</span>
+            <span className="mono">{ai.fastModel ?? '—'}</span>
+          </div>
+          {ai.transcription && (
+            <div className="hstack gap-2">
+              <span className="muted" style={{ minWidth: 152 }}>Sprachnachrichten</span>
+              <span className="mono">{ai.transcriptionModel}</span>
+            </div>
+          )}
+        </div>
+        <p className="muted" style={{ fontSize: 12, margin: '8px 0 0' }}>
+          {ai.modelSource === 'manual' ? 'Von Hand gewählt.'
+            : ai.modelSource === 'pinned' ? 'In der .env festgelegt.'
+            : ai.modelSource === 'auto' ? `Automatisch aus ${ai.modelsAvailable ?? '?'} Modellen gewählt.`
+            : 'Standardwerte.'}
+        </p>
+      </div>
+
+      {!mayChange && (
+        <p className="muted" style={{ fontSize: 12.5 }}>
+          Ändern darf das nur die Team-Leitung — es gilt für alle im Arbeitsbereich.
+        </p>
+      )}
+
+      {mayChange && (
+        <>
+          <div className="field">
+            <label className="field__label">Modell für die Übersetzung</label>
+            <select
+              className="select"
+              value={ai.modelSource === 'manual' ? ai.model ?? '' : ''}
+              disabled={busy || loading}
+              onChange={(e) => void apply(e.target.value ? { quality: e.target.value } : { auto: true })}
+            >
+              <option value="">Automatisch wählen (empfohlen)</option>
+              {usable.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.id}{m.params ? ` — ${m.params} Mrd.` : ''} · {Math.round(m.contextWindow / 1024)}k Kontext
+                </option>
+              ))}
+            </select>
+            <p className="field__hint">
+              Größere Modelle übersetzen feiner, kleinere antworten schneller.
+              Für Chat-Sätze reicht meist das automatisch gewählte.
+            </p>
+          </div>
+
+          <div className="hstack gap-2">
+            <button className="btn" disabled={busy} onClick={() => void apply({ auto: true })}>
+              {busy && <Loader2 size={14} className="spin" />} Zurück auf automatisch
+            </button>
+          </div>
+        </>
+      )}
+
+      {loading && <div className="hstack gap-2 muted" style={{ marginTop: 'var(--sp-4)' }}><Loader2 size={14} className="spin" /> Modelle werden geladen…</div>}
+
+      {usable.length > 0 && (
+        <div style={{ marginTop: 'var(--sp-5)' }}>
+          <div className="ai-section__title">Verfügbar bei {ai.provider} ({usable.length})</div>
+          {usable.map((m) => (
+            <div key={m.id} className="row">
+              <div className="row__main">
+                <div className="row__title mono" style={{ fontSize: 13 }}>{m.id}</div>
+                <div className="row__sub">
+                  {m.ownedBy}
+                  {m.params ? ` · ${m.params} Mrd. Parameter` : ''}
+                  {` · ${Math.round(m.contextWindow / 1024)}k Kontext`}
+                </div>
+              </div>
+              {ai.model === m.id && <span className="msg__tag">aktiv</span>}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {rejected.length > 0 && (
+        <div style={{ marginTop: 'var(--sp-4)' }}>
+          <div className="ai-section__title">Nicht für Chat geeignet ({rejected.length})</div>
+          <div className="muted" style={{ fontSize: 12.5, lineHeight: 1.8 }}>
+            {rejected.map((m) => (
+              <div key={m.id}>
+                <span className="mono">{m.id}</span> — {m.rejected}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </>
+  );
+}

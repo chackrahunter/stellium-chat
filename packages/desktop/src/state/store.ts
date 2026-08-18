@@ -2,8 +2,10 @@ import { create } from 'zustand';
 import {
   normalizeLang,
   type AiCapabilities, type AiSummary, type Channel, type ChannelState,
-  type Message, type RewriteTone, type ScheduledMessage, type SearchHit,
+  type Draft, type LinkPreview, type Message, type Poll, type Reminder,
+  type RewriteTone, type ScheduledMessage, type SearchHit,
   type SelfUser, type ServerEvent, type SmartReply, type User, type UserStatus,
+  type VoiceNote,
 } from '@stellium/shared';
 import { api, setToken, token } from '../net/api.js';
 import { socket, type ConnectionState } from '../net/socket.js';
@@ -15,7 +17,9 @@ export interface Toast {
   body?: string;
 }
 
-export type Overlay = null | 'quick' | 'search' | 'settings' | 'newChannel' | 'glossary' | 'catchup' | 'schedule' | 'people';
+export type Overlay =
+  | null | 'quick' | 'search' | 'settings' | 'newChannel' | 'glossary'
+  | 'catchup' | 'schedule' | 'people' | 'poll' | 'reminders' | 'models';
 
 interface PendingRequest<T> { resolve: (value: T) => void; reject: (err: Error) => void; timer: number }
 
@@ -35,6 +39,8 @@ interface StoreState {
   hasMore: Record<string, boolean>;
   threads: Record<string, Message[]>;          // parentId -> [root, ...replies]
   scheduled: ScheduledMessage[];
+  reminders: Reminder[];
+  drafts: Record<string, string>;          // "channelId:parentId" -> Text
 
   /* Übersetzung */
   translating: Record<string, boolean>;        // messageId -> läuft gerade
@@ -55,6 +61,14 @@ interface StoreState {
   lightbox: string | null;
   searchHits: SearchHit[];
   searching: boolean;
+  /** Nachricht, die gerade weitergeleitet werden soll. */
+  forwarding: Message | null;
+  /** Nachricht, für die eine Erinnerung gesetzt wird. */
+  remindingAbout: Message | null;
+  /** Profilkarte, die gerade offen ist. */
+  profileUserId: string | null;
+  /** Nachricht, die kurz hervorgehoben wird (nach Sprung aus der Suche). */
+  highlightMessageId: string | null;
 
   /* Aktionen */
   boot: () => Promise<void>;
@@ -97,6 +111,29 @@ interface StoreState {
   askChannel: (channelId: string, question: string) => Promise<{ answer: string; citedMessageIds: string[] }>;
   runSearch: (q: string, channelId?: string | null) => Promise<void>;
 
+  /* Umfragen */
+  createPoll: (input: { channelId: string; question: string; options: string[]; multiple: boolean; anonymous: boolean; parentId?: string | null }) => void;
+  votePoll: (pollId: string, optionIds: string[]) => void;
+  closePoll: (pollId: string) => void;
+
+  /* Weiterleiten, Erinnern, Entwürfe */
+  startForward: (message: Message | null) => void;
+  forwardMessage: (messageId: string, toChannelId: string, comment?: string) => void;
+  startReminder: (message: Message | null) => void;
+  createReminder: (input: { channelId: string; messageId?: string | null; note?: string | null; remindAt: number }) => void;
+  cancelReminder: (id: string) => void;
+  saveDraft: (channelId: string, parentId: string | null, text: string) => void;
+  draftFor: (channelId: string, parentId: string | null) => string;
+
+  /* Sprachnachrichten */
+  sendVoice: (input: { channelId: string; attachmentId: string; durationMs: number; parentId?: string | null }) => void;
+  retranscribe: (messageId: string) => void;
+
+  /* Modellwahl */
+  selectModels: (input: { quality?: string | null; fast?: string | null; auto?: boolean }) => Promise<void>;
+
+  setProfileUser: (userId: string | null) => void;
+  jumpToMessage: (channelId: string, messageId: string) => void;
   setOverlay: (overlay: Overlay) => void;
   setSidebarCollapsed: (collapsed: boolean) => void;
   setLightbox: (url: string | null) => void;
@@ -124,6 +161,27 @@ function settle(requestId: string, value: unknown, error?: Error): void {
   pending.delete(requestId);
   if (error) entry.reject(error);
   else entry.resolve(value);
+}
+
+/** Eine Nachricht in allen Kanallisten anfassen — wir wissen nicht immer, wo sie liegt. */
+function patchEverywhere(
+  messages: Record<string, Message[]>, messageId: string, patch: Partial<Message>,
+): Record<string, Message[]> {
+  const out: Record<string, Message[]> = {};
+  for (const [channelId, list] of Object.entries(messages)) {
+    out[channelId] = list.map((m) => (m.id === messageId ? { ...m, ...patch } : m));
+  }
+  return out;
+}
+
+function patchThreads(
+  threads: Record<string, Message[]>, messageId: string, patch: Partial<Message>,
+): Record<string, Message[]> {
+  const out: Record<string, Message[]> = {};
+  for (const [parentId, list] of Object.entries(threads)) {
+    out[parentId] = list.map((m) => (m.id === messageId ? { ...m, ...patch } : m));
+  }
+  return out;
 }
 
 /** Nachricht in die chronologisch sortierte Liste einfügen bzw. ersetzen. */
@@ -159,6 +217,8 @@ export const useStore = create<StoreState>((set, get) => ({
   hasMore: {},
   threads: {},
   scheduled: [],
+  reminders: [],
+  drafts: {},
 
   translating: {},
   showOriginal: {},
@@ -177,6 +237,10 @@ export const useStore = create<StoreState>((set, get) => ({
   lightbox: null,
   searchHits: [],
   searching: false,
+  forwarding: null,
+  remindingAbout: null,
+  profileUserId: null,
+  highlightMessageId: null,
 
   /* ── Start ──────────────────────────────────────────────── */
 
@@ -264,6 +328,7 @@ export const useStore = create<StoreState>((set, get) => ({
       text, sourceLang: null, createdAt: Date.now(), editedAt: null, deletedAt: null,
       systemKind: null, attachments: [], reactions: [], replyCount: 0, lastReplyAt: null,
       threadParticipantIds: [], mentionUserIds: [], pinned: false, translation: null,
+      kind: 'text', forwardedFrom: null, poll: null, voice: null, links: [],
       pending: true, clientId,
     };
 
@@ -416,6 +481,78 @@ export const useStore = create<StoreState>((set, get) => ({
 
   /* ── UI ─────────────────────────────────────────────────── */
 
+  createPoll: ({ channelId, question, options, multiple, anonymous, parentId }) => {
+    socket.send({
+      t: 'poll:create', clientId: uid(), channelId, question,
+      options, multiple, anonymous, parentId: parentId ?? null,
+    });
+    set({ overlay: null });
+  },
+
+  votePoll: (pollId, optionIds) => socket.send({ t: 'poll:vote', pollId, optionIds }) as unknown as void,
+  closePoll: (pollId) => socket.send({ t: 'poll:close', pollId }) as unknown as void,
+
+  startForward: (message) => set({ forwarding: message }),
+  forwardMessage: (messageId, toChannelId, comment) => {
+    socket.send({ t: 'message:forward', clientId: uid(), messageId, toChannelId, comment });
+    set({ forwarding: null });
+    get().toast({ kind: 'ok', title: 'Weitergeleitet' });
+  },
+
+  startReminder: (message) => set({ remindingAbout: message }),
+  createReminder: (input) => {
+    socket.send({ t: 'reminder:create', ...input, messageId: input.messageId ?? null, note: input.note ?? null });
+    set({ remindingAbout: null });
+    get().toast({ kind: 'ok', title: 'Erinnerung gesetzt', body: `Ich melde mich am ${new Date(input.remindAt).toLocaleString('de-DE', { weekday: 'short', hour: '2-digit', minute: '2-digit' })}.` });
+  },
+  cancelReminder: (id) => socket.send({ t: 'reminder:cancel', reminderId: id }) as unknown as void,
+
+  saveDraft: (() => {
+    let timer: number | null = null;
+    return (channelId: string, parentId: string | null, text: string) => {
+      const key = `${channelId}:${parentId ?? ''}`;
+      useStore.setState((s) => ({ drafts: { ...s.drafts, [key]: text } }));
+      // Nicht bei jedem Tastendruck zum Server funken.
+      if (timer !== null) clearTimeout(timer);
+      timer = window.setTimeout(() => {
+        socket.send({ t: 'draft:save', channelId, parentId: parentId ?? null, text });
+      }, 700);
+    };
+  })(),
+
+  draftFor: (channelId, parentId) => get().drafts[`${channelId}:${parentId ?? ''}`] ?? '',
+
+  sendVoice: ({ channelId, attachmentId, durationMs, parentId }) => {
+    socket.send({ t: 'voice:send', clientId: uid(), channelId, attachmentId, durationMs, parentId: parentId ?? null });
+  },
+  retranscribe: (messageId) => socket.send({ t: 'voice:retranscribe', messageId }) as unknown as void,
+
+  selectModels: async (input) => {
+    try {
+      const { ai } = await api.selectModels(input);
+      set({ ai });
+      get().toast({
+        kind: 'ok',
+        title: input.auto ? 'Zurück auf automatische Wahl' : 'Modell übernommen',
+        body: ai.model ?? undefined,
+      });
+    } catch (err) {
+      get().toast({ kind: 'error', title: 'Modellwechsel fehlgeschlagen', body: (err as Error).message });
+    }
+  },
+
+  setProfileUser: (profileUserId) => set({ profileUserId }),
+
+  jumpToMessage: (channelId, messageId) => {
+    get().openChannel(channelId);
+    set({ highlightMessageId: messageId });
+    window.setTimeout(() => {
+      const el = document.querySelector(`[data-message-id="${messageId}"]`);
+      el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      window.setTimeout(() => set({ highlightMessageId: null }), 2600);
+    }, 450);
+  },
+
   setOverlay: (overlay) => set({ overlay }),
   setSidebarCollapsed: (sidebarCollapsed) => set({ sidebarCollapsed }),
   setLightbox: (lightbox) => set({ lightbox }),
@@ -463,6 +600,8 @@ socket.onEvent((ev: ServerEvent) => {
         channels: Object.fromEntries(ev.channels.map((c) => [c.id, c])),
         states: Object.fromEntries(ev.states.map((s) => [s.channelId, s])),
         scheduled: ev.scheduled,
+        reminders: ev.reminders,
+        drafts: Object.fromEntries(ev.drafts.map((d: Draft) => [`${d.channelId}:${d.parentId ?? ''}`, d.text])),
       });
       const active = useStore.getState().activeChannelId
         ?? ev.channels.find((c) => c.kind === 'public')?.id
@@ -634,6 +773,65 @@ socket.onEvent((ev: ServerEvent) => {
     case 'ai:smart-replies': settle(ev.requestId, ev.replies); break;
     case 'ai:rewrite': settle(ev.requestId, ev.text); break;
     case 'ai:ask': settle(ev.requestId, { answer: ev.answer, citedMessageIds: ev.citedMessageIds }); break;
+
+    case 'poll:updated':
+      useStore.setState((s) => ({
+        messages: {
+          ...s.messages,
+          [ev.channelId]: (s.messages[ev.channelId] ?? []).map((m) =>
+            m.id === ev.poll.messageId ? { ...m, poll: ev.poll } : m),
+        },
+      }));
+      break;
+
+    case 'links':
+      useStore.setState((s) => ({ messages: patchEverywhere(s.messages, ev.messageId, { links: ev.links }) }));
+      break;
+
+    case 'voice:transcript':
+      useStore.setState((s) => ({
+        messages: patchEverywhere(s.messages, ev.messageId, { voice: ev.voice }),
+        threads: patchThreads(s.threads, ev.messageId, { voice: ev.voice }),
+      }));
+      break;
+
+    case 'reminder:upsert':
+      useStore.setState((s) => ({
+        reminders: [...s.reminders.filter((r) => r.id !== ev.reminder.id), ev.reminder]
+          .sort((a, b) => a.remindAt - b.remindAt),
+      }));
+      break;
+
+    case 'reminder:removed':
+      useStore.setState((s) => ({ reminders: s.reminders.filter((r) => r.id !== ev.reminderId) }));
+      break;
+
+    case 'reminder:fire': {
+      useStore.setState((s) => ({ reminders: s.reminders.filter((r) => r.id !== ev.reminder.id) }));
+      const channel = store.channels[ev.reminder.channelId];
+      const preview = ev.message?.translation?.text ?? ev.message?.text ?? '';
+      store.toast({
+        kind: 'info',
+        title: ev.reminder.note || 'Erinnerung',
+        body: preview ? preview.slice(0, 140) : `in ${channel?.name ? `#${channel.name}` : 'einem Kanal'}`,
+      });
+      void window.stellium?.notify({
+        title: ev.reminder.note || 'Stellium — Erinnerung',
+        body: preview.slice(0, 160) || 'Du wolltest hier noch einmal hinschauen.',
+        channelId: ev.reminder.channelId,
+      });
+      break;
+    }
+
+    case 'drafts':
+      useStore.setState({
+        drafts: Object.fromEntries(ev.drafts.map((d) => [`${d.channelId}:${d.parentId ?? ''}`, d.text])),
+      });
+      break;
+
+    case 'ai:model-changed':
+      useStore.setState({ ai: ev.ai });
+      break;
 
     case 'error':
       if (ev.requestId) settle(ev.requestId, null, new Error(ev.message));

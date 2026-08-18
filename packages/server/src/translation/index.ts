@@ -3,6 +3,7 @@ import {
   translatableLength, unmaskText, type TranslationView,
 } from '@stellium/shared';
 import { config, aiConfigured } from '../config.js';
+import { getSetting, setSetting, SETTING_MODEL_FAST, SETTING_MODEL_QUALITY } from '../services/settings.js';
 import { db, reindexMessage } from '../db/index.js';
 import { newId, sha1 } from '../util/id.js';
 import { DeepLProvider } from './providers/deepl.js';
@@ -37,7 +38,33 @@ export function assistant(): AssistantProvider | null {
 export async function warmUpModels(): Promise<void> {
   if (!(provider instanceof OpenAICompatibleProvider)) return;
   await provider.registry.refresh();
+  // Von Hand gewählte Modelle haben Vorrang vor der automatischen Auswahl.
+  provider.registry.applyManualChoice(getSetting(SETTING_MODEL_QUALITY), getSetting(SETTING_MODEL_FAST));
   provider.registry.startAutoRefresh();
+}
+
+/**
+ * Modell von Hand festlegen. null für beide Werte schaltet zurück auf
+ * automatische Auswahl. Wird dauerhaft gespeichert.
+ */
+export function chooseModels(quality: string | null, fast: string | null, userId: string): void {
+  setSetting(SETTING_MODEL_QUALITY, quality, userId);
+  setSetting(SETTING_MODEL_FAST, fast, userId);
+  modelRegistry()?.applyManualChoice(quality, fast);
+}
+
+/** Kann der Anbieter Sprachnachrichten transkribieren? */
+export function transcriptionAvailable(): boolean {
+  return provider.name === 'groq' && Boolean(config.ai.groq.apiKey);
+}
+
+/** Das beste Whisper-Modell, das der Anbieter gerade führt. */
+export function transcriptionModel(): string | null {
+  if (!transcriptionAvailable()) return null;
+  const whisper = modelRegistry()?.discovered.filter((m) => /whisper/i.test(m.id)) ?? [];
+  if (!whisper.length) return 'whisper-large-v3-turbo';
+  // "turbo" ist deutlich schneller und für Chat-Länge genau genug.
+  return whisper.find((m) => /turbo/i.test(m.id))?.id ?? whisper[0].id;
 }
 
 export function modelRegistry() {
@@ -54,6 +81,8 @@ export function aiCapabilities() {
     fastModel: provider instanceof OpenAICompatibleProvider ? provider.fastModel : null,
     modelSource: selection?.source ?? null,
     modelsAvailable: registry ? registry.usable.length || null : null,
+    transcription: transcriptionAvailable(),
+    transcriptionModel: transcriptionModel(),
     translation: provider.name !== 'demo',
     assistant: a !== null,
     note: provider.name === 'demo'

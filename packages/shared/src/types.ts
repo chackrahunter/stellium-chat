@@ -18,6 +18,8 @@ export interface User {
   status: UserStatus;
   statusEmoji: string | null;
   statusText: string | null;
+  /** Zeitpunkt, ab dem der Status automatisch zurückgesetzt wird. */
+  statusExpiresAt: number | null;
   lastSeenAt: number | null;
   role: MemberRole;
   createdAt: number;
@@ -31,6 +33,10 @@ export interface SelfUser extends User {
   composeTargetPreview: boolean;   // Übersetzungs-Vorschau vor dem Senden
   theme: 'system' | 'dark' | 'light';
   density: 'comfortable' | 'compact';
+  /** Klang bei Benachrichtigungen — "aus" schaltet ihn ab. */
+  notificationSound: string;
+  /** "fast" nutzt das kleine Modell, "accurate" das große, "balanced" entscheidet nach Textlänge. */
+  translationSpeed: 'fast' | 'balanced' | 'accurate';
 }
 
 export interface Channel {
@@ -103,6 +109,16 @@ export interface Message {
   threadParticipantIds: string[];
   mentionUserIds: string[];
   pinned: boolean;
+  /** "text" | "voice" | "poll" — bestimmt, wie die Nachricht dargestellt wird. */
+  kind: string;
+  /** Gesetzt, wenn die Nachricht aus einem anderen Kanal weitergeleitet wurde. */
+  forwardedFrom: { messageId: string; channelId: string; userId: string } | null;
+  /** Umfrage, falls kind === "poll". */
+  poll: Poll | null;
+  /** Sprachnachricht, falls kind === "voice". */
+  voice: VoiceNote | null;
+  /** Vorschauen zu Links im Text. */
+  links: LinkPreview[];
   /** Für den Empfänger vorbereitete Übersetzung (falls Sprache abweicht). */
   translation: TranslationView | null;
   /** Optimistisch gesendete Nachricht — nur clientseitig gesetzt. */
@@ -158,4 +174,90 @@ export interface AiSummary {
 export interface SmartReply {
   text: string;
   tone: 'kurz' | 'freundlich' | 'formell' | 'nachfrage';
+}
+
+/* ── Umfragen ─────────────────────────────────────────────────── */
+
+export interface PollOption {
+  id: string;
+  text: string;
+  voterIds: string[];      // bei anonymen Umfragen leer
+  votes: number;
+}
+
+export interface Poll {
+  id: string;
+  messageId: string;
+  question: string;
+  options: PollOption[];
+  multiple: boolean;
+  anonymous: boolean;
+  closed: boolean;
+  closesAt: number | null;
+  createdBy: string;
+  totalVoters: number;
+  /** Optionen, die der Betrachter gewählt hat. */
+  myVotes: string[];
+}
+
+/* ── Link-Vorschau ────────────────────────────────────────────── */
+
+export interface LinkPreview {
+  url: string;
+  title: string | null;
+  description: string | null;
+  image: string | null;
+  site: string | null;
+}
+
+/* ── Sprachnachricht ──────────────────────────────────────────── */
+
+export interface VoiceNote {
+  attachmentId: string;
+  url: string;
+  durationMs: number | null;
+  /** Von Whisper erzeugtes Transkript — null, solange es noch läuft. */
+  transcript: string | null;
+  transcriptLang: string | null;
+  /** Transkript in der Sprache des Betrachters. */
+  translatedTranscript: string | null;
+}
+
+/* ── Erinnerungen ─────────────────────────────────────────────── */
+
+export interface Reminder {
+  id: string;
+  messageId: string | null;
+  channelId: string;
+  note: string | null;
+  remindAt: number;
+  done: boolean;
+  createdAt: number;
+}
+
+/* ── Entwürfe ─────────────────────────────────────────────────── */
+
+export interface Draft {
+  channelId: string;
+  parentId: string | null;
+  text: string;
+  updatedAt: number;
+}
+
+/* ── Modellwahl ───────────────────────────────────────────────── */
+
+export interface AiModelInfo {
+  id: string;
+  contextWindow: number;
+  params: number | null;
+  ownedBy: string;
+  usable: boolean;
+  rejected: string | null;
+}
+
+export interface AiModelSelection {
+  quality: string;
+  fast: string;
+  source: 'auto' | 'pinned' | 'manual' | 'fallback';
+  refreshedAt: number;
 }

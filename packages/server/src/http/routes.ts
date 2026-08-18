@@ -7,7 +7,7 @@ import { avatarColorFor, hashPassword, signToken, verifyPassword, verifyToken } 
 import { config } from '../config.js';
 import { db } from '../db/index.js';
 import { newId } from '../util/id.js';
-import { addGlossaryEntry, aiCapabilities, listGlossary, modelRegistry, removeGlossaryEntry } from '../translation/index.js';
+import { addGlossaryEntry, aiCapabilities, chooseModels, listGlossary, modelRegistry, removeGlossaryEntry } from '../translation/index.js';
 import { search } from '../services/search.js';
 import * as store from '../services/store.js';
 
@@ -39,6 +39,37 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   }));
 
   app.get('/api/languages', async () => LANGUAGES);
+
+  /**
+   * Modell für Übersetzung und KI festlegen. Gilt für den ganzen
+   * Arbeitsbereich, deshalb nur für Owner und Admins.
+   */
+  app.post('/api/ai/models', async (req, reply) => {
+    const userId = requireUser(req);
+    const self = store.getSelf(userId);
+    if (self?.role !== 'owner' && self?.role !== 'admin') {
+      return reply.code(403).send({ error: 'Das Übersetzungsmodell darf nur die Team-Leitung ändern.' });
+    }
+
+    const body = req.body as { quality?: string | null; fast?: string | null; auto?: boolean };
+    const registry = modelRegistry();
+    if (!registry) return reply.code(400).send({ error: 'Der aktuelle Anbieter kennt keine Modellwahl.' });
+
+    if (body.auto) {
+      chooseModels(null, null, userId);
+      await registry.refresh();
+      return { selection: registry.current, ai: aiCapabilities() };
+    }
+
+    const known = new Set(registry.discovered.filter((m) => !m.rejected).map((m) => m.id));
+    for (const id of [body.quality, body.fast]) {
+      if (id && known.size && !known.has(id)) {
+        return reply.code(400).send({ error: `Modell "${id}" gibt es nicht oder es beantwortet keine Chat-Anfragen.` });
+      }
+    }
+    chooseModels(body.quality ?? null, body.fast ?? body.quality ?? null, userId);
+    return { selection: registry.current, ai: aiCapabilities() };
+  });
 
   /** Was der Anbieter anbietet und was davon gerade benutzt wird. */
   app.get('/api/ai/models', async (req) => {

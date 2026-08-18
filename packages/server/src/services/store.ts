@@ -3,6 +3,9 @@ import type {
   ScheduledMessage, SelfUser, User,
 } from '@stellium/shared';
 import { db, placeholders } from '../db/index.js';
+import { linkPreviewsFor } from './links.js';
+import { pollForMessage } from './polls.js';
+import { voiceNoteFor } from './voice.js';
 
 /* ── Nutzer ───────────────────────────────────────────────────── */
 
@@ -21,6 +24,7 @@ export function toUser(r: any): User {
     status: r.status,
     statusEmoji: r.status_emoji ?? null,
     statusText: r.status_text ?? null,
+    statusExpiresAt: r.status_expires_at ?? null,
     lastSeenAt: r.last_seen_at ?? null,
     role: r.role,
     createdAt: r.created_at,
@@ -36,6 +40,8 @@ export function toSelf(r: any): SelfUser {
     composeTargetPreview: Boolean(r.compose_target_preview),
     theme: r.theme,
     density: r.density,
+    notificationSound: r.notification_sound ?? 'ping',
+    translationSpeed: r.translation_speed ?? 'balanced',
   };
 }
 
@@ -221,7 +227,7 @@ function threadInfoFor(messageIds: string[]): Map<string, { count: number; lastA
   return out;
 }
 
-export function hydrateMessages(rows: any[]): Message[] {
+export function hydrateMessages(rows: any[], viewerId = ''): Message[] {
   const ids = rows.map((r) => r.id);
   const atts = attachmentsFor(ids);
   const reacts = reactionsFor(ids);
@@ -230,6 +236,7 @@ export function hydrateMessages(rows: any[]): Message[] {
 
   return rows.map((r) => {
     const thread = threads.get(r.id);
+    const kind = r.kind ?? 'text';
     return {
       id: r.id,
       channelId: r.channel_id,
@@ -248,17 +255,28 @@ export function hydrateMessages(rows: any[]): Message[] {
       threadParticipantIds: thread?.participants ?? [],
       mentionUserIds: mentions.get(r.id) ?? [],
       pinned: Boolean(r.pinned),
+      kind,
+      forwardedFrom: r.forwarded_from ? parseForward(r.forwarded_from) : null,
+      poll: kind === 'poll' ? pollForMessage(r.id, viewerId) : null,
+      voice: kind === 'voice' ? voiceNoteFor(r.id) : null,
+      links: r.deleted_at ? [] : linkPreviewsFor(r.id),
       translation: null,
     } satisfies Message;
   });
 }
 
-export function getMessage(id: string): Message | null {
+export function getMessage(id: string, viewerId = ''): Message | null {
   const r = db.get('SELECT * FROM messages WHERE id = ?', id);
-  return r ? hydrateMessages([r])[0] : null;
+  return r ? hydrateMessages([r], viewerId)[0] : null;
 }
 
-export function channelHistory(channelId: string, before: string | null, limit: number): { messages: Message[]; hasMore: boolean } {
+/** Weiterleitungs-Herkunft steckt als kompakter String in der Spalte. */
+function parseForward(raw: string): Message['forwardedFrom'] {
+  const [messageId, channelId, userId] = raw.split('|');
+  return messageId && channelId && userId ? { messageId, channelId, userId } : null;
+}
+
+export function channelHistory(channelId: string, before: string | null, limit: number, viewerId = ''): { messages: Message[]; hasMore: boolean } {
   const rows = before
     ? db.all(
         `SELECT * FROM messages WHERE channel_id = ? AND parent_id IS NULL AND id < ?
@@ -268,13 +286,13 @@ export function channelHistory(channelId: string, before: string | null, limit: 
          ORDER BY created_at DESC LIMIT ?`, channelId, limit + 1);
   const hasMore = rows.length > limit;
   const page = hasMore ? rows.slice(0, limit) : rows;
-  return { messages: hydrateMessages(page.reverse()), hasMore };
+  return { messages: hydrateMessages(page.reverse(), viewerId), hasMore };
 }
 
-export function threadHistory(parentId: string): Message[] {
+export function threadHistory(parentId: string, viewerId = ''): Message[] {
   const root = db.get('SELECT * FROM messages WHERE id = ?', parentId);
   const replies = db.all('SELECT * FROM messages WHERE parent_id = ? ORDER BY created_at ASC', parentId);
-  return hydrateMessages(root ? [root, ...replies] : replies);
+  return hydrateMessages(root ? [root, ...replies] : replies, viewerId);
 }
 
 export function pinnedMessages(channelId: string): Message[] {
@@ -289,7 +307,7 @@ export function savedMessages(userId: string): Message[] {
     `SELECT m.* FROM saved_messages s JOIN messages m ON m.id = s.message_id
      WHERE s.user_id = ? AND m.deleted_at IS NULL ORDER BY s.created_at DESC LIMIT 100`,
     userId,
-  ));
+  ), userId);
 }
 
 /* ── Geplante Nachrichten ─────────────────────────────────────── */

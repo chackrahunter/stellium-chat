@@ -162,3 +162,98 @@ CREATE TABLE IF NOT EXISTS ai_summaries (
   payload    TEXT NOT NULL,      -- JSON
   created_at INTEGER NOT NULL
 );
+
+-- ─────────────────────────────────────────────────────────────────
+-- Erweiterungen
+-- ─────────────────────────────────────────────────────────────────
+
+-- Server-weite Einstellungen, z.B. das gewählte Übersetzungsmodell.
+CREATE TABLE IF NOT EXISTS app_settings (
+  key        TEXT PRIMARY KEY,
+  value      TEXT NOT NULL,
+  updated_by TEXT,
+  updated_at INTEGER NOT NULL
+);
+
+-- Umfragen hängen an einer Nachricht und werden mit ihr gelöscht.
+CREATE TABLE IF NOT EXISTS polls (
+  id         TEXT PRIMARY KEY,
+  message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+  question   TEXT NOT NULL,
+  multiple   INTEGER NOT NULL DEFAULT 0,
+  anonymous  INTEGER NOT NULL DEFAULT 0,
+  closed     INTEGER NOT NULL DEFAULT 0,
+  closes_at  INTEGER,
+  created_by TEXT NOT NULL REFERENCES users(id),
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_polls_message ON polls(message_id);
+
+CREATE TABLE IF NOT EXISTS poll_options (
+  id       TEXT PRIMARY KEY,
+  poll_id  TEXT NOT NULL REFERENCES polls(id) ON DELETE CASCADE,
+  position INTEGER NOT NULL,
+  text     TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_poll_options ON poll_options(poll_id, position);
+
+CREATE TABLE IF NOT EXISTS poll_votes (
+  poll_id    TEXT NOT NULL REFERENCES polls(id) ON DELETE CASCADE,
+  option_id  TEXT NOT NULL REFERENCES poll_options(id) ON DELETE CASCADE,
+  user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (poll_id, option_id, user_id)
+);
+
+-- Link-Vorschauen werden pro URL genau einmal geholt und geteilt.
+CREATE TABLE IF NOT EXISTS link_previews (
+  url_hash    TEXT PRIMARY KEY,
+  url         TEXT NOT NULL,
+  title       TEXT,
+  description TEXT,
+  image       TEXT,
+  site        TEXT,
+  ok          INTEGER NOT NULL DEFAULT 1,
+  fetched_at  INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS message_links (
+  message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+  url_hash   TEXT NOT NULL,
+  position   INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (message_id, url_hash)
+);
+
+-- Erinnerungen an einzelne Nachrichten.
+CREATE TABLE IF NOT EXISTS reminders (
+  id         TEXT PRIMARY KEY,
+  user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  message_id TEXT REFERENCES messages(id) ON DELETE CASCADE,
+  channel_id TEXT NOT NULL,
+  note       TEXT,
+  remind_at  INTEGER NOT NULL,
+  done       INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_reminders_due ON reminders(remind_at, done);
+
+-- Entwürfe überleben Kanalwechsel und Neustart.
+CREATE TABLE IF NOT EXISTS drafts (
+  user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  channel_id TEXT NOT NULL,
+  parent_id  TEXT NOT NULL DEFAULT '',
+  text       TEXT NOT NULL,
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY (user_id, channel_id, parent_id)
+);
+
+-- Transkript einer Sprachnachricht, erzeugt von Groqs Whisper.
+CREATE TABLE IF NOT EXISTS voice_transcripts (
+  attachment_id TEXT PRIMARY KEY REFERENCES attachments(id) ON DELETE CASCADE,
+  text          TEXT NOT NULL,
+  lang          TEXT,
+  duration_ms   INTEGER,
+  provider      TEXT NOT NULL,
+  model         TEXT,
+  created_at    INTEGER NOT NULL
+);
