@@ -2,9 +2,21 @@ import 'dotenv/config';
 import path from 'node:path';
 import fs from 'node:fs';
 import crypto from 'node:crypto';
+import { fileURLToPath } from 'node:url';
 import { Vault, redact, resolvePassphrase } from './secrets.js';
 
-const root = process.cwd();
+/**
+ * Die Daten hängen am Server-Paket, nicht am Arbeitsverzeichnis.
+ *
+ * Vorher entschied das aktuelle Verzeichnis darüber, wo Datenbank und Tresor
+ * liegen: aus dem Projektwurzelverzeichnis gestartet fand der Server einen
+ * anderen Datenbestand als aus packages/server heraus — mit leerer Datenbank
+ * und ohne Schlüssel, ohne dass irgendetwas kaputt aussah.
+ *
+ * Diese Datei liegt in src/ beziehungsweise dist/; eine Ebene darüber ist das
+ * Paketverzeichnis.
+ */
+const paketWurzel = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 function int(name: string, fallback: number): number {
   const v = process.env[name];
@@ -16,13 +28,23 @@ function str(name: string, fallback = ''): string {
   return (process.env[name] ?? fallback).trim();
 }
 
-const dataDir = path.resolve(root, str('DATA_DIR', './data'));
-const uploadDir = path.resolve(root, str('UPLOAD_DIR', path.join(dataDir, 'uploads')));
+/**
+ * Ein ausdrücklich gesetzter Pfad gilt relativ zum Arbeitsverzeichnis — wer ihn
+ * angibt, meint das, was er gerade vor sich hat. Die Vorgabe dagegen hängt am
+ * Paket und bleibt damit überall dieselbe.
+ */
+function ordner(name: string, vorgabe: string): string {
+  const gesetzt = str(name);
+  return gesetzt ? path.resolve(process.cwd(), gesetzt) : path.resolve(paketWurzel, vorgabe);
+}
+
+const dataDir = ordner('DATA_DIR', 'data');
+const uploadDir = ordner('UPLOAD_DIR', path.join(dataDir, 'uploads'));
 fs.mkdirSync(dataDir, { recursive: true });
-const storageDir = path.resolve(root, str('STORAGE_DIR', path.join(dataDir, 'storage')));
+const storageDir = ordner('STORAGE_DIR', path.join(dataDir, 'storage'));
 fs.mkdirSync(uploadDir, { recursive: true });
 fs.mkdirSync(storageDir, { recursive: true });
-const releaseDir = path.resolve(root, str('RELEASE_DIR', path.join(dataDir, 'releases')));
+const releaseDir = ordner('RELEASE_DIR', path.join(dataDir, 'releases'));
 fs.mkdirSync(releaseDir, { recursive: true });
 
 /** Secret persistieren, damit Tokens einen Neustart überleben. */
