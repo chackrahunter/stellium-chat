@@ -170,9 +170,20 @@ while [[ -z "$WAHL" ]]; do
         [[ "$DOMAIN" =~ ^[a-zA-Z0-9]([a-zA-Z0-9.-]*[a-zA-Z0-9])?\.[a-zA-Z]{2,}$ ]] || {
           warn "Das sieht nicht nach einer Domain aus."; DOMAIN=""; }
       done
-      while [[ -z "$MAIL" ]]; do
-        MAIL="$(frage "E-Mail für Let's Encrypt (Warnung vor Ablauf): " "${STELLIUM_MAIL:-}")"
-        [[ "$MAIL" == *@*.* ]] || { warn "Das sieht nicht nach einer E-Mail aus."; MAIL=""; }
+      cat <<MAILHINWEIS
+
+  ${GRAU}Let's Encrypt möchte eine Kontaktadresse. Sie steht nicht im
+  Zertifikat und ist für niemanden sichtbar — sie dient nur dazu,
+  dich zu warnen, falls das Zertifikat abzulaufen droht und die
+  automatische Verlängerung einmal nicht geklappt hat.
+
+  Leer lassen geht; dann bekommst du diese Warnung nicht.${AUS}
+
+MAILHINWEIS
+      MAIL="$(frage "E-Mail (oder leer): " "${STELLIUM_MAIL:-}")"
+      while [[ -n "$MAIL" && "$MAIL" != *@*.* ]]; do
+        warn "Das sieht nicht nach einer E-Mail aus. Leer lassen ist auch in Ordnung."
+        MAIL="$(frage "E-Mail (oder leer): " "")"
       done
       ;;
     2)
@@ -197,9 +208,20 @@ DUCK
         [[ ${#DUCK_TOKEN} -ge 20 ]] || { warn "Das sieht zu kurz aus."; DUCK_TOKEN=""; }
       done
       DOMAIN="$DUCK_NAME.duckdns.org"
-      while [[ -z "$MAIL" ]]; do
-        MAIL="$(frage "E-Mail für Let's Encrypt (Warnung vor Ablauf): " "${STELLIUM_MAIL:-}")"
-        [[ "$MAIL" == *@*.* ]] || { warn "Das sieht nicht nach einer E-Mail aus."; MAIL=""; }
+      cat <<MAILHINWEIS
+
+  ${GRAU}Let's Encrypt möchte eine Kontaktadresse. Sie steht nicht im
+  Zertifikat und ist für niemanden sichtbar — sie dient nur dazu,
+  dich zu warnen, falls das Zertifikat abzulaufen droht und die
+  automatische Verlängerung einmal nicht geklappt hat.
+
+  Leer lassen geht; dann bekommst du diese Warnung nicht.${AUS}
+
+MAILHINWEIS
+      MAIL="$(frage "E-Mail (oder leer): " "${STELLIUM_MAIL:-}")"
+      while [[ -n "$MAIL" && "$MAIL" != *@*.* ]]; do
+        warn "Das sieht nicht nach einer E-Mail aus. Leer lassen ist auch in Ordnung."
+        MAIL="$(frage "E-Mail (oder leer): " "")"
       done
       ;;
     3)
@@ -726,8 +748,14 @@ P2
   if [[ -d "/etc/letsencrypt/live/$DOMAIN" ]]; then
     info "Zertifikat besteht bereits"
   else
+    if [[ -n "$MAIL" ]]; then
+      MAIL_ARG=(-m "$MAIL" --no-eff-email)
+    else
+      # Ohne Adresse verlangt Let's Encrypt diese ausdrückliche Bestätigung.
+      MAIL_ARG=(--register-unsafely-without-email)
+    fi
     certbot certonly --webroot -w /var/www/html -d "$DOMAIN" \
-      --non-interactive --agree-tos -m "$MAIL" --no-eff-email >/dev/null 2>&1 \
+      --non-interactive --agree-tos "${MAIL_ARG[@]}" >/dev/null 2>&1 \
       || fehler "Let's Encrypt hat kein Zertifikat ausgestellt. Genauer:  certbot certonly --webroot -w /var/www/html -d $DOMAIN"
   fi
   ok "Zertifikat für $DOMAIN"

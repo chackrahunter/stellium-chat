@@ -47,6 +47,16 @@ Das Skript hält sie aktuell, auch wenn euer Anschluss die IP-Adresse wechselt.
 **3 · Nur im Heimnetz.** Ohne Verschlüsselung. Zum Ausprobieren in Ordnung, für
 echte Gespräche nicht.
 
+### Die E-Mail-Adresse
+
+Beim Zertifikat fragt das Skript nach einer Adresse. Die geht an Let's Encrypt
+und wird nur benutzt, um dich zu warnen, falls das Zertifikat abzulaufen droht.
+Sie steht nicht im Zertifikat, ist für Besucher nicht sichtbar und wird nirgends
+verschlüsselt abgelegt — sie hat mit der Verschlüsselung des Chats nichts zu tun.
+
+Leer lassen geht. Dann verlängert sich das Zertifikat weiterhin von selbst, nur
+die Warnung im Störfall bleibt aus.
+
 ### Die Ports
 
 Für 1 und 2 müssen **Port 80 und 443** vom Router auf den Pi zeigen — sonst
