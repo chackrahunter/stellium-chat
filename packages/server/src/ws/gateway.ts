@@ -12,6 +12,8 @@ import * as channels from '../services/channels.js';
 import * as messages from '../services/messages.js';
 import * as store from '../services/store.js';
 import * as polls from '../services/polls.js';
+import { may } from '../services/users.js';
+import { extractMentions, mentionsEveryone, PERMISSIONS, type PermissionKey } from '@stellium/shared';
 import * as reminders from '../services/reminders.js';
 import * as drafts from '../services/drafts.js';
 import { attachPreviews, extractUrls } from '../services/links.js';
@@ -50,6 +52,18 @@ function broadcast(ev: ServerEvent, userIds?: Iterable<string>): void {
 
 function fail(session: Session, code: string, message: string, requestId?: string): void {
   send(session, { t: 'error', code, message, requestId });
+}
+
+/**
+ * Rechteprüfung. Die Oberfläche blendet Dinge zwar aus, aber verlassen darf
+ * man sich nur auf das hier — ein eigener Client könnte alles schicken.
+ */
+function darf(session: Session, permission: PermissionKey): boolean {
+  if (!session.userId) return false;
+  if (may(session.userId, permission)) return true;
+  const info = PERMISSIONS.find((p) => p.key === permission);
+  fail(session, 'forbidden', `Dafür fehlt dir das Recht "${info?.labelDe ?? permission}".`);
+  return false;
 }
 
 function isOnline(userId: string): boolean {
@@ -287,6 +301,7 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
     }
 
     case 'channel:create': {
+      if (!darf(session, ev.kind === 'private' ? 'channel.create_private' : 'channel.create')) return;
       const ch = channels.createChannel({
         kind: ev.kind, name: ev.name, topic: ev.topic ?? null,
         primaryLanguage: ev.primaryLanguage ?? null, createdBy: userId, memberIds: ev.memberIds,
@@ -318,6 +333,7 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
       return;
 
     case 'channel:update': {
+      if (!darf(session, ev.archived !== undefined ? 'channel.archive' : 'channel.manage')) return;
       const ch = channels.updateChannel(ev.channelId, {
         topic: ev.topic, purpose: ev.purpose, primaryLanguage: ev.primaryLanguage, archived: ev.archived,
       });
@@ -326,6 +342,7 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
     }
 
     case 'dm:open': {
+      if (!darf(session, 'dm.start')) return;
       const ch = channels.openDm(userId, ev.userId);
       for (const uid of ch.memberIds) {
         sendToUser(uid, { t: 'channel:upsert', channel: store.getChannel(ch.id, uid)! });
@@ -341,6 +358,7 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
     }
 
     case 'message:send': {
+      if (!darf(session, 'message.send')) return;
       const ch = store.getChannel(ev.channelId, userId);
       if (!ch) return fail(session, 'not_found', 'Kanal nicht gefunden');
       if (ch.kind !== 'public' && !store.isMember(ch.id, userId)) {
@@ -348,9 +366,21 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
       }
       if (ch.kind === 'public') channels.ensureMember(ch.id, userId);
 
+      // Erwähnungen sind ein eigenes Recht: wer es nicht hat, soll das auch
+      // erfahren, statt dass die Benachrichtigung still verschluckt wird.
+      const darfErwaehnen = may(userId, 'mention.user');
+      const darfAlle = may(userId, 'mention.everyone');
+      if (!darfErwaehnen && extractMentions(ev.text).length > 0) {
+        return fail(session, 'forbidden', 'Dafür fehlt dir das Recht "Personen erwähnen".');
+      }
+      if (!darfAlle && mentionsEveryone(ev.text)) {
+        return fail(session, 'forbidden', 'Dafür fehlt dir das Recht "Alle erwähnen".');
+      }
+
       const msg = messages.createMessage({
         channelId: ch.id, userId, text: ev.text, parentId: ev.parentId ?? null,
         attachmentIds: ev.attachmentIds, sourceLang: ev.sourceLang ?? null,
+        mayMention: darfErwaehnen, mayMentionEveryone: darfAlle,
       });
       messages.markRead(ch.id, userId, msg.id);
       deliverMessage(msg, ev.clientId);
@@ -359,6 +389,10 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
     }
 
     case 'message:edit': {
+      if (!darf(session, 'message.edit_own')) return;
+      if (!may(userId, 'mention.user') && extractMentions(ev.text).length > 0) {
+        return fail(session, 'forbidden', 'Dafür fehlt dir das Recht "Personen erwähnen".');
+      }
       const msg = messages.editMessage(ev.messageId, userId, ev.text);
       broadcast({ t: 'message:updated', message: msg }, store.memberIds(msg.channelId));
       // Neu übersetzen für alle, die zuschauen
@@ -385,13 +419,15 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
     }
 
     case 'message:delete': {
-      const self = store.getSelf(userId);
-      const { channelId } = messages.deleteMessage(ev.messageId, userId, self?.role === 'owner' || self?.role === 'admin');
+      const eigene = store.getMessage(ev.messageId)?.userId === userId;
+      if (!darf(session, eigene ? 'message.delete_own' : 'message.delete_any')) return;
+      const { channelId } = messages.deleteMessage(ev.messageId, userId, may(userId, 'message.delete_any'));
       broadcast({ t: 'message:deleted', messageId: ev.messageId, channelId }, store.memberIds(channelId));
       return;
     }
 
     case 'message:react': {
+      if (!darf(session, 'reaction.add')) return;
       const { channelId } = messages.toggleReaction(ev.messageId, userId, ev.emoji);
       const msg = store.getMessage(ev.messageId);
       if (msg) broadcast({ t: 'reaction:updated', messageId: msg.id, channelId, reactions: msg.reactions }, store.memberIds(channelId));
@@ -399,6 +435,7 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
     }
 
     case 'message:pin': {
+      if (!darf(session, 'message.pin')) return;
       const msg = messages.setPinned(ev.messageId, ev.pinned);
       if (msg) broadcast({ t: 'message:updated', message: msg }, store.memberIds(msg.channelId));
       return;
@@ -409,6 +446,7 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
       return;
 
     case 'message:schedule': {
+      if (!darf(session, 'message.schedule')) return;
       const id = messages.scheduleMessage({
         channelId: ev.channelId, userId, text: ev.text, sendAt: ev.sendAt, parentId: ev.parentId ?? null,
       });
@@ -517,6 +555,7 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
     }
 
     case 'ai:catchup': {
+      if (!darf(session, 'ai.assistant')) return;
       const ch = store.getChannel(ev.channelId, userId);
       if (!ch) return fail(session, 'not_found', 'Kanal nicht gefunden', ev.requestId);
       const state = store.channelState(ev.channelId, userId);
@@ -531,12 +570,14 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
     }
 
     case 'ai:thread-summary': {
+      if (!darf(session, 'ai.assistant')) return;
       const summary = await ai.summarizeThread(ev.messageId, session.language);
       send(session, { t: 'ai:thread-summary', requestId: ev.requestId, messageId: ev.messageId, summary });
       return;
     }
 
     case 'ai:smart-replies': {
+      if (!darf(session, 'ai.assistant')) return;
       const self = store.getSelf(userId)!;
       const replies = await ai.smartReplies({
         channelId: ev.channelId, parentId: ev.parentId ?? null,
@@ -547,6 +588,7 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
     }
 
     case 'ai:rewrite': {
+      if (!darf(session, 'ai.assistant')) return;
       const text = await ai.rewrite({ text: ev.text, tone: ev.tone, targetLang: ev.targetLang ?? null });
       send(session, { t: 'ai:rewrite', requestId: ev.requestId, text });
       return;
@@ -555,6 +597,7 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
     /* ── Umfragen ─────────────────────────────────────────── */
 
     case 'poll:create': {
+      if (!darf(session, 'poll.create')) return;
       const ch = store.getChannel(ev.channelId, userId);
       if (!ch) return fail(session, 'not_found', 'Kanal nicht gefunden');
       if (ch.kind !== 'public' && !store.isMember(ch.id, userId)) {
@@ -580,8 +623,7 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
     }
 
     case 'poll:close': {
-      const self = store.getSelf(userId);
-      polls.closePoll(ev.pollId, userId, self?.role === 'owner' || self?.role === 'admin');
+      polls.closePoll(ev.pollId, userId, may(userId, 'poll.close_any'));
       broadcastPoll(ev.pollId);
       return;
     }
@@ -589,6 +631,7 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
     /* ── Weiterleiten ─────────────────────────────────────── */
 
     case 'message:forward': {
+      if (!darf(session, 'message.forward')) return;
       const original = store.getMessage(ev.messageId, userId);
       if (!original) return fail(session, 'not_found', 'Nachricht nicht gefunden');
       const target = store.getChannel(ev.toChannelId, userId);
@@ -642,6 +685,7 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
     /* ── Sprachnachrichten ────────────────────────────────── */
 
     case 'voice:send': {
+      if (!darf(session, 'voice.send')) return;
       const ch = store.getChannel(ev.channelId, userId);
       if (!ch) return fail(session, 'not_found', 'Kanal nicht gefunden');
       if (ch.kind !== 'public' && !store.isMember(ch.id, userId)) {
@@ -665,6 +709,7 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
     }
 
     case 'ai:ask': {
+      if (!darf(session, 'ai.assistant')) return;
       const ch = store.getChannel(ev.channelId, userId);
       if (!ch) return fail(session, 'not_found', 'Kanal nicht gefunden', ev.requestId);
       const result = await ai.askChannel({

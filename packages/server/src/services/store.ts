@@ -1,8 +1,10 @@
 import type {
-  Attachment, Channel, ChannelState, Message, Reaction,
+  Attachment, Channel, ChannelState, ManagedUser, Message, Reaction,
   ScheduledMessage, SelfUser, User,
 } from '@stellium/shared';
 import { db, placeholders } from '../db/index.js';
+import { blindIndex, decryptField, maskEmail } from '../crypto/pii.js';
+import { overridesFor, permissionsFor } from './users.js';
 import { linkPreviewsFor } from './links.js';
 import { pollForMessage } from './polls.js';
 import { voiceNoteFor } from './voice.js';
@@ -12,9 +14,10 @@ import { voiceNoteFor } from './voice.js';
 export function toUser(r: any): User {
   return {
     id: r.id,
-    handle: r.handle,
+    // Benutzername und E-Mail liegen verschlüsselt in der Datenbank.
+    handle: decryptField(r.handle),
     displayName: r.display_name,
-    email: r.email,
+    email: decryptField(r.email),
     avatarColor: r.avatar_color,
     avatarUrl: r.avatar_url ?? null,
     title: r.title ?? null,
@@ -27,6 +30,7 @@ export function toUser(r: any): User {
     statusExpiresAt: r.status_expires_at ?? null,
     lastSeenAt: r.last_seen_at ?? null,
     role: r.role,
+    disabled: Boolean(r.disabled),
     createdAt: r.created_at,
   };
 }
@@ -42,7 +46,29 @@ export function toSelf(r: any): SelfUser {
     density: r.density,
     notificationSound: r.notification_sound ?? 'ping',
     translationSpeed: r.translation_speed ?? 'balanced',
+    uiLanguage: r.ui_language ?? r.language ?? 'de',
+    permissions: permissionsFor(r.id),
+    mustChangePassword: Boolean(r.must_change_password),
+    mustCompleteProfile: Boolean(r.must_complete_profile),
   };
+}
+
+/** Kontenliste für die Verwaltung — E-Mails nur angedeutet. */
+export function listManagedUsers(): ManagedUser[] {
+  return db.all('SELECT * FROM users ORDER BY disabled, display_name COLLATE NOCASE').map((r: any) => ({
+    id: r.id,
+    handle: decryptField(r.handle),
+    displayName: r.display_name,
+    emailMasked: r.email ? maskEmail(decryptField(r.email)) : '—',
+    role: r.role,
+    disabled: Boolean(r.disabled),
+    mustChangePassword: Boolean(r.must_change_password),
+    lastSeenAt: r.last_seen_at ?? null,
+    createdAt: r.created_at,
+    createdBy: r.created_by ?? null,
+    overrides: overridesFor(r.id),
+    permissions: permissionsFor(r.id),
+  }));
 }
 
 export function getUser(id: string): User | null {
@@ -56,12 +82,22 @@ export function getSelf(id: string): SelfUser | null {
 }
 
 export function getUserByHandle(handle: string): User | null {
-  const r = db.get('SELECT * FROM users WHERE lower(handle) = lower(?)', handle);
+  // Über den Blind-Index, weil der Benutzername verschlüsselt gespeichert ist.
+  const r = db.get('SELECT * FROM users WHERE handle_bidx = ?', blindIndex(handle))
+    ?? db.get('SELECT * FROM users WHERE lower(handle) = lower(?)', handle);
   return r ? toUser(r) : null;
 }
 
 export function listUsers(): User[] {
   return db.all('SELECT * FROM users ORDER BY display_name COLLATE NOCASE').map(toUser);
+}
+
+/** Sprache der Oberfläche — fällt auf die Übersetzungssprache zurück. */
+export function uiLanguageOf(userId: string): string {
+  const r = db.get<{ ui_language: string | null; language: string }>(
+    'SELECT ui_language, language FROM users WHERE id = ?', userId,
+  );
+  return r?.ui_language || r?.language || 'de';
 }
 
 export function userLanguage(id: string): string {

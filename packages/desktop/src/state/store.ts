@@ -19,7 +19,7 @@ export interface Toast {
 
 export type Overlay =
   | null | 'quick' | 'search' | 'settings' | 'newChannel' | 'glossary'
-  | 'catchup' | 'schedule' | 'people' | 'poll' | 'reminders' | 'models';
+  | 'catchup' | 'schedule' | 'people' | 'poll' | 'reminders' | 'models' | 'team';
 
 interface PendingRequest<T> { resolve: (value: T) => void; reject: (err: Error) => void; timer: number }
 
@@ -56,6 +56,7 @@ interface StoreState {
   readMarkers: Record<string, string | null>;       // channelId -> Grenze beim Öffnen
   toasts: Toast[];
   smartReplies: SmartReply[];
+  smartRepliesLoading: boolean;
   catchup: AiSummary | null;
   catchupLoading: boolean;
   lightbox: string | null;
@@ -73,7 +74,6 @@ interface StoreState {
   /* Aktionen */
   boot: () => Promise<void>;
   login: (login: string, password: string) => Promise<void>;
-  register: (input: Parameters<typeof api.register>[0]) => Promise<void>;
   logout: () => void;
 
   openChannel: (channelId: string) => void;
@@ -232,6 +232,7 @@ export const useStore = create<StoreState>((set, get) => ({
   readMarkers: {},
   toasts: [],
   smartReplies: [],
+  smartRepliesLoading: false,
   catchup: null,
   catchupLoading: false,
   lightbox: null,
@@ -261,14 +262,6 @@ export const useStore = create<StoreState>((set, get) => ({
 
   login: async (login, password) => {
     const { token: t, user } = await api.login(login, password);
-    setToken(t);
-    set({ self: user });
-    applyTheme(user.theme, user.density);
-    socket.connect();
-  },
-
-  register: async (input) => {
-    const { token: t, user } = await api.register(input);
     setToken(t);
     set({ self: user });
     applyTheme(user.theme, user.density);
@@ -445,13 +438,17 @@ export const useStore = create<StoreState>((set, get) => ({
   loadSmartReplies: (channelId, parentId) => {
     if (!get().ai?.assistant) return;
     const requestId = uid();
-    void awaitReply<SmartReply[]>(requestId, 20_000)
-      .then((replies) => set({ smartReplies: replies }))
-      .catch(() => set({ smartReplies: [] }));
+    set({ smartRepliesLoading: true, smartReplies: [] });
+    void awaitReply<SmartReply[]>(requestId, 30_000)
+      .then((replies) => set({ smartReplies: replies, smartRepliesLoading: false }))
+      .catch((err: Error) => {
+        set({ smartReplies: [], smartRepliesLoading: false });
+        get().toast({ kind: 'error', title: 'Keine Vorschläge', body: err.message });
+      });
     socket.send({ t: 'ai:smart-replies', requestId, channelId, parentId: parentId ?? null });
   },
 
-  clearSmartReplies: () => set({ smartReplies: [] }),
+  clearSmartReplies: () => set({ smartReplies: [], smartRepliesLoading: false }),
 
   rewrite: async (text, tone, targetLang) => {
     const requestId = uid();

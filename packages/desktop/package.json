@@ -38,7 +38,7 @@
   "build": {
     "appId": "com.stellium.chat",
     "productName": "Stellium",
-    "copyright": "© Stellium",
+    "copyright": "\u00a9 Stellium",
     "directories": {
       "output": "release",
       "buildResources": "build"
@@ -102,7 +102,7 @@
     "linux": {
       "icon": "build/icon.png",
       "category": "Network;InstantMessaging",
-      "maintainer": "Stellium",
+      "maintainer": "Stellium <team@stellium.example>",
       "target": [
         {
           "target": "AppImage",
@@ -124,16 +124,29 @@
             "x64"
           ]
         }
-      ]
+      ],
+      "synopsis": "Team-Chat mit Live-\u00dcbersetzung",
+      "description": "Team-Chat f\u00fcr Unternehmen mit durchgehender Live-\u00dcbersetzung: jede Person schreibt und liest in der eigenen Sprache.",
+      "executableName": "stellium",
+      "desktop": {
+        "entry": {
+          "Name": "Stellium",
+          "Categories": "Network;InstantMessaging;"
+        }
+      },
+      "artifactName": "stellium_${version}_${arch}.${ext}"
     },
     "electronVersion": "33.4.11",
     "npmRebuild": false,
     "nodeGypRebuild": false,
-    "buildDependenciesFromSource": false
+    "buildDependenciesFromSource": false,
+    "artifactName": "Stellium-${version}-${arch}.${ext}"
   },
-  "description": "Stellium — Team-Chat mit Live-Übersetzung und KI",
+  "description": "Stellium \u2014 Team-Chat mit Live-\u00dcbersetzung und KI",
   "author": {
-    "name": "Stellium"
+    "name": "Stellium",
+    "email": "team@stellium.example"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "homepage": "https://github.com/chackrahunter/stellium-chat"
 }

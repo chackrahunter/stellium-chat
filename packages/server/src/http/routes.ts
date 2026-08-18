@@ -3,7 +3,9 @@ import path from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { normalizeLang, LANGUAGES } from '@stellium/shared';
-import { avatarColorFor, hashPassword, signToken, verifyPassword, verifyToken } from '../auth.js';
+import { signToken, verifyPassword, verifyToken } from '../auth.js';
+import * as users from '../services/users.js';
+import { PERMISSIONS, type MemberRole, type PermissionKey } from '@stellium/shared';
 import { config } from '../config.js';
 import { db } from '../db/index.js';
 import { newId } from '../util/id.js';
@@ -91,56 +93,193 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
   /* ── Registrierung & Login ─────────────────────────────────── */
 
-  app.post('/api/auth/register', async (req, reply) => {
-    const body = req.body as {
-      handle?: string; email?: string; password?: string;
-      displayName?: string; language?: string; timezone?: string;
-    };
-
-    const handle = (body.handle ?? '').trim().toLowerCase();
-    const email = (body.email ?? '').trim().toLowerCase();
-    const password = body.password ?? '';
-    const displayName = (body.displayName ?? '').trim() || handle;
-
-    if (!HANDLE_RE.test(handle)) {
-      return reply.code(400).send({ error: 'Benutzername: 2–32 Zeichen, Kleinbuchstaben, Ziffern, . _ -' });
-    }
-    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return reply.code(400).send({ error: 'E-Mail ist ungültig' });
-    if (password.length < 8) return reply.code(400).send({ error: 'Passwort braucht mindestens 8 Zeichen' });
-
-    const taken = db.get('SELECT 1 AS x FROM users WHERE lower(handle) = ? OR lower(email) = ?', handle, email);
-    if (taken) return reply.code(409).send({ error: 'Benutzername oder E-Mail ist bereits vergeben' });
-
-    const id = newId('u_');
-    const isFirst = !db.get('SELECT 1 AS x FROM users LIMIT 1');
-    db.run(
-      `INSERT INTO users (id, handle, email, display_name, password_hash, avatar_color, timezone, language, role, created_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?)`,
-      id, handle, email, displayName, hashPassword(password), avatarColorFor(handle),
-      body.timezone || 'Europe/Berlin', normalizeLang(body.language || 'de'),
-      isFirst ? 'owner' : 'member', Date.now(),
-    );
-
-    // Neue Leute landen automatisch in den offenen Standardkanälen.
-    for (const ch of db.all<{ id: string }>("SELECT id FROM channels WHERE kind = 'public' AND archived = 0")) {
-      db.run('INSERT OR IGNORE INTO channel_members (channel_id, user_id, joined_at) VALUES (?,?,?)', ch.id, id, Date.now());
-    }
-
-    return { token: signToken(id), user: store.getSelf(id) };
-  });
+  /**
+   * Selbstregistrierung gibt es nicht: Konten legt die Team-Leitung an und
+   * gibt ein Einmal-Passwort weiter. Der Endpunkt bleibt nur bestehen, um
+   * eine verständliche Antwort zu geben.
+   */
+  app.post('/api/auth/register', async (_req, reply) =>
+    reply.code(403).send({
+      error: 'Konten legt die Team-Leitung an. Frage nach einem Einmal-Passwort.',
+    }));
 
   app.post('/api/auth/login', async (req, reply) => {
     const { login, password } = req.body as { login?: string; password?: string };
     if (!login || !password) return reply.code(400).send({ error: 'Zugangsdaten fehlen' });
 
-    const row = db.get<{ id: string; password_hash: string }>(
-      'SELECT id, password_hash FROM users WHERE lower(handle) = lower(?) OR lower(email) = lower(?)',
-      login.trim(), login.trim(),
-    );
-    if (!row || !verifyPassword(password, row.password_hash)) {
+    const row = users.findByLogin(login);
+    // Auch bei unbekanntem Konto das Passwort prüfen, damit die Antwortzeit
+    // nicht verrät, ob es den Benutzernamen gibt.
+    const gueltig = row
+      ? verifyPassword(password, row.password_hash)
+      : verifyPassword(password, '$scrypt$16384$8$1$AAAA$AAAA');
+
+    if (!row || !gueltig) {
       return reply.code(401).send({ error: 'Benutzername oder Passwort stimmt nicht' });
     }
+    if (row.disabled) {
+      return reply.code(403).send({ error: 'Dieses Konto ist gesperrt. Wende dich an die Team-Leitung.' });
+    }
     return { token: signToken(row.id), user: store.getSelf(row.id) };
+  });
+
+  /** Ersteinrichtung nach dem Einmal-Passwort. */
+  app.post('/api/auth/setup', async (req, reply) => {
+    const userId = requireUser(req);
+    const body = req.body as { handle?: string; email?: string; displayName?: string; newPassword?: string };
+    if (!body.newPassword) return reply.code(400).send({ error: 'Neues Passwort fehlt' });
+    try {
+      users.completeSetup(userId, {
+        handle: body.handle, email: body.email,
+        displayName: body.displayName, newPassword: body.newPassword,
+      });
+    } catch (err) {
+      return reply.code(400).send({ error: (err as Error).message });
+    }
+    return { user: store.getSelf(userId) };
+  });
+
+  /** Passwort selbst ändern. */
+  app.post('/api/auth/password', async (req, reply) => {
+    const userId = requireUser(req);
+    const { current, next } = req.body as { current?: string; next?: string };
+    if (!current || !next) return reply.code(400).send({ error: 'Beide Passwörter angeben' });
+    try {
+      users.changeOwnPassword(userId, current, next, verifyPassword);
+    } catch (err) {
+      return reply.code(400).send({ error: (err as Error).message });
+    }
+    return { ok: true };
+  });
+
+  /* ── Kontenverwaltung ───────────────────────────────────────── */
+
+  /** Prüft ein Recht und wirft eine sprechende Antwort, wenn es fehlt. */
+  function requirePermission(userId: string, permission: PermissionKey): void {
+    if (users.may(userId, permission)) return;
+    const info = PERMISSIONS.find((p) => p.key === permission);
+    const err = new Error(`Dafür fehlt dir das Recht "${info?.labelDe ?? permission}".`) as Error & { statusCode?: number };
+    err.statusCode = 403;
+    throw err;
+  }
+
+  app.get('/api/permissions', async (req) => {
+    requireUser(req);
+    return { permissions: PERMISSIONS };
+  });
+
+  app.get('/api/admin/users', async (req) => {
+    const userId = requireUser(req);
+    requirePermission(userId, 'user.manage');
+    return { users: store.listManagedUsers() };
+  });
+
+  app.post('/api/admin/users', async (req, reply) => {
+    const userId = requireUser(req);
+    requirePermission(userId, 'user.invite');
+    const body = req.body as {
+      displayName?: string; handle?: string; email?: string;
+      role?: MemberRole; language?: string; timezone?: string;
+    };
+    if (!body.displayName) return reply.code(400).send({ error: 'Name fehlt' });
+    if (body.role === 'owner' && store.getSelf(userId)?.role !== 'owner') {
+      return reply.code(403).send({ error: 'Nur der Owner kann einen weiteren Owner ernennen.' });
+    }
+    try {
+      const konto = users.createAccount({ ...body, displayName: body.displayName, createdBy: userId });
+      const person = store.getUser(konto.userId);
+      return {
+        credential: {
+          userId: konto.userId,
+          handle: konto.handle,
+          displayName: person?.displayName ?? body.displayName,
+          oneTimePassword: konto.oneTimePassword,
+          expiresAt: Date.now() + 14 * 86_400_000,
+        },
+        users: store.listManagedUsers(),
+      };
+    } catch (err) {
+      return reply.code(400).send({ error: (err as Error).message });
+    }
+  });
+
+  app.post('/api/admin/users/:id/reset-password', async (req, reply) => {
+    const userId = requireUser(req);
+    requirePermission(userId, 'user.manage');
+    const { id } = req.params as { id: string };
+    const ziel = store.getUser(id);
+    if (!ziel) return reply.code(404).send({ error: 'Konto nicht gefunden' });
+    if (ziel.role === 'owner' && id !== userId) {
+      return reply.code(403).send({ error: 'Das Passwort des Owners kann nur er selbst zurücksetzen.' });
+    }
+    try {
+      const passwort = users.resetPassword(id, userId);
+      return {
+        credential: {
+          userId: id, handle: ziel.handle, displayName: ziel.displayName,
+          oneTimePassword: passwort, expiresAt: Date.now() + 14 * 86_400_000,
+        },
+        users: store.listManagedUsers(),
+      };
+    } catch (err) {
+      return reply.code(400).send({ error: (err as Error).message });
+    }
+  });
+
+  app.post('/api/admin/users/:id/role', async (req, reply) => {
+    const userId = requireUser(req);
+    requirePermission(userId, 'user.manage');
+    const { id } = req.params as { id: string };
+    const { role } = req.body as { role?: MemberRole };
+    if (role === 'owner' && store.getSelf(userId)?.role !== 'owner') {
+      return reply.code(403).send({ error: 'Nur der Owner kann diese Rolle vergeben.' });
+    }
+    try {
+      users.setRole(id, role as any, userId);
+      return { users: store.listManagedUsers() };
+    } catch (err) {
+      return reply.code(400).send({ error: (err as Error).message });
+    }
+  });
+
+  app.post('/api/admin/users/:id/permission', async (req, reply) => {
+    const userId = requireUser(req);
+    requirePermission(userId, 'permission.manage');
+    const { id } = req.params as { id: string };
+    const { permission, allowed } = req.body as { permission?: PermissionKey; allowed?: boolean | null };
+    if (!permission) return reply.code(400).send({ error: 'Recht fehlt' });
+    try {
+      users.setPermission(id, permission, allowed ?? null, userId);
+      return { users: store.listManagedUsers() };
+    } catch (err) {
+      return reply.code(400).send({ error: (err as Error).message });
+    }
+  });
+
+  app.post('/api/admin/users/:id/disabled', async (req, reply) => {
+    const userId = requireUser(req);
+    requirePermission(userId, 'user.manage');
+    const { id } = req.params as { id: string };
+    const { disabled } = req.body as { disabled?: boolean };
+    try {
+      users.setDisabled(id, Boolean(disabled));
+      return { users: store.listManagedUsers() };
+    } catch (err) {
+      return reply.code(400).send({ error: (err as Error).message });
+    }
+  });
+
+  app.delete('/api/admin/users/:id', async (req, reply) => {
+    const userId = requireUser(req);
+    requirePermission(userId, 'user.delete');
+    const { id } = req.params as { id: string };
+    if (id === userId) return reply.code(400).send({ error: 'Das eigene Konto lässt sich nicht löschen.' });
+    try {
+      users.deleteAccount(id);
+      return { users: store.listManagedUsers() };
+    } catch (err) {
+      return reply.code(400).send({ error: (err as Error).message });
+    }
   });
 
   app.get('/api/me', async (req, reply) => {

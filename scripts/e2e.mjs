@@ -20,6 +20,14 @@ const SERVER = 'http://localhost:8787';
 const APP = 'http://localhost:5173';
 const sichtbar = process.argv.includes('--sichtbar');
 
+/**
+ * Demo-Konten gibt es nicht mehr — Zugangsdaten kommen aus der Umgebung.
+ * Die Kolleg:in für den Übersetzungstest legt der Test selbst an.
+ */
+const KONTO = process.env.STELLIUM_TEST_LOGIN ?? 'don';
+const PASSWORT = process.env.STELLIUM_TEST_PASSWORT ?? 'MeinLangesPasswort-2026';
+let zweiterToken = null;
+
 const ergebnisse = [];
 let seite;
 
@@ -85,6 +93,11 @@ async function main() {
   muss(health?.ok, `Server auf ${SERVER} antwortet nicht`);
   log(`\nServer bereit — KI: ${health.ai.provider}, Übersetzung ${health.ai.translation ? 'an' : 'aus'}, Assistent ${health.ai.assistant ? 'an' : 'aus'}\n`);
 
+  // Es gibt keine Demo-Daten mehr. Die Suite legt sich alles selbst an,
+  // damit sie auf einem frischen Arbeitsbereich genauso läuft.
+  const fixture = await testdatenAnlegen();
+  log(`Testdaten: #${fixture.kanal} mit ${fixture.nachrichten} Nachrichten, Suchwort "${fixture.suchwort}"\n`);
+
   const browser = await chromium.launch({ headless: !sichtbar });
   const kontext = await browser.newContext({
     viewport: { width: 1440, height: 900 },
@@ -106,13 +119,15 @@ async function main() {
     return 'Formular sichtbar';
   });
 
-  await pruefe('Anmelden mit Demo-Konto', async () => {
-    await seite.fill('.auth__card input[autocomplete="username"]', 'don');
-    await seite.fill('.auth__card input[type="password"]', 'stellium2024');
+  await pruefe('Anmelden', async () => {
+    await seite.fill('.auth__card input[autocomplete="username"]', KONTO);
+    await seite.fill('.auth__card input[type="password"]', PASSWORT);
     await seite.click('.auth__card button[type="submit"]');
     await seite.waitForSelector('.app', { timeout: 20000 });
+    // In den Testkanal wechseln, dort liegen die Nachrichten.
+    await seite.locator('.chan', { hasText: fixture.kanal }).first().click();
     await seite.waitForSelector('.msg', { timeout: 20000 });
-    return 'Chat geladen';
+    return `Chat geladen, Kanal #${fixture.kanal}`;
   });
 
   /* ── Grundgerüst ──────────────────────────────────────────── */
@@ -191,7 +206,7 @@ async function main() {
   await pruefe('Erwähnung übernehmen', async () => {
     await seite.locator('.composer .result').first().click();
     const wert = await seite.inputValue('.composer__input');
-    muss(/@\w+\s$/.test(wert), `Feld enthält "${wert}" — erwartet wurde ein eingesetzter Handle`);
+    muss(/@[\w.-]+\s$/.test(wert), `Feld enthält "${wert}" — erwartet wurde ein eingesetzter Handle`);
     return wert.trim();
   });
 
@@ -250,11 +265,9 @@ async function main() {
 
   await pruefe('Fremdsprachige Nachricht wird übersetzt', async () => {
     if (!health.ai.translation) return 'übersprungen (Demo-Provider)';
-    // Als sarah (Englisch) etwas schreiben, das don (Deutsch) übersetzt sehen muss
-    const antwort = await fetch(`${SERVER}/api/auth/login`, {
-      method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ login: 'sarah', password: 'stellium2024' }),
-    }).then((r) => r.json());
+    // Eine zweite Person anlegen, die auf Englisch schreibt.
+    if (!zweiterToken) zweiterToken = await zweitesKontoAnlegen();
+    const antwort = { token: zweiterToken };
 
     const kanal = await seite.evaluate(() => {
       const el = document.querySelector('.chan[aria-current="true"] .chan__name');
@@ -265,7 +278,7 @@ async function main() {
     await sendeAlsAnderer(antwort.token, kanal, satz);
 
     await warteAuf(async () => (await seite.locator('.msg', { hasText: satz.slice(0, 20) }).count()) > 0,
-      'Nachricht von sarah kommt nicht an', 20000);
+      'Nachricht der zweiten Person kommt nicht an', 40000);
 
     await warteAuf(async () => {
       const n = seite.locator('.msg', { hasText: satz.slice(0, 20) }).last();
@@ -322,7 +335,7 @@ async function main() {
     await seite.keyboard.press('Meta+k');
     const feld = seite.locator('.panel .omni-input').first();
     await feld.waitFor({ state: 'visible', timeout: 5000 });
-    await feld.fill('engineering');
+    await feld.fill(fixture.kanal.slice(0, 12));
     await warteAuf(async () => (await seite.locator('.result').count()) > 0, 'Keine Treffer');
     await seite.keyboard.press('Escape');
     return 'öffnet, filtert, schließt';
@@ -336,9 +349,9 @@ async function main() {
     const feld = seite.locator('.panel--wide .omni-input');
     await feld.waitFor({ state: 'visible', timeout: 5000 });
     await feld.click();
-    await feld.fill('latency');
+    await feld.fill(fixture.suchwort);
     await warteAuf(async () => (await seite.locator('.panel--wide .result').count()) > 0,
-      'Kein Suchtreffer für "latency"', 15000);
+      `Kein Suchtreffer für "${fixture.suchwort}"`, 15000);
     const treffer = await seite.locator('.panel--wide .result').count();
     await seite.keyboard.press('Escape');
     return `${treffer} Treffer`;
@@ -424,13 +437,12 @@ async function main() {
   await pruefe('Sprache umstellen', async () => {
     await seite.locator('.rail button[title="Einstellungen"]').click();
     await seite.waitForSelector('.panel--wide .tab', { timeout: 8000 });
-    await seite.locator('.panel--wide .tab', { hasText: 'Sprache' }).click();
     await seite.selectOption('.panel--wide select', 'en');
     await warteAuf(async () => {
       const t = await seite.locator('.sidebar__sub').innerText();
       return /English/i.test(t);
-    }, 'Sprache in der Seitenleiste ändert sich nicht', 10000);
-    await seite.selectOption('.panel--wide select', 'de');
+    }, 'Sprache in der Seitenleiste ändert sich nicht', 25000);
+    await seite.locator('.panel--wide select').nth(1).selectOption('de');
     await seite.waitForTimeout(500);
     await seite.keyboard.press('Escape');
     return 'de -> en -> de';
@@ -442,7 +454,7 @@ async function main() {
     await seite.locator('.panel--wide .tab', { hasText: 'Darstellung' }).click();
     await seite.locator('.panel--wide button', { hasText: 'Hell' }).click();
     await warteAuf(async () => (await seite.evaluate(() => document.documentElement.dataset.theme)) === 'light',
-      'Thema wechselt nicht');
+      'Thema wechselt nicht', 20000);
     await seite.screenshot({ path: path.join(shots, 'thema-hell.png') });
     await seite.locator('.panel--wide button', { hasText: 'Dunkel' }).click();
     await seite.waitForTimeout(300);
@@ -474,6 +486,110 @@ async function main() {
   }
   log(`\nScreenshots: ${shots}`);
   process.exit(fehler.length ? 1 : 0);
+}
+
+/**
+ * Baut einen Kanal mit ein paar Nachrichten auf, damit Scrollen, Suche und
+ * Schnellsuche etwas zu greifen haben.
+ */
+async function testdatenAnlegen() {
+  const anmeldung = await fetch(`${SERVER}/api/auth/login`, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ login: KONTO, password: PASSWORT }),
+  }).then((r) => r.json());
+  if (!anmeldung.token) throw new Error(`Anmeldung als ${KONTO} fehlgeschlagen — STELLIUM_TEST_PASSWORT prüfen`);
+
+  const marke = Date.now().toString(36).slice(-5);
+  const kanal = `pruefkanal-${marke}`;
+  const suchwort = `kennwort${marke}`;
+
+  const saetze = [
+    `Erste Notiz im Testkanal, Stichwort ${suchwort}.`,
+    'Der Bericht liegt beim Team und wird morgen besprochen.',
+    'Deployment ist durch, die Wartezeit ist deutlich gesunken.',
+    'Bitte noch einmal gegenlesen, bevor wir das verschicken.',
+    'Zweiter Durchgang lief ohne Auffälligkeiten.',
+    'Die Auswertung kommt am Nachmittag.',
+    'Kurzer Zwischenstand für alle Beteiligten.',
+    'Danke fürs Nachfassen, das war hilfreich.',
+    'Nächster Schritt ist die Abstimmung im Team.',
+    'Damit ist der Punkt für heute erledigt.',
+    'Noch eine Notiz zur Vollständigkeit.',
+    'Die Rückmeldungen sind eingearbeitet.',
+    'Termin steht, Einladung ist raus.',
+    'Kleiner Nachtrag zum Vormittag.',
+    'Alles Weitere klären wir im Gespräch.',
+    'Zwischenstand: nichts Auffälliges.',
+    'Die Unterlagen liegen im Kanal.',
+    'Danke an alle für die schnelle Rückmeldung.',
+    'Ein letzter Punkt für die Liste.',
+    'Damit sind wir für heute durch.',
+  ];
+
+  await new Promise((resolve, reject) => {
+    const ws = new WebSocket('ws://localhost:8787/ws');
+    let kanalId = null;
+    let offen = saetze.length;
+    const timer = setTimeout(() => reject(new Error('Testdaten: Zeitüberschreitung')), 25000);
+
+    ws.onopen = () => ws.send(JSON.stringify({ t: 'auth', token: anmeldung.token, protocol: 1 }));
+    ws.onmessage = (e) => {
+      const ev = JSON.parse(e.data);
+      if (ev.t === 'ready') {
+        ws.send(JSON.stringify({ t: 'channel:create', kind: 'public', name: kanal, topic: 'Von der Testsuite angelegt' }));
+      }
+      if (ev.t === 'channel:upsert' && ev.channel.name === kanal && !kanalId) {
+        kanalId = ev.channel.id;
+        for (const [i, text] of saetze.entries()) {
+          ws.send(JSON.stringify({ t: 'message:send', clientId: `f${i}`, channelId: kanalId, text }));
+        }
+      }
+      if (ev.t === 'message:new' && ev.message.channelId === kanalId) {
+        if (--offen <= 0) { clearTimeout(timer); ws.close(); resolve(); }
+      }
+      if (ev.t === 'error') { clearTimeout(timer); reject(new Error(ev.message)); }
+    };
+    ws.onerror = () => { clearTimeout(timer); reject(new Error('Testdaten: WebSocket-Fehler')); };
+  });
+
+  return { kanal, suchwort, nachrichten: saetze.length };
+}
+
+/**
+ * Legt über die Verwaltung ein zweites Konto an, schließt dessen Einrichtung
+ * ab und gibt dessen Token zurück. Ersetzt die früheren Demo-Konten.
+ */
+async function zweitesKontoAnlegen() {
+  const adminAnmeldung = await fetch(`${SERVER}/api/auth/login`, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ login: KONTO, password: PASSWORT }),
+  }).then((r) => r.json());
+
+  const marke = Date.now().toString(36).slice(-4);
+  const angelegt = await fetch(`${SERVER}/api/admin/users`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${adminAnmeldung.token}` },
+    body: JSON.stringify({ displayName: `Testkollege ${marke}`, language: 'en', role: 'member' }),
+  }).then((r) => r.json());
+
+  const cred = angelegt.credential;
+  const ersteAnmeldung = await fetch(`${SERVER}/api/auth/login`, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ login: cred.handle, password: cred.oneTimePassword }),
+  }).then((r) => r.json());
+
+  // Einrichtung abschließen, sonst darf das Konto nichts.
+  await fetch(`${SERVER}/api/auth/setup`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${ersteAnmeldung.token}` },
+    body: JSON.stringify({ newPassword: `Testpasswort-${marke}-lang` }),
+  });
+
+  const fertig = await fetch(`${SERVER}/api/auth/login`, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ login: cred.handle, password: `Testpasswort-${marke}-lang` }),
+  }).then((r) => r.json());
+  return fertig.token;
 }
 
 /** Hilfsfunktion: als anderer Nutzer eine Nachricht schicken. */

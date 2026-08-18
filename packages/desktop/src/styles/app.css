@@ -1472,3 +1472,97 @@ button.msg__author:hover { color: var(--violet-soft); text-decoration: underline
   .daybar { margin-top: var(--sp-3); margin-bottom: var(--sp-2); }
   .composer__input { max-height: 130px; }
 }
+
+/* Ladeanzeige für Antwortvorschläge — Platzhalter in der Form der
+   späteren Knöpfe, damit die Leiste beim Erscheinen nicht springt. */
+.smart-reply--loading {
+  cursor: default;
+  border-style: dashed;
+}
+.smart-reply--loading:hover { transform: none; background: rgba(124, 92, 255, 0.09); }
+
+.smart-reply--ghost {
+  height: 30px;
+  border-color: transparent;
+  background: linear-gradient(90deg, var(--bg-hover) 25%, var(--bg-panel-2) 50%, var(--bg-hover) 75%);
+  background-size: 200% 100%;
+  animation: skeleton 1.4s ease-in-out infinite;
+  pointer-events: none;
+}
+
+/* Passwortstärke bei der Ersteinrichtung */
+.staerke { display: flex; align-items: center; gap: 9px; margin-top: 7px; }
+.staerke__balken {
+  flex: 1; height: 4px; border-radius: 99px;
+  background: var(--bg-hover); overflow: hidden;
+}
+.staerke__fuellung {
+  display: block; height: 100%; border-radius: 99px;
+  transition: width var(--t-base) var(--ease-out), background var(--t-base);
+}
+.staerke__fuellung--leer    { background: transparent; }
+.staerke__fuellung--schwach { background: var(--rose); }
+.staerke__fuellung--mittel  { background: var(--amber); }
+.staerke__fuellung--stark   { background: var(--mint); }
+.staerke__text { font-size: 11.5px; color: var(--tx-lo); min-width: 92px; text-align: right; }
+
+/* ── Team-Verwaltung ─────────────────────────────────────────── */
+
+.admin {
+  display: grid;
+  grid-template-columns: 290px minmax(0, 1fr);
+  min-height: 0;
+  flex: 1;
+}
+.admin__liste {
+  padding: var(--sp-4) var(--sp-3) var(--sp-4) var(--sp-5);
+  border-right: 1px solid var(--line);
+  overflow-y: auto;
+  min-height: 0;
+}
+.admin__detail {
+  padding: var(--sp-4) var(--sp-5);
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.hinweis {
+  display: flex; align-items: center; gap: 8px;
+  padding: 9px 12px; margin-bottom: var(--sp-4);
+  border-radius: var(--r-sm);
+  background: rgba(251, 191, 36, 0.12);
+  border: 1px solid rgba(251, 191, 36, 0.3);
+  color: var(--amber);
+  font-size: 13px;
+}
+
+/* Einmal-Passwort: groß und gut vorlesbar */
+.zugang {
+  margin-bottom: var(--sp-4);
+  border-radius: var(--r-md);
+  border: 1px dashed var(--line-strong);
+  background: var(--bg-hover);
+  overflow: hidden;
+}
+.zugang__zeile {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3);
+  padding: 12px 15px;
+  border-bottom: 1px solid var(--line);
+}
+.zugang__zeile:last-child { border-bottom: 0; }
+.zugang__label {
+  font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--tx-lo);
+}
+.zugang__wert { font-size: 14px; user-select: all; }
+.zugang__wert--gross {
+  font-size: 19px; font-weight: 700; letter-spacing: 0.08em;
+  background: var(--grad-nebula);
+  -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+@media (max-width: 880px) {
+  .admin { grid-template-columns: 1fr; }
+  .admin__liste { border-right: 0; border-bottom: 1px solid var(--line); max-height: 200px; }
+}

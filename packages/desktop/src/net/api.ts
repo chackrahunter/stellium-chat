@@ -1,5 +1,7 @@
 import type {
-  AiCapabilities, AiModelInfo, AiModelSelection, GlossaryEntry, Message, SearchHit, SelfUser,
+  AiCapabilities, AiModelInfo, AiModelSelection, GlossaryEntry, ManagedUser,
+  MemberRole, Message, OneTimeCredential, PermissionInfo, PermissionKey,
+  SearchHit, SelfUser,
 } from '@stellium/shared';
 
 const STORAGE_SERVER = 'stellium.serverUrl';
@@ -62,14 +64,50 @@ export const api = {
       method: 'POST', body: JSON.stringify({ login, password }),
     }),
 
-  register: (input: {
-    handle: string; email: string; password: string;
-    displayName: string; language: string; timezone: string;
-  }) => request<{ token: string; user: SelfUser }>('/api/auth/register', {
-    method: 'POST', body: JSON.stringify(input),
-  }),
-
   me: () => request<{ user: SelfUser; ai: AiCapabilities }>('/api/me'),
+
+  /** Ersteinrichtung nach dem Einmal-Passwort. */
+  setup: (input: { handle?: string; email?: string; displayName?: string; newPassword: string }) =>
+    request<{ user: SelfUser }>('/api/auth/setup', { method: 'POST', body: JSON.stringify(input) }),
+
+  changePassword: (current: string, next: string) =>
+    request<{ ok: boolean }>('/api/auth/password', {
+      method: 'POST', body: JSON.stringify({ current, next }),
+    }),
+
+  /* ── Kontenverwaltung ─────────────────────────────────────── */
+
+  permissionCatalogue: () => request<{ permissions: PermissionInfo[] }>('/api/permissions'),
+
+  adminUsers: () => request<{ users: ManagedUser[] }>('/api/admin/users'),
+
+  createUser: (input: { displayName: string; handle?: string; email?: string; role?: MemberRole; language?: string; timezone?: string }) =>
+    request<{ credential: OneTimeCredential; users: ManagedUser[] }>('/api/admin/users', {
+      method: 'POST', body: JSON.stringify(input),
+    }),
+
+  resetUserPassword: (userId: string) =>
+    request<{ credential: OneTimeCredential; users: ManagedUser[] }>(`/api/admin/users/${userId}/reset-password`, {
+      method: 'POST', body: '{}',
+    }),
+
+  setUserRole: (userId: string, role: MemberRole) =>
+    request<{ users: ManagedUser[] }>(`/api/admin/users/${userId}/role`, {
+      method: 'POST', body: JSON.stringify({ role }),
+    }),
+
+  setUserPermission: (userId: string, permission: PermissionKey, allowed: boolean | null) =>
+    request<{ users: ManagedUser[] }>(`/api/admin/users/${userId}/permission`, {
+      method: 'POST', body: JSON.stringify({ permission, allowed }),
+    }),
+
+  setUserDisabled: (userId: string, disabled: boolean) =>
+    request<{ users: ManagedUser[] }>(`/api/admin/users/${userId}/disabled`, {
+      method: 'POST', body: JSON.stringify({ disabled }),
+    }),
+
+  deleteUser: (userId: string) =>
+    request<{ users: ManagedUser[] }>(`/api/admin/users/${userId}`, { method: 'DELETE' }),
 
   search: (params: { q: string; channelId?: string | null; from?: string | null; files?: boolean }) => {
     const qs = new URLSearchParams({ q: params.q });

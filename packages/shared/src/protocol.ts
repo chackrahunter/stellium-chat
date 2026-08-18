@@ -34,7 +34,8 @@ export type ClientEvent =
   | { t: 'prefs:update'; patch: Partial<Pick<SelfUser,
       'language' | 'autoTranslate' | 'notifyOn' | 'theme' | 'density' |
       'composeTargetPreview' | 'quietHoursStart' | 'quietHoursEnd' |
-      'displayName' | 'title' | 'timezone' | 'notificationSound' | 'translationSpeed'>> }
+      'displayName' | 'title' | 'timezone' | 'notificationSound' | 'translationSpeed'
+      | 'uiLanguage'>> }
   | { t: 'translate:request'; messageId: string; targetLang: string; force?: boolean }
   | { t: 'translate:roundtrip'; messageId: string; targetLang: string }
   | { t: 'compose:preview'; requestId: string; text: string; targetLang: string; channelId: string }

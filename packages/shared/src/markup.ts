@@ -97,3 +97,11 @@ export function extractMentions(text: string): string[] {
   for (const m of stripped.matchAll(/(?<![\w])@([a-zA-Z0-9_.-]{2,32})/g)) out.add(m[1].toLowerCase());
   return [...out];
 }
+
+/** Kanalweite Erwähnung: @alle, @everyone, @channel, @kanal, @here. */
+const EVERYONE_RE = /(?<![\w])@(alle|everyone|channel|kanal|here|hier)\b/i;
+
+export function mentionsEveryone(text: string): boolean {
+  const stripped = text.replace(/```[\s\S]*?```/g, ' ').replace(/`[^`\n]+`/g, ' ');
+  return EVERYONE_RE.test(stripped);
+}

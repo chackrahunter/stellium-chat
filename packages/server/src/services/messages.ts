@@ -1,4 +1,4 @@
-import { detectLanguage, extractMentions, normalizeLang, type Message } from '@stellium/shared';
+import { detectLanguage, extractMentions, mentionsEveryone, normalizeLang, type Message } from '@stellium/shared';
 import { db, reindexMessage, removeFromIndex } from '../db/index.js';
 import { newId } from '../util/id.js';
 import { dropMessageTranslations } from '../translation/index.js';
@@ -16,6 +16,10 @@ export interface CreateMessageInput {
   kind?: string;
   /** Herkunft bei Weiterleitungen: "<messageId>|<channelId>|<userId>" */
   forwardedFrom?: string | null;
+  /** Darf die Person einzelne Personen erwähnen? Sonst wird nichts eingetragen. */
+  mayMention?: boolean;
+  /** Darf sie den ganzen Kanal erwähnen (@alle)? */
+  mayMentionEveryone?: boolean;
 }
 
 export function createMessage(input: CreateMessageInput): Message {
@@ -38,9 +42,24 @@ export function createMessage(input: CreateMessageInput): Message {
       input.systemKind ?? null, input.kind ?? 'text', input.forwardedFrom ?? null, at,
     );
 
-    for (const handle of extractMentions(text)) {
-      const user = getUserByHandle(handle);
-      if (user) db.run('INSERT OR IGNORE INTO message_mentions (message_id, user_id) VALUES (?,?)', id, user.id);
+    // Erwähnungen nur eintragen, wenn das Recht dafür da ist. Ohne Eintrag
+    // gibt es keine Benachrichtigung und keine Hervorhebung.
+    if (input.mayMention !== false) {
+      for (const handle of extractMentions(text)) {
+        const user = getUserByHandle(handle);
+        if (user) db.run('INSERT OR IGNORE INTO message_mentions (message_id, user_id) VALUES (?,?)', id, user.id);
+      }
+    }
+
+    // @alle betrifft jede Person im Kanal außer der schreibenden.
+    if (input.mayMentionEveryone && mentionsEveryone(text)) {
+      const mitglieder = db.all<{ user_id: string }>(
+        'SELECT user_id FROM channel_members WHERE channel_id = ? AND user_id <> ?',
+        input.channelId, input.userId,
+      );
+      for (const m of mitglieder) {
+        db.run('INSERT OR IGNORE INTO message_mentions (message_id, user_id) VALUES (?,?)', id, m.user_id);
+      }
     }
 
     for (const attId of input.attachmentIds ?? []) {
@@ -58,7 +77,7 @@ export function createMessage(input: CreateMessageInput): Message {
   return getMessage(id, input.userId)!;
 }
 
-export function editMessage(messageId: string, userId: string, text: string): Message {
+export function editMessage(messageId: string, userId: string, text: string, mayMention = true): Message {
   const row = db.get<{ user_id: string; deleted_at: number | null }>(
     'SELECT user_id, deleted_at FROM messages WHERE id = ?', messageId,
   );
@@ -76,9 +95,11 @@ export function editMessage(messageId: string, userId: string, text: string): Me
       clean, detected === 'unknown' ? null : detected, Date.now(), messageId,
     );
     db.run('DELETE FROM message_mentions WHERE message_id = ?', messageId);
-    for (const handle of extractMentions(clean)) {
-      const user = getUserByHandle(handle);
-      if (user) db.run('INSERT OR IGNORE INTO message_mentions (message_id, user_id) VALUES (?,?)', messageId, user.id);
+    if (mayMention) {
+      for (const handle of extractMentions(clean)) {
+        const user = getUserByHandle(handle);
+        if (user) db.run('INSERT OR IGNORE INTO message_mentions (message_id, user_id) VALUES (?,?)', messageId, user.id);
+      }
     }
   });
 

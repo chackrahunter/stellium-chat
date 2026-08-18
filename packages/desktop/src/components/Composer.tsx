@@ -7,6 +7,7 @@ import {
 import type { Attachment, RewriteTone } from '@stellium/shared';
 import { normalizeLang } from '@stellium/shared';
 import { useStore } from '../state/store.js';
+import { useT } from '../i18n/index.js';
 import { api } from '../net/api.js';
 import { EmojiPicker } from './EmojiPicker.jsx';
 import { Avatar } from './Avatar.jsx';
@@ -31,11 +32,13 @@ const TONES: { id: RewriteTone; label: string }[] = [
 ];
 
 export function Composer({ channelId, parentId = null, placeholder, autoFocus }: Props) {
+  const t = useT();
   const self = useStore((s) => s.self);
   const channel = useStore((s) => s.channels[channelId]);
   const users = useStore((s) => s.users);
   const ai = useStore((s) => s.ai);
   const smartReplies = useStore((s) => s.smartReplies);
+  const smartRepliesLoading = useStore((s) => s.smartRepliesLoading);
 
   const [text, setText] = useState('');
   const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
@@ -141,7 +144,7 @@ export function Composer({ channelId, parentId = null, placeholder, autoFocus }:
     const ready = attachments.filter((a) => !a.id.startsWith('tmp_'));
     if (!clean && ready.length === 0) return;
     if (attachments.length !== ready.length) {
-      useStore.getState().toast({ kind: 'info', title: 'Upload läuft noch', body: 'Einen Moment, dann geht es raus.' });
+      useStore.getState().toast({ kind: 'info', title: t('composer.uploadRunning'), body: t('composer.uploadWait') });
       return;
     }
 
@@ -243,7 +246,7 @@ export function Composer({ channelId, parentId = null, placeholder, autoFocus }:
       >
         {parentId && (
           <div className="composer__reply">
-            <span>Antwort im Thread</span>
+            <span>{t('composer.replyingInThread')}</span>
             <button className="icon-btn icon-btn--sm" style={{ marginLeft: 'auto' }} onClick={() => useStore.getState().openThread(null)}>
               <X size={13} />
             </button>
@@ -273,9 +276,11 @@ export function Composer({ channelId, parentId = null, placeholder, autoFocus }:
           className="composer__input"
           rows={1}
           value={text}
-          placeholder={placeholder ?? `Nachricht an ${channel?.kind === 'dm'
-            ? users[channel.dmPeerId ?? '']?.displayName ?? '…'
-            : `#${channel?.name ?? '…'}`}`}
+          placeholder={placeholder ?? t('composer.placeholder', {
+            target: channel?.kind === 'dm'
+              ? users[channel.dmPeerId ?? '']?.displayName ?? '…'
+              : `#${channel?.name ?? '…'}`,
+          })}
           onChange={(e) => {
             setText(e.target.value);
             useStore.getState().sendTyping(channelId, parentId);
@@ -302,10 +307,10 @@ export function Composer({ channelId, parentId = null, placeholder, autoFocus }:
             hidden
             onChange={(e) => { if (e.target.files) void uploadFiles(e.target.files); e.target.value = ''; }}
           />
-          <button className="icon-btn icon-btn--sm" onClick={() => fileRef.current?.click()} title="Datei anhängen">
+          <button className="icon-btn icon-btn--sm" onClick={() => fileRef.current?.click()} title={t('composer.attach')}>
             <Paperclip size={16} />
           </button>
-          <button className="icon-btn icon-btn--sm" onClick={() => setPickerOpen(true)} title="Emoji">
+          <button className="icon-btn icon-btn--sm" onClick={() => setPickerOpen(true)} title={t('composer.emoji')}>
             <Smile size={16} />
           </button>
           <button
@@ -321,14 +326,14 @@ export function Composer({ channelId, parentId = null, placeholder, autoFocus }:
                 el.selectionStart = el.selectionEnd = el.value.length;
               });
             }}
-            title="Jemanden erwähnen"
+            title={t('composer.mention')}
           >
             <AtSign size={16} />
           </button>
           <button
             className="icon-btn icon-btn--sm"
             onClick={() => setRecording(true)}
-            title="Sprachnachricht aufnehmen"
+            title={t('composer.voice')}
           >
             <Mic size={16} />
           </button>
@@ -336,7 +341,7 @@ export function Composer({ channelId, parentId = null, placeholder, autoFocus }:
             <button
               className="icon-btn icon-btn--sm"
               onClick={() => useStore.getState().setOverlay('poll')}
-              title="Umfrage starten"
+              title={t('composer.poll')}
             >
               <BarChart3 size={16} />
             </button>
@@ -348,7 +353,7 @@ export function Composer({ channelId, parentId = null, placeholder, autoFocus }:
                 className="icon-btn icon-btn--sm"
                 onClick={() => setToneOpen((v) => !v)}
                 disabled={!text.trim() || rewriting}
-                title="Text mit KI überarbeiten"
+                title={t('composer.rewrite')}
               >
                 {rewriting ? <Loader2 size={16} className="spin" /> : <Wand2 size={16} />}
               </button>
@@ -382,7 +387,7 @@ export function Composer({ channelId, parentId = null, placeholder, autoFocus }:
             className="icon-btn icon-btn--sm"
             onClick={() => setScheduleOpen(true)}
             disabled={!canSend}
-            title="Später senden"
+            title={t('composer.scheduleLater')}
           >
             <Clock size={16} />
           </button>
@@ -399,7 +404,7 @@ export function Composer({ channelId, parentId = null, placeholder, autoFocus }:
             whileTap={{ scale: 0.92 }}
             disabled={!canSend}
             onClick={submit}
-            title="Senden (Enter)"
+            title={t('composer.send')}
           >
             <Send size={16} />
           </motion.button>
@@ -455,7 +460,7 @@ export function Composer({ channelId, parentId = null, placeholder, autoFocus }:
           >
             <div className="composer__preview-head">
               <Languages size={11} />
-              So kommt es in {languageInfo(targetLang!).native} an
+              {t('composer.previewHead', { language: languageInfo(targetLang!).native })}
             </div>
             {preview}
           </motion.div>

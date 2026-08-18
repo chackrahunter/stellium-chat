@@ -5,10 +5,12 @@ import {
 } from 'lucide-react';
 import type { Channel } from '@stellium/shared';
 import { useStore } from '../state/store.js';
+import { useT } from '../i18n/index.js';
 import { Avatar } from './Avatar.jsx';
 import { clsx, languageInfo, localTimeFor } from '../lib/format.js';
 
 export function Sidebar() {
+  const t = useT();
   const self = useStore((s) => s.self);
   const channels = useStore((s) => s.channels);
   const states = useStore((s) => s.states);
@@ -74,7 +76,7 @@ export function Sidebar() {
         </div>
         <button className="search-trigger no-drag" onClick={() => setOverlay('quick')}>
           <Search size={14} />
-          Springen zu…
+          {t('nav.jumpTo')}
           <kbd>{navigator.platform.includes('Mac') ? '⌘' : 'Strg'} K</kbd>
         </button>
       </div>
@@ -83,20 +85,20 @@ export function Sidebar() {
         <div className="group">
           <button className="chan" onClick={() => setOverlay('search')}>
             <Search size={15} className="chan__icon" />
-            <span className="chan__name">Suche</span>
+            <span className="chan__name">{t('nav.search')}</span>
           </button>
           <button className="chan" onClick={() => setOverlay('people')}>
             <Users size={15} className="chan__icon" />
-            <span className="chan__name">Team</span>
+            <span className="chan__name">{t('nav.people')}</span>
           </button>
           <button className="chan" onClick={() => setOverlay('glossary')}>
             <Sparkles size={15} className="chan__icon" />
-            <span className="chan__name">Glossar</span>
+            <span className="chan__name">{t('nav.glossary')}</span>
           </button>
         </div>
 
         <Group
-          title="Kanäle"
+          title={t('nav.channels')}
           count={publicChannels.length}
           collapsed={collapsed.public}
           onToggle={() => toggle('public')}
@@ -107,7 +109,7 @@ export function Sidebar() {
 
         {privateChannels.length > 0 && (
           <Group
-            title="Privat"
+            title={t('nav.private')}
             count={privateChannels.length}
             collapsed={collapsed.private}
             onToggle={() => toggle('private')}
@@ -117,7 +119,7 @@ export function Sidebar() {
         )}
 
         <Group
-          title="Direktnachrichten"
+          title={t('nav.directMessages')}
           count={dms.length}
           collapsed={collapsed.dms}
           onToggle={() => toggle('dms')}

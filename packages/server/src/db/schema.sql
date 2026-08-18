@@ -4,8 +4,11 @@ PRAGMA synchronous = NORMAL;
 
 CREATE TABLE IF NOT EXISTS users (
   id                    TEXT PRIMARY KEY,
-  handle                TEXT NOT NULL UNIQUE,
-  email                 TEXT NOT NULL UNIQUE,
+  -- Beide Felder liegen verschlüsselt vor. Die Eindeutigkeit prüfen die
+  -- Suchwerte handle_bidx und email_bidx (partielle Indizes weiter unten):
+  -- mehrere Konten ohne E-Mail müssen möglich sein.
+  handle                TEXT NOT NULL,
+  email                 TEXT NOT NULL DEFAULT '',
   display_name          TEXT NOT NULL,
   password_hash         TEXT NOT NULL,
   avatar_color          TEXT NOT NULL DEFAULT '#7c5cff',
@@ -257,3 +260,24 @@ CREATE TABLE IF NOT EXISTS voice_transcripts (
   model         TEXT,
   created_at    INTEGER NOT NULL
 );
+
+-- Persönliche Rechte-Abweichungen von der Rollenvorgabe.
+CREATE TABLE IF NOT EXISTS user_permissions (
+  user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  permission TEXT NOT NULL,
+  allowed    INTEGER NOT NULL,
+  set_by     TEXT,
+  set_at     INTEGER NOT NULL,
+  PRIMARY KEY (user_id, permission)
+);
+
+-- Einmal-Passwörter für neue Konten und Zurücksetzungen.
+CREATE TABLE IF NOT EXISTS invites (
+  id          TEXT PRIMARY KEY,
+  user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_by  TEXT NOT NULL,
+  created_at  INTEGER NOT NULL,
+  expires_at  INTEGER NOT NULL,
+  used_at     INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_invites_user ON invites(user_id, used_at);

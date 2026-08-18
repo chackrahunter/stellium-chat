@@ -17,6 +17,8 @@ import { CatchupPanel, GlossaryPanel, NewChannelDialog, PeoplePanel } from './co
 import { ForwardDialog, PollDialog, ReminderDialog, RemindersPanel } from './components/Dialogs.jsx';
 import { ProfileCard } from './components/ProfileCard.jsx';
 import { Login } from './components/Login.jsx';
+import { Setup } from './components/Setup.jsx';
+import { TeamAdmin } from './components/TeamAdmin.jsx';
 import { Toasts } from './components/Toasts.jsx';
 import { clsx } from './lib/format.js';
 
@@ -97,6 +99,17 @@ export function App() {
     );
   }
 
+  // Wer mit einem Einmal-Passwort da ist, richtet zuerst sein Konto ein.
+  if (self.mustChangePassword || self.mustCompleteProfile) {
+    return (
+      <>
+        <Cosmos />
+        <Setup />
+        <Toasts />
+      </>
+    );
+  }
+
   const closeOverlay = () => useStore.getState().setOverlay(null);
 
   return (
@@ -148,6 +161,7 @@ export function App() {
         {overlay === 'people' && <PeoplePanel key="people" onClose={closeOverlay} />}
         {overlay === 'catchup' && <CatchupPanel key="catchup" onClose={closeOverlay} />}
         {overlay === 'reminders' && <RemindersPanel key="reminders" onClose={closeOverlay} />}
+        {overlay === 'team' && <TeamAdmin key="team" onClose={closeOverlay} />}
         {overlay === 'poll' && activeChannelId && (
           <PollDialog key="poll" channelId={activeChannelId} onClose={closeOverlay} />
         )}

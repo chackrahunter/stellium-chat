@@ -1,17 +1,20 @@
 import { useState } from 'react';
 import {
-  Hash, Info, Languages, Lock, MessageSquareText, Pin, Sparkles, Users, X,
+  Hash, Languages, Loader2, Lock, MessageSquareText, Sparkles, Users,
 } from 'lucide-react';
 import { LANGUAGES, normalizeLang } from '@stellium/shared';
 import { useStore } from '../state/store.js';
+import { useT } from '../i18n/index.js';
 import { Avatar } from './Avatar.jsx';
 import { languageInfo, localTimeFor } from '../lib/format.js';
 
 export function ChannelHeader({ channelId }: { channelId: string }) {
+  const t = useT();
   const channel = useStore((s) => s.channels[channelId]);
   const users = useStore((s) => s.users);
   const self = useStore((s) => s.self);
   const ai = useStore((s) => s.ai);
+  const smartRepliesLoading = useStore((s) => s.smartRepliesLoading);
   const { runCatchup, setOverlay, updateChannel, updatePrefs, loadSmartReplies } = useStore.getState();
   const [langOpen, setLangOpen] = useState(false);
 
@@ -42,11 +45,11 @@ export function ChannelHeader({ channelId }: { channelId: string }) {
             <button
               className="pill"
               onClick={() => setLangOpen((v) => !v)}
-              title="Kanalsprache — Basis für die Vorschau beim Schreiben"
+              title={t('header.channelLanguage')}
             >
               <Languages size={13} />
               {channel.primaryLanguage ? languageInfo(channel.primaryLanguage).flag : '🌐'}
-              {channel.primaryLanguage ? channel.primaryLanguage.toUpperCase() : 'Auto'}
+              {channel.primaryLanguage ? channel.primaryLanguage.toUpperCase() : t('header.auto')}
             </button>
             {langOpen && (
               <div
@@ -79,16 +82,16 @@ export function ChannelHeader({ channelId }: { channelId: string }) {
 
         <button
           className="pill"
-          title="Meine Anzeigesprache umstellen"
+          title={t('header.myLanguage')}
           onClick={() => setOverlay('settings')}
         >
           {languageInfo(self?.language).flag} {self?.language.toUpperCase()}
         </button>
 
         {ai?.assistant && (
-          <button className="pill pill--accent" onClick={() => runCatchup(channelId)} title="Ungelesenes zusammenfassen">
+          <button className="pill pill--accent" onClick={() => runCatchup(channelId)} title={t('header.summarize')}>
             <Sparkles size={13} />
-            Verpasst?
+            {t('header.missed')}
           </button>
         )}
 
@@ -96,13 +99,16 @@ export function ChannelHeader({ channelId }: { channelId: string }) {
           <button
             className="icon-btn"
             onClick={() => loadSmartReplies(channelId)}
-            title="Antwortvorschläge holen"
+            disabled={smartRepliesLoading}
+            title={smartRepliesLoading ? t('header.smartRepliesLoading') : t('header.smartReplies')}
           >
-            <MessageSquareText size={17} />
+            {smartRepliesLoading
+              ? <Loader2 size={17} className="spin" />
+              : <MessageSquareText size={17} />}
           </button>
         )}
 
-        <button className="icon-btn" onClick={() => setOverlay('people')} title="Mitglieder">
+        <button className="icon-btn" onClick={() => setOverlay('people')} title={t('header.members')}>
           <Users size={17} />
         </button>
       </div>

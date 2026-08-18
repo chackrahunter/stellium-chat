@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import type { Message } from '@stellium/shared';
 import { useStore } from '../state/store.js';
+import { useT } from '../i18n/index.js';
 import { fileUrl } from '../net/api.js';
 import { Avatar } from './Avatar.jsx';
 import { Markdown } from './Markdown.jsx';
@@ -24,6 +25,7 @@ interface Props {
 const QUICK_EMOJI = ['👍', '🎉', '👀', '❤️', '🚀', '✅'];
 
 export const MessageItem = memo(function MessageItem({ message, grouped, inThread = false }: Props) {
+  const t = useT();
   const self = useStore((s) => s.self);
   const author = useStore((s) => s.users[message.userId]);
   const showOriginal = useStore((s) => s.showOriginal[message.id] ?? false);
@@ -52,7 +54,7 @@ export const MessageItem = memo(function MessageItem({ message, grouped, inThrea
       <div className="msg msg--grouped">
         <div className="msg__gutter" />
         <div className="msg__body muted" style={{ fontStyle: 'italic', fontSize: 13.5 }}>
-          Diese Nachricht wurde gelöscht
+          {t('msg.deleted')}
         </div>
       </div>
     );
@@ -113,7 +115,7 @@ export const MessageItem = memo(function MessageItem({ message, grouped, inThrea
               {author?.displayName ?? 'Unbekannt'}
             </button>
             <span className="msg__time">{timeOfDay(message.createdAt)}</span>
-            {message.editedAt && <span className="msg__tag">bearbeitet</span>}
+            {message.editedAt && <span className="msg__tag">{t('msg.edited')}</span>}
             {message.pinned && <Pin size={12} className="muted" />}
             {message.sourceLang && (
               <span className="msg__tag" title={`Geschrieben auf ${languageInfo(message.sourceLang).native}`}>
@@ -136,9 +138,9 @@ export const MessageItem = memo(function MessageItem({ message, grouped, inThrea
               }}
             />
             <div className="hstack gap-2">
-              <button className="btn btn--primary" onClick={submitEdit}><Check size={15} /> Speichern</button>
-              <button className="btn btn--ghost" onClick={() => { setEditing(false); setDraft(message.text); }}>Abbrechen</button>
-              <span className="muted" style={{ fontSize: 12 }}>Enter speichert, Esc bricht ab</span>
+              <button className="btn btn--primary" onClick={submitEdit}><Check size={15} /> {t('msg.saveButton')}</button>
+              <button className="btn btn--ghost" onClick={() => { setEditing(false); setDraft(message.text); }}>{t('msg.cancel')}</button>
+              <span className="muted" style={{ fontSize: 12 }}>{t('msg.enterSaves')}</span>
             </div>
           </div>
         ) : message.kind === 'voice' && message.voice ? (
@@ -167,7 +169,7 @@ export const MessageItem = memo(function MessageItem({ message, grouped, inThrea
                 <button
                   className="translated__meta"
                   onClick={() => toggleOriginal(message.id)}
-                  title={showOriginal ? 'Übersetzung anzeigen' : 'Original anzeigen'}
+                  title={showOriginal ? t('msg.showTranslation') : t('msg.showOriginal')}
                 >
                   <Languages size={11} className="spark" />
                   {showOriginal
@@ -188,7 +190,7 @@ export const MessageItem = memo(function MessageItem({ message, grouped, inThrea
                   && translation!.confidence < 0.45 && (
                   <div className="confidence-low">
                     <AlertTriangle size={11} />
-                    Übersetzung unsicher — im Zweifel nachfragen
+                    {t('msg.lowConfidence')}
                   </div>
                 )}
 
@@ -259,7 +261,7 @@ export const MessageItem = memo(function MessageItem({ message, grouped, inThrea
                 <span className="reaction__count">{r.userIds.length}</span>
               </motion.button>
             ))}
-            <button className="reaction" onClick={() => setPickerOpen(true)} title="Reaktion hinzufügen">
+            <button className="reaction" onClick={() => setPickerOpen(true)} title={t('msg.pickReaction')}>
               <Smile size={13} />
             </button>
           </div>
@@ -272,7 +274,7 @@ export const MessageItem = memo(function MessageItem({ message, grouped, inThrea
                 <Avatar key={id} user={useStore.getState().users[id]} size={20} />
               ))}
             </span>
-            {message.replyCount} {message.replyCount === 1 ? 'Antwort' : 'Antworten'}
+            {message.replyCount} {message.replyCount === 1 ? t('msg.reply') : t('msg.replies')}
           </button>
         )}
       </div>
@@ -280,20 +282,20 @@ export const MessageItem = memo(function MessageItem({ message, grouped, inThrea
       {/* Aktionsleiste beim Überfahren */}
       <div className="msg__actions">
         {QUICK_EMOJI.slice(0, 3).map((emoji) => (
-          <button key={emoji} className="icon-btn icon-btn--sm" onClick={() => react(message.id, emoji)} title={`Mit ${emoji} reagieren`}>
+          <button key={emoji} className="icon-btn icon-btn--sm" onClick={() => react(message.id, emoji)} title={t('msg.reactWith', { emoji })}>
             <span style={{ fontSize: 15 }}>{emoji}</span>
           </button>
         ))}
-        <button className="icon-btn icon-btn--sm" onClick={() => setPickerOpen(true)} title="Reaktion wählen"><Smile size={15} /></button>
+        <button className="icon-btn icon-btn--sm" onClick={() => setPickerOpen(true)} title={t('msg.pickReaction')}><Smile size={15} /></button>
         {!inThread && (
-          <button className="icon-btn icon-btn--sm" onClick={() => openThread(message.id)} title="Im Thread antworten"><MessageSquare size={15} /></button>
+          <button className="icon-btn icon-btn--sm" onClick={() => openThread(message.id)} title={t('msg.replyInThread')}><MessageSquare size={15} /></button>
         )}
         {hasTranslation ? (
-          <button className="icon-btn icon-btn--sm" onClick={() => requestRoundTrip(message.id)} title="Rückübersetzung prüfen"><RefreshCw size={15} /></button>
+          <button className="icon-btn icon-btn--sm" onClick={() => requestRoundTrip(message.id)} title={t('msg.checkBackTranslation')}><RefreshCw size={15} /></button>
         ) : (
-          <button className="icon-btn icon-btn--sm" onClick={() => requestTranslation(message.id)} title="In meine Sprache übersetzen"><Languages size={15} /></button>
+          <button className="icon-btn icon-btn--sm" onClick={() => requestTranslation(message.id)} title={t('msg.translateToMine')}><Languages size={15} /></button>
         )}
-        <button className="icon-btn icon-btn--sm" onClick={() => setMenuOpen((v) => !v)} title="Mehr"><MoreHorizontal size={15} /></button>
+        <button className="icon-btn icon-btn--sm" onClick={() => setMenuOpen((v) => !v)} title={t('msg.more')}><MoreHorizontal size={15} /></button>
 
         <AnimatePresence>
           {menuOpen && (
@@ -309,13 +311,13 @@ export const MessageItem = memo(function MessageItem({ message, grouped, inThrea
               }}
               onMouseLeave={() => setMenuOpen(false)}
             >
-              <MenuItem icon={<Bookmark size={14} />} label="Für später merken" onClick={() => { save(message.id, true); setMenuOpen(false); }} />
-              <MenuItem icon={<Bell size={14} />} label="Später erinnern" onClick={() => { startReminder(message); setMenuOpen(false); }} />
-              <MenuItem icon={<Forward size={14} />} label="Weiterleiten" onClick={() => { startForward(message); setMenuOpen(false); }} />
-              <MenuItem icon={<Pin size={14} />} label={message.pinned ? 'Nicht mehr anpinnen' : 'Anpinnen'} onClick={() => { pin(message.id, !message.pinned); setMenuOpen(false); }} />
-              <MenuItem icon={<Copy size={14} />} label="Text kopieren" onClick={() => { void navigator.clipboard.writeText(message.text); setMenuOpen(false); }} />
-              {isMine && <MenuItem icon={<Pencil size={14} />} label="Bearbeiten" onClick={() => { setEditing(true); setMenuOpen(false); }} />}
-              {isMine && <MenuItem icon={<Trash2 size={14} />} label="Löschen" danger onClick={() => { deleteMessage(message.id); setMenuOpen(false); }} />}
+              <MenuItem icon={<Bookmark size={14} />} label={t('msg.save')} onClick={() => { save(message.id, true); setMenuOpen(false); }} />
+              <MenuItem icon={<Bell size={14} />} label={t('msg.remind')} onClick={() => { startReminder(message); setMenuOpen(false); }} />
+              <MenuItem icon={<Forward size={14} />} label={t('msg.forward')} onClick={() => { startForward(message); setMenuOpen(false); }} />
+              <MenuItem icon={<Pin size={14} />} label={message.pinned ? t('msg.unpin') : t('msg.pin')} onClick={() => { pin(message.id, !message.pinned); setMenuOpen(false); }} />
+              <MenuItem icon={<Copy size={14} />} label={t('msg.copy')} onClick={() => { void navigator.clipboard.writeText(message.text); setMenuOpen(false); }} />
+              {isMine && <MenuItem icon={<Pencil size={14} />} label={t('msg.edit')} onClick={() => { setEditing(true); setMenuOpen(false); }} />}
+              {isMine && <MenuItem icon={<Trash2 size={14} />} label={t('msg.delete')} danger onClick={() => { deleteMessage(message.id); setMenuOpen(false); }} />}
             </motion.div>
           )}
         </AnimatePresence>

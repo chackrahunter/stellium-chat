@@ -6,10 +6,12 @@ import { useStore } from '../state/store.js';
 import { api, serverUrl, setServerUrl } from '../net/api.js';
 import { Avatar } from './Avatar.jsx';
 import { languageInfo } from '../lib/format.js';
+import { coverage, UI_LANGUAGES, useT } from '../i18n/index.js';
 
 type Tab = 'profil' | 'sprache' | 'modelle' | 'benachrichtigungen' | 'darstellung' | 'server';
 
 export function Settings({ onClose }: { onClose: () => void }) {
+  const t = useT();
   const self = useStore((s) => s.self);
   const ai = useStore((s) => s.ai);
   const { updatePrefs, logout } = useStore.getState();
@@ -45,7 +47,24 @@ export function Settings({ onClose }: { onClose: () => void }) {
           {tab === 'sprache' && (
             <>
               <div className="field">
-                <label className="field__label">Meine Anzeigesprache</label>
+                <label className="field__label">{t('settings.uiLanguage')}</label>
+                <select
+                  className="select"
+                  value={self.uiLanguage || self.language}
+                  onChange={(e) => updatePrefs({ uiLanguage: e.target.value })}
+                >
+                  {UI_LANGUAGES.map((l) => (
+                    <option key={l.code} value={l.code}>
+                      {l.flag} {l.native}
+                      {coverage(l.code) < 100 ? ` (${coverage(l.code)} %)` : ''}
+                    </option>
+                  ))}
+                </select>
+                <p className="field__hint">{t('settings.uiLanguageHint')}</p>
+              </div>
+
+              <div className="field">
+                <label className="field__label">{t('settings.myLanguage')}</label>
                 <select
                   className="select"
                   value={self.language}
@@ -56,31 +75,30 @@ export function Settings({ onClose }: { onClose: () => void }) {
                   ))}
                 </select>
                 <p className="field__hint">
-                  Alles, was in einer anderen Sprache geschrieben wird, erscheint für dich automatisch
-                  auf {languageInfo(self.language).native}. Das Original bleibt einen Klick entfernt.
+                  {t('settings.myLanguageHint', { language: languageInfo(self.language).native })}
                 </p>
               </div>
 
               <Row
-                title="Live-Übersetzung"
-                sub="Eingehende Nachrichten sofort in meine Sprache übersetzen"
+                title={t('settings.liveTranslation')}
+                sub={t('settings.liveTranslationHint')}
                 checked={self.autoTranslate}
                 onChange={(v) => updatePrefs({ autoTranslate: v })}
               />
               <Row
-                title="Vorschau vor dem Senden"
-                sub="Zeigt beim Tippen, wie deine Nachricht in der Kanalsprache ankommt"
+                title={t('settings.composePreview')}
+                sub={t('settings.composePreviewHint')}
                 checked={self.composeTargetPreview}
                 onChange={(v) => updatePrefs({ composeTargetPreview: v })}
               />
 
               <div className="field" style={{ marginTop: 'var(--sp-4)' }}>
-                <label className="field__label">Wie soll übersetzt werden?</label>
+                <label className="field__label">{t('settings.translationSpeed')}</label>
                 <div className="hstack gap-2">
                   {([
-                    ['fast', 'Schnell', 'Kleines Modell, Antwort in Sekundenbruchteilen'],
-                    ['balanced', 'Ausgewogen', 'Kurzes schnell, Längeres gründlich'],
-                    ['accurate', 'Genau', 'Immer das große Modell'],
+                    ['fast', t('settings.speedFast'), 'Kleines Modell, Antwort in Sekundenbruchteilen'],
+                    ['balanced', t('settings.speedBalanced'), 'Kurzes schnell, Längeres gründlich'],
+                    ['accurate', t('settings.speedAccurate'), 'Immer das große Modell'],
                   ] as const).map(([value, label, hint]) => (
                     <button
                       key={value}
@@ -131,7 +149,7 @@ export function Settings({ onClose }: { onClose: () => void }) {
           {tab === 'profil' && (
             <>
               <div className="field">
-                <label className="field__label">Anzeigename</label>
+                <label className="field__label">{t('settings.displayName')}</label>
                 <input
                   className="input"
                   defaultValue={self.displayName}
@@ -139,7 +157,7 @@ export function Settings({ onClose }: { onClose: () => void }) {
                 />
               </div>
               <div className="field">
-                <label className="field__label">Rolle / Titel</label>
+                <label className="field__label">{t('settings.role')}</label>
                 <input
                   className="input"
                   defaultValue={self.title ?? ''}
@@ -148,14 +166,14 @@ export function Settings({ onClose }: { onClose: () => void }) {
                 />
               </div>
               <div className="field">
-                <label className="field__label">Zeitzone</label>
+                <label className="field__label">{t('settings.timezone')}</label>
                 <select className="select" value={self.timezone} onChange={(e) => updatePrefs({ timezone: e.target.value })}>
                   {TIMEZONES.map((tz) => <option key={tz} value={tz}>{tz}</option>)}
                 </select>
                 <p className="field__hint">Kolleg:innen sehen dann deine Ortszeit — hilfreich, bevor jemand um 23 Uhr schreibt.</p>
               </div>
               <button className="btn btn--danger" onClick={() => { logout(); onClose(); }}>
-                <LogOut size={15} /> Abmelden
+                <LogOut size={15} /> {t('settings.logout')}
               </button>
             </>
           )}
@@ -165,19 +183,19 @@ export function Settings({ onClose }: { onClose: () => void }) {
           {tab === 'benachrichtigungen' && (
             <>
               <div className="field">
-                <label className="field__label">Benachrichtigen bei</label>
+                <label className="field__label">{t('settings.notifyOn')}</label>
                 <select
                   className="select"
                   value={self.notifyOn}
                   onChange={(e) => updatePrefs({ notifyOn: e.target.value as typeof self.notifyOn })}
                 >
-                  <option value="all">Allen neuen Nachrichten</option>
-                  <option value="mentions">Nur Erwähnungen und DMs</option>
-                  <option value="none">Nie</option>
+                  <option value="all">{t('settings.notifyAll')}</option>
+                  <option value="mentions">{t('settings.notifyMentions')}</option>
+                  <option value="none">{t('settings.notifyNone')}</option>
                 </select>
               </div>
               <div className="field">
-                <label className="field__label">Klang</label>
+                <label className="field__label">{t('settings.sound')}</label>
                 <select
                   className="select"
                   value={self.notificationSound}
@@ -186,19 +204,19 @@ export function Settings({ onClose }: { onClose: () => void }) {
                   <option value="ping">Ping</option>
                   <option value="blip">Blip</option>
                   <option value="chime">Glocke</option>
-                  <option value="aus">Kein Ton</option>
+                  <option value="aus">{t('settings.soundOff')}</option>
                 </select>
               </div>
 
               <div className="field">
-                <label className="field__label">Ruhezeiten</label>
+                <label className="field__label">{t('settings.quietHours')}</label>
                 <div className="hstack gap-2">
                   <input
                     className="input" type="time" style={{ maxWidth: 150 }}
                     value={minutesToTime(self.quietHoursStart)}
                     onChange={(e) => updatePrefs({ quietHoursStart: timeToMinutes(e.target.value) })}
                   />
-                  <span className="muted">bis</span>
+                  <span className="muted">{t('settings.until')}</span>
                   <input
                     className="input" type="time" style={{ maxWidth: 150 }}
                     value={minutesToTime(self.quietHoursEnd)}
@@ -207,7 +225,7 @@ export function Settings({ onClose }: { onClose: () => void }) {
                   <button
                     className="btn btn--ghost"
                     onClick={() => updatePrefs({ quietHoursStart: null, quietHoursEnd: null })}
-                  >Aus</button>
+                  >{t('settings.off')}</button>
                 </div>
                 <p className="field__hint">
                   In dieser Zeit bleibt es still. Direkte Erwähnungen kommen trotzdem durch —
@@ -220,28 +238,28 @@ export function Settings({ onClose }: { onClose: () => void }) {
           {tab === 'darstellung' && (
             <>
               <div className="field">
-                <label className="field__label">Erscheinungsbild</label>
+                <label className="field__label">{t('settings.theme')}</label>
                 <div className="hstack gap-2">
-                  {(['dark', 'light', 'system'] as const).map((t) => (
+                  {(['dark', 'light', 'system'] as const).map((opt) => (
                     <button
-                      key={t}
-                      className={`btn${self.theme === t ? ' btn--primary' : ''}`}
-                      onClick={() => updatePrefs({ theme: t })}
+                      key={opt}
+                      className={`btn${self.theme === opt ? ' btn--primary' : ''}`}
+                      onClick={() => updatePrefs({ theme: opt })}
                     >
-                      {t === 'dark' ? 'Dunkel' : t === 'light' ? 'Hell' : 'Systemvorgabe'}
+                      {opt === 'dark' ? t('settings.dark') : opt === 'light' ? t('settings.light') : t('settings.system')}
                     </button>
                   ))}
                 </div>
               </div>
               <div className="field">
-                <label className="field__label">Dichte</label>
+                <label className="field__label">{t('settings.density')}</label>
                 <div className="hstack gap-2">
                   {(['comfortable', 'compact'] as const).map((d) => (
                     <button
                       key={d}
                       className={`btn${self.density === d ? ' btn--primary' : ''}`}
                       onClick={() => updatePrefs({ density: d })}
-                    >{d === 'comfortable' ? 'Luftig' : 'Kompakt'}</button>
+                    >{d === 'comfortable' ? t('settings.roomy') : t('settings.compact')}</button>
                   ))}
                 </div>
               </div>
@@ -251,7 +269,7 @@ export function Settings({ onClose }: { onClose: () => void }) {
           {tab === 'server' && (
             <>
               <div className="field">
-                <label className="field__label">Server-Adresse</label>
+                <label className="field__label">{t('settings.serverAddress')}</label>
                 <input className="input" value={server} onChange={(e) => setServer(e.target.value)} placeholder="http://localhost:8787" />
                 <p className="field__hint">
                   Nach dem Ändern meldet sich die App neu an. Für den Firmenbetrieb zeigt das auf euren
@@ -262,7 +280,7 @@ export function Settings({ onClose }: { onClose: () => void }) {
                 className="btn btn--primary"
                 onClick={() => { setServerUrl(server); logout(); onClose(); }}
               >
-                <Server size={15} /> Speichern und neu anmelden
+                <Server size={15} /> {t('settings.saveAndRelogin')}
               </button>
             </>
           )}
@@ -273,13 +291,14 @@ export function Settings({ onClose }: { onClose: () => void }) {
 }
 
 function Tabs({ tab, setTab }: { tab: Tab; setTab: (t: Tab) => void }) {
+  const t = useT();
   const items: { id: Tab; label: string; icon: React.ReactNode }[] = [
-    { id: 'sprache', label: 'Sprache & Übersetzung', icon: <Globe size={14} /> },
-    { id: 'modelle', label: 'KI-Modell', icon: <Cpu size={14} /> },
-    { id: 'profil', label: 'Profil', icon: <User size={14} /> },
-    { id: 'benachrichtigungen', label: 'Benachrichtigungen', icon: <Bell size={14} /> },
-    { id: 'darstellung', label: 'Darstellung', icon: <Palette size={14} /> },
-    { id: 'server', label: 'Server', icon: <Server size={14} /> },
+    { id: 'sprache', label: t('settings.language'), icon: <Globe size={14} /> },
+    { id: 'modelle', label: t('settings.model'), icon: <Cpu size={14} /> },
+    { id: 'profil', label: t('settings.profile'), icon: <User size={14} /> },
+    { id: 'benachrichtigungen', label: t('settings.notifications'), icon: <Bell size={14} /> },
+    { id: 'darstellung', label: t('settings.appearance'), icon: <Palette size={14} /> },
+    { id: 'server', label: t('settings.server'), icon: <Server size={14} /> },
   ];
   return (
     <>

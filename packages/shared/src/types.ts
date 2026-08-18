@@ -1,5 +1,7 @@
 /** Domänenmodelle — von Server und Desktop-Client geteilt. */
 
+import type { PermissionKey } from './permissions.js';
+
 export type UserStatus = 'online' | 'away' | 'dnd' | 'offline';
 export type ChannelKind = 'public' | 'private' | 'dm';
 export type MemberRole = 'owner' | 'admin' | 'member' | 'guest';
@@ -22,6 +24,8 @@ export interface User {
   statusExpiresAt: number | null;
   lastSeenAt: number | null;
   role: MemberRole;
+  /** Gesperrte Konten können sich nicht anmelden, bleiben aber im Verlauf sichtbar. */
+  disabled: boolean;
   createdAt: number;
 }
 
@@ -37,6 +41,43 @@ export interface SelfUser extends User {
   notificationSound: string;
   /** "fast" nutzt das kleine Modell, "accurate" das große, "balanced" entscheidet nach Textlänge. */
   translationSpeed: 'fast' | 'balanced' | 'accurate';
+  /** Sprache der Oberfläche — unabhängig von der Übersetzungssprache. */
+  uiLanguage: string;
+  /** Was diese Person darf. Vom Server berechnet, hier nur zur Anzeige. */
+  permissions: Record<PermissionKey, boolean>;
+  /** Erstanmeldung mit Einmal-Passwort: eigenes Passwort setzen. */
+  mustChangePassword: boolean;
+  /** Benutzername und E-Mail fehlen noch. */
+  mustCompleteProfile: boolean;
+  email: string;
+}
+
+/** Was die Verwaltung über ein Konto sieht. */
+export interface ManagedUser {
+  id: string;
+  handle: string;
+  displayName: string;
+  /** Aus Datenschutzgründen nur angedeutet, z.B. "an•••@firma.de". */
+  emailMasked: string;
+  role: MemberRole;
+  disabled: boolean;
+  mustChangePassword: boolean;
+  lastSeenAt: number | null;
+  createdAt: number;
+  createdBy: string | null;
+  /** Abweichungen von der Rollenvorgabe. */
+  overrides: Partial<Record<PermissionKey, boolean>>;
+  permissions: Record<PermissionKey, boolean>;
+}
+
+/** Ergebnis, wenn ein Konto angelegt oder ein Passwort zurückgesetzt wurde. */
+export interface OneTimeCredential {
+  userId: string;
+  handle: string;
+  displayName: string;
+  oneTimePassword: string;
+  /** Nur ein einziges Mal sichtbar — danach nicht mehr abrufbar. */
+  expiresAt: number;
 }
 
 export interface Channel {

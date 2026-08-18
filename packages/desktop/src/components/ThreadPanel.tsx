@@ -1,10 +1,12 @@
 import { X } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useStore } from '../state/store.js';
+import { useT } from '../i18n/index.js';
 import { MessageItem } from './MessageItem.jsx';
 import { Composer } from './Composer.jsx';
 
 export function ThreadPanel({ parentId }: { parentId: string }) {
+  const t = useT();
   const messages = useStore((s) => s.threads[parentId]) ?? [];
   const channelId = messages[0]?.channelId;
   const { openThread } = useStore.getState();
@@ -19,9 +21,9 @@ export function ThreadPanel({ parentId }: { parentId: string }) {
       <div className="thread__head">
         <h2>Thread</h2>
         <span className="muted" style={{ fontSize: 12.5 }}>
-          {Math.max(0, messages.length - 1)} {messages.length === 2 ? 'Antwort' : 'Antworten'}
+          {Math.max(0, messages.length - 1)} {messages.length === 2 ? t('msg.reply') : t('msg.replies')}
         </span>
-        <button className="icon-btn" style={{ marginLeft: 'auto' }} onClick={() => openThread(null)} title="Schließen">
+        <button className="icon-btn" style={{ marginLeft: 'auto' }} onClick={() => openThread(null)} title={t('common.close')}>
           <X size={17} />
         </button>
       </div>
@@ -37,7 +39,7 @@ export function ThreadPanel({ parentId }: { parentId: string }) {
         ))}
       </div>
 
-      {channelId && <Composer channelId={channelId} parentId={parentId} placeholder="Im Thread antworten…" autoFocus />}
+      {channelId && <Composer channelId={channelId} parentId={parentId} placeholder={t('composer.threadPlaceholder')} autoFocus />}
     </motion.aside>
   );
 }
