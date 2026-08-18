@@ -379,3 +379,12 @@ CREATE TABLE IF NOT EXISTS files (
   updated_at  INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_files_ort ON files(channel_id, folder, name);
+
+-- Nachrichten, die jemand nur für sich ausgeblendet hat.
+-- Für alle löschen ist nur im Zeitfenster möglich; danach bleibt das hier.
+CREATE TABLE IF NOT EXISTS hidden_messages (
+  user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (user_id, message_id)
+);

@@ -35,7 +35,9 @@ function createWindow(): void {
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
     // Die Knöpfe liegen in der Rail. Waagerecht mittig (Rail ist 68px breit,
     // die drei Knöpfe zusammen etwa 52px), senkrecht mit etwas Luft nach oben.
-    trafficLightPosition: process.platform === 'darwin' ? { x: 8, y: 18 } : undefined,
+    // In den freien Streifen über der Rail. Die Rail ist 68px breit, die drei
+    // Knöpfe zusammen etwa 52px — damit sitzen sie mittig darüber.
+    trafficLightPosition: process.platform === 'darwin' ? { x: 9, y: 20 } : undefined,
     webPreferences: {
       preload: path.join(here, 'preload.mjs'),
       contextIsolation: true,

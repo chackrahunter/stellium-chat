@@ -1,10 +1,13 @@
 import { memo, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
-  AlertTriangle, Bell, Bookmark, Check, Copy, Forward, Languages, MessageSquare,
-  MoreHorizontal, Pencil, Pin, RefreshCw, Smile, Sparkles, Trash2,
+  AlertTriangle, Bell, Bookmark, Check, Copy, EyeOff, Forward, Languages,
+  MessageSquare, MoreHorizontal, Pencil, Pin, RefreshCw, Smile, Sparkles, Trash2,
 } from 'lucide-react';
-import type { Message } from '@stellium/shared';
+import {
+  DELETE_FOR_ALL_WINDOW_MS, EDIT_WINDOW_MS, minutesLeft,
+  withinDeleteWindow, withinEditWindow, type Message,
+} from '@stellium/shared';
 import { useStore } from '../state/store.js';
 import { useT } from '../i18n/index.js';
 import { fileUrl } from '../net/api.js';
@@ -44,10 +47,29 @@ export const MessageItem = memo(function MessageItem({ message, grouped, inThrea
   const [menuOpen, setMenuOpen] = useState(false);
 
   const isMine = self?.id === message.userId;
+  // Bearbeiten und Zurücknehmen sind zeitlich begrenzt: nach zwei Stunden ist
+  // die Nachricht Teil eines Verlaufs, auf den sich andere bezogen haben.
+  const darfBearbeiten = isMine && withinEditWindow(message.createdAt) && message.kind !== 'poll';
+  const darfFuerAlleLoeschen =
+    (isMine && withinDeleteWindow(message.createdAt)) || Boolean(self?.permissions['message.delete_any']);
+  const restBearbeiten = minutesLeft(message.createdAt, EDIT_WINDOW_MS);
+  const restLoeschen = minutesLeft(message.createdAt, DELETE_FOR_ALL_WINDOW_MS);
   const isMention = self ? message.mentionUserIds.includes(self.id) : false;
   const translation = message.translation;
   const hasTranslation = Boolean(translation && translation.text !== message.text);
   const bodyText = hasTranslation && !showOriginal ? translation!.text : message.text;
+
+  // Für mich ausgeblendet: nur ein dezenter Hinweis, kein Inhalt.
+  if (message.hiddenForMe) {
+    return (
+      <div className="msg msg--grouped" style={{ opacity: 0.45 }}>
+        <div className="msg__gutter" />
+        <div className="msg__body muted" style={{ fontStyle: 'italic', fontSize: 13 }}>
+          {t('msg.hiddenForYou')}
+        </div>
+      </div>
+    );
+  }
 
   if (message.deletedAt) {
     return (
@@ -316,8 +338,31 @@ export const MessageItem = memo(function MessageItem({ message, grouped, inThrea
               <MenuItem icon={<Forward size={14} />} label={t('msg.forward')} onClick={() => { startForward(message); setMenuOpen(false); }} />
               <MenuItem icon={<Pin size={14} />} label={message.pinned ? t('msg.unpin') : t('msg.pin')} onClick={() => { pin(message.id, !message.pinned); setMenuOpen(false); }} />
               <MenuItem icon={<Copy size={14} />} label={t('msg.copy')} onClick={() => { void navigator.clipboard.writeText(message.text); setMenuOpen(false); }} />
-              {isMine && <MenuItem icon={<Pencil size={14} />} label={t('msg.edit')} onClick={() => { setEditing(true); setMenuOpen(false); }} />}
-              {isMine && <MenuItem icon={<Trash2 size={14} />} label={t('msg.delete')} danger onClick={() => { deleteMessage(message.id); setMenuOpen(false); }} />}
+              {darfBearbeiten && (
+                <MenuItem
+                  icon={<Pencil size={14} />}
+                  label={`${t('msg.edit')} · ${t('msg.minutesLeft', { n: restBearbeiten })}`}
+                  onClick={() => { setEditing(true); setMenuOpen(false); }}
+                />
+              )}
+              {isMine && !darfBearbeiten && (
+                <MenuItem icon={<Pencil size={14} />} label={t('msg.editExpired')} disabled onClick={() => {}} />
+              )}
+              {darfFuerAlleLoeschen && (
+                <MenuItem
+                  icon={<Trash2 size={14} />}
+                  label={isMine && !self?.permissions['message.delete_any']
+                    ? `${t('msg.deleteForAll')} · ${t('msg.minutesLeft', { n: restLoeschen })}`
+                    : t('msg.deleteForAll')}
+                  danger
+                  onClick={() => { deleteMessage(message.id, 'all'); setMenuOpen(false); }}
+                />
+              )}
+              <MenuItem
+                icon={<EyeOff size={14} />}
+                label={t('msg.deleteForMe')}
+                onClick={() => { deleteMessage(message.id, 'me'); setMenuOpen(false); }}
+              />
             </motion.div>
           )}
         </AnimatePresence>
@@ -335,17 +380,22 @@ export const MessageItem = memo(function MessageItem({ message, grouped, inThrea
   );
 });
 
-function MenuItem({ icon, label, onClick, danger }: { icon: React.ReactNode; label: string; onClick: () => void; danger?: boolean }) {
+function MenuItem({ icon, label, onClick, danger, disabled }: {
+  icon: React.ReactNode; label: string; onClick: () => void; danger?: boolean; disabled?: boolean;
+}) {
   return (
     <button
-      onClick={onClick}
+      onClick={disabled ? undefined : onClick}
+      disabled={disabled}
       style={{
         display: 'flex', alignItems: 'center', gap: 9, width: '100%',
         padding: '7px 10px', borderRadius: 'var(--r-xs)',
         fontSize: 13.5, textAlign: 'left',
         color: danger ? 'var(--rose)' : 'var(--tx-mid)',
+        opacity: disabled ? 0.45 : 1,
+        cursor: disabled ? 'default' : 'pointer',
       }}
-      onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; }}
+      onMouseEnter={(e) => { if (!disabled) e.currentTarget.style.background = 'var(--bg-hover)'; }}
       onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
     >
       {icon}{label}

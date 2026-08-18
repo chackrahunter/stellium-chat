@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import {
-  Hash, Languages, Loader2, Lock, MessageSquareText, Sparkles, Users,
+  Hash, Languages, Loader2, Lock, Megaphone, MessageSquareText, Settings2, Sparkles, Users,
 } from 'lucide-react';
 import { LANGUAGES, normalizeLang } from '@stellium/shared';
 import { useStore } from '../state/store.js';
@@ -34,6 +34,11 @@ export function ChannelHeader({ channelId }: { channelId: string }) {
           <span className="header__topic" title={`Ortszeit von ${peer.displayName}`}>
             {peerTime.offHours ? '🌙' : '🕒'} {peerTime.time}
             {peer.title ? ` · ${peer.title}` : ''}
+          </span>
+        )}
+        {channel.readOnly && (
+          <span className="msg__tag" title={t('channel.readOnlyHint')}>
+            <Megaphone size={10} style={{ verticalAlign: -1 }} /> {t('channel.readOnly')}
           </span>
         )}
         {channel.topic && <span className="header__topic">{channel.topic}</span>}
@@ -110,6 +115,10 @@ export function ChannelHeader({ channelId }: { channelId: string }) {
 
         <button className="icon-btn" onClick={() => setOverlay('people')} title={t('header.members')}>
           <Users size={17} />
+        </button>
+
+        <button className="icon-btn" onClick={() => setOverlay('channelSettings')} title={t('channel.settingsTitle')}>
+          <Settings2 size={17} />
         </button>
       </div>
     </header>

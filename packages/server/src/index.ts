@@ -8,6 +8,7 @@ import { registerRoutes } from './http/routes.js';
 import { handleConnection, startBackgroundJobs } from './ws/gateway.js';
 import { aiCapabilities, dropForeignTranslations, warmUpModels } from './translation/index.js';
 import { ensureSeed } from './seed.js';
+import { ensureAssistant, repairAssistantChats } from './services/assistant.js';
 
 const app = Fastify({
   logger: { level: process.env.LOG_LEVEL ?? 'warn' },
@@ -20,6 +21,10 @@ async function main(): Promise<void> {
 
   // Übersetzungen eines früheren Anbieters wegräumen, bevor jemand sie sieht.
   dropForeignTranslations();
+
+  // Assistent bereitstellen und stumme Chats mit ihm aktivieren.
+  ensureAssistant();
+  repairAssistantChats();
 
   // Modell-Liste beim Anbieter holen, damit der erste Chat schon das
   // passende Modell trifft. Schlägt es fehl, greifen die Standardwerte.

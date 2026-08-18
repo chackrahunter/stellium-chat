@@ -25,6 +25,8 @@ export type PermissionKey =
   | 'channel.create_private'
   | 'channel.manage'
   | 'channel.archive'
+  | 'channel.delete'
+  | 'channel.members'
   | 'dm.start'
   /* Inhalte */
   | 'file.upload'
@@ -98,7 +100,16 @@ export const PERMISSIONS: PermissionInfo[] = [
     hintDe: 'Thema, Zweck und Kanalsprache ändern.', hintEn: 'Change topic, purpose and channel language.' },
   { key: 'channel.archive', group: 'kanaele',
     labelDe: 'Kanäle archivieren', labelEn: 'Archive channels',
-    hintDe: '', hintEn: '' },
+    hintDe: 'Archivierte Kanäle verschwinden aus der Liste, bleiben aber lesbar.',
+    hintEn: 'Archived channels leave the list but stay readable.' },
+  { key: 'channel.delete', group: 'kanaele',
+    labelDe: 'Kanäle löschen', labelEn: 'Delete channels',
+    hintDe: 'Unwiderruflich, samt aller Nachrichten. Meist ist Archivieren die bessere Wahl.',
+    hintEn: 'Irreversible, including all messages. Archiving is usually the better choice.' },
+  { key: 'channel.members', group: 'kanaele',
+    labelDe: 'Mitglieder verwalten', labelEn: 'Manage members',
+    hintDe: 'Personen zu Kanälen hinzufügen und entfernen.',
+    hintEn: 'Add people to channels and remove them.' },
   { key: 'dm.start', group: 'kanaele',
     labelDe: 'Direktnachrichten schreiben', labelEn: 'Start direct messages',
     hintDe: '', hintEn: '' },
@@ -193,20 +204,20 @@ const MITGLIED: PermissionKey[] = [
 const MODERATOR: PermissionKey[] = [
   ...MITGLIED,
   'message.delete_any', 'mention.everyone', 'poll.close_any',
-  'channel.create_private', 'channel.manage', 'channel.archive',
+  'channel.create_private', 'channel.manage', 'channel.archive', 'channel.members',
   'glossary.manage',
 ];
 
 /** Führt ein Team: nimmt Leute auf und setzt Passwörter zurück. */
 const TEAMLEITUNG: PermissionKey[] = [
   ...MITGLIED,
-  'mention.everyone', 'channel.create_private', 'channel.manage',
+  'mention.everyone', 'channel.create_private', 'channel.manage', 'channel.members',
   'user.invite', 'user.manage',
 ];
 
 /** Alles außer den Owner-Vorbehalten (Löschen und Rechtevergabe). */
 const ADMIN: PermissionKey[] = ALLE.filter(
-  (k) => k !== 'user.delete' && k !== 'permission.manage',
+  (k) => k !== 'user.delete' && k !== 'permission.manage' && k !== 'channel.delete',
 );
 
 /** Integrationen und der KI-Assistent: schreiben, aber nichts verwalten. */
@@ -294,4 +305,34 @@ export function effectivePermissions(
 
 export function permissionInfo(key: PermissionKey): PermissionInfo | undefined {
   return PERMISSIONS.find((p) => p.key === key);
+}
+
+
+/* ── Zeitfenster fürs Bearbeiten und Löschen ──────────────────── */
+
+/**
+ * Wie lange eine Nachricht nach dem Senden noch geändert werden darf.
+ * Danach ist sie Teil des Gesprächsverlaufs: wer eine Stunde später etwas
+ * anderes dort stehen sähe, könnte die Unterhaltung nicht mehr nachvollziehen.
+ */
+export const EDIT_WINDOW_MS = 2 * 60 * 60 * 1000;
+
+/**
+ * Wie lange man eine eigene Nachricht für alle zurücknehmen darf.
+ * Danach bleibt nur noch das Ausblenden für einen selbst — sonst entstünden
+ * Lücken in einem Verlauf, auf den sich andere schon bezogen haben.
+ */
+export const DELETE_FOR_ALL_WINDOW_MS = 2 * 60 * 60 * 1000;
+
+export function withinEditWindow(createdAt: number, now = Date.now()): boolean {
+  return now - createdAt <= EDIT_WINDOW_MS;
+}
+
+export function withinDeleteWindow(createdAt: number, now = Date.now()): boolean {
+  return now - createdAt <= DELETE_FOR_ALL_WINDOW_MS;
+}
+
+/** Verbleibende Zeit in Minuten, für die Anzeige. */
+export function minutesLeft(createdAt: number, windowMs: number, now = Date.now()): number {
+  return Math.max(0, Math.ceil((createdAt + windowMs - now) / 60000));
 }

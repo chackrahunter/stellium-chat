@@ -90,6 +90,8 @@ export interface Channel {
   primaryLanguage: string | null;
   /** Mischt der KI-Assistent hier mit? "off" | "mention" | "always" */
   aiMode: 'off' | 'mention' | 'always';
+  /** Nur Berechtigte dürfen schreiben — für Ankündigungskanäle. */
+  readOnly: boolean;
   archived: boolean;
   createdBy: string;
   createdAt: number;
@@ -164,6 +166,8 @@ export interface Message {
   links: LinkPreview[];
   /** Für den Empfänger vorbereitete Übersetzung (falls Sprache abweicht). */
   translation: TranslationView | null;
+  /** Für mich ausgeblendet (nicht für alle gelöscht). */
+  hiddenForMe?: boolean;
   /** Optimistisch gesendete Nachricht — nur clientseitig gesetzt. */
   pending?: boolean;
   failed?: boolean;
@@ -390,3 +394,6 @@ export interface StorageUsage {
   quota: number;
   fileCount: number;
 }
+
+/** Wie eine Nachricht gelöscht wird. */
+export type DeleteScope = 'all' | 'me';

@@ -337,9 +337,54 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
     case 'channel:update': {
       if (!darf(session, ev.archived !== undefined ? 'channel.archive' : 'channel.manage')) return;
       const ch = channels.updateChannel(ev.channelId, {
-        topic: ev.topic, purpose: ev.purpose, primaryLanguage: ev.primaryLanguage, archived: ev.archived,
+        name: ev.name, topic: ev.topic, purpose: ev.purpose,
+        primaryLanguage: ev.primaryLanguage, archived: ev.archived, readOnly: ev.readOnly,
       });
       if (ch) broadcast({ t: 'channel:upsert', channel: ch }, ch.kind === 'public' ? undefined : ch.memberIds);
+      return;
+    }
+
+    case 'channel:delete': {
+      if (!darf(session, 'channel.delete')) return;
+      const betroffen = store.memberIds(ev.channelId);
+      const info = channels.deleteChannel(ev.channelId);
+      broadcast({ t: 'channel:removed', channelId: ev.channelId }, betroffen);
+      console.log(`[kanal] #${info.name} gelöscht (${info.messages} Nachrichten) von ${userId}`);
+      return;
+    }
+
+    case 'channel:hide': {
+      channels.hideChannel(ev.channelId, userId);
+      sendToUser(userId, { t: 'channel:removed', channelId: ev.channelId });
+      return;
+    }
+
+    case 'channel:members': {
+      if (!darf(session, 'channel.members')) return;
+      const ch = channels.setMembers(ev.channelId, ev.add ?? [], ev.remove ?? []);
+      // Neue Mitglieder brauchen den Kanal, entfernte sollen ihn verlieren.
+      for (const uid of ch.memberIds) {
+        sendToUser(uid, { t: 'channel:upsert', channel: store.getChannel(ch.id, uid)! });
+        const st = store.channelState(ch.id, uid);
+        if (st) sendToUser(uid, { t: 'channel:state', state: st });
+      }
+      for (const uid of ev.remove ?? []) {
+        if (!ch.memberIds.includes(uid)) sendToUser(uid, { t: 'channel:removed', channelId: ch.id });
+      }
+      return;
+    }
+
+    case 'channel:mute': {
+      channels.setMuted(ev.channelId, userId, ev.muted);
+      const st = store.channelState(ev.channelId, userId);
+      if (st) send(session, { t: 'channel:state', state: st });
+      return;
+    }
+
+    case 'channel:star': {
+      channels.setStarred(ev.channelId, userId, ev.starred);
+      const st = store.channelState(ev.channelId, userId);
+      if (st) send(session, { t: 'channel:state', state: st });
       return;
     }
 
@@ -367,6 +412,14 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
         return fail(session, 'forbidden', 'Kein Zugriff auf diesen Kanal');
       }
       if (ch.kind === 'public') channels.ensureMember(ch.id, userId);
+
+      // Ankündigungskanäle: nur wer sie verwalten darf, schreibt auch hinein.
+      if (ch.readOnly && !may(userId, 'channel.manage')) {
+        return fail(session, 'forbidden', 'In diesen Kanal schreibt nur die Kanalverwaltung.');
+      }
+
+      // Wer einen Chat ausgeblendet hat, soll ihn bei neuer Aktivität wiedersehen.
+      channels.unhideForAll(ch.id);
 
       // Erwähnungen sind ein eigenes Recht: wer es nicht hat, soll das auch
       // erfahren, statt dass die Benachrichtigung still verschluckt wird.
@@ -422,10 +475,19 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
     }
 
     case 'message:delete': {
+      const scope = ev.scope ?? 'all';
       const eigene = store.getMessage(ev.messageId)?.userId === userId;
-      if (!darf(session, eigene ? 'message.delete_own' : 'message.delete_any')) return;
-      const { channelId } = messages.deleteMessage(ev.messageId, userId, may(userId, 'message.delete_any'));
-      broadcast({ t: 'message:deleted', messageId: ev.messageId, channelId }, store.memberIds(channelId));
+      // Für sich ausblenden darf jede:r immer — das ändert nichts für andere.
+      if (scope === 'all' && !darf(session, eigene ? 'message.delete_own' : 'message.delete_any')) return;
+
+      const ergebnis = messages.deleteMessage(ev.messageId, userId, may(userId, 'message.delete_any'), scope);
+      if (ergebnis.scope === 'me') {
+        // Nur die eigene Ansicht ändert sich.
+        send(session, { t: 'message:deleted', messageId: ev.messageId, channelId: ergebnis.channelId });
+      } else {
+        broadcast({ t: 'message:deleted', messageId: ev.messageId, channelId: ergebnis.channelId },
+          store.memberIds(ergebnis.channelId));
+      }
       return;
     }
 

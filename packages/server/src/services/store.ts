@@ -6,6 +6,7 @@ import { db, placeholders } from '../db/index.js';
 import { blindIndex, decryptField, maskEmail } from '../crypto/pii.js';
 import { overridesFor, permissionsFor } from './users.js';
 import { linkPreviewsFor } from './links.js';
+import { hiddenFor } from './messages.js';
 import { pollForMessage } from './polls.js';
 import { voiceNoteFor } from './voice.js';
 
@@ -121,6 +122,7 @@ export function toChannel(r: any, viewerId?: string): Channel {
     purpose: r.purpose ?? null,
     primaryLanguage: r.primary_language ?? null,
     aiMode: (r.ai_mode ?? 'off') as Channel['aiMode'],
+    readOnly: Boolean(r.read_only),
     archived: Boolean(r.archived),
     createdBy: r.created_by,
     createdAt: r.created_at,
@@ -143,7 +145,9 @@ export function visibleChannels(userId: string): Channel[] {
   const rows = db.all(
     `SELECT DISTINCT c.* FROM channels c
      LEFT JOIN channel_members m ON m.channel_id = c.id AND m.user_id = ?
-     WHERE c.archived = 0 AND (m.user_id IS NOT NULL OR c.kind = 'public')
+     WHERE c.archived = 0
+       AND (m.user_id IS NOT NULL OR c.kind = 'public')
+       AND COALESCE(m.hidden, 0) = 0
      ORDER BY c.kind, c.name COLLATE NOCASE`,
     userId,
   );
@@ -266,6 +270,7 @@ function threadInfoFor(messageIds: string[]): Map<string, { count: number; lastA
 
 export function hydrateMessages(rows: any[], viewerId = ''): Message[] {
   const ids = rows.map((r) => r.id);
+  const versteckt = viewerId ? hiddenFor(viewerId, ids) : new Set<string>();
   const atts = attachmentsFor(ids);
   const reacts = reactionsFor(ids);
   const mentions = mentionsFor(ids);
@@ -297,6 +302,7 @@ export function hydrateMessages(rows: any[], viewerId = ''): Message[] {
       poll: kind === 'poll' ? pollForMessage(r.id, viewerId) : null,
       voice: kind === 'voice' ? voiceNoteFor(r.id) : null,
       links: r.deleted_at ? [] : linkPreviewsFor(r.id),
+      hiddenForMe: versteckt.has(r.id),
       translation: null,
     } satisfies Message;
   });

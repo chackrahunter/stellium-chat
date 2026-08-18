@@ -51,6 +51,28 @@ export function ensureAssistant(): string {
   return konto.userId;
 }
 
+/**
+ * Bestehende Direktchats mit dem Assistenten auf "antwortet immer" setzen.
+ * Nötig für Chats, die über die normale DM-Liste entstanden sind, bevor die
+ * Zuordnung am Gesprächspartner hing.
+ */
+export function repairAssistantChats(): void {
+  const bot = assistantUserId();
+  if (!bot) return;
+  const betroffen = db.all<{ id: string }>(
+    `SELECT c.id FROM channels c
+     JOIN channel_members m ON m.channel_id = c.id
+     WHERE c.kind = 'dm' AND m.user_id = ? AND c.ai_mode <> 'always'`,
+    bot,
+  );
+  for (const c of betroffen) {
+    db.run("UPDATE channels SET ai_mode = 'always' WHERE id = ?", c.id);
+  }
+  if (betroffen.length) {
+    console.log(`[ki] ${betroffen.length} stumme Direktchats mit dem Assistenten aktiviert.`);
+  }
+}
+
 export function assistantUserId(): string | null {
   return db.get<{ id: string }>('SELECT id FROM users WHERE handle_bidx = ?', blindIndex(ASSISTANT_HANDLE))?.id ?? null;
 }

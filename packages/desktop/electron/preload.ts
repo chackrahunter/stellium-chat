@@ -2,6 +2,13 @@ import { contextBridge, ipcRenderer } from 'electron';
 
 /** Genau die Fähigkeiten, die das UI braucht — nichts darüber hinaus. */
 const api = {
+  /**
+   * Synchron verfügbar, schon beim ersten Zeichnen. Über den IPC-Aufruf käme
+   * die Angabe erst nach dem ersten Bild — auf macOS säßen die Fensterknöpfe
+   * bis dahin auf dem Logo.
+   */
+  platform: process.platform as string,
+
   info: () => ipcRenderer.invoke('app:info') as Promise<{
     platform: NodeJS.Platform; arch: string; version: string; isDev: boolean;
   }>,

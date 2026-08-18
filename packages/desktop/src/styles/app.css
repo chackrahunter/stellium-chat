@@ -149,8 +149,17 @@ a:hover { text-decoration: underline; }
 /* Auf macOS sitzen die Fensterknöpfe im Fensterinhalt, oben links — also
    genau dort, wo sonst das Logo steht. Die Rail bekommt deshalb Platz dafür,
    und die Seitenleiste rückt mit, damit die Kopfzeile auf einer Linie bleibt. */
-[data-platform='darwin'] .rail { padding-top: 52px; }
-[data-platform='darwin'] .sidebar__head { padding-top: var(--sp-5); }
+[data-platform='darwin'] .rail { padding-top: 58px; }
+[data-platform='darwin'] .sidebar__head { padding-top: var(--sp-6); }
+/* Der freie Streifen über der Rail ist zugleich die Ziehfläche für das Fenster. */
+[data-platform='darwin'] .rail::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 58px;
+  -webkit-app-region: drag;
+}
+.rail { position: relative; }
 
 .rail-btn {
   position: relative;
@@ -1585,3 +1594,158 @@ button.msg__author:hover { color: var(--violet-soft); text-decoration: underline
 /* Der Assistent formuliert gerade — deutlicher als ein Tipp-Indikator */
 .typing--ki { color: var(--violet-soft); font-weight: 600; }
 .typing--ki .typing__dots i { background: var(--violet-soft); }
+
+/* ═══════════════════════════════════════════════════════════════
+   Einführung
+   ═══════════════════════════════════════════════════════════════ */
+
+.tour-scrim { background: rgba(4, 6, 14, 0.78); backdrop-filter: blur(10px); }
+
+.tour {
+  position: relative;
+  width: min(660px, 100%);
+  border-radius: var(--r-xl);
+  border: 1px solid var(--line-strong);
+  background: var(--bg-elevated);
+  backdrop-filter: blur(34px) saturate(170%);
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+}
+.tour::before {
+  /* Farbiger Schimmer am oberen Rand — ruhig, nicht blinkend. */
+  content: '';
+  position: absolute; top: 0; left: 0; right: 0; height: 3px;
+  background: var(--grad-aurora);
+}
+.tour__skip { position: absolute; top: 12px; right: 12px; z-index: 2; }
+
+.tour__buehne {
+  padding: var(--sp-6) var(--sp-6) var(--sp-4);
+  min-height: 400px;
+  display: flex;
+}
+.tour__inhalt { width: 100%; display: flex; flex-direction: column; align-items: center; text-align: center; }
+
+.tour__icon {
+  width: 56px; height: 56px;
+  display: grid; place-items: center;
+  border-radius: 17px;
+  background: var(--grad-nebula);
+  color: #fff;
+  box-shadow: var(--glow);
+  margin-bottom: var(--sp-4);
+}
+.tour__titel {
+  margin: 0 0 8px;
+  font-size: 23px; font-weight: 800; letter-spacing: -0.03em;
+}
+.tour__text {
+  margin: 0 0 var(--sp-5);
+  max-width: 46ch;
+  font-size: 14.5px; line-height: 1.6; color: var(--tx-mid);
+}
+.tour__demo { width: 100%; }
+
+.tour__fuss {
+  display: flex; align-items: center; gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-5);
+  border-top: 1px solid var(--line);
+}
+.tour__punkte { display: flex; gap: 6px; margin: 0 auto; }
+.tour__punkt {
+  width: 7px; height: 7px; border-radius: 99px;
+  background: var(--line-strong);
+  transition: width var(--t-base) var(--ease-out), background var(--t-base);
+}
+.tour__punkt--an { width: 22px; background: var(--violet); }
+
+/* ── Vorführungen ──────────────────────────────────────────── */
+
+.tour-demo {
+  display: flex; flex-direction: column; gap: 8px;
+  padding: var(--sp-4);
+  border-radius: var(--r-lg);
+  background: var(--bg-hover);
+  border: 1px solid var(--line);
+  text-align: left;
+}
+.tour-demo--mitte { align-items: center; text-align: center; }
+
+.tour-bubble {
+  display: flex; flex-direction: column; gap: 3px;
+  align-self: flex-start;
+  max-width: 84%;
+  padding: 9px 13px;
+  border-radius: var(--r-md);
+  background: var(--bg-panel-2);
+  border: 1px solid var(--line);
+  font-size: 13.5px;
+}
+.tour-bubble--out {
+  align-self: flex-end;
+  border-color: rgba(124, 92, 255, 0.4);
+  background: rgba(124, 92, 255, 0.1);
+}
+.tour-bubble--ki {
+  align-self: flex-end;
+  border-color: rgba(34, 211, 238, 0.4);
+  background: rgba(34, 211, 238, 0.08);
+}
+.tour-bubble__name {
+  display: flex; align-items: center; gap: 5px;
+  font-size: 10.5px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase;
+  color: var(--tx-lo);
+}
+.tour-arrow { align-self: center; color: var(--violet-soft); }
+
+.tour-welle { display: flex; align-items: center; gap: 3px; height: 42px; }
+.tour-welle span {
+  width: 4px; height: 100%;
+  border-radius: 99px;
+  background: var(--violet-soft);
+  transform-origin: center;
+}
+
+.tour-umfrage { width: 100%; text-align: left; }
+.tour-umfrage__frage { font-weight: 700; font-size: 14px; margin-bottom: 9px; }
+.tour-umfrage__zeile {
+  position: relative;
+  padding: 7px 11px; margin-bottom: 5px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--line);
+  overflow: hidden;
+  font-size: 13px;
+}
+.tour-umfrage__balken {
+  position: absolute; inset: 0 auto 0 0;
+  background: var(--grad-nebula); opacity: 0.22;
+}
+.tour-umfrage__text { position: relative; }
+
+.tour-rollen { width: 100%; display: flex; flex-direction: column; gap: 7px; }
+.tour-rollen__zeile { display: flex; align-items: center; gap: 10px; }
+.tour-rollen__name { width: 92px; text-align: right; font-size: 12.5px; color: var(--tx-mid); }
+.tour-rollen__spur { flex: 1; height: 7px; border-radius: 99px; background: var(--bg-panel-2); overflow: hidden; }
+.tour-rollen__fuellung { display: block; height: 100%; border-radius: 99px; background: var(--grad-nebula); }
+
+.tour-suche {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 13px; border-radius: 99px;
+  border: 1px solid var(--line-strong); background: var(--bg-panel-2);
+  font-size: 13.5px;
+}
+.tour-treffer { display: flex; flex-direction: column; gap: 4px; margin-top: 10px; font-size: 12.5px; color: var(--tx-mid); }
+.tour-treffer__zeile em { color: var(--amber); font-style: normal; font-weight: 700; }
+
+.tour-kacheln { display: flex; flex-wrap: wrap; gap: 7px; justify-content: center; }
+.tour-kachel {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 7px 13px; border-radius: 99px;
+  border: 1px solid var(--line); background: var(--bg-panel-2);
+  font-size: 12.5px;
+}
+
+@media (max-height: 760px) {
+  .tour__buehne { min-height: 320px; padding: var(--sp-5) var(--sp-5) var(--sp-3); }
+  .tour__titel { font-size: 20px; }
+}

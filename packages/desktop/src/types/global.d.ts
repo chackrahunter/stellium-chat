@@ -5,6 +5,8 @@
  * Gegenstück: packages/desktop/electron/preload.ts
  */
 export interface StelliumBridge {
+  /** Sofort verfügbar, ohne Umweg über IPC. */
+  platform: string;
   info(): Promise<{ platform: string; arch: string; version: string; isDev: boolean }>;
   notify(payload: { title: string; body: string; silent?: boolean; channelId?: string }): Promise<boolean>;
   setBadge(count: number): Promise<boolean>;

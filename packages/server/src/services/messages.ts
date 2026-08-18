@@ -1,4 +1,7 @@
-import { detectLanguage, extractMentions, mentionsEveryone, normalizeLang, type Message } from '@stellium/shared';
+import {
+  detectLanguage, extractMentions, mentionsEveryone, normalizeLang,
+  withinDeleteWindow, withinEditWindow, type DeleteScope, type Message,
+} from '@stellium/shared';
 import { db, reindexMessage, removeFromIndex } from '../db/index.js';
 import { newId } from '../util/id.js';
 import { dropMessageTranslations } from '../translation/index.js';
@@ -78,12 +81,18 @@ export function createMessage(input: CreateMessageInput): Message {
 }
 
 export function editMessage(messageId: string, userId: string, text: string, mayMention = true): Message {
-  const row = db.get<{ user_id: string; deleted_at: number | null }>(
-    'SELECT user_id, deleted_at FROM messages WHERE id = ?', messageId,
+  const row = db.get<{ user_id: string; deleted_at: number | null; created_at: number; kind: string }>(
+    'SELECT user_id, deleted_at, created_at, kind FROM messages WHERE id = ?', messageId,
   );
   if (!row) throw new Error('Nachricht nicht gefunden');
   if (row.user_id !== userId) throw new Error('Nur eigene Nachrichten lassen sich bearbeiten');
   if (row.deleted_at) throw new Error('Nachricht wurde gelöscht');
+  if (row.kind === 'poll') throw new Error('Umfragen lassen sich nicht nachträglich ändern.');
+  // Nach dem Zeitfenster ist die Nachricht Teil des Verlaufs, auf den sich
+  // andere schon bezogen haben.
+  if (!withinEditWindow(row.created_at)) {
+    throw new Error('Bearbeiten geht nur in den ersten zwei Stunden nach dem Senden.');
+  }
 
   const clean = text.trim();
   if (!clean) throw new Error('Leere Nachricht');
@@ -109,17 +118,48 @@ export function editMessage(messageId: string, userId: string, text: string, may
   return getMessage(messageId)!;
 }
 
-export function deleteMessage(messageId: string, userId: string, isAdmin: boolean): { channelId: string } {
-  const row = db.get<{ user_id: string; channel_id: string }>(
-    'SELECT user_id, channel_id FROM messages WHERE id = ?', messageId,
+/**
+ * Löschen in zwei Stufen.
+ *
+ *   "all"  nimmt die Nachricht für alle zurück. Erlaubt für eigene Nachrichten
+ *          innerhalb des Zeitfensters, für Moderation jederzeit.
+ *   "me"   blendet sie nur für die aufrufende Person aus. Immer möglich, auch
+ *          bei fremden Nachrichten und nach Ablauf des Fensters.
+ */
+export function deleteMessage(
+  messageId: string, userId: string, canDeleteAny: boolean, scope: DeleteScope = 'all',
+): { channelId: string; scope: DeleteScope } {
+  const row = db.get<{ user_id: string; channel_id: string; created_at: number }>(
+    'SELECT user_id, channel_id, created_at FROM messages WHERE id = ?', messageId,
   );
   if (!row) throw new Error('Nachricht nicht gefunden');
-  if (row.user_id !== userId && !isAdmin) throw new Error('Keine Berechtigung');
 
-  db.run('UPDATE messages SET deleted_at = ?, text = \'\', pinned = 0 WHERE id = ?', Date.now(), messageId);
+  if (scope === 'me') {
+    db.run('INSERT OR IGNORE INTO hidden_messages (user_id, message_id, created_at) VALUES (?,?,?)',
+      userId, messageId, Date.now());
+    return { channelId: row.channel_id, scope: 'me' };
+  }
+
+  const eigene = row.user_id === userId;
+  if (!eigene && !canDeleteAny) throw new Error('Fremde Nachrichten darf nur die Moderation löschen.');
+  if (eigene && !canDeleteAny && !withinDeleteWindow(row.created_at)) {
+    throw new Error('Für alle zurücknehmen geht nur in den ersten zwei Stunden. Du kannst sie noch für dich ausblenden.');
+  }
+
+  db.run("UPDATE messages SET deleted_at = ?, text = '', pinned = 0 WHERE id = ?", Date.now(), messageId);
   db.run('DELETE FROM message_translations WHERE message_id = ?', messageId);
   removeFromIndex(messageId);
-  return { channelId: row.channel_id };
+  return { channelId: row.channel_id, scope: 'all' };
+}
+
+/** Für eine Person ausgeblendete Nachrichten. */
+export function hiddenFor(userId: string, messageIds: string[]): Set<string> {
+  if (!messageIds.length) return new Set();
+  const rows = db.all<{ message_id: string }>(
+    `SELECT message_id FROM hidden_messages WHERE user_id = ? AND message_id IN (${messageIds.map(() => '?').join(',')})`,
+    userId, ...messageIds,
+  );
+  return new Set(rows.map((r) => r.message_id));
 }
 
 export function toggleReaction(messageId: string, userId: string, emoji: string): { channelId: string } {

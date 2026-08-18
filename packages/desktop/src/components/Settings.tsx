@@ -7,6 +7,7 @@ import { api, serverUrl, setServerUrl } from '../net/api.js';
 import { Avatar } from './Avatar.jsx';
 import { languageInfo } from '../lib/format.js';
 import { coverage, UI_LANGUAGES, useT } from '../i18n/index.js';
+import { tourZuruecksetzen } from './Tour.jsx';
 
 type Tab = 'profil' | 'sprache' | 'modelle' | 'benachrichtigungen' | 'darstellung' | 'server';
 
@@ -251,6 +252,17 @@ export function Settings({ onClose }: { onClose: () => void }) {
                   ))}
                 </div>
               </div>
+              <div className="row">
+                <div className="row__main">
+                  <div className="row__title">{t('settings.restartTour')}</div>
+                  <div className="row__sub">{t('settings.restartTourHint')}</div>
+                </div>
+                <button className="btn" onClick={() => {
+                  tourZuruecksetzen();
+                  useStore.getState().setOverlay('tour');
+                }}>{t('settings.restartTour')}</button>
+              </div>
+
               <div className="field">
                 <label className="field__label">{t('settings.density')}</label>
                 <div className="hstack gap-2">

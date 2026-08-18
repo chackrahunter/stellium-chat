@@ -23,6 +23,8 @@ const COLUMNS: { table: string; column: string; definition: string }[] = [
   { table: 'messages', column: 'forwarded_from',     definition: 'TEXT' },
   { table: 'messages', column: 'kind',               definition: "TEXT NOT NULL DEFAULT 'text'" },
   { table: 'channels', column: 'ai_mode',            definition: "TEXT NOT NULL DEFAULT 'off'" },
+  { table: 'channels', column: 'read_only',          definition: 'INTEGER NOT NULL DEFAULT 0' },
+  { table: 'channel_members', column: 'hidden',      definition: 'INTEGER NOT NULL DEFAULT 0' },
 ];
 
 export function migrate(): void {

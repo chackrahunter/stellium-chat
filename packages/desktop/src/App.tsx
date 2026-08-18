@@ -16,6 +16,8 @@ import { Settings } from './components/Settings.jsx';
 import { CatchupPanel, GlossaryPanel, NewChannelDialog, PeoplePanel } from './components/Panels.jsx';
 import { ForwardDialog, PollDialog, ReminderDialog, RemindersPanel } from './components/Dialogs.jsx';
 import { ProfileCard } from './components/ProfileCard.jsx';
+import { ChannelSettings } from './components/ChannelSettings.jsx';
+import { Tour, tourBereitsGesehen } from './components/Tour.jsx';
 import { Login } from './components/Login.jsx';
 import { Setup } from './components/Setup.jsx';
 import { TeamAdmin } from './components/TeamAdmin.jsx';
@@ -78,20 +80,6 @@ export function App() {
 
   useEffect(() => { void useStore.getState().boot(); }, []);
 
-  /**
-   * Auf macOS liegen die Fensterknöpfe im Fensterinhalt. Ohne Rücksicht darauf
-   * sitzen sie direkt auf dem Logo. Die Plattform landet am Wurzelelement,
-   * damit das Layout entsprechend Platz lässt.
-   */
-  useEffect(() => {
-    if (!window.stellium) {
-      document.documentElement.dataset.platform = 'browser';
-      return;
-    }
-    void window.stellium.info().then((info) => {
-      document.documentElement.dataset.platform = info.platform;
-    });
-  }, []);
 
   if (!booted) {
     return (
@@ -123,6 +111,11 @@ export function App() {
         <Toasts />
       </>
     );
+  }
+
+  // Beim allerersten Mal die Einführung zeigen — danach nie wieder von selbst.
+  if (!tourBereitsGesehen() && overlay !== 'tour') {
+    useStore.getState().setOverlay('tour');
   }
 
   const closeOverlay = () => useStore.getState().setOverlay(null);
@@ -177,6 +170,10 @@ export function App() {
         {overlay === 'catchup' && <CatchupPanel key="catchup" onClose={closeOverlay} />}
         {overlay === 'reminders' && <RemindersPanel key="reminders" onClose={closeOverlay} />}
         {overlay === 'team' && <TeamAdmin key="team" onClose={closeOverlay} />}
+        {overlay === 'tour' && <Tour key="tour" onClose={closeOverlay} />}
+        {overlay === 'channelSettings' && activeChannelId && (
+          <ChannelSettings key="chset" channelId={activeChannelId} onClose={closeOverlay} />
+        )}
         {overlay === 'poll' && activeChannelId && (
           <PollDialog key="poll" channelId={activeChannelId} onClose={closeOverlay} />
         )}

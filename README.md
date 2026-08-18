@@ -1,10 +1,16 @@
 # Stellium
 
-Team-Chat für Unternehmen — wie Slack oder Teams, aber mit **Live-Übersetzung**:
-jede:r schreibt in der eigenen Sprache, jede:r liest in der eigenen Sprache.
-Dazu KI-Funktionen über **Groq**.
+Team-Chat für Unternehmen. Alle schreiben in ihrer eigenen Sprache und lesen
+in ihrer eigenen Sprache — dazwischen übersetzt ein Sprachmodell in Echtzeit.
 
-Läuft als Desktop-App auf **macOS (Intel + Apple Silicon)**, **Windows** und **Linux**.
+Desktop-App für **macOS** (Intel und Apple Silicon), **Windows** und **Linux**.
+
+---
+
+## In einem Satz
+
+Du schreibst auf Deutsch, Yuki liest es auf Japanisch, Ana auf Spanisch — und
+das Original ist für alle einen Klick entfernt.
 
 ---
 
@@ -12,150 +18,209 @@ Läuft als Desktop-App auf **macOS (Intel + Apple Silicon)**, **Windows** und **
 
 ```bash
 npm install
-cp .env.example .env      # GROQ_API_KEY eintragen
+npm run secret -w @stellium/server -- setzen groq   # Groq-Schlüssel verschlüsselt ablegen
 npm run dev
 ```
 
-Der Befehl startet Server (Port 8787) und Vite-Dev-Server (Port 5173) gleichzeitig.
-Für das echte App-Fenster in einem zweiten Terminal:
+Beim ersten Start legt der Server ein Owner-Konto an und zeigt ein
+**Einmal-Passwort** im Log. Damit meldest du dich an und setzt eigene
+Zugangsdaten. Weitere Konten legst du danach in der App an.
+
+Das App-Fenster startest du in einem zweiten Terminal:
 
 ```bash
 npm run dev:electron -w @stellium/desktop
 ```
 
-Beim ersten Start legt der Server automatisch einen Demo-Arbeitsbereich an.
-
-**Demo-Zugänge** (Passwort für alle: `stellium2024`)
-
-| Benutzer | Sprache | Rolle |
-|---|---|---|
-| `don` | Deutsch | Owner |
-| `sarah` | Englisch | Admin |
-| `yuki` | Japanisch | Engineering |
-| `marta` | Polnisch | QA |
-| `lucas` | Französisch | Design |
-| `ana` | Spanisch | Support |
-
-Melde dich in zwei Fenstern mit unterschiedlichen Konten an — dann siehst du die
-Übersetzung live in beide Richtungen.
-
----
-
-## KI einrichten (Groq)
-
-1. Kostenlosen Key holen: <https://console.groq.com/keys>
-2. Schlüssel **verschlüsselt** ablegen — er landet dann nirgends im Klartext:
-
-```bash
-npm run secret -w @stellium/server -- setzen groq
-```
-
-Beim ersten Mal erzeugt der Befehl ein 256-Bit-Masterpasswort und legt es in
-der macOS-Keychain ab. Der Schlüssel wandert verschlüsselt nach
-`packages/server/data/secrets.enc`.
-
-Für schnelles Ausprobieren geht auch die `.env` — dann steht er allerdings
-lesbar auf der Platte:
-
-```env
-AI_PROVIDER=groq
-GROQ_API_KEY=gsk_...
-```
-
-**Die Modelle sucht der Server sich selbst.** Beim Start fragt er Groqs
-Modell-Liste ab, sortiert alles aus, was keine Chat-Anfragen beantwortet
-(Whisper, TTS, Guard-Klassifikatoren, abgeschaltete Modelle) und wählt zwei:
-
-- das **größte brauchbare** für Übersetzung und Zusammenfassungen
-- das **kleinste brauchbare** für Antwortvorschläge und kurze Aufgaben
-
-Die Größe liest er aus der Modell-ID (`70b` → 70 Mrd., `8x7b` → 56 Mrd.), das
-Kontextfenster fließt mit ein. Alle sechs Stunden sieht er nach, ob Groq etwas
-Neues anbietet. Wirft ein Modell im Betrieb Fehler, weil es abgeschaltet wurde,
-fliegt es raus und der Nächstbeste übernimmt — ohne Neustart.
-
-Für Sprachnachrichten wählt er zusätzlich das beste Whisper-Modell.
-
-Welche Modelle laufen, steht im Server-Log und in den Einstellungen unter
-*KI-Modell*. Dort kann die Team-Leitung auch ein bestimmtes Modell festlegen —
-die Auswahlliste kommt direkt von Groq. Alternativ per `GROQ_MODEL=` und
-`GROQ_FAST_MODEL=` in der `.env`.
-
-**Wichtig zu verstehen:** Es gibt keinen separaten Übersetzungsdienst.
-Das Sprachmodell selbst übersetzt — mit dem Kontext des Kanals, dem Glossar
-und dem Auftrag, den Tonfall zu erhalten. Deshalb klingt das Ergebnis wie ein
-Mensch und nicht wie ein Wörterbuch.
-
-Ohne Key startet die App trotzdem — dann läuft der `demo`-Provider, der nur
-markiert, wo eine Übersetzung erscheinen würde. Alles andere funktioniert normal.
-
-**Andere Anbieter:** `AI_PROVIDER=deepl` (beste reine Übersetzungsqualität, keine
-KI-Features), `AI_PROVIDER=libre` (LibreTranslate, selbst gehostet — Texte
-verlassen das Haus nicht), `AI_PROVIDER=openai`.
+Fertige Installationsdateien liegen unter
+[Releases](https://github.com/chackrahunter/stellium-chat/releases).
 
 ---
 
 ## Was drin ist
 
-### Chat-Grundlagen
-- Öffentliche und private Kanäle, Direktnachrichten
-- Threads mit Teilnehmer-Avataren und Antwortzähler
-- Emoji-Reaktionen, @Erwähnungen, #Kanal-Verweise
-- Bearbeiten, Löschen, Anpinnen, „Für später merken"
-- Datei-Upload per Drag & Drop, Einfügen aus der Zwischenablage, Bild-Vorschau
-- Präsenz (online / abwesend / nicht stören), Tipp-Indikatoren, Lesestände
-- Ungelesen-Zähler, native Benachrichtigungen, Dock-/Taskleisten-Badge
-- Volltextsuche über Originale **und** Übersetzungen
-- Offline-Warteschlange: Nachrichten gehen raus, sobald die Verbindung steht
-
 ### Übersetzung
-- **Live-Übersetzung** in die Sprache jedes Empfängers, 22 Sprachen
-- Das **Original bleibt immer erhalten** — ein Klick blendet es ein
-- **Glossar**: Produktnamen und interne Begriffe bleiben unangetastet oder
-  bekommen eine feste Übersetzung je Sprache
-- **Maskierung**: Codeblöcke, Links, @Erwähnungen und Emojis werden nie übersetzt.
-  Verstümmelt ein Modell die Platzhalter, zeigt die App das Original statt Kauderwelsch
-- **Compose-Vorschau**: beim Tippen siehst du, wie deine Nachricht in der
-  Kanalsprache ankommt — bevor du sendest
-- **Rückübersetzung** auf Knopfdruck mit Ähnlichkeitswert: erkennt Übersetzungen,
-  die die Bedeutung verdreht haben
-- Zwei Cache-Ebenen (pro Nachricht und global pro Phrase) — dieselbe Formulierung
-  kostet nie zweimal einen API-Aufruf
 
-### KI (Groq)
-- **„Was habe ich verpasst?"** — fasst Ungelesenes zusammen, inklusive
-  Entscheidungen und Aufgaben, in deiner Sprache
-- **Thread-Zusammenfassung**
-- **Smart Replies** — drei passende Antwortvorschläge
-- **Schreibhilfe** — korrigieren, förmlicher, freundlicher, kürzen, in Stichpunkte
-- **Frage an den Kanal** — beantwortet Fragen aus dem Verlauf und nennt die Quellen
+Der Kern. Jede Nachricht wird für jede Person in ihre Sprache gebracht — 22
+Sprachen.
+
+- Das **Original ist die Wahrheit**: gespeichert wird immer der Ausgangstext,
+  Übersetzungen liegen als Cache daneben und verfallen bei Änderungen
+- **Maskierung**: Codeblöcke, Links, @Erwähnungen und Glossarbegriffe werden
+  vor der Übersetzung ausgeklammert. Verstümmelt das Modell die Platzhalter,
+  zeigt die App lieber das Original als sinnentstellten Text
+- **Glossar** für Produktnamen und interne Begriffe — entweder unangetastet
+  oder mit fester Übersetzung je Sprache
+- **Vorschau beim Tippen**: du siehst, wie deine Nachricht in der Kanalsprache
+  ankommt, bevor du sie abschickst
+- **Rückübersetzung** auf Knopfdruck mit Ähnlichkeitswert — erkennt
+  Übersetzungen, die die Bedeutung verdreht haben
+- Zwei Cache-Ebenen: dieselbe Formulierung kostet nie zweimal einen API-Aufruf
+- **Suche über Originale und Übersetzungen**: ein deutsches Suchwort findet
+  auch, was auf Englisch geschrieben wurde
+
+### KI-Assistent
+
+Ein eigenes Konto mit der Rolle „bot". Dadurch laufen seine Antworten durch die
+normale Übersetzung und landen in der Suche.
+
+- **Privater Chat** — nur du siehst ihn
+- **Gemeinsamer Kanal** `#ki-team`, in dem das ganze Team mit ihm spricht
+- Pro Kanal einstellbar: schweigt, antwortet auf `@ki`, oder antwortet immer
+- **Was habe ich verpasst?** — fasst Ungelesenes zusammen, mit Entscheidungen
+  und Aufgaben
+- **Antwortvorschläge**, **Umformulieren** (korrigieren, förmlicher, kürzen,
+  Stichpunkte), **Frage an den Kanal** mit Quellenangabe
+
+**Er erfindet nichts.** Sein gesamtes Firmenwissen stammt aus dem sichtbaren
+Kanalverlauf. Fragt man nach einem Projekt, das dort nicht vorkommt, sagt er
+das und fragt nach — statt eine plausible Antwort zu bauen. Das ist geprüft:
+`scripts/` enthält die Testfälle.
 
 ### Sprachnachrichten
-- Aufnehmen direkt im Fenster, mit Pegelanzeige
-- **Groqs Whisper transkribiert**, das Transkript wird zum Nachrichtentext
-- Damit greift alles Weitere automatisch: eine japanische Sprachnachricht
-  erscheint bei dir als deutscher Text, und die Volltextsuche findet sie
-- Wellenform-Abspieler mit Sprungmarken
 
-### Umfragen
-- Einfach- oder Mehrfachwahl, wahlweise anonym
-- Live-Ergebnis mit Balken, Gesichter der Abstimmenden
-- Beenden durch Ersteller:in oder Team-Leitung
+Aufnehmen, senden. **Groqs Whisper** transkribiert, das Transkript wird zum
+Text der Nachricht — und damit automatisch übersetzt und durchsuchbar. Eine
+japanische Sprachnachricht liest du auf Deutsch.
+
+### Chat-Grundlagen
+
+Öffentliche und private Kanäle, Direktnachrichten, Threads, Reaktionen,
+@Erwähnungen, `#`-Kanalverweise (beide mit Vervollständigung), Datei-Upload per
+Drag & Drop, Präsenz, Tipp-Indikatoren, Lesestände, Volltextsuche, native
+Benachrichtigungen, Offline-Warteschlange.
+
+**Bearbeiten und Löschen sind zeitlich begrenzt.** Zwei Stunden nach dem Senden
+lässt sich eine Nachricht ändern oder für alle zurücknehmen. Danach bleibt das
+Ausblenden für einen selbst — sonst entstünden Lücken in einem Verlauf, auf den
+sich andere schon bezogen haben.
+
+### Kanäle verwalten
+
+Umbenennen, Thema und Zweck setzen, Kanalsprache wählen, Mitglieder hinzufügen
+und entfernen, stummschalten, anheften, als **Ankündigungskanal** sperren (nur
+die Verwaltung schreibt), archivieren, löschen. Direktnachrichten lassen sich
+ausblenden, ohne sie für die andere Seite anzutasten.
+
+### Konten und Rechte
+
+Keine Selbstregistrierung. Die Team-Leitung legt Konten an und gibt ein
+**Einmal-Passwort** weiter; beim ersten Login setzt die Person eigenes
+Passwort, Benutzernamen und E-Mail.
+
+**Neun Rollen** als Vorlage:
+
+| Rolle | Rechte |
+|---|---|
+| Inhaber | 27 von 27 |
+| Administrator | 24 |
+| Moderation | 23 |
+| Teamleitung | 21 |
+| Mitglied | 15 |
+| Mitwirkend | 11 |
+| Bot | 6 |
+| Gast | 5 |
+| Nur lesen | 1 |
+
+**27 einzelne Rechte** lassen sich pro Person abweichend setzen — vom Senden
+über Erwähnen und Dateien bis zur Kontoverwaltung. Durchgesetzt wird alles auf
+dem Server.
 
 ### Weitere Funktionen
-- **Link-Vorschauen** — Titel, Text und Bild zu geteilten Links.
-  Der Server prüft vorher, dass die Adresse nicht ins interne Netz zeigt
-- **Weiterleiten** in einen anderen Kanal, mit Kommentar und Herkunftsangabe
-- **Erinnerungen** an einzelne Nachrichten („in 20 Minuten", „morgen früh")
-- **Entwürfe** überleben Kanalwechsel und Neustart, serverseitig gespeichert
-- **Profilkarten** mit Ortszeit, Sprache und Status
-- **Später senden** — über Zeitzonen hinweg zur richtigen Uhrzeit
-- **Ortszeit der Kolleg:innen** in Kopfzeile und Team-Liste (🌙 = wahrscheinlich Feierabend)
-- **Ruhezeiten** — nachts still, direkte Erwähnungen kommen trotzdem durch
-- **Schnellsuche** (⌘K / Strg+K) für Kanäle, Menschen und Aktionen
-- **Slash-Befehle**: `/lang de`, `/dnd`, `/weg`, `/aktiv`, `/summary`, `/glossar`
-- **Kanalsprache** als „Lingua Franca" pro Kanal
-- Dunkles und helles Thema, luftige und kompakte Dichte
+
+Umfragen (einfach, mehrfach, anonym), Link-Vorschauen, Weiterleiten mit
+Kommentar, Erinnerungen an Nachrichten, Entwürfe über Neustarts hinweg,
+Profilkarten mit Ortszeit, Status mit Ablaufzeit, Später-senden über Zeitzonen,
+Ruhezeiten, Schnellsuche (⌘K), Slash-Befehle, helles und dunkles Thema.
+
+**Einführung beim ersten Login** führt durch alle Funktionen — überspringbar
+und aus den Einstellungen jederzeit neu startbar.
+
+Die Oberfläche gibt es auf **Deutsch und Englisch**, umschaltbar und getrennt
+von der Sprache, in die Nachrichten übersetzt werden.
+
+---
+
+## Sicherheit
+
+### Was verschlüsselt ist
+
+| Was | Wie |
+|---|---|
+| API-Schlüssel | AES-256-GCM + ChaCha20-Poly1305 in Kaskade, Schlüssel aus scrypt |
+| E-Mails, Benutzernamen | AES-256-GCM, dazu HMAC-Blind-Index fürs Anmelden |
+| Passwörter | scrypt-Hash — **absichtlich nicht** verschlüsselt |
+
+Ein `strings` über die Datenbankdatei findet keine E-Mail und keinen
+Benutzernamen im Klartext.
+
+**Warum Passwörter gehasht statt verschlüsselt sind:** Verschlüsselung ist
+umkehrbar. Wer den Schlüssel hat, hätte alle Passwörter im Klartext. Gehasht
+kann sie niemand auslesen — auch die Team-Leitung nicht. Zurücksetzen
+funktioniert trotzdem, es erzeugt ein neues Einmal-Passwort.
+
+### Das Masterpasswort
+
+Liegt in der macOS-Keychain (an dein Login gebunden) oder als
+`STELLIUM_MASTER_PASSPHRASE` in der Umgebung — **nie** auf der Platte neben dem
+Chiffrat. Ein Rateversuch kostet durch scrypt rund 200 ms, also etwa fünf
+Versuche pro Sekunde und Kern statt Millionen.
+
+```bash
+npm run secret -w @stellium/server -- setzen groq      # ablegen
+npm run secret -w @stellium/server -- liste            # Namen, nie Werte
+npm run secret -w @stellium/server -- passwort-neu     # Masterpasswort erneuern
+```
+
+### Was das schützt — und was nicht
+
+Geschützt: gestohlene Backups, kopierte Festplatten, versehentlich geteilte
+`data/`-Verzeichnisse, Kolleg:innen mit Leserechten auf dem Server.
+
+Nicht geschützt: wer Code **als der Serverbenutzer** ausführen kann. Der Server
+muss Nachrichten im Klartext an das Übersetzungsmodell schicken, hat sie also
+zur Laufzeit im Speicher. Das ist keine Nachlässigkeit, sondern liegt in der
+Natur einer Anwendung, die Inhalte übersetzt.
+
+### Keine Ende-zu-Ende-Verschlüsselung
+
+Bewusst nicht. Bei echtem E2EE könnte der Server die Nachrichten nicht lesen —
+und damit fielen Übersetzung, KI-Assistent, Volltextsuche, Transkription und
+Zusammenfassungen weg. Das ist praktisch der gesamte Zweck dieser Anwendung.
+
+Wer beides braucht, müsste einzelne Unterhaltungen als „vertraulich" markieren
+und dort auf all das verzichten. Siehe `docs/ende-zu-ende.md`.
+
+### Sonstiges
+
+Nutzertext wird nie als HTML gerendert — der Markdown-Renderer erzeugt
+React-Elemente. Link-Vorschauen prüfen per DNS, dass das Ziel nicht im internen
+Netz liegt. Im Renderer sind `contextIsolation` an und `nodeIntegration` aus.
+
+---
+
+## KI einrichten
+
+Schlüssel holen: <https://console.groq.com/keys>, dann:
+
+```bash
+npm run secret -w @stellium/server -- setzen groq
+```
+
+**Die Modelle sucht der Server sich selbst.** Beim Start fragt er Groqs Liste
+ab, sortiert alles aus, was keine Chat-Anfragen beantwortet (Whisper, TTS,
+Guard-Klassifikatoren, zu kleines Kontextfenster) und wählt das größte
+brauchbare Modell zum Übersetzen sowie ein kleines für Antwortvorschläge. Alle
+sechs Stunden sieht er nach, ob es etwas Neues gibt. Fällt ein Modell im
+Betrieb aus, holt er die Liste nach und wechselt.
+
+Welche Modelle laufen, steht im Server-Log und in den Einstellungen unter
+*KI-Modell*, wo die Team-Leitung sie auch festlegen kann.
+
+**Andere Anbieter:** `AI_PROVIDER=deepl` (beste reine Übersetzung, keine
+KI-Funktionen), `libre` (LibreTranslate, selbst gehostet — Texte verlassen das
+Haus nicht), `openai`. Ohne Schlüssel startet die App mit einem
+Demo-Provider, der nur markiert, wo eine Übersetzung erschiene.
 
 ---
 
@@ -166,170 +231,116 @@ verlassen das Haus nicht), `AI_PROVIDER=openai`.
 | `⌘K` / `Strg+K` | Schnellsuche |
 | `⌘F` / `Strg+F` | Nachrichten durchsuchen |
 | `⌘,` / `Strg+,` | Einstellungen |
-| `⌘⇧N` / `Strg+Shift+N` | Neuer Kanal |
-| `⌘⇧U` / `Strg+Shift+U` | Was habe ich verpasst? |
+| `⌘⇧N` | Neuer Kanal |
+| `⌘⇧U` | Was habe ich verpasst? |
 | `Enter` | Senden · `Shift+Enter` neue Zeile |
-| `Esc` | Overlay / Thread schließen |
+| `@` / `#` | Person bzw. Kanal vervollständigen |
+| `Esc` | Overlay oder Thread schließen |
 
 ---
 
-## Apps bauen
+## Bauen
 
 ```bash
-npm run build          # alles kompilieren
+npm run build              # alles kompilieren
 
-npm run dist:mac       # .dmg + .zip, Universal (Intel + Apple Silicon)
-npm run dist:win       # NSIS-Installer (x64 + arm64) und portable .exe
-npm run dist:linux     # AppImage, .deb (x64 + arm64), .rpm
+npm run dist:mac           # arm64: .dmg und .zip
+npm run dist:mac:universal # Intel + Apple Silicon in einem Paket
+npm run dist:win           # NSIS-Installer für x64 und arm64
+npm run dist:linux         # AppImage und .deb für x64 und arm64
 ```
 
-Die Pakete landen in `packages/desktop/release/`.
+Windows-Installer lassen sich auch auf macOS bauen — electron-builder bringt
+sein eigenes Wine mit. Für `.rpm` braucht es zusätzlich `brew install rpm`.
 
-**macOS Universal** enthält beide Architekturen in einem Binary — dieselbe
-`.dmg` läuft auf Intel-Macs und auf M1/M2/M3/M4.
-
-**Hinweise zum Signieren:** Ohne Apple-Entwicklerzertifikat ist der Build
-unsigniert; beim ersten Start ist dann Rechtsklick → „Öffnen" nötig. Für die
-Verteilung im Unternehmen `CSC_LINK` und `CSC_KEY_PASSWORD` setzen und
-Notarisierung über `APPLE_ID` / `APPLE_APP_SPECIFIC_PASSWORD` / `APPLE_TEAM_ID`
-aktivieren.
+Kein Paket ist signiert. Für die Verteilung außerhalb des eigenen Teams
+solltest du signieren: macOS mit Entwicklerzertifikat und Notarisierung,
+Windows mit Code-Signing-Zertifikat.
 
 ---
 
 ## Tests
 
 ```bash
-npm run e2e            # klickt die Oberfläche in einem echten Chromium durch
-npm run e2e:sichtbar   # dasselbe mit sichtbarem Browserfenster
+npm run e2e          # 29 Prüfungen durch die echte Oberfläche
+npm run e2e:sichtbar # dasselbe mit sichtbarem Browserfenster
+node scripts/e2e-admin.mjs <einmal-passwort>   # 9 Prüfungen der Kontoverwaltung
 ```
 
-29 Prüfungen: Anmeldung, Layout, Senden, Reaktionen, Erwähnungen,
-Antwortvorschläge, Umformulieren, Live-Übersetzung, Umfragen, Suche,
-Profilkarten, Weiterleiten, Erinnerungen, Threads, Einstellungen, Modellwahl,
-Themawechsel. Fehlschläge landen als Screenshot in `scripts/screenshots/`.
+Die Suite fährt einen echten Chromium hoch und klickt sich durch: Anmeldung,
+Layout, Senden, Reaktionen, Erwähnungen, Antwortvorschläge, Umformulieren,
+Live-Übersetzung, Umfragen, Suche, Profilkarten, Weiterleiten, Erinnerungen,
+Threads, Einstellungen, Modellwahl, Themawechsel. Fehlschläge landen als
+Screenshot in `scripts/screenshots/`.
 
-Voraussetzung: Server und Vite laufen (`npm run dev`).
+Sie legt sich ihre Testdaten selbst an — es gibt keine Demo-Konten.
+
+---
 
 ## Architektur
 
 ```
 packages/
-├── shared/    Typen, WebSocket-Protokoll, Spracherkennung, Text-Maskierung
-├── server/    Node + Fastify + SQLite (node:sqlite, kein nativer Build)
+├── shared/    Typen, WebSocket-Protokoll, Spracherkennung, Maskierung, Rechte
+├── server/    Fastify, SQLite über node:sqlite, Übersetzung, KI, Realtime
 └── desktop/   Electron + React + Vite + Zustand + Framer Motion
 ```
 
-**Wie die Übersetzung abläuft**
+**Wie eine Nachricht ihren Weg nimmt**
 
-1. Absender schickt die Nachricht — die Ausgangssprache wird lokal per Heuristik erkannt
-2. Der Server speichert **immer das Original** und verteilt es sofort an alle.
-   Niemand wartet auf die Übersetzung
-3. Der Server sammelt die Zielsprachen aller Empfänger und übersetzt **einmal pro
+1. Die Ausgangssprache wird lokal erkannt — Stoppwörter, Schriftsystem und im
+   Deutschen die Großschreibung der Substantive. Bei Unsicherheit bleibt sie
+   offen und das Modell entscheidet später
+2. Der Server speichert **immer das Original** und verteilt es sofort. Niemand
+   wartet auf die Übersetzung
+3. Er sammelt die Zielsprachen aller Empfänger und übersetzt **einmal pro
    Sprache**, nicht einmal pro Person
-4. Fertige Übersetzungen werden per `translation`-Ereignis nachgeschoben; die
-   Oberfläche tauscht den Text weich aus
-5. Alles landet im Cache — beim nächsten Öffnen ist es sofort da
+4. Fertige Übersetzungen kommen als eigenes Ereignis nach, die Oberfläche
+   tauscht den Text weich aus
+5. Alles landet im Cache
 
-**Datenhaltung.** Eine SQLite-Datei unter `packages/server/data/stellium.db`.
-Für den Produktivbetrieb reicht ein kleiner Server; sichere das `data/`-Verzeichnis.
-
-### Schlüssel verschlüsselt ablegen
-
-```bash
-npm run secret -w @stellium/server -- setzen groq     # ablegen
-npm run secret -w @stellium/server -- liste           # zeigt Namen, nie Werte
-npm run secret -w @stellium/server -- passwort-neu    # Masterpasswort erneuern
-npm run secret -w @stellium/server -- entfernen groq
-```
-
-**Wie es funktioniert**
-
-```
-Masterpasswort  →  scrypt (N=2¹⁷, ~128 MB je Versuch)  →  256-Bit-Schlüssel
-                →  HKDF  →  zwei unabhängige Teilschlüssel
-Klartext        →  AES-256-GCM  →  ChaCha20-Poly1305  →  secrets.enc
-```
-
-Beide Verfahren sind authentifiziert: ein einziges gekipptes Bit in der Datei
-wird erkannt und die Entschlüsselung abgelehnt. Die Kaskade ist eine
-Absicherung für den Fall, dass eines der Verfahren gebrochen wird.
-
-Den eigentlichen Widerstand liefert aber scrypt, nicht die Anzahl der
-Verfahren: **ein Rateversuch dauert rund 200 ms**, also etwa fünf Versuche pro
-Sekunde und Kern statt Millionen.
-
-**Was das schützt — und was nicht**
-
-Geschützt ist der Schlüssel gegen jemanden, der an die *Dateien* kommt: ein
-gestohlenes Backup, eine kopierte Platte, ein versehentlich geteiltes
-`data/`-Verzeichnis, ein Kollege mit Leserechten. Die Datei allein ist wertlos.
-
-Nicht geschützt ist er gegen jemanden, der Code **als der Serverbenutzer**
-ausführen kann. Der Server muss den Schlüssel im Klartext an Groq schicken,
-also hat er ihn zur Laufzeit im Speicher. Das ist keine Schwäche dieser
-Umsetzung, sondern liegt in der Natur der Sache — jede Lösung, die der Server
-selbst entschlüsseln kann, hat diese Grenze.
-
-Das Masterpasswort liegt am Anmelde-Schlüsselbund: abgemeldet oder unter einem
-anderen Konto kommt niemand daran. Für Server ohne Keychain setzt du
-stattdessen `STELLIUM_MASTER_PASSPHRASE` beim Start — dann steht es nie auf der
-Platte.
-
-**Sicherheit.** Passwörter mit scrypt gehasht, Tokens HMAC-signiert.
-Im Renderer sind `contextIsolation` an und `nodeIntegration` aus; Markdown wird
-als React-Elemente gerendert, nie als HTML — Nachrichtentext kann also kein
-Markup einschleusen. Externe Links öffnen immer im Systembrowser.
+**Datenhaltung.** Eine SQLite-Datei unter `packages/server/data/`. Kein
+natives Modul nötig — `node:sqlite` ist in Node eingebaut, inklusive
+FTS5-Volltextsuche.
 
 ---
 
-## Server separat betreiben
+## Server betreiben
 
 ```bash
 npm run build
 cd packages/server
-PORT=8787 JWT_SECRET=<langer-zufallsstring> GROQ_API_KEY=gsk_... npm start
+STELLIUM_MASTER_PASSPHRASE=… PORT=8787 npm start
 ```
 
-Im Client unter *Einstellungen → Server* die Adresse eintragen.
-Für den Zugriff von außen einen Reverse Proxy mit TLS davorsetzen
-(WebSocket-Upgrade auf `/ws` durchreichen).
+In der App unter *Einstellungen → Server* die Adresse eintragen. Für den
+Zugriff von außen einen Reverse Proxy mit TLS davorsetzen und das
+WebSocket-Upgrade auf `/ws` durchreichen.
 
 ## Umgebungsvariablen
-
-Siehe `.env.example`. Die wichtigsten:
 
 | Variable | Standard | Bedeutung |
 |---|---|---|
 | `PORT` | `8787` | Server-Port |
-| `JWT_SECRET` | generiert | Token-Signatur — im Produktivbetrieb selbst setzen |
-| `DATA_DIR` | `./data` | Datenbank und Uploads |
-| `MAX_UPLOAD_MB` | `50` | Maximale Dateigröße |
+| `DATA_DIR` | `./data` | Datenbank, Uploads, Tresor |
+| `OWNER_HANDLE` | Systembenutzer | Erstes Konto beim Erststart |
+| `OWNER_NAME` | daraus abgeleitet | Anzeigename dazu |
 | `AI_PROVIDER` | `groq` | `groq` · `openai` · `deepl` · `libre` · `demo` |
-| `GROQ_API_KEY` | — | ohne diesen Key läuft der Demo-Provider |
+| `GROQ_MODEL` | leer | Leer = der Server wählt selbst |
+| `STELLIUM_MASTER_PASSPHRASE` | Keychain | Masterpasswort für den Tresor |
+| `MAX_UPLOAD_MB` | `50` | Maximale Dateigröße |
+
+Vollständig in `.env.example`.
 
 ---
 
-## Bekannte Stolpersteine
+## Noch nicht fertig
 
-### Nicht in einem Cloud-synchronisierten Ordner entwickeln
+Ehrlich benannt statt versteckt:
 
-`node_modules` besteht aus hunderttausenden winzigen Dateien. Liegt das Projekt in
-iCloud Drive, Dropbox oder OneDrive, versucht der Sync-Dienst jede einzelne davon
-hochzuladen — Builds gehen dann von Sekunden auf Minuten hoch.
-
-Gemessen an genau diesem Projekt:
-
-| Ort | `npm install` | kompletter Build |
-|---|---|---|
-| `~/Documents` (iCloud-Sync) | ~7 min | > 8 min, abgebrochen |
-| `~/Developer` (kein Sync) | **6 s** | **4,7 s** |
-
-Muss das Projekt doch in einem synchronisierten Ordner liegen, nimmt
-`bash scripts/icloud-exclude.sh` wenigstens `node_modules` aus dem Sync
-(iCloud ignoriert alles, was auf `.nosync` endet). Rückgängig mit `--undo`.
-
-### Speicherplatz für Electron-Builds
-
-`electron-builder` lädt pro Zielplattform eine eigene Electron-Distribution
-(~250 MB) und packt die Ergebnisse zusätzlich. Für `dist:mac` mit
-Universal-Binary solltest du **6–8 GB frei** haben.
+- **Aufgabenverwaltung** — Datenbank, Typen und Dienst stehen (Status,
+  Zuweisung, Fälligkeit, Änderungsverlauf), Protokoll und Oberfläche fehlen
+- **Team-Kalender** — Datenbank und Typen stehen, alles Weitere fehlt
+- **Dateiablage** — Datenbank und Typen stehen, alles Weitere fehlt
+- **RPM-Paket** — braucht `rpmbuild` auf dem bauenden Rechner
+- **Code-Signatur** für macOS und Windows

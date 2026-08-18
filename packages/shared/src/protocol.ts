@@ -17,11 +17,16 @@ export type ClientEvent =
   | { t: 'channel:create'; kind: 'public' | 'private'; name: string; topic?: string; memberIds?: string[]; primaryLanguage?: string | null }
   | { t: 'channel:join'; channelId: string }
   | { t: 'channel:leave'; channelId: string }
-  | { t: 'channel:update'; channelId: string; topic?: string; purpose?: string; primaryLanguage?: string | null; archived?: boolean }
+  | { t: 'channel:update'; channelId: string; name?: string; topic?: string; purpose?: string; primaryLanguage?: string | null; archived?: boolean; readOnly?: boolean }
+  | { t: 'channel:delete'; channelId: string }
+  | { t: 'channel:hide'; channelId: string }
+  | { t: 'channel:members'; channelId: string; add?: string[]; remove?: string[] }
+  | { t: 'channel:mute'; channelId: string; muted: boolean }
+  | { t: 'channel:star'; channelId: string; starred: boolean }
   | { t: 'dm:open'; userId: string }
   | { t: 'message:send'; clientId: string; channelId: string; text: string; parentId?: string | null; attachmentIds?: string[]; sourceLang?: string | null }
   | { t: 'message:edit'; messageId: string; text: string }
-  | { t: 'message:delete'; messageId: string }
+  | { t: 'message:delete'; messageId: string; scope?: 'all' | 'me' }
   | { t: 'message:react'; messageId: string; emoji: string }
   | { t: 'message:pin'; messageId: string; pinned: boolean }
   | { t: 'message:save'; messageId: string; saved: boolean }

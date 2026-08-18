@@ -28,9 +28,11 @@ export function Sidebar() {
     return {
       publicChannels: list.filter((c) => c.kind === 'public').sort(sortByActivity),
       privateChannels: list.filter((c) => c.kind === 'private').sort(sortByActivity),
-      dms: list.filter((c) => c.kind === 'dm'),
+      // Direktchats mit gelöschten oder gesperrten Konten verstecken —
+      // sie führen nur ins Leere.
+      dms: list.filter((c) => c.kind === 'dm' && !users[c.dmPeerId ?? '']?.disabled),
     };
-  }, [channels]);
+  }, [channels, users]);
 
   const otherUsers = Object.values(users).filter((u) => u.id !== self?.id && !u.disabled);
   const dmPeerIds = new Set(dms.map((c) => c.dmPeerId).filter(Boolean) as string[]);

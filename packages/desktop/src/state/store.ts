@@ -19,7 +19,8 @@ export interface Toast {
 
 export type Overlay =
   | null | 'quick' | 'search' | 'settings' | 'newChannel' | 'glossary'
-  | 'catchup' | 'schedule' | 'people' | 'poll' | 'reminders' | 'models' | 'team';
+  | 'catchup' | 'schedule' | 'people' | 'poll' | 'reminders' | 'models' | 'team'
+  | 'channelSettings' | 'tour';
 
 interface PendingRequest<T> { resolve: (value: T) => void; reject: (err: Error) => void; timer: number }
 
@@ -85,7 +86,7 @@ interface StoreState {
 
   sendMessage: (input: { channelId: string; text: string; parentId?: string | null; attachmentIds?: string[] }) => void;
   editMessage: (messageId: string, text: string) => void;
-  deleteMessage: (messageId: string) => void;
+  deleteMessage: (messageId: string, scope?: 'all' | 'me') => void;
   react: (messageId: string, emoji: string) => void;
   pin: (messageId: string, pinned: boolean) => void;
   save: (messageId: string, saved: boolean) => void;
@@ -101,7 +102,15 @@ interface StoreState {
   createChannel: (input: { kind: 'public' | 'private'; name: string; topic?: string; primaryLanguage?: string | null; memberIds?: string[] }) => void;
   joinChannel: (channelId: string) => void;
   leaveChannel: (channelId: string) => void;
-  updateChannel: (channelId: string, patch: { topic?: string; purpose?: string; primaryLanguage?: string | null }) => void;
+  updateChannel: (channelId: string, patch: {
+    name?: string; topic?: string; purpose?: string;
+    primaryLanguage?: string | null; archived?: boolean; readOnly?: boolean;
+  }) => void;
+  deleteChannel: (channelId: string) => void;
+  hideChannel: (channelId: string) => void;
+  setChannelMembers: (channelId: string, add?: string[], remove?: string[]) => void;
+  muteChannel: (channelId: string, muted: boolean) => void;
+  starChannel: (channelId: string, starred: boolean) => void;
 
   updatePrefs: (patch: Partial<SelfUser>) => void;
   setStatus: (status: UserStatus, emoji?: string | null, text?: string | null) => void;
@@ -351,7 +360,8 @@ export const useStore = create<StoreState>((set, get) => ({
   },
 
   editMessage: (messageId, text) => socket.send({ t: 'message:edit', messageId, text }) as unknown as void,
-  deleteMessage: (messageId) => socket.send({ t: 'message:delete', messageId }) as unknown as void,
+  deleteMessage: (messageId, scope = 'all') =>
+    socket.send({ t: 'message:delete', messageId, scope }) as unknown as void,
   react: (messageId, emoji) => socket.send({ t: 'message:react', messageId, emoji }) as unknown as void,
   pin: (messageId, pinned) => socket.send({ t: 'message:pin', messageId, pinned }) as unknown as void,
   save: (messageId, saved) => {
@@ -411,6 +421,19 @@ export const useStore = create<StoreState>((set, get) => ({
     if (get().activeChannelId === channelId) set({ activeChannelId: null });
   },
   updateChannel: (channelId, patch) => socket.send({ t: 'channel:update', channelId, ...patch }) as unknown as void,
+
+  deleteChannel: (channelId) => {
+    socket.send({ t: 'channel:delete', channelId });
+    if (get().activeChannelId === channelId) set({ activeChannelId: null });
+  },
+  hideChannel: (channelId) => {
+    socket.send({ t: 'channel:hide', channelId });
+    if (get().activeChannelId === channelId) set({ activeChannelId: null });
+  },
+  setChannelMembers: (channelId, add = [], remove = []) =>
+    socket.send({ t: 'channel:members', channelId, add, remove }) as unknown as void,
+  muteChannel: (channelId, muted) => socket.send({ t: 'channel:mute', channelId, muted }) as unknown as void,
+  starChannel: (channelId, starred) => socket.send({ t: 'channel:star', channelId, starred }) as unknown as void,
 
   updatePrefs: (patch) => {
     const self = get().self;
