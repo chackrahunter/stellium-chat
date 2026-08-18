@@ -126,6 +126,49 @@ Passwort, Benutzernamen und E-Mail.
 über Erwähnen und Dateien bis zur Kontoverwaltung. Durchgesetzt wird alles auf
 dem Server.
 
+### Aufgaben
+
+Ein Brett mit fünf Spalten — offen, in Arbeit, zur Prüfung, fertig, blockiert.
+Karten lassen sich zwischen den Spalten ziehen. Jede Aufgabe hat jemanden, der
+sie macht, eine Wichtigkeit, einen Termin, Kommentare und einen
+Änderungsverlauf. Jede Person sieht die Spalten in ihrer eigenen Sprache.
+
+StelliumAI kann aus einem Gesprächsverlauf herauslesen, was offen geblieben
+ist, und daraus Aufgaben vorschlagen. Angelegt wird nur, was jemand bestätigt.
+
+### Kalender
+
+Wochenansicht in der eigenen Zeitzone. Beim Einladen steht an jeder Person, wie
+spät es bei ihr wäre — der häufigste Grund für misslungene Termine. Zu- und
+Absagen, ganztägige Einträge, Abwesenheiten, Fristen. Fünfzehn Minuten vor
+Beginn meldet sich Stellium von selbst.
+
+### Dateiablage
+
+Gemeinsamer Speicher auf dem Server, unabhängig von einzelnen Nachrichten.
+Dateien hineinziehen, in Ordner sortieren, durchsuchen, umbenennen. Die
+Belegung ist sichtbar, das Kontingent über `STORAGE_QUOTA_GB` einstellbar.
+
+### Ideenboard
+
+Jede Person darf Vorschläge einbringen. Daumen hoch oder runter — derselbe
+Daumen noch einmal nimmt die Stimme zurück. Kommentare darunter. Die Leitung
+setzt den Stand: neu, in Bearbeitung, fertig oder abgelehnt, auf Wunsch mit
+Begründung, die alle sehen.
+
+### Protokoll
+
+StelliumAI schreibt aus einem Kanal ein weitergabefähiges Protokoll: Themen,
+Beschlüsse, offene Fragen, Aufgaben. Als Text kopierbar; die Aufgaben lassen
+sich mit einem Klick übernehmen.
+
+### Selbstaktualisierung
+
+Die Verwaltung lädt unter *Einstellungen → Aktualisierung* je Plattform eine
+Datei hoch. Alle Clients sehen stündlich nach, laden im Hintergrund und prüfen
+die SHA-256-Summe. Installiert wird erst auf Klick — Stellium tauscht sich
+nicht unbemerkt selbst aus.
+
 ### Weitere Funktionen
 
 Umfragen (einfach, mehrfach, anonym), Link-Vorschauen, Weiterleiten mit
@@ -133,11 +176,13 @@ Kommentar, Erinnerungen an Nachrichten, Entwürfe über Neustarts hinweg,
 Profilkarten mit Ortszeit, Status mit Ablaufzeit, Später-senden über Zeitzonen,
 Ruhezeiten, Schnellsuche (⌘K), Slash-Befehle, helles und dunkles Thema.
 
-**Einführung beim ersten Login** führt durch alle Funktionen — überspringbar
-und aus den Einstellungen jederzeit neu startbar.
+**Geführte Einführung beim ersten Login.** Sie dunkelt die echte Oberfläche ab
+und zeigt mit einem Ring auf das jeweilige Bedienelement — nicht auf einen
+Nachbau. Überspringbar und aus den Einstellungen jederzeit neu startbar.
 
-Die Oberfläche gibt es auf **Deutsch und Englisch**, umschaltbar und getrennt
-von der Sprache, in die Nachrichten übersetzt werden.
+**Die Oberfläche startet in der Sprache des Rechners.** Deutsch und Englisch
+sind vollständig übersetzt, umschaltbar und getrennt von der Sprache, in die
+Nachrichten übersetzt werden. „Wie der Rechner" bleibt die Vorgabe.
 
 ---
 
@@ -232,6 +277,10 @@ Demo-Provider, der nur markiert, wo eine Übersetzung erschiene.
 | `⌘F` / `Strg+F` | Nachrichten durchsuchen |
 | `⌘,` / `Strg+,` | Einstellungen |
 | `⌘⇧N` | Neuer Kanal |
+| `⌘⇧T` | Aufgaben |
+| `⌘⇧E` | Kalender |
+| `⌘⇧D` | Dateien |
+| `⌘⇧I` | Ideenboard |
 | `⌘⇧U` | Was habe ich verpasst? |
 | `Enter` | Senden · `Shift+Enter` neue Zeile |
 | `@` / `#` | Person bzw. Kanal vervollständigen |
@@ -262,18 +311,28 @@ Windows mit Code-Signing-Zertifikat.
 ## Tests
 
 ```bash
-npm run e2e          # 29 Prüfungen durch die echte Oberfläche
-npm run e2e:sichtbar # dasselbe mit sichtbarem Browserfenster
-node scripts/e2e-admin.mjs <einmal-passwort>   # 9 Prüfungen der Kontoverwaltung
+npm run e2e            # 29 Prüfungen des Chat-Kerns
+node scripts/e2e-neu.mjs          # 22 Prüfungen: Einführung, Aufgaben, Kalender, Dateien, Ideen
+node scripts/e2e-grenzfaelle.mjs  # 14 Grenzfälle
+node scripts/e2e-update.mjs       #  8 Prüfungen der Versionsverteilung
+node scripts/e2e-sprache.mjs      #  2 Prüfungen der Systemsprache
+node scripts/e2e-admin.mjs <einmal-passwort> [benutzername]  # 9 Prüfungen der Kontoverwaltung
 ```
 
-Die Suite fährt einen echten Chromium hoch und klickt sich durch: Anmeldung,
+**75 Prüfungen** insgesamt. Ein echter Chromium klickt sich durch: Anmeldung,
 Layout, Senden, Reaktionen, Erwähnungen, Antwortvorschläge, Umformulieren,
 Live-Übersetzung, Umfragen, Suche, Profilkarten, Weiterleiten, Erinnerungen,
-Threads, Einstellungen, Modellwahl, Themawechsel. Fehlschläge landen als
-Screenshot in `scripts/screenshots/`.
+Threads, Einstellungen, Modellwahl, Themawechsel, Aufgabenbrett, Kalender,
+Dateiablage, Ideenboard und die geführte Einführung.
 
-Sie legt sich ihre Testdaten selbst an — es gibt keine Demo-Konten.
+Die Grenzfälle prüfen, was im Alltag schiefgeht: falsches Passwort, zweimal
+anmelden, zwei Fenster gleichzeitig, Netzausfall mit Wiederverbinden,
+ungültiger Token, leere und sehr lange Eingaben, Sonderzeichen und
+`<script>`-Versuche, ein Kanal der gelöscht wird während jemand darin sitzt,
+hastiges Mehrfachklicken beim Abstimmen, Termine über Mitternacht.
+
+Fehlschläge landen als Screenshot in `scripts/screenshots/`. Die Suiten legen
+sich ihre Testdaten selbst an — es gibt keine Demo-Konten.
 
 ---
 
@@ -329,6 +388,9 @@ WebSocket-Upgrade auf `/ws` durchreichen.
 | `GROQ_MODEL` | leer | Leer = der Server wählt selbst |
 | `STELLIUM_MASTER_PASSPHRASE` | Keychain | Masterpasswort für den Tresor |
 | `MAX_UPLOAD_MB` | `50` | Maximale Dateigröße |
+| `STORAGE_QUOTA_GB` | `20` | Kontingent der Dateiablage |
+| `STORAGE_DIR` | `./data/storage` | Ablageordner |
+| `RELEASE_DIR` | `./data/releases` | Hochgeladene App-Versionen |
 
 Vollständig in `.env.example`.
 
@@ -338,9 +400,11 @@ Vollständig in `.env.example`.
 
 Ehrlich benannt statt versteckt:
 
-- **Aufgabenverwaltung** — Datenbank, Typen und Dienst stehen (Status,
-  Zuweisung, Fälligkeit, Änderungsverlauf), Protokoll und Oberfläche fehlen
-- **Team-Kalender** — Datenbank und Typen stehen, alles Weitere fehlt
-- **Dateiablage** — Datenbank und Typen stehen, alles Weitere fehlt
-- **RPM-Paket** — braucht `rpmbuild` auf dem bauenden Rechner
-- **Code-Signatur** für macOS und Windows
+- **RPM-Paket** — `rpmbuild` läuft auf macOS nicht verlässlich für Linux-Ziele.
+  Fedora, RHEL und openSUSE nutzen bis auf Weiteres das AppImage
+- **Code-Signatur** für macOS und Windows. Ohne sie meldet sich beim ersten
+  Start die Gatekeeper- beziehungsweise SmartScreen-Warnung
+- **Ende-zu-Ende-Verschlüsselung** — siehe `docs/ende-zu-ende.md`. Sie ist mit
+  serverseitiger Übersetzung nicht vereinbar; die Gründe stehen dort
+- **Weitere Oberflächensprachen** — Deutsch und Englisch sind vollständig,
+  alles Weitere fällt auf Englisch zurück

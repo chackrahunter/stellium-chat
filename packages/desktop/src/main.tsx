@@ -1,6 +1,7 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { App } from './App.jsx';
+import { updatesVerbinden } from './lib/updates.js';
 import './styles/app.css';
 
 /**
@@ -12,6 +13,8 @@ document.documentElement.dataset.platform = window.stellium?.platform ?? 'browse
 
 const container = document.getElementById('root');
 if (!container) throw new Error('#root fehlt im HTML');
+
+updatesVerbinden();
 
 createRoot(container).render(
   <StrictMode>

@@ -10,6 +10,7 @@ import { useT } from '../i18n/index.js';
 import { Avatar } from './Avatar.jsx';
 import { ContextMenu, useContextMenu, type MenuEintrag } from './ContextMenu.jsx';
 import { clsx, languageInfo, localTimeFor } from '../lib/format.js';
+import { useKiKanaele } from '../lib/ai-channels.js';
 
 export function Sidebar() {
   const t = useT();
@@ -25,17 +26,25 @@ export function Sidebar() {
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const toggle = (key: string) => setCollapsed((c) => ({ ...c, [key]: !c[key] }));
 
+  const { chatId: kiChatId, teamId: kiTeamId } = useKiKanaele();
+
   const { publicChannels, privateChannels, dms } = useMemo(() => {
     const list = Object.values(channels).filter((c) => !c.archived);
-    const sortByActivity = (a: Channel, b: Channel) => a.name.localeCompare(b.name, 'de');
+    // Angeheftetes zuerst, dann alphabetisch.
+    const sortieren = (a: Channel, b: Channel) => {
+      const aFest = states[a.id]?.starred ? 0 : 1;
+      const bFest = states[b.id]?.starred ? 0 : 1;
+      return aFest - bFest || a.name.localeCompare(b.name, 'de');
+    };
     return {
-      publicChannels: list.filter((c) => c.kind === 'public').sort(sortByActivity),
-      privateChannels: list.filter((c) => c.kind === 'private').sort(sortByActivity),
+      publicChannels: list.filter((c) => c.kind === 'public' && c.id !== kiTeamId).sort(sortieren),
+      privateChannels: list.filter((c) => c.kind === 'private').sort(sortieren),
       // Direktchats mit gelöschten oder gesperrten Konten verstecken —
       // sie führen nur ins Leere.
-      dms: list.filter((c) => c.kind === 'dm' && !users[c.dmPeerId ?? '']?.disabled),
+      dms: list.filter((c) => c.kind === 'dm' && c.id !== kiChatId
+        && !users[c.dmPeerId ?? '']?.disabled),
     };
-  }, [channels, users]);
+  }, [channels, users, states, kiChatId, kiTeamId]);
 
   const otherUsers = Object.values(users).filter((u) => u.id !== self?.id && !u.disabled);
   const dmPeerIds = new Set(dms.map((c) => c.dmPeerId).filter(Boolean) as string[]);
@@ -142,23 +151,39 @@ export function Sidebar() {
         <div className="sidebar__sub">
           {self ? `${self.displayName} · ${languageInfo(self.language).flag} ${languageInfo(self.language).native}` : ''}
         </div>
-        <button className="search-trigger no-drag" onClick={() => setOverlay('quick')}>
+        <button className="search-trigger no-drag" data-tour="search" onClick={() => setOverlay('quick')}>
           <Search size={14} />
           {t('nav.jumpTo')}
           <kbd>{navigator.platform.includes('Mac') ? '⌘' : 'Strg'} K</kbd>
         </button>
       </div>
 
-      <div className="sidebar__scroll">
+      <div className="sidebar__scroll" data-tour="channels">
         {ai?.assistant && (
           <div className="group">
-            <button className="chan" onClick={() => useStore.getState().openAiChat()}>
+            <button
+              className={clsx('chan', (states[kiChatId ?? '']?.unreadCount ?? 0) > 0 && 'chan--unread')}
+              aria-current={activeId === kiChatId}
+              onClick={() => useStore.getState().openAiChat()}
+              onContextMenu={(e) => { if (kiChatId) menue.oeffnen(e, kiChatId); }}
+            >
               <Bot size={15} className="chan__icon" style={{ color: 'var(--violet-soft)', opacity: 1 }} />
               <span className="chan__name">{t('nav.aiChat')}</span>
+              {(states[kiChatId ?? '']?.unreadCount ?? 0) > 0 && (
+                <span className="chan__badge">{states[kiChatId ?? '']!.unreadCount}</span>
+              )}
             </button>
-            <button className="chan" onClick={() => useStore.getState().openAiTeamChannel()}>
+            <button
+              className={clsx('chan', (states[kiTeamId ?? '']?.unreadCount ?? 0) > 0 && 'chan--unread')}
+              aria-current={activeId === kiTeamId}
+              onClick={() => useStore.getState().openAiTeamChannel()}
+              onContextMenu={(e) => { if (kiTeamId) menue.oeffnen(e, kiTeamId); }}
+            >
               <UsersRound size={15} className="chan__icon" style={{ color: 'var(--cyan)', opacity: 1 }} />
               <span className="chan__name">{t('nav.aiTeamChat')}</span>
+              {(states[kiTeamId ?? '']?.unreadCount ?? 0) > 0 && (
+                <span className="chan__badge">{states[kiTeamId ?? '']!.unreadCount}</span>
+              )}
             </button>
           </div>
         )}

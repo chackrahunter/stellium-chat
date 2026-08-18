@@ -239,7 +239,7 @@ export function Composer({ channelId, parentId = null, placeholder, autoFocus }:
   const canSend = text.trim().length > 0 || attachments.length > 0;
 
   return (
-    <div className="composer-wrap">
+    <div className="composer-wrap" data-tour="composer">
       <AnimatePresence>
         {/* Früher hing die Anzeige an "Feld ist leer". Wer die Vorschläge
             ausdrücklich anfordert, hat aber meist schon etwas getippt — dann

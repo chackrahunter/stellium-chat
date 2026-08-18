@@ -2,7 +2,7 @@
 
 import type {
   AiSummary, CalendarEvent, Channel, ChannelState, Draft, LinkPreview, Message,
-  Poll, Reaction, Reminder, ScheduledMessage, SelfUser, SmartReply, StoredFile,
+  Idea, IdeaComment, IdeaStatus, MeetingProtocol, Poll, Reaction, ReleaseInfo, Reminder, ScheduledMessage, SelfUser, SmartReply, StoredFile, StorageUsage,
   Task, TaskEvent, TaskPriority, TaskStatus, TranslationView, User,
   UserStatus, VoiceNote,
 } from './types.js';
@@ -86,6 +86,18 @@ export type ClientEvent =
   | { t: 'task:delete'; taskId: string }
   | { t: 'task:history'; taskId: string }
   | { t: 'ai:extract-tasks'; requestId: string; channelId: string }
+  | { t: 'ai:protocol'; channelId: string; sinceMessageId?: string | null }
+
+  /* Ideenboard */
+  | { t: 'idea:list' }
+  | { t: 'idea:create'; title: string; body?: string | null; tag?: string; channelId?: string | null }
+  | { t: 'idea:update'; ideaId: string; patch: { title?: string; body?: string | null; tag?: string; channelId?: string | null } }
+  | { t: 'idea:status'; ideaId: string; status: IdeaStatus; decision?: string | null }
+  | { t: 'idea:vote'; ideaId: string; wert: 1 | -1 }
+  | { t: 'idea:comments'; ideaId: string }
+  | { t: 'idea:comment'; ideaId: string; text: string }
+  | { t: 'idea:comment-delete'; commentId: string; ideaId: string }
+  | { t: 'idea:delete'; ideaId: string }
 
   /* Kalender */
   | { t: 'event:list'; from: number; to: number }
@@ -150,13 +162,19 @@ export type ServerEvent =
   | { t: 'task:removed'; taskId: string }
   | { t: 'task:history'; taskId: string; events: TaskEvent[] }
   | { t: 'ai:extract-tasks'; requestId: string; tasks: { title: string; assigneeId: string | null; dueAt: number | null }[] }
+  | { t: 'ai:protocol'; protocol: MeetingProtocol }
+  | { t: 'idea:list'; ideas: Idea[] }
+  | { t: 'idea:upsert'; idea: Idea }
+  | { t: 'idea:removed'; ideaId: string }
+  | { t: 'idea:comments'; ideaId: string; comments: IdeaComment[] }
+  | { t: 'release:available'; release: ReleaseInfo }
 
   | { t: 'event:list'; events: CalendarEvent[] }
   | { t: 'event:upsert'; event: CalendarEvent }
   | { t: 'event:removed'; eventId: string }
 
   | { t: 'file:list'; files: StoredFile[]; usage: { used: number; quota: number; fileCount: number } }
-  | { t: 'file:upsert'; file: StoredFile }
+  | { t: 'file:upsert'; file: StoredFile; usage?: StorageUsage }
   | { t: 'file:removed'; fileId: string };
 
 export interface AiCapabilities {

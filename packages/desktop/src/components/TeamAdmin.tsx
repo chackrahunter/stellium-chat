@@ -240,6 +240,12 @@ export function TeamAdmin({ onClose }: { onClose: () => void }) {
                         const an = person.permissions[p.key];
                         const abweichend = person.overrides[p.key] !== undefined;
                         const gesperrt = !darfRechte || busy || (p.ownerOnly && self?.role !== 'owner');
+                        // Ein grauer Schalter ohne Begründung wirkt wie ein Fehler.
+                        const grund = !darfRechte
+                          ? 'Einzelne Rechte darf nur vergeben, wer selbst das Recht dazu hat.'
+                          : p.ownerOnly && self?.role !== 'owner'
+                            ? 'Dieses Recht kann nur der Owner vergeben.'
+                            : undefined;
                         return (
                           <div className="row" key={p.key}>
                             <div className="row__main">
@@ -260,7 +266,8 @@ export function TeamAdmin({ onClose }: { onClose: () => void }) {
                               role="switch"
                               aria-checked={an}
                               disabled={gesperrt}
-                              style={gesperrt ? { opacity: 0.4, cursor: 'default' } : undefined}
+                              title={grund}
+                              style={gesperrt ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
                               onClick={() => void mit(() => api.setUserPermission(person.id, p.key, !an))}
                             />
                           </div>

@@ -19,6 +19,10 @@ import * as drafts from '../services/drafts.js';
 import { attachPreviews, extractUrls } from '../services/links.js';
 import { saveTranscript, transcribe, voiceNoteFor } from '../services/voice.js';
 import * as ki from '../services/assistant.js';
+import * as tasks from '../services/tasks.js';
+import * as events from '../services/events.js';
+import * as files from '../services/files.js';
+import * as ideas from '../services/ideas.js';
 import { db as database } from '../db/index.js';
 import { reindexMessage } from '../db/index.js';
 
@@ -44,6 +48,11 @@ function send(session: Session, ev: ServerEvent): void {
 
 function sendToUser(userId: string, ev: ServerEvent): void {
   for (const s of byUser.get(userId) ?? []) send(s, ev);
+}
+
+/** Für Ereignisse, die außerhalb des Gateways entstehen (z. B. HTTP-Uploads). */
+export function broadcastAll(ev: ServerEvent): void {
+  broadcast(ev);
 }
 
 function broadcast(ev: ServerEvent, userIds?: Iterable<string>): void {
@@ -802,6 +811,246 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
       return;
     }
 
+    /* ── Aufgaben ─────────────────────────────────────────── */
+
+    case 'task:list':
+      send(session, {
+        t: 'task:list',
+        tasks: tasks.listTasks({ channelId: ev.channelId, assigneeId: ev.assigneeId }),
+      });
+      return;
+
+    case 'task:create': {
+      if (!darf(session, 'task.create')) return;
+      if (ev.assigneeId && ev.assigneeId !== userId && !may(userId, 'task.assign')) {
+        return fail(session, 'forbidden', 'Aufgaben an andere zu übergeben ist ein eigenes Recht.');
+      }
+      const task = tasks.createTask({ ...ev, createdBy: userId });
+      // Alle Beteiligten sollen die Aufgabe sofort sehen.
+      broadcastTask(task);
+      return;
+    }
+
+    case 'task:update': {
+      if (!darf(session, 'task.create')) return;
+      const vorher = tasks.getTask(ev.taskId);
+      if (!vorher) return fail(session, 'not_found', 'Aufgabe nicht gefunden.');
+      if (ev.patch.assigneeId !== undefined && ev.patch.assigneeId !== userId && !may(userId, 'task.assign')) {
+        return fail(session, 'forbidden', 'Aufgaben an andere zu übergeben ist ein eigenes Recht.');
+      }
+      broadcastTask(tasks.updateTask(ev.taskId, ev.patch, userId));
+      return;
+    }
+
+    case 'task:move': {
+      if (!darf(session, 'task.create')) return;
+      broadcastTask(tasks.reorder(ev.taskId, ev.status, ev.afterId ?? null, userId));
+      return;
+    }
+
+    case 'task:comment': {
+      const verlauf = tasks.addComment(ev.taskId, userId, ev.text);
+      send(session, { t: 'task:history', taskId: ev.taskId, events: verlauf });
+      const task = tasks.getTask(ev.taskId);
+      if (task) broadcastTask(task);
+      return;
+    }
+
+    case 'task:watch':
+      broadcastTask(tasks.setWatching(ev.taskId, userId, ev.watching));
+      return;
+
+    case 'task:delete': {
+      const task = tasks.getTask(ev.taskId);
+      if (!task) return;
+      const eigene = task.createdBy === userId;
+      if (!eigene && !may(userId, 'task.delete')) {
+        return fail(session, 'forbidden', 'Fremde Aufgaben darf nur die Moderation löschen.');
+      }
+      tasks.deleteTask(ev.taskId);
+      broadcast({ t: 'task:removed', taskId: ev.taskId });
+      return;
+    }
+
+    case 'task:history':
+      send(session, { t: 'task:history', taskId: ev.taskId, events: tasks.historyOf(ev.taskId) });
+      return;
+
+    case 'ai:extract-tasks': {
+      if (!darf(session, 'ai.assistant')) return;
+      const gefunden = await ai.extractTasks({
+        channelId: ev.channelId,
+        language: session.language,
+      });
+      send(session, { t: 'ai:extract-tasks', requestId: ev.requestId, tasks: gefunden });
+      return;
+    }
+
+    case 'ai:protocol': {
+      if (!darf(session, 'ai.assistant')) return;
+      const kanal = store.getChannel(ev.channelId, userId);
+      if (!kanal) return fail(session, 'not_found', 'Kanal nicht gefunden.');
+      send(session, {
+        t: 'ai:protocol',
+        protocol: await ai.protokoll({
+          channelId: ev.channelId,
+          channelName: kanal.name,
+          language: session.language,
+          sinceMessageId: ev.sinceMessageId ?? null,
+        }),
+      });
+      return;
+    }
+
+    /* ── Kalender ─────────────────────────────────────────── */
+
+    case 'event:list':
+      send(session, { t: 'event:list', events: events.listEvents(ev.from, ev.to) });
+      return;
+
+    case 'event:create': {
+      if (!darf(session, 'event.create')) return;
+      const termin = events.createEvent({ ...ev, createdBy: userId });
+      broadcast({ t: 'event:upsert', event: termin });
+      return;
+    }
+
+    case 'event:update': {
+      const termin = events.getEvent(ev.eventId);
+      if (!termin) return fail(session, 'not_found', 'Termin nicht gefunden.');
+      if (termin.createdBy !== userId && !may(userId, 'event.manage')) {
+        return fail(session, 'forbidden', 'Fremde Termine darf nur die Verwaltung ändern.');
+      }
+      broadcast({ t: 'event:upsert', event: events.updateEvent(ev.eventId, ev.patch) });
+      return;
+    }
+
+    case 'event:respond':
+      broadcast({ t: 'event:upsert', event: events.respond(ev.eventId, userId, ev.response) });
+      return;
+
+    case 'event:attendees': {
+      const termin = events.getEvent(ev.eventId);
+      if (!termin) return;
+      if (termin.createdBy !== userId && !may(userId, 'event.manage')) {
+        return fail(session, 'forbidden', 'Nur wer eingeladen hat, ändert die Teilnehmenden.');
+      }
+      broadcast({ t: 'event:upsert', event: events.setAttendees(ev.eventId, ev.add, ev.remove) });
+      return;
+    }
+
+    case 'event:delete': {
+      const termin = events.getEvent(ev.eventId);
+      if (!termin) return;
+      if (termin.createdBy !== userId && !may(userId, 'event.manage')) {
+        return fail(session, 'forbidden', 'Fremde Termine darf nur die Verwaltung löschen.');
+      }
+      events.deleteEvent(ev.eventId);
+      broadcast({ t: 'event:removed', eventId: ev.eventId });
+      return;
+    }
+
+    /* ── Ideenboard ───────────────────────────────────────── */
+
+    case 'idea:list':
+      send(session, { t: 'idea:list', ideas: ideas.listIdeas(userId) });
+      return;
+
+    case 'idea:create': {
+      if (!darf(session, 'idea.create')) return;
+      broadcastIdee(ideas.createIdea({ ...ev, createdBy: userId }));
+      return;
+    }
+
+    case 'idea:update': {
+      const idee = ideas.getIdea(ev.ideaId, userId);
+      if (!idee) return fail(session, 'not_found', 'Idee nicht gefunden.');
+      if (idee.createdBy !== userId && !may(userId, 'idea.manage')) {
+        return fail(session, 'forbidden', 'Fremde Ideen darf nur die Moderation ändern.');
+      }
+      broadcastIdee(ideas.updateIdea(ev.ideaId, ev.patch, userId));
+      return;
+    }
+
+    case 'idea:status': {
+      if (!darf(session, 'idea.manage')) return;
+      broadcastIdee(ideas.setStatus(ev.ideaId, ev.status, userId, ev.decision));
+      return;
+    }
+
+    case 'idea:vote': {
+      if (!darf(session, 'idea.vote')) return;
+      ideas.vote(ev.ideaId, userId, ev.wert);
+      // Die eigene Stimme steckt in der Antwort — jede Person bekommt daher
+      // ihre eigene Sicht auf dieselbe Idee.
+      for (const s of sessions.values()) {
+        if (!s.userId) continue;
+        const eigene = ideas.getIdea(ev.ideaId, s.userId);
+        if (eigene) send(s, { t: 'idea:upsert', idea: eigene });
+      }
+      return;
+    }
+
+    case 'idea:comments':
+      send(session, { t: 'idea:comments', ideaId: ev.ideaId, comments: ideas.comments(ev.ideaId) });
+      return;
+
+    case 'idea:comment': {
+      if (!darf(session, 'message.send')) return;
+      const liste = ideas.addComment(ev.ideaId, userId, ev.text);
+      broadcast({ t: 'idea:comments', ideaId: ev.ideaId, comments: liste });
+      broadcastIdee(ideas.getIdea(ev.ideaId, userId));
+      return;
+    }
+
+    case 'idea:comment-delete': {
+      ideas.deleteComment(ev.commentId, userId, may(userId, 'idea.manage'));
+      broadcast({ t: 'idea:comments', ideaId: ev.ideaId, comments: ideas.comments(ev.ideaId) });
+      return;
+    }
+
+    case 'idea:delete': {
+      const idee = ideas.getIdea(ev.ideaId, userId);
+      if (!idee) return;
+      if (idee.createdBy !== userId && !may(userId, 'idea.manage')) {
+        return fail(session, 'forbidden', 'Fremde Ideen darf nur die Moderation löschen.');
+      }
+      ideas.deleteIdea(ev.ideaId);
+      broadcast({ t: 'idea:removed', ideaId: ev.ideaId });
+      return;
+    }
+
+    /* ── Dateiablage ──────────────────────────────────────── */
+
+    case 'file:list':
+      send(session, {
+        t: 'file:list',
+        files: files.listFiles({ channelId: ev.channelId, folder: ev.folder }),
+        usage: files.usage(),
+      });
+      return;
+
+    case 'file:update': {
+      const datei = files.getFile(ev.fileId);
+      if (!datei) return fail(session, 'not_found', 'Datei nicht gefunden.');
+      if (datei.uploadedBy !== userId && !may(userId, 'file.manage')) {
+        return fail(session, 'forbidden', 'Fremde Dateien darf nur die Verwaltung ändern.');
+      }
+      broadcast({ t: 'file:upsert', file: files.updateFile(ev.fileId, ev) });
+      return;
+    }
+
+    case 'file:delete': {
+      const datei = files.getFile(ev.fileId);
+      if (!datei) return;
+      if (datei.uploadedBy !== userId && !may(userId, 'file.manage')) {
+        return fail(session, 'forbidden', 'Fremde Dateien darf nur die Verwaltung löschen.');
+      }
+      files.deleteFile(ev.fileId);
+      broadcast({ t: 'file:removed', fileId: ev.fileId });
+      return;
+    }
+
     case 'voice:retranscribe': {
       const voice = voiceNoteFor(ev.messageId);
       if (!voice) return fail(session, 'not_found', 'Keine Aufnahme an dieser Nachricht');
@@ -945,6 +1194,28 @@ function vielleichtAntworten(channelId: string, text: string, authorId: string):
     });
 }
 
+/**
+ * Eine geänderte Idee geht an alle — mit der jeweils eigenen Stimme, denn
+ * "myVote" unterscheidet sich je Person.
+ */
+function broadcastIdee(idee: ReturnType<typeof ideas.getIdea>): void {
+  if (!idee) return;
+  for (const s of sessions.values()) {
+    if (!s.userId) continue;
+    const eigene = ideas.getIdea(idee.id, s.userId);
+    if (eigene) send(s, { t: 'idea:upsert', idea: eigene });
+  }
+}
+
+/**
+ * Aufgaben gehen an alle: sie betreffen das ganze Team, und wer sie sehen darf,
+ * entscheidet sich über den Kanal, nicht über die Aufgabe selbst.
+ */
+function broadcastTask(task: Awaited<ReturnType<typeof tasks.getTask>>): void {
+  if (!task) return;
+  broadcast({ t: 'task:upsert', task });
+}
+
 /* ── Hintergrundaufgaben ──────────────────────────────────────── */
 
 export function startBackgroundJobs(): () => void {
@@ -1007,6 +1278,32 @@ export function startBackgroundJobs(): () => void {
     }
   }, 30_000);
 
+  // Termine, die in 15 Minuten beginnen, einmal ankündigen
+  const gemeldet = new Set<string>();
+  const terminTimer = setInterval(() => {
+    try {
+      for (const termin of events.startingSoon(15 * 60_000)) {
+        if (gemeldet.has(termin.id)) continue;
+        gemeldet.add(termin.id);
+        for (const teil of termin.attendees) {
+          if (teil.response === 'no') continue;
+          sendToUser(teil.userId, {
+            t: 'reminder:fire',
+            reminder: {
+              id: `ev_${termin.id}`, messageId: null, channelId: termin.channelId ?? '',
+              note: termin.title, remindAt: termin.startsAt, done: false, createdAt: Date.now(),
+            },
+            message: null,
+          });
+        }
+      }
+      // Der Merker darf nicht unbegrenzt wachsen.
+      if (gemeldet.size > 500) gemeldet.clear();
+    } catch (err) {
+      console.error('[termine]', (err as Error).message);
+    }
+  }, 60_000);
+
   // Tote Sockets aussortieren
   const heartbeat = setInterval(() => {
     for (const s of sessions.values()) {
@@ -1020,6 +1317,7 @@ export function startBackgroundJobs(): () => void {
     clearInterval(scheduler);
     clearInterval(reminderTimer);
     clearInterval(statusTimer);
+    clearInterval(terminTimer);
     clearInterval(heartbeat);
   };
 }

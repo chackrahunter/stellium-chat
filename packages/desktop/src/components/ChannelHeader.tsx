@@ -1,12 +1,14 @@
 import { useState } from 'react';
 import {
-  Hash, Languages, Loader2, Lock, Megaphone, MessageSquareText, Settings2, Sparkles, Users,
+  Bot, ClipboardList, Hash, Languages, ListChecks, Loader2, Lock, Megaphone, MessageSquareText,
+  Settings2, Sparkles, Users,
 } from 'lucide-react';
 import { LANGUAGES, normalizeLang } from '@stellium/shared';
 import { useStore } from '../state/store.js';
 import { useT } from '../i18n/index.js';
 import { Avatar } from './Avatar.jsx';
 import { languageInfo, localTimeFor } from '../lib/format.js';
+import { useKiKanaele, KI_NAME } from '../lib/ai-channels.js';
 
 export function ChannelHeader({ channelId }: { channelId: string }) {
   const t = useT();
@@ -17,19 +19,35 @@ export function ChannelHeader({ channelId }: { channelId: string }) {
   const smartRepliesLoading = useStore((s) => s.smartRepliesLoading);
   const { runCatchup, setOverlay, updateChannel, updatePrefs, loadSmartReplies } = useStore.getState();
   const [langOpen, setLangOpen] = useState(false);
+  const { chatId: kiChatId, teamId: kiTeamId } = useKiKanaele();
 
   if (!channel) return null;
 
-  const peer = channel.kind === 'dm' ? users[channel.dmPeerId ?? ''] : null;
+  // Der KI-Bereich ist ein eigener Reiter. Er trägt deshalb weder ein
+  // Profilbild noch die Bedienelemente eines Direktchats.
+  const kiPrivat = channelId === kiChatId;
+  const kiTeam = channelId === kiTeamId;
+  const ki = kiPrivat || kiTeam;
+
+  const peer = !ki && channel.kind === 'dm' ? users[channel.dmPeerId ?? ''] : null;
   const peerTime = peer ? localTimeFor(peer.timezone) : null;
 
   return (
     <header className="header drag-region">
       <div className="header__title no-drag">
-        {channel.kind === 'dm'
-          ? <Avatar user={peer} size={28} showPresence />
-          : channel.kind === 'private' ? <Lock size={17} className="muted" /> : <Hash size={17} className="muted" />}
-        <h1>{channel.kind === 'dm' ? peer?.displayName ?? 'Direktnachricht' : channel.name}</h1>
+        {ki
+          ? <span className="ki-badge"><Bot size={16} /></span>
+          : channel.kind === 'dm'
+            ? <Avatar user={peer} size={28} showPresence />
+            : channel.kind === 'private' ? <Lock size={17} className="muted" /> : <Hash size={17} className="muted" />}
+        <h1>
+          {ki ? KI_NAME : channel.kind === 'dm' ? peer?.displayName ?? 'Direktnachricht' : channel.name}
+        </h1>
+        {ki && (
+          <span className="header__topic">
+            {kiPrivat ? t('ai.tabPrivate') : t('ai.tabTeam')}
+          </span>
+        )}
         {peer && peerTime?.time && (
           <span className="header__topic" title={`Ortszeit von ${peer.displayName}`}>
             {peerTime.offHours ? '🌙' : '🕒'} {peerTime.time}
@@ -45,7 +63,7 @@ export function ChannelHeader({ channelId }: { channelId: string }) {
       </div>
 
       <div className="header__actions no-drag">
-        {channel.kind !== 'dm' && (
+        {channel.kind !== 'dm' && !kiPrivat && (
           <div style={{ position: 'relative' }}>
             <button
               className="pill"
@@ -87,6 +105,7 @@ export function ChannelHeader({ channelId }: { channelId: string }) {
 
         <button
           className="pill"
+          data-tour="language"
           title={t('header.myLanguage')}
           onClick={() => setOverlay('settings')}
         >
@@ -94,7 +113,7 @@ export function ChannelHeader({ channelId }: { channelId: string }) {
         </button>
 
         {ai?.assistant && (
-          <button className="pill pill--accent" onClick={() => runCatchup(channelId)} title={t('header.summarize')}>
+          <button className="pill pill--accent" data-tour="catchup" onClick={() => runCatchup(channelId)} title={t('header.summarize')}>
             <Sparkles size={13} />
             {t('header.missed')}
           </button>
@@ -103,6 +122,7 @@ export function ChannelHeader({ channelId }: { channelId: string }) {
         {ai?.assistant && (
           <button
             className="icon-btn"
+            data-tour="smart"
             onClick={() => loadSmartReplies(channelId)}
             disabled={smartRepliesLoading}
             title={smartRepliesLoading ? t('header.smartRepliesLoading') : t('header.smartReplies')}
@@ -113,13 +133,33 @@ export function ChannelHeader({ channelId }: { channelId: string }) {
           </button>
         )}
 
-        <button className="icon-btn" onClick={() => setOverlay('people')} title={t('header.members')}>
-          <Users size={17} />
-        </button>
+        {ai?.assistant && !kiPrivat && (
+          <button className="icon-btn" onClick={() => setOverlay('protocol')} title={t('header.protocol')}>
+            <ClipboardList size={17} />
+          </button>
+        )}
 
-        <button className="icon-btn" onClick={() => setOverlay('channelSettings')} title={t('channel.settingsTitle')}>
-          <Settings2 size={17} />
-        </button>
+        {ai?.assistant && (
+          <button
+            className="icon-btn"
+            onClick={() => setOverlay('taskExtract')}
+            title={t('ai.extractTasks')}
+          >
+            <ListChecks size={17} />
+          </button>
+        )}
+
+        {!kiPrivat && (
+          <button className="icon-btn" onClick={() => setOverlay('people')} title={t('header.members')}>
+            <Users size={17} />
+          </button>
+        )}
+
+        {!kiPrivat && (
+          <button className="icon-btn" onClick={() => setOverlay('channelSettings')} title={t('channel.settingsTitle')}>
+            <Settings2 size={17} />
+          </button>
+        )}
       </div>
     </header>
   );

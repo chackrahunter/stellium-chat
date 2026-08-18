@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import {
   CheckCircle2, Hash, Loader2, Lock, Plus, Sparkles, Trash2, Users, X,
@@ -313,9 +313,36 @@ export function CatchupPanel({ onClose }: { onClose: () => void }) {
 
 /* ── Gemeinsame Hülle ───────────────────────────────────────── */
 
-function Shell({ title, icon, onClose, width, children }: {
-  title: string; icon: React.ReactNode; onClose: () => void; width: number; children: React.ReactNode;
+/**
+ * Wie viele Fenster gerade übereinander liegen. Escape darf immer nur das
+ * oberste schließen — sonst reißt ein Klick auf Escape in einem Unterdialog
+ * gleich das ganze Fenster darunter mit zu.
+ */
+let stapel = 0;
+
+export function Shell({ title, icon, onClose, width, subtitle, actions, children }: {
+  title: string; icon: React.ReactNode; onClose: () => void; width: number;
+  subtitle?: string; actions?: React.ReactNode; children: React.ReactNode;
 }) {
+  const ebene = useRef(0);
+
+  useEffect(() => {
+    stapel += 1;
+    ebene.current = stapel;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape' || ebene.current !== stapel) return;
+      e.preventDefault();
+      e.stopPropagation();
+      onClose();
+    };
+    // Capture, damit die allgemeine Escape-Behandlung der App nicht zuerst greift.
+    window.addEventListener('keydown', onKey, true);
+    return () => {
+      window.removeEventListener('keydown', onKey, true);
+      stapel -= 1;
+    };
+  }, [onClose]);
+
   return (
     <div className="scrim scrim--center" onClick={onClose}>
       <motion.div
@@ -329,8 +356,14 @@ function Shell({ title, icon, onClose, width, children }: {
       >
         <div className="panel__head">
           {icon}
-          <h2>{title}</h2>
-          <button className="icon-btn" style={{ marginLeft: 'auto' }} onClick={onClose}><X size={17} /></button>
+          <div style={{ minWidth: 0 }}>
+            <h2>{title}</h2>
+            {subtitle && <p className="panel__sub">{subtitle}</p>}
+          </div>
+          <div style={{ marginLeft: 'auto', display: 'flex', gap: 6, alignItems: 'center' }}>
+            {actions}
+            <button className="icon-btn" onClick={onClose}><X size={17} /></button>
+          </div>
         </div>
         <div className="panel__body">{children}</div>
       </motion.div>

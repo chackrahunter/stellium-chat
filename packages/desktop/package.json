@@ -1,6 +1,6 @@
 {
   "name": "@stellium/desktop",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
   "type": "module",
   "main": "dist-electron/main.js",
@@ -38,7 +38,7 @@
   "build": {
     "appId": "com.stellium.chat",
     "productName": "Stellium",
-    "copyright": "\u00a9 Stellium",
+    "copyright": "© Stellium",
     "directories": {
       "output": "release",
       "buildResources": "build"
@@ -117,16 +117,10 @@
             "x64",
             "arm64"
           ]
-        },
-        {
-          "target": "rpm",
-          "arch": [
-            "x64"
-          ]
         }
       ],
-      "synopsis": "Team-Chat mit Live-\u00dcbersetzung",
-      "description": "Team-Chat f\u00fcr Unternehmen mit durchgehender Live-\u00dcbersetzung: jede Person schreibt und liest in der eigenen Sprache.",
+      "synopsis": "Team-Chat mit Live-Übersetzung",
+      "description": "Team-Chat für Unternehmen mit durchgehender Live-Übersetzung: jede Person schreibt und liest in der eigenen Sprache.",
       "executableName": "stellium",
       "desktop": {
         "entry": {
@@ -142,7 +136,7 @@
     "buildDependenciesFromSource": false,
     "artifactName": "Stellium-${version}-${arch}.${ext}"
   },
-  "description": "Stellium \u2014 Team-Chat mit Live-\u00dcbersetzung und KI",
+  "description": "Stellium — Team-Chat mit Live-Übersetzung und KI",
   "author": {
     "name": "Stellium",
     "email": "team@stellium.example"

@@ -21,6 +21,11 @@ import { Tour, tourBereitsGesehen } from './components/Tour.jsx';
 import { Login } from './components/Login.jsx';
 import { Setup } from './components/Setup.jsx';
 import { TeamAdmin } from './components/TeamAdmin.jsx';
+import { TasksBoard, TaskExtract } from './components/TasksBoard.jsx';
+import { CalendarPanel } from './components/CalendarPanel.jsx';
+import { FilesPanel } from './components/FilesPanel.jsx';
+import { ProtocolPanel } from './components/ProtocolPanel.jsx';
+import { IdeaBoard } from './components/IdeaBoard.jsx';
 import { Toasts } from './components/Toasts.jsx';
 import { clsx } from './lib/format.js';
 
@@ -37,6 +42,15 @@ export function App() {
   const remindingAbout = useStore((s) => s.remindingAbout);
   const profileUserId = useStore((s) => s.profileUserId);
 
+  /* Beim allerersten Mal die Einführung zeigen — danach nie wieder von selbst.
+     Bewusst in einem Effekt: mitten in der Darstellung darf kein Zustand
+     gesetzt werden, und beim Schließen ginge die Einführung sonst sofort
+     wieder auf. */
+  const angemeldet = Boolean(self && !self.mustChangePassword && !self.mustCompleteProfile);
+  useEffect(() => {
+    if (angemeldet && !tourBereitsGesehen()) useStore.getState().setOverlay('tour');
+  }, [angemeldet]);
+
   /* Tastenkürzel */
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -46,6 +60,10 @@ export function App() {
       else if (mod && e.key.toLowerCase() === 'f') { e.preventDefault(); store.setOverlay('search'); }
       else if (mod && e.key === ',') { e.preventDefault(); store.setOverlay('settings'); }
       else if (mod && e.shiftKey && e.key.toLowerCase() === 'n') { e.preventDefault(); store.setOverlay('newChannel'); }
+      else if (mod && e.shiftKey && e.key.toLowerCase() === 't') { e.preventDefault(); store.setOverlay('tasks'); }
+      else if (mod && e.shiftKey && e.key.toLowerCase() === 'e') { e.preventDefault(); store.setOverlay('calendar'); }
+      else if (mod && e.shiftKey && e.key.toLowerCase() === 'd') { e.preventDefault(); store.setOverlay('files'); }
+      else if (mod && e.shiftKey && e.key.toLowerCase() === 'i') { e.preventDefault(); store.setOverlay('ideas'); }
       else if (mod && e.shiftKey && e.key.toLowerCase() === 'u') {
         e.preventDefault();
         if (store.activeChannelId) store.runCatchup(store.activeChannelId);
@@ -113,11 +131,6 @@ export function App() {
     );
   }
 
-  // Beim allerersten Mal die Einführung zeigen — danach nie wieder von selbst.
-  if (!tourBereitsGesehen() && overlay !== 'tour') {
-    useStore.getState().setOverlay('tour');
-  }
-
   const closeOverlay = () => useStore.getState().setOverlay(null);
 
   return (
@@ -171,6 +184,12 @@ export function App() {
         {overlay === 'reminders' && <RemindersPanel key="reminders" onClose={closeOverlay} />}
         {overlay === 'team' && <TeamAdmin key="team" onClose={closeOverlay} />}
         {overlay === 'tour' && <Tour key="tour" onClose={closeOverlay} />}
+        {overlay === 'tasks' && <TasksBoard key="tasks" onClose={closeOverlay} />}
+        {overlay === 'taskExtract' && <TaskExtract key="extract" onClose={closeOverlay} />}
+        {overlay === 'calendar' && <CalendarPanel key="calendar" onClose={closeOverlay} />}
+        {overlay === 'files' && <FilesPanel key="files" onClose={closeOverlay} />}
+        {overlay === 'protocol' && <ProtocolPanel key="protocol" onClose={closeOverlay} />}
+        {overlay === 'ideas' && <IdeaBoard key="ideas" onClose={closeOverlay} />}
         {overlay === 'channelSettings' && activeChannelId && (
           <ChannelSettings key="chset" channelId={activeChannelId} onClose={closeOverlay} />
         )}

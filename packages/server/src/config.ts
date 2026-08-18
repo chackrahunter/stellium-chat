@@ -19,7 +19,11 @@ function str(name: string, fallback = ''): string {
 const dataDir = path.resolve(root, str('DATA_DIR', './data'));
 const uploadDir = path.resolve(root, str('UPLOAD_DIR', path.join(dataDir, 'uploads')));
 fs.mkdirSync(dataDir, { recursive: true });
+const storageDir = path.resolve(root, str('STORAGE_DIR', path.join(dataDir, 'storage')));
 fs.mkdirSync(uploadDir, { recursive: true });
+fs.mkdirSync(storageDir, { recursive: true });
+const releaseDir = path.resolve(root, str('RELEASE_DIR', path.join(dataDir, 'releases')));
+fs.mkdirSync(releaseDir, { recursive: true });
 
 /** Secret persistieren, damit Tokens einen Neustart überleben. */
 function resolveSecret(): string {
@@ -99,6 +103,8 @@ export const config = {
   tokenTtlSeconds: int('TOKEN_TTL_SECONDS', 60 * 60 * 24 * 30),
   dataDir,
   uploadDir,
+  storageDir,
+  releaseDir,
   dbFile: path.join(dataDir, 'stellium.db'),
   maxUploadBytes: int('MAX_UPLOAD_MB', 50) * 1024 * 1024,
   workspaceName: str('WORKSPACE_NAME', 'Stellium'),

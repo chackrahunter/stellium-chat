@@ -388,3 +388,57 @@ CREATE TABLE IF NOT EXISTS hidden_messages (
   created_at INTEGER NOT NULL,
   PRIMARY KEY (user_id, message_id)
 );
+
+-- ─────────────────────────────────────────────────────────────────
+-- Ideenboard
+-- ─────────────────────────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS ideas (
+  id          TEXT PRIMARY KEY,
+  title       TEXT NOT NULL,
+  body        TEXT,
+  status      TEXT NOT NULL DEFAULT 'new',       -- new|working|done|rejected
+  tag         TEXT NOT NULL DEFAULT '',          -- freies Schlagwort, leer erlaubt
+  channel_id  TEXT REFERENCES channels(id) ON DELETE SET NULL,
+  created_by  TEXT NOT NULL REFERENCES users(id),
+  created_at  INTEGER NOT NULL,
+  updated_at  INTEGER NOT NULL,
+  decided_at  INTEGER,
+  decided_by  TEXT REFERENCES users(id),
+  decision    TEXT                               -- Begründung bei fertig/abgelehnt
+);
+CREATE INDEX IF NOT EXISTS idx_ideas_status ON ideas(status, updated_at DESC);
+
+-- Eine Stimme pro Person und Idee: +1 oder -1.
+CREATE TABLE IF NOT EXISTS idea_votes (
+  idea_id    TEXT NOT NULL REFERENCES ideas(id) ON DELETE CASCADE,
+  user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  wert       INTEGER NOT NULL,                   -- 1 oder -1
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (idea_id, user_id)
+);
+
+CREATE TABLE IF NOT EXISTS idea_comments (
+  id         TEXT PRIMARY KEY,
+  idea_id    TEXT NOT NULL REFERENCES ideas(id) ON DELETE CASCADE,
+  user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  text       TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_idea_comments ON idea_comments(idea_id, created_at);
+
+-- ─────────────────────────────────────────────────────────────────
+-- Verteilung neuer App-Versionen (eine je Plattform)
+-- ─────────────────────────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS releases (
+  platform     TEXT PRIMARY KEY,                 -- darwin|win32|linux
+  version      TEXT NOT NULL,
+  notes        TEXT,
+  file_name    TEXT NOT NULL,
+  path         TEXT NOT NULL,
+  size         INTEGER NOT NULL,
+  sha256       TEXT NOT NULL,
+  published_by TEXT NOT NULL REFERENCES users(id),
+  published_at INTEGER NOT NULL
+);

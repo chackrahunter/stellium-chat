@@ -4,23 +4,27 @@ import { Check, Loader2, ShieldCheck, Star } from 'lucide-react';
 import { LANGUAGES } from '@stellium/shared';
 import { useStore } from '../state/store.js';
 import { api } from '../net/api.js';
+import { useT, spracheDesSystems } from '../i18n/index.js';
 
 /**
  * Erste Anmeldung mit dem Einmal-Passwort: hier legt die Person ihre eigenen
  * Zugangsdaten fest. Das Einmal-Passwort ist danach ungültig.
  */
 export function Setup() {
+  const t = useT();
   const self = useStore((s) => s.self);
   const [handle, setHandle] = useState(self?.handle ?? '');
   const [email, setEmail] = useState(self?.email ?? '');
   const [displayName, setDisplayName] = useState(self?.displayName ?? '');
   const [passwort, setPasswort] = useState('');
   const [wiederholung, setWiederholung] = useState('');
-  const [sprache, setSprache] = useState(self?.language ?? 'de');
+  // Vorbelegt mit der Sprache des Rechners — das trifft fast immer zu und
+  // lässt sich hier wie später in den Einstellungen ändern.
+  const [sprache, setSprache] = useState(self?.language || spracheDesSystems());
   const [busy, setBusy] = useState(false);
   const [fehler, setFehler] = useState<string | null>(null);
 
-  const staerke = passwortStaerke(passwort);
+  const staerke = passwortStaerke(passwort, t);
   const passt = passwort.length >= 10 && passwort === wiederholung;
   const bereit = passt && handle.trim().length >= 2 && displayName.trim().length >= 2;
 
@@ -55,37 +59,34 @@ export function Setup() {
         transition={{ duration: 0.45, ease: [0.16, 1, 0.3, 1] }}
       >
         <div className="auth__logo"><Star size={28} color="#fff" fill="#fff" /></div>
-        <h1 className="auth__title">Willkommen</h1>
-        <p className="auth__sub">
-          Du hast dich mit einem Einmal-Passwort angemeldet.
-          Lege jetzt deine eigenen Zugangsdaten fest — danach ist es ungültig.
-        </p>
+        <h1 className="auth__title">{t('setup.title')}</h1>
+        <p className="auth__sub">{t('setup.intro')}</p>
 
         {fehler && <div className="auth__error">{fehler}</div>}
 
         <div className="field">
-          <label className="field__label">Dein Name</label>
-          <input className="input" value={displayName} autoFocus placeholder="Vor- und Nachname"
+          <label className="field__label">{t('setup.yourName')}</label>
+          <input className="input" value={displayName} autoFocus placeholder={t('setup.namePlaceholder')}
             onChange={(e) => setDisplayName(e.target.value)} />
-          <p className="field__hint">So sehen dich deine Kolleg:innen. Später jederzeit änderbar.</p>
+          <p className="field__hint">{t('setup.nameHint')}</p>
         </div>
 
         <div className="field">
-          <label className="field__label">Benutzername</label>
+          <label className="field__label">{t('setup.username')}</label>
           <input className="input" value={handle} placeholder="z.B. don"
             onChange={(e) => setHandle(e.target.value.toLowerCase().replace(/[^a-z0-9._-]/g, ''))} />
-          <p className="field__hint">Damit meldest du dich an, und darüber wirst du erwähnt: @{handle || '…'}</p>
+          <p className="field__hint">{t('setup.usernameHint', { handle: handle || '…' })}</p>
         </div>
 
         <div className="field">
-          <label className="field__label">E-Mail (optional)</label>
+          <label className="field__label">{t('setup.email')}</label>
           <input className="input" type="email" value={email} placeholder="du@firma.de"
             onChange={(e) => setEmail(e.target.value)} />
-          <p className="field__hint">Wird verschlüsselt gespeichert und niemandem im Chat angezeigt.</p>
+          <p className="field__hint">{t('setup.emailHint')}</p>
         </div>
 
         <div className="field">
-          <label className="field__label">Neues Passwort</label>
+          <label className="field__label">{t('setup.newPassword')}</label>
           <input className="input" type="password" value={passwort} autoComplete="new-password"
             onChange={(e) => setPasswort(e.target.value)} />
           <div className="staerke">
@@ -97,53 +98,47 @@ export function Setup() {
         </div>
 
         <div className="field">
-          <label className="field__label">Passwort wiederholen</label>
+          <label className="field__label">{t('setup.repeatPassword')}</label>
           <input className="input" type="password" value={wiederholung} autoComplete="new-password"
             onChange={(e) => setWiederholung(e.target.value)} />
           {wiederholung.length > 0 && (
             <p className="field__hint" style={{ color: passt ? 'var(--mint)' : 'var(--rose)' }}>
-              {passt ? '✓ stimmt überein' : 'stimmt noch nicht überein'}
+              {passt ? `✓ ${t('setup.matches')}` : t('setup.noMatch')}
             </p>
           )}
         </div>
 
         <div className="field">
-          <label className="field__label">Deine Sprache</label>
+          <label className="field__label">{t('setup.yourLanguage')}</label>
           <select className="select" value={sprache} onChange={(e) => setSprache(e.target.value)}>
             {LANGUAGES.map((l) => <option key={l.code} value={l.code}>{l.flag} {l.native}</option>)}
           </select>
-          <p className="field__hint">
-            Bestimmt die Sprache der Oberfläche und in welche Sprache Nachrichten
-            für dich übersetzt werden.
-          </p>
+          <p className="field__hint">{t('setup.languageHint')}</p>
         </div>
 
         <button className="btn btn--primary btn--block" disabled={!bereit || busy} onClick={() => void speichern()}>
           {busy ? <Loader2 size={16} className="spin" /> : <Check size={16} />}
-          Einrichtung abschließen
+          {t('setup.finish')}
         </button>
 
         <div className="auth__demo" style={{ display: 'flex', gap: 9, alignItems: 'flex-start' }}>
           <ShieldCheck size={15} style={{ flex: 'none', marginTop: 1, color: 'var(--mint)' }} />
-          <span>
-            Dein Passwort wird als scrypt-Hash gespeichert und ist nicht auslesbar —
-            auch nicht von der Team-Leitung. Vergisst du es, gibt es ein neues Einmal-Passwort.
-          </span>
+          <span>{t('setup.passwordSafety')}</span>
         </div>
       </motion.div>
     </div>
   );
 }
 
-function passwortStaerke(p: string): { anteil: number; stufe: string; text: string } {
-  if (!p) return { anteil: 0, stufe: 'leer', text: 'mindestens 10 Zeichen' };
+function passwortStaerke(p: string, t: (k: any, w?: any) => string): { anteil: number; stufe: string; text: string } {
+  if (!p) return { anteil: 0, stufe: 'leer', text: t('setup.strengthMin') };
   let punkte = Math.min(p.length / 16, 1) * 55;
   if (/[a-z]/.test(p) && /[A-Z]/.test(p)) punkte += 15;
   if (/\d/.test(p)) punkte += 15;
   if (/[^\w\s]/.test(p)) punkte += 15;
   const anteil = Math.min(100, Math.round(punkte));
-  if (p.length < 10) return { anteil, stufe: 'schwach', text: `noch ${10 - p.length} Zeichen` };
-  if (anteil < 55) return { anteil, stufe: 'schwach', text: 'schwach' };
-  if (anteil < 80) return { anteil, stufe: 'mittel', text: 'in Ordnung' };
-  return { anteil, stufe: 'stark', text: 'stark' };
+  if (p.length < 10) return { anteil, stufe: 'schwach', text: t('setup.strengthMore', { n: 10 - p.length }) };
+  if (anteil < 55) return { anteil, stufe: 'schwach', text: t('setup.strengthWeak') };
+  if (anteil < 80) return { anteil, stufe: 'mittel', text: t('setup.strengthOk') };
+  return { anteil, stufe: 'stark', text: t('setup.strengthStrong') };
 }

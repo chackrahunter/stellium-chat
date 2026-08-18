@@ -39,6 +39,9 @@ export type PermissionKey =
   | 'event.create'
   | 'event.manage'
   | 'file.manage'
+  | 'idea.create'
+  | 'idea.vote'
+  | 'idea.manage'
   /* KI und Übersetzung */
   | 'ai.translate'
   | 'ai.assistant'
@@ -160,6 +163,18 @@ export const PERMISSIONS: PermissionInfo[] = [
   { key: 'ai.model_select', group: 'ki',
     labelDe: 'KI-Modell festlegen', labelEn: 'Choose the AI model',
     hintDe: 'Gilt für den gesamten Arbeitsbereich.', hintEn: 'Applies to the whole workspace.' },
+  { key: 'idea.create', group: 'inhalte',
+    labelDe: 'Ideen einbringen', labelEn: 'Post ideas',
+    hintDe: 'Neue Vorschläge auf dem Ideenboard eröffnen.',
+    hintEn: 'Open new proposals on the ideas board.' },
+  { key: 'idea.vote', group: 'inhalte',
+    labelDe: 'Über Ideen abstimmen', labelEn: 'Vote on ideas',
+    hintDe: 'Daumen hoch oder runter vergeben.',
+    hintEn: 'Give a thumbs up or down.' },
+  { key: 'idea.manage', group: 'inhalte',
+    labelDe: 'Ideen entscheiden', labelEn: 'Decide on ideas',
+    hintDe: 'Status setzen und fremde Ideen löschen.',
+    hintEn: 'Set the status and remove other people\u2019s ideas.' },
   { key: 'glossary.manage', group: 'ki',
     labelDe: 'Glossar pflegen', labelEn: 'Manage the glossary',
     hintDe: 'Begriffe, die nie falsch übersetzt werden dürfen.', hintEn: 'Terms that must never be mistranslated.' },
@@ -215,7 +230,7 @@ const GAST: PermissionKey[] = [
 const MITWIRKEND: PermissionKey[] = [
   ...GAST,
   'mention.user', 'file.upload', 'voice.send', 'message.forward', 'dm.start',
-  'ai.assistant', 'task.create', 'event.create',
+  'ai.assistant', 'task.create', 'event.create', 'idea.create', 'idea.vote',
 ];
 
 /** Der Normalfall im Team. */
@@ -230,14 +245,14 @@ const MODERATOR: PermissionKey[] = [
   ...MITGLIED,
   'message.delete_any', 'mention.everyone', 'poll.close_any',
   'channel.create_private', 'channel.manage', 'channel.archive', 'channel.members',
-  'glossary.manage', 'task.delete', 'event.manage', 'file.manage',
+  'glossary.manage', 'task.delete', 'event.manage', 'file.manage', 'idea.manage',
 ];
 
 /** Führt ein Team: nimmt Leute auf und setzt Passwörter zurück. */
 const TEAMLEITUNG: PermissionKey[] = [
   ...MITGLIED,
   'mention.everyone', 'channel.create_private', 'channel.manage', 'channel.members',
-  'user.invite', 'user.manage', 'task.delete', 'event.manage',
+  'user.invite', 'user.manage', 'task.delete', 'event.manage', 'idea.manage',
 ];
 
 /** Alles außer den Owner-Vorbehalten (Löschen und Rechtevergabe). */

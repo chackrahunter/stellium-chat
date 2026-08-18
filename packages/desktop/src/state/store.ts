@@ -5,9 +5,11 @@ import {
   type Draft, type LinkPreview, type Message, type Poll, type Reminder,
   type RewriteTone, type ScheduledMessage, type SearchHit,
   type SelfUser, type ServerEvent, type SmartReply, type User, type UserStatus,
-  type VoiceNote,
+  type VoiceNote, type Task, type TaskEvent, type TaskStatus, type CalendarEvent,
+  type StoredFile, type StorageUsage, type MeetingProtocol,
+  type Idea, type IdeaComment, type IdeaStatus, type ReleaseInfo,
 } from '@stellium/shared';
-import { api, setToken, token } from '../net/api.js';
+import { api, serverUrl, setToken, token } from '../net/api.js';
 import { socket, type ConnectionState } from '../net/socket.js';
 
 export interface Toast {
@@ -20,7 +22,7 @@ export interface Toast {
 export type Overlay =
   | null | 'quick' | 'search' | 'settings' | 'newChannel' | 'glossary'
   | 'catchup' | 'schedule' | 'people' | 'poll' | 'reminders' | 'models' | 'team'
-  | 'channelSettings' | 'tour';
+  | 'channelSettings' | 'tour' | 'tasks' | 'calendar' | 'files' | 'taskExtract' | 'protocol' | 'ideas';
 
 interface PendingRequest<T> { resolve: (value: T) => void; reject: (err: Error) => void; timer: number }
 
@@ -49,7 +51,28 @@ interface StoreState {
   roundTrips: Record<string, { backTranslation: string; similarity: number }>;
 
   /* UI */
+  tasks: Record<string, Task>;
+  events: Record<string, CalendarEvent>;
+  files: StoredFile[];
+  storageUsage: StorageUsage | null;
+  taskHistory: Record<string, TaskEvent[]>;
+  extractedTasks: { title: string; assigneeId: string | null; dueAt: number | null }[] | null;
+  extractingTasks: boolean;
+  /** Stand der Selbstaktualisierung. Im Browser bleibt er auf 'aus'. */
+  update: {
+    zustand: 'aus' | 'suche' | 'gefunden' | 'laedt' | 'bereit' | 'aktuell' | 'fehler';
+    version?: string;
+    notes?: string | null;
+    anteil?: number;
+    fehler?: string;
+  };
+  ideas: Record<string, Idea>;
+  ideaComments: Record<string, IdeaComment[]>;
+  protocol: MeetingProtocol | null;
+  protocolLoading: boolean;
   activeChannelId: string | null;
+  /** Zuletzt geöffneter Kanal außerhalb des KI-Reiters. */
+  lastHumanChannelId: string | null;
   threadParentId: string | null;
   overlay: Overlay;
   sidebarCollapsed: boolean;
@@ -142,6 +165,52 @@ interface StoreState {
 
   /* KI als Gesprächspartner */
   openAiChat: () => void;
+  openLastHumanChannel: () => void;
+
+  loadTasks: (filter?: { channelId?: string; assigneeId?: string }) => void;
+  createTask: (input: {
+    title: string; description?: string | null; assigneeId?: string | null;
+    channelId?: string | null; dueAt?: number | null; priority?: Task['priority'];
+  }) => void;
+  updateTask: (taskId: string, patch: Partial<Pick<Task,
+    'title' | 'description' | 'status' | 'priority' | 'assigneeId' | 'dueAt' | 'channelId'>>) => void;
+  moveTask: (taskId: string, status: TaskStatus, afterId?: string | null) => void;
+  commentTask: (taskId: string, text: string) => void;
+  watchTask: (taskId: string, watching: boolean) => void;
+  deleteTask: (taskId: string) => void;
+  loadTaskHistory: (taskId: string) => void;
+  extractTasks: (channelId: string) => void;
+  clearExtractedTasks: () => void;
+  loadProtocol: (channelId: string) => void;
+  clearProtocol: () => void;
+
+  checkForUpdate: () => void;
+  installUpdate: () => void;
+  loadIdeas: () => void;
+  createIdea: (input: { title: string; body?: string | null; tag?: string; channelId?: string | null }) => void;
+  updateIdea: (ideaId: string, patch: { title?: string; body?: string | null; tag?: string; channelId?: string | null }) => void;
+  setIdeaStatus: (ideaId: string, status: IdeaStatus, decision?: string | null) => void;
+  voteIdea: (ideaId: string, wert: 1 | -1) => void;
+  loadIdeaComments: (ideaId: string) => void;
+  commentIdea: (ideaId: string, text: string) => void;
+  deleteIdeaComment: (ideaId: string, commentId: string) => void;
+  deleteIdea: (ideaId: string) => void;
+
+  loadEvents: (from: number, to: number) => void;
+  createEvent: (input: {
+    title: string; description?: string | null; kind?: CalendarEvent['kind'];
+    startsAt: number; endsAt: number; allDay?: boolean; location?: string | null;
+    channelId?: string | null; attendeeIds?: string[];
+  }) => void;
+  updateEvent: (eventId: string, patch: Partial<Pick<CalendarEvent,
+    'title' | 'description' | 'kind' | 'startsAt' | 'endsAt' | 'allDay' | 'location' | 'channelId'>>) => void;
+  respondEvent: (eventId: string, response: 'yes' | 'no' | 'maybe') => void;
+  deleteEvent: (eventId: string) => void;
+
+  loadFiles: (filter?: { channelId?: string; folder?: string }) => void;
+  uploadFile: (file: File, meta?: { folder?: string; channelId?: string | null; description?: string }) => Promise<void>;
+  updateFile: (fileId: string, patch: { name?: string; folder?: string; description?: string | null }) => void;
+  deleteFile: (fileId: string) => void;
   openAiTeamChannel: () => void;
   setAiMode: (channelId: string, mode: 'off' | 'mention' | 'always') => void;
 
@@ -240,7 +309,20 @@ export const useStore = create<StoreState>((set, get) => ({
   showOriginal: {},
   roundTrips: {},
 
+  tasks: {},
+  events: {},
+  files: [],
+  storageUsage: null,
+  taskHistory: {},
+  extractedTasks: null,
+  extractingTasks: false,
+  update: { zustand: 'aus' },
+  ideas: {},
+  ideaComments: {},
+  protocol: null,
+  protocolLoading: false,
   activeChannelId: null,
+  lastHumanChannelId: null,
   threadParentId: null,
   overlay: null,
   sidebarCollapsed: false,
@@ -269,6 +351,8 @@ export const useStore = create<StoreState>((set, get) => ({
       set({ self: user, ai });
       applyTheme(user.theme, user.density);
       socket.connect();
+      const t = token();
+      if (t) void window.stellium?.updateSignIn?.(serverUrl(), t);
     } catch {
       setToken(null);
       set({ self: null });
@@ -283,14 +367,17 @@ export const useStore = create<StoreState>((set, get) => ({
     set({ self: user });
     applyTheme(user.theme, user.density);
     socket.connect();
+    // Ab jetzt darf der Hauptprozess nach neuen Versionen sehen.
+    void window.stellium?.updateSignIn?.(serverUrl(), t);
   },
 
   logout: () => {
     socket.disconnect();
     setToken(null);
+    void window.stellium?.updateSignOut?.();
     set({
       self: null, users: {}, channels: {}, states: {}, messages: {}, threads: {},
-      activeChannelId: null, threadParentId: null, overlay: null, scheduled: [],
+      activeChannelId: null, lastHumanChannelId: null, threadParentId: null, overlay: null, scheduled: [],
       catchup: null, smartReplies: [], searchHits: [],
     });
   },
@@ -299,7 +386,14 @@ export const useStore = create<StoreState>((set, get) => ({
 
   openChannel: (channelId) => {
     const state = get().states[channelId];
+    const kanal = get().channels[channelId];
+    // Merken, wo der Chat-Reiter zuletzt stand. Die beiden KI-Oberflächen
+    // gehören zum KI-Reiter und zählen dafür nicht.
+    const istKi = kanal
+      && ((kanal.kind === 'dm' && get().users[kanal.dmPeerId ?? '']?.role === 'bot')
+        || (kanal.kind === 'public' && kanal.name === 'ki-team'));
     set((s) => ({
+      lastHumanChannelId: istKi ? s.lastHumanChannelId : channelId,
       activeChannelId: channelId,
       threadParentId: null,
       smartReplies: [],
@@ -562,6 +656,94 @@ export const useStore = create<StoreState>((set, get) => ({
     }
     socket.send({ t: 'ai:open-chat' });
   },
+
+  openLastHumanChannel: () => {
+    const gemerkt = get().lastHumanChannelId;
+    if (gemerkt && get().channels[gemerkt]) return get().openChannel(gemerkt);
+    // Nichts gemerkt: der erste offene Kanal, der nicht zur KI gehört.
+    const ersatz = Object.values(get().channels).find(
+      (c) => !c.archived && c.kind === 'public' && c.name !== 'ki-team',
+    ) ?? Object.values(get().channels).find((c) => !c.archived && c.kind !== 'dm');
+    if (ersatz) get().openChannel(ersatz.id);
+  },
+
+  /* ── Aufgaben ─────────────────────────────────────────── */
+
+  loadTasks: (filter) => socket.send({ t: 'task:list', ...filter }) as unknown as void,
+  createTask: (input) => socket.send({ t: 'task:create', ...input }) as unknown as void,
+  updateTask: (taskId, patch) => socket.send({ t: 'task:update', taskId, patch }) as unknown as void,
+  moveTask: (taskId, status, afterId) => socket.send({ t: 'task:move', taskId, status, afterId }) as unknown as void,
+  commentTask: (taskId, text) => socket.send({ t: 'task:comment', taskId, text }) as unknown as void,
+  watchTask: (taskId, watching) => socket.send({ t: 'task:watch', taskId, watching }) as unknown as void,
+  deleteTask: (taskId) => socket.send({ t: 'task:delete', taskId }) as unknown as void,
+  loadTaskHistory: (taskId) => socket.send({ t: 'task:history', taskId }) as unknown as void,
+
+  extractTasks: (channelId) => {
+    if (!get().ai?.assistant) {
+      get().toast({ kind: 'error', title: 'KI nicht aktiv', body: get().ai?.note ?? undefined });
+      return;
+    }
+    set({ extractingTasks: true, extractedTasks: null });
+    socket.send({ t: 'ai:extract-tasks', channelId, requestId: `x_${Date.now()}` });
+  },
+  clearExtractedTasks: () => set({ extractedTasks: null, extractingTasks: false }),
+
+  loadProtocol: (channelId) => {
+    if (!get().ai?.assistant) {
+      get().toast({ kind: 'error', title: 'KI nicht aktiv', body: get().ai?.note ?? undefined });
+      return;
+    }
+    set({ protocolLoading: true, protocol: null });
+    socket.send({ t: 'ai:protocol', channelId });
+  },
+  clearProtocol: () => set({ protocol: null, protocolLoading: false }),
+
+  /* ── Ideenboard ───────────────────────────────────────── */
+
+  checkForUpdate: () => {
+    if (!window.stellium?.checkForUpdate) return;
+    set({ update: { zustand: 'suche' } });
+    void window.stellium.checkForUpdate();
+  },
+  installUpdate: () => { void window.stellium?.installUpdate?.(); },
+
+  loadIdeas: () => socket.send({ t: 'idea:list' }) as unknown as void,
+  createIdea: (input) => socket.send({ t: 'idea:create', ...input }) as unknown as void,
+  updateIdea: (ideaId, patch) => socket.send({ t: 'idea:update', ideaId, patch }) as unknown as void,
+  setIdeaStatus: (ideaId, status, decision) => socket.send({ t: 'idea:status', ideaId, status, decision }) as unknown as void,
+  voteIdea: (ideaId, wert) => socket.send({ t: 'idea:vote', ideaId, wert }) as unknown as void,
+  loadIdeaComments: (ideaId) => socket.send({ t: 'idea:comments', ideaId }) as unknown as void,
+  commentIdea: (ideaId, text) => socket.send({ t: 'idea:comment', ideaId, text }) as unknown as void,
+  deleteIdeaComment: (ideaId, commentId) => socket.send({ t: 'idea:comment-delete', ideaId, commentId }) as unknown as void,
+  deleteIdea: (ideaId) => socket.send({ t: 'idea:delete', ideaId }) as unknown as void,
+
+  /* ── Kalender ─────────────────────────────────────────── */
+
+  loadEvents: (from, to) => socket.send({ t: 'event:list', from, to }) as unknown as void,
+  createEvent: (input) => socket.send({ t: 'event:create', ...input }) as unknown as void,
+  updateEvent: (eventId, patch) => socket.send({ t: 'event:update', eventId, patch }) as unknown as void,
+  respondEvent: (eventId, response) => socket.send({ t: 'event:respond', eventId, response }) as unknown as void,
+  deleteEvent: (eventId) => socket.send({ t: 'event:delete', eventId }) as unknown as void,
+
+  /* ── Dateiablage ──────────────────────────────────────── */
+
+  loadFiles: (filter) => socket.send({ t: 'file:list', ...filter }) as unknown as void,
+
+  uploadFile: async (file, meta) => {
+    const form = new FormData();
+    form.append('file', file);
+    if (meta?.folder) form.append('folder', meta.folder);
+    if (meta?.channelId) form.append('channelId', meta.channelId);
+    if (meta?.description) form.append('description', meta.description);
+    try {
+      await api.uploadToLibrary(form);
+      get().loadFiles(meta?.channelId ? { channelId: meta.channelId } : undefined);
+    } catch (err) {
+      get().toast({ kind: 'error', title: 'Hochladen fehlgeschlagen', body: (err as Error).message });
+    }
+  },
+  updateFile: (fileId, patch) => socket.send({ t: 'file:update', fileId, ...patch }) as unknown as void,
+  deleteFile: (fileId) => socket.send({ t: 'file:delete', fileId }) as unknown as void,
 
   openAiTeamChannel: () => {
     if (!get().ai?.assistant) {
@@ -868,6 +1050,103 @@ socket.onEvent((ev: ServerEvent) => {
       });
       break;
     }
+
+    /* ── Aufgaben ─────────────────────────────────────────── */
+
+    case 'task:list':
+      useStore.setState({ tasks: Object.fromEntries(ev.tasks.map((t) => [t.id, t])) });
+      break;
+
+    case 'task:upsert':
+      useStore.setState((s) => ({ tasks: { ...s.tasks, [ev.task.id]: ev.task } }));
+      break;
+
+    case 'task:removed':
+      useStore.setState((s) => {
+        const rest = { ...s.tasks };
+        delete rest[ev.taskId];
+        return { tasks: rest };
+      });
+      break;
+
+    case 'task:history':
+      useStore.setState((s) => ({ taskHistory: { ...s.taskHistory, [ev.taskId]: ev.events } }));
+      break;
+
+    case 'ai:extract-tasks':
+      useStore.setState({ extractedTasks: ev.tasks, extractingTasks: false });
+      if (!ev.tasks.length) {
+        store.toast({ kind: 'info', title: 'Nichts gefunden', body: 'In diesem Verlauf steckt gerade keine offene Aufgabe.' });
+      }
+      break;
+
+    case 'ai:protocol':
+      useStore.setState({ protocol: ev.protocol, protocolLoading: false });
+      break;
+
+    /* ── Ideenboard ───────────────────────────────────────── */
+
+    case 'idea:list':
+      useStore.setState({ ideas: Object.fromEntries(ev.ideas.map((i) => [i.id, i])) });
+      break;
+
+    case 'idea:upsert':
+      useStore.setState((s) => ({ ideas: { ...s.ideas, [ev.idea.id]: ev.idea } }));
+      break;
+
+    case 'idea:removed':
+      useStore.setState((s) => {
+        const rest = { ...s.ideas };
+        delete rest[ev.ideaId];
+        return { ideas: rest };
+      });
+      break;
+
+    case 'idea:comments':
+      useStore.setState((s) => ({ ideaComments: { ...s.ideaComments, [ev.ideaId]: ev.comments } }));
+      break;
+
+    case 'release:available':
+      // Der Hauptprozess prüft ohnehin regelmäßig; diese Meldung sorgt nur
+      // dafür, dass eine frisch hochgeladene Version sofort ankommt.
+      useStore.getState().checkForUpdate();
+      break;
+
+    /* ── Kalender ─────────────────────────────────────────── */
+
+    case 'event:list':
+      useStore.setState({ events: Object.fromEntries(ev.events.map((e) => [e.id, e])) });
+      break;
+
+    case 'event:upsert':
+      useStore.setState((s) => ({ events: { ...s.events, [ev.event.id]: ev.event } }));
+      break;
+
+    case 'event:removed':
+      useStore.setState((s) => {
+        const rest = { ...s.events };
+        delete rest[ev.eventId];
+        return { events: rest };
+      });
+      break;
+
+    /* ── Dateiablage ──────────────────────────────────────── */
+
+    case 'file:list':
+      useStore.setState({ files: ev.files, storageUsage: ev.usage });
+      break;
+
+    case 'file:upsert':
+      useStore.setState((s) => ({
+        files: [ev.file, ...s.files.filter((f) => f.id !== ev.file.id)]
+          .sort((a, b) => b.createdAt - a.createdAt),
+        storageUsage: ev.usage ?? s.storageUsage,
+      }));
+      break;
+
+    case 'file:removed':
+      useStore.setState((s) => ({ files: s.files.filter((f) => f.id !== ev.fileId) }));
+      break;
 
     case 'drafts':
       useStore.setState({

@@ -1,6 +1,7 @@
 import { app, BrowserWindow, Menu, Notification, shell, ipcMain, nativeTheme, Tray, nativeImage } from 'electron';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { updaterInit, updaterAnmelden, updaterAbmelden, pruefen, installieren } from './updater.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const isDev = !app.isPackaged;
@@ -40,6 +41,10 @@ function createWindow(): void {
     trafficLightPosition: process.platform === 'darwin' ? { x: 9, y: 20 } : undefined,
     webPreferences: {
       preload: path.join(here, 'preload.mjs'),
+      // Die Systemsprache kennt nur der Hauptprozess. Über ein Startargument
+      // liegt sie im Preload sofort bereit — ein IPC-Aufruf käme erst nach
+      // dem ersten Bild, die Oberfläche würde kurz auf Deutsch aufblitzen.
+      additionalArguments: [`--stellium-locale=${app.getLocale()}`],
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: false,
@@ -48,6 +53,7 @@ function createWindow(): void {
   });
 
   mainWindow.once('ready-to-show', () => mainWindow?.show());
+  updaterInit(mainWindow);
 
   if (isDev) {
     void mainWindow.loadURL(DEV_URL);
@@ -182,9 +188,20 @@ function createTray(): void {
   }
 }
 
+/* ── Selbstaktualisierung ─────────────────────────────────────── */
+
+ipcMain.handle('update:signin', (_e, { url, token }: { url: string; token: string }) => {
+  updaterAnmelden(url, token);
+  return true;
+});
+ipcMain.handle('update:signout', () => { updaterAbmelden(); return true; });
+ipcMain.handle('update:check', () => pruefen(true));
+ipcMain.handle('update:install', () => installieren());
+
 /* ── IPC ──────────────────────────────────────────────────────── */
 
 ipcMain.handle('app:info', () => ({
+  locale: app.getLocale(),
   platform: process.platform,
   arch: process.arch,
   version: app.getVersion(),

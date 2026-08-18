@@ -1,7 +1,7 @@
 import type {
   AiCapabilities, AiModelInfo, AiModelSelection, GlossaryEntry, ManagedUser,
   MemberRole, Message, OneTimeCredential, PermissionInfo, PermissionKey,
-  SearchHit, SelfUser,
+  ReleaseInfo, ReleasePlatform, SearchHit, SelfUser, StoredFile, StorageUsage,
 } from '@stellium/shared';
 
 const STORAGE_SERVER = 'stellium.serverUrl';
@@ -157,6 +157,51 @@ export const api = {
       xhr.send(form);
     });
   },
+
+  releases: () => request<{ releases: ReleaseInfo[] }>('/api/releases'),
+  removeRelease: (platform: ReleasePlatform) =>
+    request<{ releases: ReleaseInfo[] }>(`/api/releases/${platform}`, { method: 'DELETE' }),
+
+  /** Eine neue App-Version für eine Plattform bereitstellen. */
+  publishRelease: (platform: ReleasePlatform, form: FormData) =>
+    new Promise<{ release: ReleaseInfo; releases: ReleaseInfo[] }>((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', `${serverUrl()}/api/releases/${platform}`);
+      const t = token();
+      if (t) xhr.setRequestHeader('authorization', `Bearer ${t}`);
+      xhr.onload = () => {
+        try {
+          const data = JSON.parse(xhr.responseText);
+          if (xhr.status >= 200 && xhr.status < 300) resolve(data);
+          else reject(new ApiError(data.error ?? `Upload fehlgeschlagen (${xhr.status})`, xhr.status));
+        } catch {
+          reject(new ApiError('Ungültige Serverantwort beim Upload', xhr.status));
+        }
+      };
+      xhr.onerror = () => reject(new ApiError('Upload fehlgeschlagen — keine Verbindung', 0));
+      xhr.send(form);
+    }),
+
+  /** Ablage statt Anhang: die Datei landet in der Team-Dateiablage. */
+  uploadToLibrary: (form: FormData, onProgress?: (fraction: number) => void) =>
+    new Promise<{ file: StoredFile; usage: StorageUsage }>((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', `${serverUrl()}/api/files`);
+      const t = token();
+      if (t) xhr.setRequestHeader('authorization', `Bearer ${t}`);
+      xhr.upload.onprogress = (e) => { if (e.lengthComputable) onProgress?.(e.loaded / e.total); };
+      xhr.onload = () => {
+        try {
+          const data = JSON.parse(xhr.responseText);
+          if (xhr.status >= 200 && xhr.status < 300) resolve(data);
+          else reject(new ApiError(data.error ?? `Upload fehlgeschlagen (${xhr.status})`, xhr.status));
+        } catch {
+          reject(new ApiError('Ungültige Serverantwort beim Upload', xhr.status));
+        }
+      };
+      xhr.onerror = () => reject(new ApiError('Upload fehlgeschlagen — keine Verbindung', 0));
+      xhr.send(form);
+    }),
 };
 
 export { ApiError };

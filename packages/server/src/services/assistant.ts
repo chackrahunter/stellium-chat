@@ -3,7 +3,7 @@ import { db } from '../db/index.js';
 import { newId } from '../util/id.js';
 import { assistant as aiProvider } from '../translation/index.js';
 import { createAccount } from './users.js';
-import { blindIndex } from '../crypto/pii.js';
+import { encryptField, blindIndex } from '../crypto/pii.js';
 
 /**
  * Der KI-Assistent als Gesprächspartner.
@@ -17,8 +17,11 @@ import { blindIndex } from '../crypto/pii.js';
  *   Gemeinsamer Kanal ein Kanal, in dem das ganze Team mit ihm spricht.
  */
 
-export const ASSISTANT_HANDLE = 'ki';
-export const ASSISTANT_NAME = 'Stellium KI';
+export const ASSISTANT_HANDLE = 'stelliumai';
+export const ASSISTANT_NAME = 'StelliumAI';
+
+/** Frühere Namen des Assistenten — nötig, um Altbestände umzuziehen. */
+const FRUEHERE_HANDLES = ['ki'];
 export const TEAM_CHANNEL = 'ki-team';
 
 export type AiMode = 'off' | 'mention' | 'always';
@@ -29,6 +32,21 @@ export function ensureAssistant(): string {
     'SELECT id FROM users WHERE handle_bidx = ?', blindIndex(ASSISTANT_HANDLE),
   );
   if (vorhanden) return vorhanden.id;
+
+  // Die KI hieß früher @ki. Bestehende Installationen sollen dabei nicht
+  // plötzlich zwei Assistenten haben — also umbenennen statt neu anlegen.
+  for (const alt of FRUEHERE_HANDLES) {
+    const bot = db.get<{ id: string }>(
+      "SELECT id FROM users WHERE handle_bidx = ? AND role = 'bot'", blindIndex(alt),
+    );
+    if (!bot) continue;
+    db.run(
+      'UPDATE users SET handle = ?, handle_bidx = ?, display_name = ? WHERE id = ?',
+      encryptField(ASSISTANT_HANDLE), blindIndex(ASSISTANT_HANDLE), ASSISTANT_NAME, bot.id,
+    );
+    console.log(`[ki] Assistent von @${alt} auf @${ASSISTANT_HANDLE} umbenannt.`);
+    return bot.id;
+  }
 
   const konto = createAccount({
     displayName: ASSISTANT_NAME,
@@ -156,7 +174,11 @@ export function shouldAnswer(channelId: string, text: string, authorId: string):
   if (mode === 'off') return false;
   if (mode === 'always') return true;
   // "mention": nur wenn er direkt angesprochen wird
-  return extractMentions(text).includes(ASSISTANT_HANDLE) || mentionsEveryone(text);
+  const erwaehnt = extractMentions(text);
+  // Der alte Name wird weiter verstanden, damit niemand ins Leere schreibt.
+  return erwaehnt.includes(ASSISTANT_HANDLE)
+    || FRUEHERE_HANDLES.some((alt) => erwaehnt.includes(alt))
+    || mentionsEveryone(text);
 }
 
 /* ── Antwort erzeugen ─────────────────────────────────────────── */

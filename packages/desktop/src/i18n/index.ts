@@ -38,28 +38,37 @@ export function translate(sprache: string, key: TranslationKey, werte?: Record<s
 
 /**
  * Übersetzungsfunktion für Komponenten.
- * Nutzt die eingestellte Oberflächensprache; ist keine gesetzt, gilt die
- * Sprache, in der die Person auch Nachrichten liest.
+ * Nutzt die eingestellte Oberflächensprache. Ist keine gesetzt — der Normalfall
+ * bei einem frisch angelegten Konto — folgt die Oberfläche der Sprache des
+ * Rechners. Anmeldung und Einführung erscheinen dadurch von Anfang an richtig,
+ * bevor überhaupt jemand etwas einstellen konnte.
  */
 export function useT(): (key: TranslationKey, werte?: Record<string, string | number>) => string {
-  const sprache = useStore((s) => s.self?.uiLanguage || s.self?.language || spracheDesSystems());
+  const sprache = useStore((s) => s.self?.uiLanguage || spracheDesSystems());
   return (key, werte) => translate(sprache, key, werte);
 }
 
 /** Aktuelle Oberflächensprache, auch außerhalb von Komponenten. */
 export function currentUiLanguage(): string {
-  const self = useStore.getState().self;
-  return self?.uiLanguage || self?.language || spracheDesSystems();
+  return useStore.getState().self?.uiLanguage || spracheDesSystems();
 }
 
 export function t(key: TranslationKey, werte?: Record<string, string | number>): string {
   return translate(currentUiLanguage(), key, werte);
 }
 
-function spracheDesSystems(): string {
-  if (typeof navigator === 'undefined') return 'de';
-  const roh = navigator.language?.split('-')[0]?.toLowerCase() ?? 'de';
-  return WOERTERBUECHER[roh] ? roh : 'de';
+/**
+ * Sprache des Rechners. In der App liefert Electron sie exakt; im Browser
+ * bleibt die Spracheinstellung des Browsers. Ist sie nicht übersetzt, fällt
+ * die Oberfläche auf Englisch zurück — nicht auf Deutsch, denn Englisch
+ * versteht in einem internationalen Team schlicht die größere Hälfte.
+ */
+export function spracheDesSystems(): string {
+  const roh = (typeof window !== 'undefined' && window.stellium?.locale)
+    || (typeof navigator !== 'undefined' ? navigator.language : '')
+    || 'en';
+  const kurz = roh.split(/[-_]/)[0].toLowerCase();
+  return WOERTERBUECHER[kurz] ? kurz : 'en';
 }
 
 /** Wie vollständig ist eine Sprache übersetzt? Für die Einstellungen. */

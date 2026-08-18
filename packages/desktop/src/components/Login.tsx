@@ -3,8 +3,10 @@ import { motion } from 'framer-motion';
 import { Loader2, Star } from 'lucide-react';
 import { useStore } from '../state/store.js';
 import { api, serverUrl, setServerUrl } from '../net/api.js';
+import { useT } from '../i18n/index.js';
 
 export function Login() {
+  const t = useT();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [serverReachable, setServerReachable] = useState<boolean | null>(null);
@@ -51,42 +53,33 @@ export function Login() {
         </motion.div>
 
         <h1 className="auth__title">Stellium</h1>
-        <p className="auth__sub">
-          Team-Chat, der jede Sprache spricht
-        </p>
+        <p className="auth__sub">{t('auth.tagline')}</p>
 
         {error && <div className="auth__error">{error}</div>}
         {serverReachable === false && (
-          <div className="auth__error">
-            Server unter {server} nicht erreichbar. Läuft <code>npm run dev:server</code>?
-          </div>
+          <div className="auth__error">{t('auth.serverUnreachable', { url: server })}</div>
         )}
 
         <form onSubmit={(e) => { e.preventDefault(); void submit(); }}>
           <div className="field">
-            <label className="field__label">Benutzername oder E-Mail</label>
+            <label className="field__label">{t('auth.userOrEmail')}</label>
             <input className="input" value={loginId} autoFocus autoComplete="username"
               onChange={(e) => setLoginId(e.target.value)} />
           </div>
           <div className="field">
-            <label className="field__label">Passwort</label>
+            <label className="field__label">{t('auth.password')}</label>
             <input className="input" type="password" value={password} autoComplete="current-password"
               onChange={(e) => setPassword(e.target.value)} />
-            <p className="field__hint">
-              Beim ersten Mal das Einmal-Passwort von der Team-Leitung.
-            </p>
+            <p className="field__hint">{t('auth.firstTimeHint')}</p>
           </div>
 
           <button className="btn btn--primary btn--block" type="submit" disabled={busy}>
             {busy && <Loader2 size={16} className="spin" />}
-            Anmelden
+            {t('auth.login')}
           </button>
         </form>
 
-        <div className="auth__demo">
-          Kein Zugang? Konten legt die Team-Leitung an — frage nach einem
-          Einmal-Passwort. Eine Selbstregistrierung gibt es bewusst nicht.
-        </div>
+        <div className="auth__demo">{t('auth.noAccount')}</div>
 
         <div style={{ marginTop: 'var(--sp-3)', textAlign: 'center' }}>
           <button
@@ -94,12 +87,12 @@ export function Login() {
             style={{ height: 'auto', padding: 4, fontSize: 12 }}
             onClick={() => setShowServer((v) => !v)}
           >
-            {showServer ? 'Server verbergen' : 'Anderer Server?'}
+            {showServer ? t('auth.hideServer') : t('auth.otherServer')}
           </button>
           {showServer && (
             <div className="hstack gap-2" style={{ marginTop: 8 }}>
               <input className="input" value={server} onChange={(e) => setServer(e.target.value)} />
-              <button className="btn" onClick={() => { setServerUrl(server); setServerReachable(null); }}>Setzen</button>
+              <button className="btn" onClick={() => { setServerUrl(server); setServerReachable(null); }}>{t('auth.set')}</button>
             </div>
           )}
         </div>

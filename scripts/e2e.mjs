@@ -124,6 +124,15 @@ async function main() {
     await seite.fill('.auth__card input[type="password"]', PASSWORT);
     await seite.click('.auth__card button[type="submit"]');
     await seite.waitForSelector('.app', { timeout: 20000 });
+    // Die Oberfläche folgt sonst der Sprache des Systems. Für die folgenden
+    // Prüfungen — sie suchen deutsche Beschriftungen — auf Deutsch festlegen.
+    await seite.locator('.rail [data-tour="settings"]').click();
+    await seite.waitForSelector('.panel--wide select');
+    await seite.locator('.panel--wide select').first().selectOption('de');
+    await seite.locator('.panel--wide select').nth(1).selectOption('de');
+    await seite.waitForTimeout(900);
+    await seite.keyboard.press('Escape');
+    await seite.waitForTimeout(400);
     // In den Testkanal wechseln, dort liegen die Nachrichten.
     await seite.locator('.chan', { hasText: fixture.kanal }).first().click();
     await seite.waitForSelector('.msg', { timeout: 20000 });
@@ -414,7 +423,7 @@ async function main() {
   log('\nEinstellungen');
 
   await pruefe('Einstellungen öffnen', async () => {
-    await seite.locator('.rail button[title="Einstellungen"]').click();
+    await seite.locator('.rail [data-tour="settings"]').click();
     await seite.waitForSelector('.panel--wide .tab', { timeout: 8000 });
     const tabs = await seite.locator('.panel--wide .tab').allInnerTexts();
     muss(tabs.length >= 5, `Nur ${tabs.length} Reiter gefunden`);
@@ -422,7 +431,7 @@ async function main() {
   });
 
   await pruefe('Modellauswahl zeigt echte Groq-Modelle', async () => {
-    await seite.locator('.rail button[title="Einstellungen"]').click();
+    await seite.locator('.rail [data-tour="settings"]').click();
     await seite.waitForSelector('.panel--wide .tab', { timeout: 8000 });
     await seite.locator('.panel--wide .tab', { hasText: 'KI-Modell' }).click();
     if (!kiAn) { await seite.keyboard.press('Escape'); return 'übersprungen'; }
@@ -435,21 +444,33 @@ async function main() {
   });
 
   await pruefe('Sprache umstellen', async () => {
-    await seite.locator('.rail button[title="Einstellungen"]').click();
+    await seite.locator('.rail [data-tour="settings"]').click();
     await seite.waitForSelector('.panel--wide .tab', { timeout: 8000 });
-    await seite.selectOption('.panel--wide select', 'en');
+    // Kasten 0 ist die Oberflächensprache, Kasten 1 die eigene Lesesprache.
+    // Die Seitenleiste zeigt die Lesesprache.
+    const lesesprache = seite.locator('.panel--wide select').nth(1);
+    await lesesprache.selectOption('en');
     await warteAuf(async () => {
       const t = await seite.locator('.sidebar__sub').innerText();
       return /English/i.test(t);
     }, 'Sprache in der Seitenleiste ändert sich nicht', 25000);
-    await seite.locator('.panel--wide select').nth(1).selectOption('de');
-    await seite.waitForTimeout(500);
+
+    // Und die Oberflächensprache selbst
+    await seite.locator('.panel--wide select').first().selectOption('en');
+    await warteAuf(async () => /Language & translation/i.test(await seite.locator('.panel--wide').innerText()),
+      'Oberfläche wechselt nicht auf Englisch', 15000);
+
+    // Wieder zurück, damit die folgenden Prüfungen deutsche Beschriftungen finden.
+    await seite.locator('.panel--wide select').first().selectOption('de');
+    await lesesprache.selectOption('de');
+    await warteAuf(async () => /Sprache & Übersetzung/i.test(await seite.locator('.panel--wide').innerText()),
+      'Oberfläche kehrt nicht auf Deutsch zurück', 15000);
     await seite.keyboard.press('Escape');
-    return 'de -> en -> de';
+    return 'Oberfläche und Lesesprache de -> en -> de';
   });
 
   await pruefe('Helles Thema', async () => {
-    await seite.locator('.rail button[title="Einstellungen"]').click();
+    await seite.locator('.rail [data-tour="settings"]').click();
     await seite.waitForSelector('.panel--wide .tab', { timeout: 8000 });
     await seite.locator('.panel--wide .tab', { hasText: 'Darstellung' }).click();
     await seite.locator('.panel--wide button', { hasText: 'Hell' }).click();

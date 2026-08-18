@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Bell, Cpu, Globe, Loader2, LogOut, Palette, Server, Sparkles, User, Volume2, X } from 'lucide-react';
+import { Bell, Cpu, Globe, Loader2, LogOut, Palette, RefreshCw, Server, Sparkles, User, Volume2, X } from 'lucide-react';
 import { LANGUAGES, type AiModelInfo } from '@stellium/shared';
 import { useStore } from '../state/store.js';
 import { api, serverUrl, setServerUrl } from '../net/api.js';
@@ -8,8 +8,10 @@ import { Avatar } from './Avatar.jsx';
 import { languageInfo } from '../lib/format.js';
 import { coverage, UI_LANGUAGES, useT } from '../i18n/index.js';
 import { tourZuruecksetzen } from './Tour.jsx';
+import { UpdatePanel } from './UpdatePanel.jsx';
+import { spracheDesSystems } from '../i18n/index.js';
 
-type Tab = 'profil' | 'sprache' | 'modelle' | 'benachrichtigungen' | 'darstellung' | 'server';
+type Tab = 'profil' | 'sprache' | 'modelle' | 'benachrichtigungen' | 'darstellung' | 'aktualisierung' | 'server';
 
 export function Settings({ onClose }: { onClose: () => void }) {
   const t = useT();
@@ -51,9 +53,13 @@ export function Settings({ onClose }: { onClose: () => void }) {
                 <label className="field__label">{t('settings.uiLanguage')}</label>
                 <select
                   className="select"
-                  value={self.uiLanguage || self.language}
+                  value={self.uiLanguage || ''}
                   onChange={(e) => updatePrefs({ uiLanguage: e.target.value })}
                 >
+                  {/* Leerer Wert heißt: der Sprache des Rechners folgen. */}
+                  <option value="">
+                    {t('settings.uiLanguageSystem', { sprache: nameDerSprache(spracheDesSystems()) })}
+                  </option>
                   {UI_LANGUAGES.map((l) => (
                     <option key={l.code} value={l.code}>
                       {l.flag} {l.native}
@@ -278,6 +284,8 @@ export function Settings({ onClose }: { onClose: () => void }) {
             </>
           )}
 
+          {tab === 'aktualisierung' && <UpdatePanel />}
+
           {tab === 'server' && (
             <>
               <div className="field">
@@ -310,6 +318,7 @@ function Tabs({ tab, setTab }: { tab: Tab; setTab: (t: Tab) => void }) {
     { id: 'profil', label: t('settings.profile'), icon: <User size={14} /> },
     { id: 'benachrichtigungen', label: t('settings.notifications'), icon: <Bell size={14} /> },
     { id: 'darstellung', label: t('settings.appearance'), icon: <Palette size={14} /> },
+    { id: 'aktualisierung', label: t('update.tab'), icon: <RefreshCw size={14} /> },
     { id: 'server', label: t('settings.server'), icon: <Server size={14} /> },
   ];
   return (
@@ -497,4 +506,9 @@ function ModelPicker() {
       )}
     </>
   );
+}
+
+/** Anzeigename einer Sprache, für den Hinweis "der Systemsprache folgen". */
+function nameDerSprache(code: string): string {
+  return UI_LANGUAGES.find((l) => l.code === code)?.native ?? code.toUpperCase();
 }

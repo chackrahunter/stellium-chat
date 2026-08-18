@@ -373,6 +373,71 @@ export interface CalendarEvent {
   attendees: EventAttendee[];
 }
 
+/* ── App-Versionen ────────────────────────────────────────────── */
+
+export type ReleasePlatform = 'darwin' | 'win32' | 'linux';
+
+export interface ReleaseInfo {
+  platform: ReleasePlatform;
+  version: string;
+  notes: string | null;
+  size: number;
+  /** Prüfsumme der Datei, damit der Client den Download überprüfen kann. */
+  sha256: string;
+  fileName: string;
+  url: string;
+  publishedBy: string;
+  publishedAt: number;
+}
+
+/* ── Ideenboard ───────────────────────────────────────────────── */
+
+export type IdeaStatus = 'new' | 'working' | 'done' | 'rejected';
+export const IDEA_STATUSES: IdeaStatus[] = ['new', 'working', 'done', 'rejected'];
+
+export interface Idea {
+  id: string;
+  title: string;
+  body: string | null;
+  status: IdeaStatus;
+  tag: string;
+  channelId: string | null;
+  createdBy: string;
+  createdAt: number;
+  updatedAt: number;
+  decidedAt: number | null;
+  decidedBy: string | null;
+  decision: string | null;
+  upvotes: number;
+  downvotes: number;
+  /** Eigene Stimme: 1 dafür, -1 dagegen, 0 keine. */
+  myVote: 1 | -1 | 0;
+  commentCount: number;
+}
+
+export interface IdeaComment {
+  id: string;
+  ideaId: string;
+  userId: string;
+  text: string;
+  createdAt: number;
+}
+
+/* ── Protokoll ────────────────────────────────────────────────── */
+
+/** Ergebnis einer Besprechung, weitergabefähig zusammengefasst. */
+export interface MeetingProtocol {
+  channelId: string;
+  language: string;
+  title: string;
+  topics: { heading: string; points: string[] }[];
+  decisions: string[];
+  openQuestions: string[];
+  actionItems: { text: string; assigneeId: string | null }[];
+  messageCount: number;
+  generatedAt: number;
+}
+
 /* ── Dateiablage ──────────────────────────────────────────────── */
 
 export interface StoredFile {

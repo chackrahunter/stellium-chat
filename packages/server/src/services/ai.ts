@@ -256,3 +256,143 @@ export async function askChannel(input: {
     citedMessageIds: (data.cited_message_ids ?? []).filter((id) => known.has(id)).slice(0, 8),
   };
 }
+
+/* ── Aufgaben aus einem Gespräch ziehen ───────────────────────── */
+
+/**
+ * Liest den Kanalverlauf und schlägt vor, was daraus eine Aufgabe werden
+ * sollte. Bewusst nur ein Vorschlag: angelegt wird erst, was jemand bestätigt.
+ */
+export async function extractTasks(input: { channelId: string; language: string }): Promise<{
+  title: string; assigneeId: string | null; dueAt: number | null;
+}[]> {
+  const ai = assistant();
+  if (!ai) throw new AiUnavailable();
+
+  const rows = fetchMessages(input.channelId, null, 120);
+  if (!rows.length) return [];
+
+  const lang = languageInfo(input.language);
+  const personen = [...new Map(rows.map((r) => [r.user_id, r])).values()]
+    .map((r) => `${r.display_name} = ${r.user_id}`).join('; ');
+
+  const data = await ai.json<{ tasks?: { title: string; assignee_id?: string | null; due_in_days?: number | null }[] }>([
+    {
+      role: 'system',
+      content: [
+        `Du liest einen Firmen-Chat und ziehst daraus offene Aufgaben. Antworte auf ${lang.name}.`,
+        'Eine Aufgabe ist etwas, das jemand konkret tun muss und das noch offen ist.',
+        'Was bereits erledigt gemeldet wurde, ist keine Aufgabe mehr. Reine Meinungen und Fragen auch nicht.',
+        'Formuliere jeden Titel als Handlung, höchstens 90 Zeichen, ohne Namen am Anfang.',
+        'Findest du nichts Konkretes, gib eine leere Liste zurück — lieber nichts als Erfundenes.',
+        `Bekannte Personen: ${personen}`,
+        'JSON: {"tasks": [{"title": "...", "assignee_id": "<id oder null>", "due_in_days": <Zahl oder null>}]}',
+      ].join('\n'),
+    },
+    { role: 'user', content: transcript(rows) },
+  ], { temperature: 0.2, maxTokens: 1200, reasoning: 'low' });
+
+  const bekannt = new Set(rows.map((r) => r.user_id));
+  return (data.tasks ?? [])
+    .filter((t) => t && typeof t.title === 'string' && t.title.trim().length > 3)
+    .slice(0, 12)
+    .map((t) => ({
+      title: t.title.trim().slice(0, 300),
+      assigneeId: t.assignee_id && bekannt.has(t.assignee_id) ? t.assignee_id : null,
+      dueAt: typeof t.due_in_days === 'number' && t.due_in_days > 0
+        ? Date.now() + t.due_in_days * 86_400_000
+        : null,
+    }));
+}
+
+/* ── Protokoll ────────────────────────────────────────────────── */
+
+export interface Protokoll {
+  channelId: string;
+  language: string;
+  title: string;
+  /** Worum es ging — je ein Absatz pro Thema. */
+  topics: { heading: string; points: string[] }[];
+  decisions: string[];
+  openQuestions: string[];
+  actionItems: { text: string; assigneeId: string | null }[];
+  messageCount: number;
+  generatedAt: number;
+}
+
+/**
+ * Protokoll eines Kanals — anders als die Zusammenfassung nicht "was habe ich
+ * verpasst", sondern ein weitergebbares Ergebnis: Themen, Beschlüsse, offene
+ * Fragen. Gedacht für den Abschluss einer Besprechung oder eines Projekts.
+ */
+export async function protokoll(input: {
+  channelId: string; channelName: string; language: string; sinceMessageId?: string | null;
+}): Promise<Protokoll> {
+  const ai = assistant();
+  if (!ai) throw new AiUnavailable();
+
+  const rows = fetchMessages(input.channelId, input.sinceMessageId ?? null, 400);
+  const lang = languageInfo(input.language);
+
+  if (!rows.length) {
+    return {
+      channelId: input.channelId, language: input.language,
+      title: `#${input.channelName}`, topics: [], decisions: [], openQuestions: [],
+      actionItems: [], messageCount: 0, generatedAt: Date.now(),
+    };
+  }
+
+  const people = [...new Map(rows.map((r) => [r.user_id, r])).values()]
+    .map((r) => `${r.display_name} = ${r.user_id}`).join('; ');
+
+  const data = await ai.json<{
+    title?: string;
+    topics?: { heading: string; points: string[] }[];
+    decisions?: string[];
+    open_questions?: string[];
+    action_items?: { text: string; assignee_id?: string | null }[];
+  }>([
+    {
+      role: 'system',
+      content: [
+        `Du schreibst ein Besprechungsprotokoll aus einem Firmen-Chat. Antworte vollständig auf ${lang.name} (${lang.native}).`,
+        'Der Verlauf kann mehrsprachig sein — das Protokoll ist trotzdem einsprachig.',
+        'Ein Protokoll hält fest, was besprochen wurde, was entschieden wurde und was offen blieb.',
+        'Nichts hinzuerfinden: steht etwas nicht im Verlauf, gehört es nicht ins Protokoll.',
+        'Gibt es keine Beschlüsse oder offenen Fragen, bleiben die Listen leer.',
+        `Bekannte Personen: ${people}`,
+        'JSON: {"title": "kurzer Titel", "topics": [{"heading": "Thema", "points": ["Stichpunkt"]}],',
+        ' "decisions": ["..."], "open_questions": ["..."],',
+        ' "action_items": [{"text": "...", "assignee_id": "<id oder null>"}]}',
+      ].join('\n'),
+    },
+    { role: 'user', content: `Kanal: #${input.channelName}\n\n${transcript(rows)}` },
+  ], { temperature: 0.2, maxTokens: 2000, reasoning: 'low' });
+
+  const bekannt = new Set(rows.map((r) => r.user_id));
+  const text = (x: unknown) => (typeof x === 'string' ? x.trim() : '');
+
+  return {
+    channelId: input.channelId,
+    language: input.language,
+    title: text(data.title) || `#${input.channelName}`,
+    topics: (data.topics ?? [])
+      .filter((t) => t && text(t.heading))
+      .slice(0, 10)
+      .map((t) => ({
+        heading: text(t.heading),
+        points: (t.points ?? []).map(text).filter(Boolean).slice(0, 8),
+      })),
+    decisions: (data.decisions ?? []).map(text).filter(Boolean).slice(0, 12),
+    openQuestions: (data.open_questions ?? []).map(text).filter(Boolean).slice(0, 12),
+    actionItems: (data.action_items ?? [])
+      .filter((a) => a && text(a.text))
+      .slice(0, 15)
+      .map((a) => ({
+        text: text(a.text),
+        assigneeId: a.assignee_id && bekannt.has(a.assignee_id) ? a.assignee_id : null,
+      })),
+    messageCount: rows.length,
+    generatedAt: Date.now(),
+  };
+}

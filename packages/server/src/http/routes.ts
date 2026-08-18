@@ -5,6 +5,7 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { normalizeLang, LANGUAGES } from '@stellium/shared';
 import { signToken, verifyPassword, verifyToken } from '../auth.js';
 import * as users from '../services/users.js';
+import { may } from '../services/users.js';
 import { PERMISSIONS, type MemberRole, type PermissionKey } from '@stellium/shared';
 import { config } from '../config.js';
 import { db } from '../db/index.js';
@@ -12,6 +13,10 @@ import { newId } from '../util/id.js';
 import { addGlossaryEntry, aiCapabilities, chooseModels, listGlossary, modelRegistry, removeGlossaryEntry } from '../translation/index.js';
 import { search } from '../services/search.js';
 import * as store from '../services/store.js';
+import * as files from '../services/files.js';
+import * as releases from '../services/releases.js';
+
+import { broadcastAll } from '../ws/gateway.js';
 
 function bearer(req: FastifyRequest): string | null {
   const header = req.headers.authorization;
@@ -188,6 +193,9 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     try {
       const konto = users.createAccount({ ...body, displayName: body.displayName, createdBy: userId });
       const person = store.getUser(konto.userId);
+      // Ohne diese Meldung lernten die anderen Clients das neue Konto erst
+      // beim nächsten Neuladen kennen — bis dahin ließe es sich nicht erwähnen.
+      if (person) broadcastAll({ t: 'user:upsert', user: person });
       return {
         credential: {
           userId: konto.userId,
@@ -263,6 +271,8 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const { disabled } = req.body as { disabled?: boolean };
     try {
       users.setDisabled(id, Boolean(disabled));
+      const person = store.getUser(id);
+      if (person) broadcastAll({ t: 'user:upsert', user: person });
       return { users: store.listManagedUsers() };
     } catch (err) {
       return reply.code(400).send({ error: (err as Error).message });
@@ -276,6 +286,10 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     if (id === userId) return reply.code(400).send({ error: 'Das eigene Konto lässt sich nicht löschen.' });
     try {
       users.deleteAccount(id);
+      // Der Eintrag bleibt als "Ehemaliges Mitglied" bestehen; alle sollen das
+      // sofort sehen, statt weiter einen aktiven Kontakt anzuzeigen.
+      const person = store.getUser(id);
+      if (person) broadcastAll({ t: 'user:upsert', user: person });
       return { users: store.listManagedUsers() };
     } catch (err) {
       return reply.code(400).send({ error: (err as Error).message });
@@ -381,6 +395,150 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         url: `/files/${id}`, width: dims?.width ?? null, height: dims?.height ?? null,
       },
     };
+  });
+
+  /* ── Team-Ablage ───────────────────────────────────────────── */
+
+  app.post('/api/files', async (req, reply) => {
+    const userId = requireUser(req);
+    if (!may(userId, 'file.upload')) {
+      return reply.code(403).send({ error: 'Dir fehlt das Recht, Dateien abzulegen.' });
+    }
+    const file = await req.file({ limits: { fileSize: config.maxUploadBytes } });
+    if (!file) return reply.code(400).send({ error: 'Keine Datei im Request' });
+
+    // Die Zusatzfelder kommen als Textteile im selben Formular.
+    const felder = file.fields as Record<string, { value?: string } | undefined>;
+    const feld = (name: string) => {
+      const w = felder?.[name];
+      return typeof w?.value === 'string' ? w.value : undefined;
+    };
+
+    const id = newId('fi_');
+    const target = path.join(config.storageDir, id);
+
+    try {
+      await pipeline(file.file, fs.createWriteStream(target));
+    } catch (err) {
+      await fs.promises.rm(target, { force: true });
+      return reply.code(500).send({ error: `Upload fehlgeschlagen: ${(err as Error).message}` });
+    }
+    if (file.file.truncated) {
+      await fs.promises.rm(target, { force: true });
+      return reply.code(413).send({ error: `Datei überschreitet ${config.maxUploadBytes / 1024 / 1024} MB` });
+    }
+
+    const size = (await fs.promises.stat(target)).size;
+    try {
+      const gespeichert = files.addFile({
+        id,
+        name: path.basename(file.filename || 'datei'),
+        mime: file.mimetype || 'application/octet-stream',
+        size,
+        storedPath: target,
+        folder: feld('folder'),
+        channelId: feld('channelId') ?? null,
+        description: feld('description') ?? null,
+        uploadedBy: userId,
+      });
+      const belegung = files.usage();
+      // Alle sollen die neue Datei sofort in der Ablage sehen.
+      broadcastAll({ t: 'file:upsert', file: gespeichert, usage: belegung });
+      return { file: gespeichert, usage: belegung };
+    } catch (err) {
+      // Kontingent überschritten: die Datei darf nicht liegen bleiben.
+      await fs.promises.rm(target, { force: true });
+      return reply.code(409).send({ error: (err as Error).message });
+    }
+  });
+
+  /* ── App-Versionen ─────────────────────────────────────────── */
+
+  /** Was liegt bereit? Braucht keine Rechte — jeder Client fragt das. */
+  app.get('/api/releases', async (req) => {
+    requireUser(req);
+    return { releases: releases.listReleases() };
+  });
+
+  /**
+   * Gibt es etwas Neueres als die laufende Version? Die Antwort ist bewusst
+   * knapp: der Client soll nicht selbst Versionen vergleichen müssen.
+   */
+  app.get('/api/releases/check', async (req) => {
+    requireUser(req);
+    const { platform, version } = req.query as { platform?: string; version?: string };
+    if (!platform || !version) return { update: null };
+    const vorhanden = releases.getRelease(platform);
+    if (!vorhanden || !releases.istNeuer(vorhanden.version, version)) return { update: null };
+    const { path: _pfad, ...oeffentlich } = vorhanden;
+    return { update: oeffentlich };
+  });
+
+  app.post('/api/releases/:platform', async (req, reply) => {
+    const userId = requireUser(req);
+    // Neue Versionen zu verteilen heißt, auf jedem Rechner Code auszuführen.
+    // Das bleibt der Kontoverwaltung vorbehalten.
+    requirePermission(userId, 'user.manage');
+
+    const { platform } = req.params as { platform: string };
+    const datei = await req.file({ limits: { fileSize: 600 * 1024 * 1024 } });
+    if (!datei) return reply.code(400).send({ error: 'Keine Datei im Request' });
+
+    const felder = datei.fields as Record<string, { value?: string } | undefined>;
+    const version = typeof felder?.version?.value === 'string' ? felder.version.value.trim() : '';
+    const notes = typeof felder?.notes?.value === 'string' ? felder.notes.value : null;
+
+    const temp = path.join(config.releaseDir, `.upload-${newId('rl_')}`);
+    try {
+      await pipeline(datei.file, fs.createWriteStream(temp));
+      if (datei.file.truncated) throw new Error('Die Datei ist zu groß (mehr als 600 MB).');
+      const info = releases.publish({
+        platform: platform as never,
+        version,
+        notes,
+        fileName: datei.filename || 'stellium',
+        tempPath: temp,
+        publishedBy: userId,
+      });
+      // Alle laufenden Clients sollen die neue Version sofort bemerken.
+      broadcastAll({ t: 'release:available', release: info });
+      return { release: info, releases: releases.listReleases() };
+    } catch (err) {
+      await fs.promises.rm(temp, { force: true });
+      return reply.code(400).send({ error: (err as Error).message });
+    }
+  });
+
+  app.delete('/api/releases/:platform', async (req) => {
+    const userId = requireUser(req);
+    requirePermission(userId, 'user.manage');
+    releases.removeRelease((req.params as { platform: string }).platform);
+    return { releases: releases.listReleases() };
+  });
+
+  app.get('/releases/:platform/download', async (req, reply) => {
+    requireUser(req);
+    const vorhanden = releases.getRelease((req.params as { platform: string }).platform);
+    if (!vorhanden || !fs.existsSync(vorhanden.path)) {
+      return reply.code(404).send({ error: 'Für diese Plattform liegt nichts bereit.' });
+    }
+    reply.header('content-type', 'application/octet-stream');
+    reply.header('content-length', String(vorhanden.size));
+    reply.header('content-disposition', `attachment; filename*=UTF-8''${encodeURIComponent(vorhanden.fileName)}`);
+    reply.header('x-stellium-sha256', vorhanden.sha256);
+    return reply.send(fs.createReadStream(vorhanden.path));
+  });
+
+  app.get('/storage/:id', async (req, reply) => {
+    requireUser(req);
+    const { id } = req.params as { id: string };
+    const datei = files.getFile(id);
+    if (!datei || !fs.existsSync(datei.path)) return reply.code(404).send({ error: 'Datei nicht gefunden' });
+
+    const inline = /^(image|video|audio)\//.test(datei.mime) || datei.mime === 'application/pdf';
+    reply.header('content-type', datei.mime);
+    reply.header('content-disposition', `${inline ? 'inline' : 'attachment'}; filename*=UTF-8''${encodeURIComponent(datei.name)}`);
+    return reply.send(fs.createReadStream(datei.path));
   });
 
   app.get('/files/:id', async (req, reply) => {
