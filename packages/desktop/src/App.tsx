@@ -78,6 +78,21 @@ export function App() {
 
   useEffect(() => { void useStore.getState().boot(); }, []);
 
+  /**
+   * Auf macOS liegen die Fensterknöpfe im Fensterinhalt. Ohne Rücksicht darauf
+   * sitzen sie direkt auf dem Logo. Die Plattform landet am Wurzelelement,
+   * damit das Layout entsprechend Platz lässt.
+   */
+  useEffect(() => {
+    if (!window.stellium) {
+      document.documentElement.dataset.platform = 'browser';
+      return;
+    }
+    void window.stellium.info().then((info) => {
+      document.documentElement.dataset.platform = info.platform;
+    });
+  }, []);
+
   if (!booted) {
     return (
       <>

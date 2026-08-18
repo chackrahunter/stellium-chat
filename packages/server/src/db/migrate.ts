@@ -22,6 +22,7 @@ const COLUMNS: { table: string; column: string; definition: string }[] = [
   { table: 'users',    column: 'translation_speed',  definition: "TEXT NOT NULL DEFAULT 'balanced'" },
   { table: 'messages', column: 'forwarded_from',     definition: 'TEXT' },
   { table: 'messages', column: 'kind',               definition: "TEXT NOT NULL DEFAULT 'text'" },
+  { table: 'channels', column: 'ai_mode',            definition: "TEXT NOT NULL DEFAULT 'off'" },
 ];
 
 export function migrate(): void {

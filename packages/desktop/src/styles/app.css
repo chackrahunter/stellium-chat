@@ -146,6 +146,12 @@ a:hover { text-decoration: underline; }
 }
 .rail__spacer { flex: 1; }
 
+/* Auf macOS sitzen die Fensterknöpfe im Fensterinhalt, oben links — also
+   genau dort, wo sonst das Logo steht. Die Rail bekommt deshalb Platz dafür,
+   und die Seitenleiste rückt mit, damit die Kopfzeile auf einer Linie bleibt. */
+[data-platform='darwin'] .rail { padding-top: 52px; }
+[data-platform='darwin'] .sidebar__head { padding-top: var(--sp-5); }
+
 .rail-btn {
   position: relative;
   width: 44px; height: 44px;
@@ -1575,3 +1581,7 @@ button.msg__author:hover { color: var(--violet-soft); text-decoration: underline
   .admin { grid-template-columns: 1fr; }
   .admin__liste { border-right: 0; border-bottom: 1px solid var(--line); max-height: 200px; }
 }
+
+/* Der Assistent formuliert gerade — deutlicher als ein Tipp-Indikator */
+.typing--ki { color: var(--violet-soft); font-weight: 600; }
+.typing--ki .typing__dots i { background: var(--violet-soft); }

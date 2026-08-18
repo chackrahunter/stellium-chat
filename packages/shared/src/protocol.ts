@@ -63,7 +63,12 @@ export type ClientEvent =
 
   /* Sprachnachrichten */
   | { t: 'voice:send'; clientId: string; channelId: string; attachmentId: string; durationMs: number; parentId?: string | null }
-  | { t: 'voice:retranscribe'; messageId: string };
+  | { t: 'voice:retranscribe'; messageId: string }
+
+  /* KI-Assistent als Gesprächspartner */
+  | { t: 'ai:open-chat' }
+  | { t: 'ai:open-team-channel' }
+  | { t: 'ai:set-mode'; channelId: string; mode: 'off' | 'mention' | 'always' };
 
 export type RewriteTone =
   | 'polish' | 'formal' | 'friendly' | 'concise' | 'expand' | 'bullets' | 'apologize';
@@ -106,7 +111,9 @@ export type ServerEvent =
   | { t: 'drafts'; drafts: Draft[] }
   | { t: 'voice:transcript'; messageId: string; voice: VoiceNote }
   | { t: 'links'; messageId: string; links: LinkPreview[] }
-  | { t: 'ai:model-changed'; ai: AiCapabilities };
+  | { t: 'ai:model-changed'; ai: AiCapabilities }
+  /** Der Assistent formuliert gerade eine Antwort. */
+  | { t: 'ai:thinking'; channelId: string; active: boolean };
 
 export interface AiCapabilities {
   provider: string;

@@ -2,6 +2,7 @@ import os from 'node:os';
 import { db, initDb } from './db/index.js';
 import { newId } from './util/id.js';
 import { createAccount } from './services/users.js';
+import { ensureAssistant, ensureTeamChannel } from './services/assistant.js';
 import { config } from './config.js';
 import { encryptionActive } from './crypto/pii.js';
 
@@ -65,6 +66,9 @@ export async function ensureSeed(): Promise<void> {
     createdBy: 'system',
   });
 
+  // Der KI-Assistent ist ein normales Konto mit der Rolle "bot".
+  ensureAssistant();
+
   const jetzt = Date.now();
   db.transaction(() => {
     for (const k of STARTKANAELE) {
@@ -78,6 +82,9 @@ export async function ensureSeed(): Promise<void> {
         id, konto.userId, jetzt);
     }
   });
+
+  // Gemeinsamer Kanal, in dem das Team mit der KI spricht.
+  ensureTeamChannel(konto.userId);
 
   const rahmen = '─'.repeat(54);
   console.log(`

@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
-  Bookmark, ChevronDown, Hash, Lock, Plus, Search, Sparkles, Users,
+  Bot, ChevronDown, Hash, Lock, Plus, Search, Sparkles, Users, UsersRound,
 } from 'lucide-react';
 import type { Channel } from '@stellium/shared';
 import { useStore } from '../state/store.js';
@@ -16,6 +16,7 @@ export function Sidebar() {
   const states = useStore((s) => s.states);
   const users = useStore((s) => s.users);
   const activeId = useStore((s) => s.activeChannelId);
+  const ai = useStore((s) => s.ai);
   const { openChannel, setOverlay, openDm } = useStore.getState();
 
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
@@ -31,7 +32,7 @@ export function Sidebar() {
     };
   }, [channels]);
 
-  const otherUsers = Object.values(users).filter((u) => u.id !== self?.id);
+  const otherUsers = Object.values(users).filter((u) => u.id !== self?.id && !u.disabled);
   const dmPeerIds = new Set(dms.map((c) => c.dmPeerId).filter(Boolean) as string[]);
 
   const renderChannel = (channel: Channel) => {
@@ -82,6 +83,19 @@ export function Sidebar() {
       </div>
 
       <div className="sidebar__scroll">
+        {ai?.assistant && (
+          <div className="group">
+            <button className="chan" onClick={() => useStore.getState().openAiChat()}>
+              <Bot size={15} className="chan__icon" style={{ color: 'var(--violet-soft)', opacity: 1 }} />
+              <span className="chan__name">{t('nav.aiChat')}</span>
+            </button>
+            <button className="chan" onClick={() => useStore.getState().openAiTeamChannel()}>
+              <UsersRound size={15} className="chan__icon" style={{ color: 'var(--cyan)', opacity: 1 }} />
+              <span className="chan__name">{t('nav.aiTeamChat')}</span>
+            </button>
+          </div>
+        )}
+
         <div className="group">
           <button className="chan" onClick={() => setOverlay('search')}>
             <Search size={15} className="chan__icon" />

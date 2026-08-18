@@ -38,7 +38,7 @@ export function QuickSwitcher({ onClose }: { onClose: () => void }) {
     }
 
     for (const u of Object.values(users)) {
-      if (u.id === self?.id) continue;
+      if (u.id === self?.id || u.disabled) continue;
       out.push({
         id: u.id, kind: 'user', title: u.displayName,
         sub: `@${u.handle} · ${languageInfo(u.language).native}${u.title ? ` · ${u.title}` : ''}`,

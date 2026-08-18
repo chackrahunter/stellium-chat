@@ -18,6 +18,7 @@ import * as reminders from '../services/reminders.js';
 import * as drafts from '../services/drafts.js';
 import { attachPreviews, extractUrls } from '../services/links.js';
 import { saveTranscript, transcribe, voiceNoteFor } from '../services/voice.js';
+import * as ki from '../services/assistant.js';
 import { db as database } from '../db/index.js';
 import { reindexMessage } from '../db/index.js';
 
@@ -147,10 +148,11 @@ function deliverMessage(message: Message, senderClientId?: string): void {
   const langs = new Map<string, string[]>();
   for (const uid of recipients) {
     if (uid === message.userId) continue;
-    const u = db.get<{ language: string; auto_translate: number }>(
-      'SELECT language, auto_translate FROM users WHERE id = ?', uid,
+    const u = db.get<{ language: string; auto_translate: number; role: string }>(
+      'SELECT language, auto_translate, role FROM users WHERE id = ?', uid,
     );
-    if (!u || !u.auto_translate) continue;
+    // Für Bots übersetzen wäre verschenkte Rechenzeit — sie lesen nichts.
+    if (!u || !u.auto_translate || u.role === 'bot') continue;
     const target = normalizeLang(u.language);
     if (target === sourceLang) continue;
     langs.set(target, [...(langs.get(target) ?? []), uid]);
@@ -385,6 +387,7 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
       messages.markRead(ch.id, userId, msg.id);
       deliverMessage(msg, ev.clientId);
       enrichLinks(msg.id, msg.text, ch.id);
+      vielleichtAntworten(ch.id, msg.text, userId);
       return;
     }
 
@@ -701,6 +704,42 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
       return;
     }
 
+    /* ── KI als Gesprächspartner ──────────────────────────── */
+
+    case 'ai:open-chat': {
+      if (!darf(session, 'ai.assistant')) return;
+      const channelId = ki.openPrivateChat(userId);
+      const ch = store.getChannel(channelId, userId)!;
+      send(session, { t: 'channel:upsert', channel: ch });
+      const st = store.channelState(channelId, userId);
+      if (st) send(session, { t: 'channel:state', state: st });
+      session.openChannelId = channelId;
+      const { messages: list, hasMore } = store.channelHistory(channelId, null, 50, userId);
+      send(session, { t: 'channel:history', channelId, messages: list, hasMore });
+      return;
+    }
+
+    case 'ai:open-team-channel': {
+      if (!darf(session, 'ai.assistant')) return;
+      const self = store.getSelf(userId);
+      const channelId = ki.ensureTeamChannel(self?.id ?? userId);
+      channels.ensureMember(channelId, userId);
+      const ch = store.getChannel(channelId, userId)!;
+      broadcast({ t: 'channel:upsert', channel: ch });
+      session.openChannelId = channelId;
+      const { messages: list, hasMore } = store.channelHistory(channelId, null, 50, userId);
+      send(session, { t: 'channel:history', channelId, messages: list, hasMore });
+      return;
+    }
+
+    case 'ai:set-mode': {
+      if (!darf(session, 'channel.manage')) return;
+      ki.setAiMode(ev.channelId, ev.mode);
+      const ch = store.getChannel(ev.channelId, userId);
+      if (ch) broadcast({ t: 'channel:upsert', channel: ch }, ch.kind === 'public' ? undefined : ch.memberIds);
+      return;
+    }
+
     case 'voice:retranscribe': {
       const voice = voiceNoteFor(ev.messageId);
       if (!voice) return fail(session, 'not_found', 'Keine Aufnahme an dieser Nachricht');
@@ -803,6 +842,45 @@ async function runTranscription(messageId: string, attachmentId: string): Promis
       sendToUser(uid, { t: 'voice:transcript', messageId, voice: voiceNoteFor(messageId)! });
     }
   }
+}
+
+/**
+ * Antwortet der Assistent auf diese Nachricht? Läuft nach der Zustellung,
+ * damit die Nachricht der Person sofort im Kanal steht und nicht auf das
+ * Modell wartet.
+ */
+function vielleichtAntworten(channelId: string, text: string, authorId: string): void {
+  if (!ki.shouldAnswer(channelId, text, authorId)) return;
+
+  const botId = ki.assistantUserId();
+  if (!botId) return;
+  const empfaenger = store.memberIds(channelId);
+  const istDm = store.getChannel(channelId)?.kind === 'dm';
+
+  // "Denkt nach"-Anzeige, damit niemand ins Leere schaut.
+  broadcast({ t: 'ai:thinking', channelId, active: true }, empfaenger);
+
+  void ki.generateReply(channelId, istDm ? 'privat' : 'team')
+    .then((antwort) => {
+      const msg = messages.createMessage({
+        channelId, userId: botId, text: antwort,
+        mayMention: false, mayMentionEveryone: false,
+      });
+      deliverMessage(msg);
+    })
+    .catch((err) => {
+      console.warn('[ki]', (err as Error).message);
+      // Fehler gehören in den Chat, nicht nur ins Log — sonst wartet man endlos.
+      const msg = messages.createMessage({
+        channelId, userId: botId,
+        text: `Ich konnte gerade nicht antworten: ${(err as Error).message}`,
+        mayMention: false, mayMentionEveryone: false,
+      });
+      deliverMessage(msg);
+    })
+    .finally(() => {
+      broadcast({ t: 'ai:thinking', channelId, active: false }, empfaenger);
+    });
 }
 
 /* ── Hintergrundaufgaben ──────────────────────────────────────── */

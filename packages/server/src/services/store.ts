@@ -120,6 +120,7 @@ export function toChannel(r: any, viewerId?: string): Channel {
     topic: r.topic ?? null,
     purpose: r.purpose ?? null,
     primaryLanguage: r.primary_language ?? null,
+    aiMode: (r.ai_mode ?? 'off') as Channel['aiMode'],
     archived: Boolean(r.archived),
     createdBy: r.created_by,
     createdAt: r.created_at,

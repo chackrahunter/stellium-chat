@@ -83,7 +83,9 @@ export function PeoplePanel({ onClose }: { onClose: () => void }) {
   const self = useStore((s) => s.self);
   const { openDm } = useStore.getState();
 
-  const list = Object.values(users).sort((a, b) => {
+  const list = Object.values(users)
+    .filter((u) => !u.disabled || u.id === self?.id)
+    .sort((a, b) => {
     const rank = (s: string) => (s === 'online' ? 0 : s === 'away' ? 1 : s === 'dnd' ? 2 : 3);
     return rank(a.status) - rank(b.status) || a.displayName.localeCompare(b.displayName, 'de');
   });

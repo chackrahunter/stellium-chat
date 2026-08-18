@@ -255,6 +255,24 @@ export class ModelRegistry {
   }
 
   /**
+   * Ein Modell hat im Betrieb versagt und wir haben (noch) keine Liste, aus der
+   * wir ein anderes wählen könnten — etwa weil der Start ohne Netz lief und der
+   * Notnagel-Name bei diesem Konto nicht existiert. Dann Liste holen und neu
+   * wählen, statt endlos gegen dieselbe Wand zu laufen.
+   */
+  async recoverFrom(modelId: string): Promise<boolean> {
+    const hatteListe = this.models.length > 0;
+    this.markBroken(modelId);
+    if (hatteListe) return this.selection.quality !== modelId;
+
+    await this.refresh();
+    // Nach dem Abruf noch einmal aussortieren, falls das kaputte Modell in der
+    // Liste steht.
+    this.markBroken(modelId);
+    return this.selection.quality !== modelId;
+  }
+
+  /**
    * Ein Modell hat im Betrieb versagt (abgeschaltet, kennt kein JSON-Format).
    * Es fliegt raus und die Auswahl wird neu getroffen.
    */

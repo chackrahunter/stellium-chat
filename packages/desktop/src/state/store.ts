@@ -70,6 +70,8 @@ interface StoreState {
   profileUserId: string | null;
   /** Nachricht, die kurz hervorgehoben wird (nach Sprung aus der Suche). */
   highlightMessageId: string | null;
+  /** Kanäle, in denen der Assistent gerade eine Antwort formuliert. */
+  aiThinking: Record<string, boolean>;
 
   /* Aktionen */
   boot: () => Promise<void>;
@@ -128,6 +130,11 @@ interface StoreState {
   /* Sprachnachrichten */
   sendVoice: (input: { channelId: string; attachmentId: string; durationMs: number; parentId?: string | null }) => void;
   retranscribe: (messageId: string) => void;
+
+  /* KI als Gesprächspartner */
+  openAiChat: () => void;
+  openAiTeamChannel: () => void;
+  setAiMode: (channelId: string, mode: 'off' | 'mention' | 'always') => void;
 
   /* Modellwahl */
   selectModels: (input: { quality?: string | null; fast?: string | null; auto?: boolean }) => Promise<void>;
@@ -242,6 +249,7 @@ export const useStore = create<StoreState>((set, get) => ({
   remindingAbout: null,
   profileUserId: null,
   highlightMessageId: null,
+  aiThinking: {},
 
   /* ── Start ──────────────────────────────────────────────── */
 
@@ -523,6 +531,24 @@ export const useStore = create<StoreState>((set, get) => ({
     socket.send({ t: 'voice:send', clientId: uid(), channelId, attachmentId, durationMs, parentId: parentId ?? null });
   },
   retranscribe: (messageId) => socket.send({ t: 'voice:retranscribe', messageId }) as unknown as void,
+
+  openAiChat: () => {
+    if (!get().ai?.assistant) {
+      get().toast({ kind: 'error', title: 'KI nicht aktiv', body: get().ai?.note ?? 'Setze GROQ_API_KEY auf dem Server.' });
+      return;
+    }
+    socket.send({ t: 'ai:open-chat' });
+  },
+
+  openAiTeamChannel: () => {
+    if (!get().ai?.assistant) {
+      get().toast({ kind: 'error', title: 'KI nicht aktiv', body: get().ai?.note ?? undefined });
+      return;
+    }
+    socket.send({ t: 'ai:open-team-channel' });
+  },
+
+  setAiMode: (channelId, mode) => socket.send({ t: 'ai:set-mode', channelId, mode }) as unknown as void,
 
   selectModels: async (input) => {
     try {
@@ -828,6 +854,10 @@ socket.onEvent((ev: ServerEvent) => {
 
     case 'ai:model-changed':
       useStore.setState({ ai: ev.ai });
+      break;
+
+    case 'ai:thinking':
+      useStore.setState((s) => ({ aiThinking: { ...s.aiThinking, [ev.channelId]: ev.active } }));
       break;
 
     case 'error':

@@ -145,39 +145,130 @@ export const PERMISSIONS: PermissionInfo[] = [
 
 export const PERMISSION_KEYS = PERMISSIONS.map((p) => p.key);
 
-export type MemberRoleName = 'owner' | 'admin' | 'member' | 'guest';
+export type MemberRoleName =
+  | 'owner' | 'admin' | 'moderator' | 'teamlead'
+  | 'member' | 'contributor' | 'guest' | 'readonly' | 'bot';
 
-/** Was eine Rolle standardmäßig darf. */
+export interface RoleInfo {
+  name: MemberRoleName;
+  labelDe: string;
+  labelEn: string;
+  hintDe: string;
+  hintEn: string;
+  /** Nur der Owner darf diese Rolle vergeben. */
+  ownerOnly?: boolean;
+  /** Nicht für Menschen gedacht. */
+  technical?: boolean;
+}
+
+/* ── Rechteprofile ────────────────────────────────────────────── */
+
 const ALLE = PERMISSION_KEYS;
 
-const MITGLIED: PermissionKey[] = [
-  'message.send', 'message.edit_own', 'message.delete_own', 'message.pin',
-  'message.forward', 'message.schedule', 'reaction.add',
-  'mention.user',
-  'channel.create', 'dm.start',
-  'file.upload', 'voice.send', 'poll.create',
-  'ai.translate', 'ai.assistant',
-];
-
-const GAST: PermissionKey[] = [
-  'message.send', 'message.edit_own', 'message.delete_own', 'reaction.add',
+/** Nur mitlesen. Für Praktikanten in der Einarbeitung, Archiv-Zugänge, Audits. */
+const NUR_LESEN: PermissionKey[] = [
   'ai.translate',
 ];
 
-const ADMIN: PermissionKey[] = [
+/** Darf antworten und reagieren, aber nichts Eigenes anstoßen. */
+const GAST: PermissionKey[] = [
+  ...NUR_LESEN,
+  'message.send', 'message.edit_own', 'message.delete_own', 'reaction.add',
+];
+
+/** Arbeitet mit, legt aber keine Struktur an. Für Externe und Werkstudenten. */
+const MITWIRKEND: PermissionKey[] = [
+  ...GAST,
+  'mention.user', 'file.upload', 'voice.send', 'message.forward', 'dm.start',
+  'ai.assistant',
+];
+
+/** Der Normalfall im Team. */
+const MITGLIED: PermissionKey[] = [
+  ...MITWIRKEND,
+  'message.pin', 'message.schedule', 'channel.create', 'poll.create',
+];
+
+/** Hält die Kanäle in Ordnung, verwaltet aber keine Konten. */
+const MODERATOR: PermissionKey[] = [
   ...MITGLIED,
-  'message.delete_any', 'mention.everyone',
+  'message.delete_any', 'mention.everyone', 'poll.close_any',
   'channel.create_private', 'channel.manage', 'channel.archive',
-  'poll.close_any', 'ai.model_select', 'glossary.manage',
+  'glossary.manage',
+];
+
+/** Führt ein Team: nimmt Leute auf und setzt Passwörter zurück. */
+const TEAMLEITUNG: PermissionKey[] = [
+  ...MITGLIED,
+  'mention.everyone', 'channel.create_private', 'channel.manage',
   'user.invite', 'user.manage',
+];
+
+/** Alles außer den Owner-Vorbehalten (Löschen und Rechtevergabe). */
+const ADMIN: PermissionKey[] = ALLE.filter(
+  (k) => k !== 'user.delete' && k !== 'permission.manage',
+);
+
+/** Integrationen und der KI-Assistent: schreiben, aber nichts verwalten. */
+const BOT: PermissionKey[] = [
+  'message.send', 'message.edit_own', 'message.delete_own',
+  'reaction.add', 'file.upload', 'ai.translate',
+];
+
+export const ROLES: RoleInfo[] = [
+  { name: 'owner', ownerOnly: true,
+    labelDe: 'Inhaber', labelEn: 'Owner',
+    hintDe: 'Darf alles und kann nicht eingeschränkt werden. Nur der Inhaber vergibt diese Rolle.',
+    hintEn: 'May do everything and cannot be restricted. Only the owner grants this role.' },
+  { name: 'admin',
+    labelDe: 'Administrator', labelEn: 'Administrator',
+    hintDe: 'Verwaltet Konten, Kanäle und die KI. Kann keine Konten löschen und keine Rechte vergeben.',
+    hintEn: 'Manages accounts, channels and the AI. Cannot delete accounts or grant permissions.' },
+  { name: 'moderator',
+    labelDe: 'Moderation', labelEn: 'Moderator',
+    hintDe: 'Hält die Kanäle in Ordnung: fremde Nachrichten löschen, Umfragen beenden, Glossar pflegen. Ohne Kontoverwaltung.',
+    hintEn: 'Keeps channels tidy: delete others’ messages, close polls, maintain the glossary. No account management.' },
+  { name: 'teamlead',
+    labelDe: 'Teamleitung', labelEn: 'Team lead',
+    hintDe: 'Nimmt neue Leute auf und setzt Passwörter zurück. Vergibt keine Einzelrechte.',
+    hintEn: 'Onboards people and resets passwords. Does not grant individual permissions.' },
+  { name: 'member',
+    labelDe: 'Mitglied', labelEn: 'Member',
+    hintDe: 'Der Normalfall: schreiben, Kanäle anlegen, Umfragen starten, KI nutzen.',
+    hintEn: 'The normal case: write, create channels, start polls, use the AI.' },
+  { name: 'contributor',
+    labelDe: 'Mitwirkend', labelEn: 'Contributor',
+    hintDe: 'Arbeitet mit, legt aber keine Kanäle oder Umfragen an. Passend für Externe und Werkstudierende.',
+    hintEn: 'Takes part but creates no channels or polls. Suits externals and working students.' },
+  { name: 'guest',
+    labelDe: 'Gast', labelEn: 'Guest',
+    hintDe: 'Antwortet und reagiert. Keine Dateien, keine Erwähnungen, keine KI-Hilfen.',
+    hintEn: 'Replies and reacts. No files, no mentions, no AI assistance.' },
+  { name: 'readonly',
+    labelDe: 'Nur lesen', labelEn: 'Read only',
+    hintDe: 'Liest mit, schreibt nichts. Für Einarbeitung, Prüfungen und Archivzugänge.',
+    hintEn: 'Reads along, writes nothing. For onboarding, audits and archive access.' },
+  { name: 'bot', technical: true,
+    labelDe: 'Bot', labelEn: 'Bot',
+    hintDe: 'Für den KI-Assistenten und Integrationen. Schreibt, verwaltet aber nichts.',
+    hintEn: 'For the AI assistant and integrations. Writes but manages nothing.' },
 ];
 
 export const ROLE_DEFAULTS: Record<MemberRoleName, PermissionKey[]> = {
   owner: [...ALLE],
   admin: ADMIN,
+  moderator: MODERATOR,
+  teamlead: TEAMLEITUNG,
   member: MITGLIED,
+  contributor: MITWIRKEND,
   guest: GAST,
+  readonly: NUR_LESEN,
+  bot: BOT,
 };
+
+export function roleInfo(name: MemberRoleName): RoleInfo | undefined {
+  return ROLES.find((r) => r.name === name);
+}
 
 /** Rechte einer Rolle als Nachschlagetabelle. */
 export function defaultsFor(role: MemberRoleName): Record<PermissionKey, boolean> {

@@ -281,3 +281,101 @@ CREATE TABLE IF NOT EXISTS invites (
   used_at     INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_invites_user ON invites(user_id, used_at);
+
+-- Kanäle, in denen der KI-Assistent mitredet.
+--   off      gar nicht (Standard)
+--   mention  nur wenn er erwähnt wird
+--   always   auf jede Nachricht
+-- Wird per Migration ergänzt, siehe migrate.ts.
+
+-- ─────────────────────────────────────────────────────────────────
+-- Aufgaben
+-- Status und Priorität werden als Schlüssel gespeichert, nicht als Text —
+-- die Oberfläche zeigt sie in der Sprache der jeweiligen Person.
+-- ─────────────────────────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS tasks (
+  id          TEXT PRIMARY KEY,
+  title       TEXT NOT NULL,
+  description TEXT,
+  status      TEXT NOT NULL DEFAULT 'pending',   -- pending|working|review|finished|blocked
+  priority    TEXT NOT NULL DEFAULT 'normal',    -- low|normal|high|urgent
+  assignee_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+  channel_id  TEXT REFERENCES channels(id) ON DELETE SET NULL,
+  message_id  TEXT,                              -- Herkunft, falls aus einer Nachricht entstanden
+  due_at      INTEGER,
+  created_by  TEXT NOT NULL REFERENCES users(id),
+  created_at  INTEGER NOT NULL,
+  updated_at  INTEGER NOT NULL,
+  finished_at INTEGER,
+  position    INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_tasks_status   ON tasks(status, position);
+CREATE INDEX IF NOT EXISTS idx_tasks_assignee ON tasks(assignee_id, status);
+CREATE INDEX IF NOT EXISTS idx_tasks_channel  ON tasks(channel_id);
+
+-- Wer über Änderungen an einer Aufgabe informiert wird.
+CREATE TABLE IF NOT EXISTS task_watchers (
+  task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  PRIMARY KEY (task_id, user_id)
+);
+
+-- Verlauf einer Aufgabe, damit nachvollziehbar bleibt, wer was geändert hat.
+CREATE TABLE IF NOT EXISTS task_events (
+  id        TEXT PRIMARY KEY,
+  task_id   TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  user_id   TEXT NOT NULL REFERENCES users(id),
+  kind      TEXT NOT NULL,      -- created|status|assignee|due|priority|title|comment
+  von       TEXT,
+  nach      TEXT,
+  text      TEXT,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_task_events ON task_events(task_id, created_at);
+
+-- ─────────────────────────────────────────────────────────────────
+-- Team-Kalender
+-- ─────────────────────────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS events (
+  id          TEXT PRIMARY KEY,
+  title       TEXT NOT NULL,
+  description TEXT,
+  kind        TEXT NOT NULL DEFAULT 'meeting',   -- meeting|deadline|absence|holiday|reminder
+  starts_at   INTEGER NOT NULL,
+  ends_at     INTEGER NOT NULL,
+  all_day     INTEGER NOT NULL DEFAULT 0,
+  location    TEXT,
+  channel_id  TEXT REFERENCES channels(id) ON DELETE SET NULL,
+  created_by  TEXT NOT NULL REFERENCES users(id),
+  created_at  INTEGER NOT NULL,
+  updated_at  INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_events_zeit ON events(starts_at, ends_at);
+
+CREATE TABLE IF NOT EXISTS event_attendees (
+  event_id TEXT NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+  user_id  TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  response TEXT NOT NULL DEFAULT 'pending',      -- pending|yes|no|maybe
+  PRIMARY KEY (event_id, user_id)
+);
+
+-- ─────────────────────────────────────────────────────────────────
+-- Dateiablage (unabhängig von Nachrichten)
+-- ─────────────────────────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS files (
+  id          TEXT PRIMARY KEY,
+  name        TEXT NOT NULL,
+  mime        TEXT NOT NULL,
+  size        INTEGER NOT NULL,
+  path        TEXT NOT NULL,
+  folder      TEXT NOT NULL DEFAULT '',          -- leerer Wert = Wurzel
+  channel_id  TEXT REFERENCES channels(id) ON DELETE CASCADE,
+  description TEXT,
+  uploaded_by TEXT NOT NULL REFERENCES users(id),
+  created_at  INTEGER NOT NULL,
+  updated_at  INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_files_ort ON files(channel_id, folder, name);

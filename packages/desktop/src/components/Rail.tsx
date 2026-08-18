@@ -1,4 +1,4 @@
-import { Bell, Bookmark, MessageSquare, Settings, ShieldCheck, Sparkles, Star } from 'lucide-react';
+import { Bell, Bookmark, Bot, MessageSquare, Settings, ShieldCheck, Sparkles, Star } from 'lucide-react';
 import { useStore } from '../state/store.js';
 import { useT } from '../i18n/index.js';
 import { Avatar } from './Avatar.jsx';
@@ -24,6 +24,10 @@ export function Rail() {
         {(totalMentions || totalUnread) > 0 && (
           <span className="rail-btn__dot">{totalMentions || (totalUnread > 99 ? '99+' : totalUnread)}</span>
         )}
+      </button>
+
+      <button className="rail-btn no-drag" onClick={() => useStore.getState().openAiChat()} title={t('nav.aiChat')}>
+        <Bot size={20} />
       </button>
 
       <button className="rail-btn no-drag" onClick={() => setOverlay('catchup')} title={t('nav.catchup')}>

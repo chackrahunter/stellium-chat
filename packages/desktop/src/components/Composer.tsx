@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
-  AtSign, BarChart3, Clock, Languages, Loader2, Mic, Paperclip, Send, Smile,
-  Sparkles, Wand2, X,
+  AtSign, BarChart3, Clock, Hash, Languages, Loader2, Lock, Mic, Paperclip,
+  Send, Smile, Sparkles, Wand2, X,
 } from 'lucide-react';
 import type { Attachment, RewriteTone } from '@stellium/shared';
 import { normalizeLang } from '@stellium/shared';
@@ -36,6 +36,7 @@ export function Composer({ channelId, parentId = null, placeholder, autoFocus }:
   const self = useStore((s) => s.self);
   const channel = useStore((s) => s.channels[channelId]);
   const users = useStore((s) => s.users);
+  const channels = useStore((s) => s.channels);
   const ai = useStore((s) => s.ai);
   const smartReplies = useStore((s) => s.smartReplies);
   const smartRepliesLoading = useStore((s) => s.smartRepliesLoading);
@@ -49,6 +50,8 @@ export function Composer({ channelId, parentId = null, placeholder, autoFocus }:
   const [rewriting, setRewriting] = useState(false);
   const [preview, setPreview] = useState<string | null>(null);
   const [previewing, setPreviewing] = useState(false);
+  // Zwei Vervollständigungen teilen sich eine Liste: @ für Personen, # für Kanäle.
+  const [autoArt, setAutoArt] = useState<'person' | 'kanal' | null>(null);
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const [mentionIndex, setMentionIndex] = useState(0);
   const [scheduleOpen, setScheduleOpen] = useState(false);
@@ -94,28 +97,74 @@ export function Composer({ channelId, parentId = null, placeholder, autoFocus }:
   /* @-Vervollständigung */
   const refreshMentionQuery = useCallback(() => {
     const el = inputRef.current;
-    if (!el) { setMentionQuery(null); return; }
+    if (!el) { setMentionQuery(null); setAutoArt(null); return; }
     const upToCaret = el.value.slice(0, el.selectionStart ?? el.value.length);
-    const m = /(?:^|\s)@([a-zA-Z0-9_.-]*)$/.exec(upToCaret);
-    setMentionQuery(m ? m[1].toLowerCase() : null);
-    setMentionIndex(0);
+
+    const person = /(?:^|\s)@([a-zA-Z0-9_.-]*)$/.exec(upToCaret);
+    if (person) {
+      setAutoArt('person');
+      setMentionQuery(person[1].toLowerCase());
+      setMentionIndex(0);
+      return;
+    }
+
+    // Kanalnamen dürfen Umlaute enthalten, deshalb hier großzügiger als bei @.
+    const kanal = /(?:^|\s)#([\p{L}\p{N}_-]*)$/u.exec(upToCaret);
+    if (kanal) {
+      setAutoArt('kanal');
+      setMentionQuery(kanal[1].toLowerCase());
+      setMentionIndex(0);
+      return;
+    }
+
+    setAutoArt(null);
+    setMentionQuery(null);
   }, []);
 
   useEffect(() => { refreshMentionQuery(); }, [text, refreshMentionQuery]);
 
-  const mentionMatches = mentionQuery === null ? [] : Object.values(users)
-    .filter((u) => u.id !== self?.id)
+  const personMatches = autoArt !== 'person' || mentionQuery === null ? [] : Object.values(users)
+    // Gesperrte und gelöschte Konten kann man nicht sinnvoll erwähnen —
+    // sie bekommen die Benachrichtigung nie zu sehen.
+    .filter((u) => u.id !== self?.id && u.role !== 'bot' && !u.disabled)
     .filter((u) => u.handle.toLowerCase().startsWith(mentionQuery) || u.displayName.toLowerCase().includes(mentionQuery))
     .slice(0, 6);
 
-  const applyMention = (handle: string) => {
+  const kanalMatches = autoArt !== 'kanal' || mentionQuery === null ? [] : Object.values(channels)
+    .filter((c) => c.kind !== 'dm' && !c.archived)
+    .filter((c) => c.name.toLowerCase().includes(mentionQuery))
+    .sort((a, b) => {
+      // Genaue Anfänge zuerst, dann alphabetisch.
+      const aStart = a.name.toLowerCase().startsWith(mentionQuery) ? 0 : 1;
+      const bStart = b.name.toLowerCase().startsWith(mentionQuery) ? 0 : 1;
+      return aStart - bStart || a.name.localeCompare(b.name, 'de');
+    })
+    .slice(0, 8);
+
+  const mentionMatches: { id: string; primaer: string; sekundaer: string; einsetzen: string }[] =
+    autoArt === 'person'
+      ? personMatches.map((u) => ({
+          id: u.id, primaer: u.displayName,
+          sekundaer: `@${u.handle} · ${languageInfo(u.language).flag}`,
+          einsetzen: `@${u.handle}`,
+        }))
+      : kanalMatches.map((c) => ({
+          id: c.id, primaer: `#${c.name}`,
+          sekundaer: c.topic || (c.kind === 'private' ? 'Privater Kanal' : 'Öffentlicher Kanal'),
+          einsetzen: `#${c.name}`,
+        }));
+
+  const applyMention = (einsetzen: string) => {
     const el = inputRef.current;
     if (!el) return;
     const caret = el.selectionStart ?? text.length;
-    const before = text.slice(0, caret).replace(/@[a-zA-Z0-9_.-]*$/, `@${handle} `);
+    const muster = autoArt === 'kanal' ? /#[\p{L}\p{N}_-]*$/u : /@[a-zA-Z0-9_.-]*$/;
+    const before = text.slice(0, caret).replace(muster, `${einsetzen} `);
     const next = before + text.slice(caret);
     setText(next);
+    useStore.getState().saveDraft(channelId, parentId, next);
     setMentionQuery(null);
+    setAutoArt(null);
     requestAnimationFrame(() => {
       el.focus();
       el.selectionStart = el.selectionEnd = before.length;
@@ -181,8 +230,8 @@ export function Composer({ channelId, parentId = null, placeholder, autoFocus }:
     if (mentionMatches.length > 0) {
       if (e.key === 'ArrowDown') { e.preventDefault(); setMentionIndex((i) => (i + 1) % mentionMatches.length); return; }
       if (e.key === 'ArrowUp') { e.preventDefault(); setMentionIndex((i) => (i - 1 + mentionMatches.length) % mentionMatches.length); return; }
-      if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); applyMention(mentionMatches[mentionIndex].handle); return; }
-      if (e.key === 'Escape') { setMentionQuery(null); return; }
+      if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); applyMention(mentionMatches[mentionIndex].einsetzen); return; }
+      if (e.key === 'Escape') { setMentionQuery(null); setAutoArt(null); return; }
     }
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); }
   };
@@ -332,6 +381,22 @@ export function Composer({ channelId, parentId = null, placeholder, autoFocus }:
           </button>
           <button
             className="icon-btn icon-btn--sm"
+            onClick={() => {
+              setText((v) => (v && !/\s$/.test(v) ? `${v} #` : `${v}#`));
+              requestAnimationFrame(() => {
+                const el = inputRef.current;
+                if (!el) return;
+                el.focus();
+                el.selectionStart = el.selectionEnd = el.value.length;
+                refreshMentionQuery();
+              });
+            }}
+            title={t('composer.channelLink')}
+          >
+            <Hash size={16} />
+          </button>
+          <button
+            className="icon-btn icon-btn--sm"
             onClick={() => setRecording(true)}
             title={t('composer.voice')}
           >
@@ -429,19 +494,23 @@ export function Composer({ channelId, parentId = null, placeholder, autoFocus }:
                 background: 'var(--bg-elevated)', border: '1px solid var(--line-strong)', boxShadow: 'var(--shadow-md)',
               }}
             >
-              {mentionMatches.map((u, i) => (
+              {mentionMatches.map((eintrag, i) => (
                 <button
-                  key={u.id}
+                  key={eintrag.id}
                   className="result"
                   data-active={i === mentionIndex}
                   style={{ padding: '6px 9px' }}
                   onMouseEnter={() => setMentionIndex(i)}
-                  onClick={() => applyMention(u.handle)}
+                  onClick={() => applyMention(eintrag.einsetzen)}
                 >
-                  <Avatar user={u} size={26} showPresence />
+                  {autoArt === 'person'
+                    ? <Avatar user={users[eintrag.id]} size={26} showPresence />
+                    : channels[eintrag.id]?.kind === 'private'
+                      ? <Lock size={15} className="muted" style={{ width: 26, textAlign: 'center' }} />
+                      : <Hash size={15} className="muted" style={{ width: 26, textAlign: 'center' }} />}
                   <div className="result__main">
-                    <div className="result__title">{u.displayName}</div>
-                    <div className="result__sub">@{u.handle} · {languageInfo(u.language).flag}</div>
+                    <div className="result__title">{eintrag.primaer}</div>
+                    <div className="result__sub">{eintrag.sekundaer}</div>
                   </div>
                 </button>
               ))}

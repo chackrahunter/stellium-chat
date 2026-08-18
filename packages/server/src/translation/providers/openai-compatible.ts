@@ -56,13 +56,18 @@ export class OpenAICompatibleProvider implements TranslationProvider, AssistantP
           );
         }
 
-        // Modell weg oder kann kein JSON-Format? Aussortieren und neu wählen.
-        if (looksLikeModelProblem(res.status, detail) && this.registry.markBroken(modelId)) {
-          throw new ProviderError(
-            `${this.ep.name}: ${modelId} nicht verwendbar, wechsle das Modell`,
-            res.status,
-            true,   // erneut versuchen — jetzt mit dem Nachfolger
-          );
+        // Modell weg oder kann kein JSON-Format? Liste neu holen und ein
+        // anderes wählen. Das greift auch, wenn beim Start noch keine Liste
+        // vorlag und der Notnagel-Name bei diesem Konto nicht existiert.
+        if (looksLikeModelProblem(res.status, detail)) {
+          const gewechselt = await this.registry.recoverFrom(modelId);
+          if (gewechselt) {
+            throw new ProviderError(
+              `${this.ep.name}: ${modelId} nicht verwendbar, wechsle auf ${this.registry.current.quality}`,
+              res.status,
+              true,   // erneut versuchen — jetzt mit dem Nachfolger
+            );
+          }
         }
         throw new ProviderError(
           `${this.ep.name} ${res.status}: ${detail.slice(0, 400)}`,

@@ -33,7 +33,9 @@ function createWindow(): void {
     title: 'Stellium',
     // Auf macOS eine nahtlose Titelleiste, sonst der normale Systemrahmen.
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
-    trafficLightPosition: process.platform === 'darwin' ? { x: 18, y: 20 } : undefined,
+    // Die Knöpfe liegen in der Rail. Waagerecht mittig (Rail ist 68px breit,
+    // die drei Knöpfe zusammen etwa 52px), senkrecht mit etwas Luft nach oben.
+    trafficLightPosition: process.platform === 'darwin' ? { x: 8, y: 18 } : undefined,
     webPreferences: {
       preload: path.join(here, 'preload.mjs'),
       contextIsolation: true,

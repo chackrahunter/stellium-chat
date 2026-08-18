@@ -1,10 +1,10 @@
 /** Domänenmodelle — von Server und Desktop-Client geteilt. */
 
-import type { PermissionKey } from './permissions.js';
+import type { MemberRoleName, PermissionKey } from './permissions.js';
 
 export type UserStatus = 'online' | 'away' | 'dnd' | 'offline';
 export type ChannelKind = 'public' | 'private' | 'dm';
-export type MemberRole = 'owner' | 'admin' | 'member' | 'guest';
+export type MemberRole = MemberRoleName;
 
 export interface User {
   id: string;
@@ -88,6 +88,8 @@ export interface Channel {
   purpose: string | null;
   /** "Lingua Franca" des Kanals — Basis für die Compose-Vorschau. */
   primaryLanguage: string | null;
+  /** Mischt der KI-Assistent hier mit? "off" | "mention" | "always" */
+  aiMode: 'off' | 'mention' | 'always';
   archived: boolean;
   createdBy: string;
   createdAt: number;
@@ -301,4 +303,90 @@ export interface AiModelSelection {
   fast: string;
   source: 'auto' | 'pinned' | 'manual' | 'fallback';
   refreshedAt: number;
+}
+
+/* ── Aufgaben ─────────────────────────────────────────────────── */
+
+export type TaskStatus = 'pending' | 'working' | 'review' | 'finished' | 'blocked';
+export type TaskPriority = 'low' | 'normal' | 'high' | 'urgent';
+
+/** Reihenfolge der Spalten auf dem Brett. */
+export const TASK_STATUSES: TaskStatus[] = ['pending', 'working', 'review', 'finished', 'blocked'];
+export const TASK_PRIORITIES: TaskPriority[] = ['low', 'normal', 'high', 'urgent'];
+
+export interface Task {
+  id: string;
+  title: string;
+  description: string | null;
+  status: TaskStatus;
+  priority: TaskPriority;
+  assigneeId: string | null;
+  channelId: string | null;
+  messageId: string | null;
+  dueAt: number | null;
+  createdBy: string;
+  createdAt: number;
+  updatedAt: number;
+  finishedAt: number | null;
+  watcherIds: string[];
+}
+
+export interface TaskEvent {
+  id: string;
+  taskId: string;
+  userId: string;
+  kind: 'created' | 'status' | 'assignee' | 'due' | 'priority' | 'title' | 'comment';
+  von: string | null;
+  nach: string | null;
+  text: string | null;
+  createdAt: number;
+}
+
+/* ── Kalender ─────────────────────────────────────────────────── */
+
+export type EventKind = 'meeting' | 'deadline' | 'absence' | 'holiday' | 'reminder';
+export type AttendeeResponse = 'pending' | 'yes' | 'no' | 'maybe';
+
+export const EVENT_KINDS: EventKind[] = ['meeting', 'deadline', 'absence', 'holiday', 'reminder'];
+
+export interface EventAttendee {
+  userId: string;
+  response: AttendeeResponse;
+}
+
+export interface CalendarEvent {
+  id: string;
+  title: string;
+  description: string | null;
+  kind: EventKind;
+  startsAt: number;
+  endsAt: number;
+  allDay: boolean;
+  location: string | null;
+  channelId: string | null;
+  createdBy: string;
+  createdAt: number;
+  attendees: EventAttendee[];
+}
+
+/* ── Dateiablage ──────────────────────────────────────────────── */
+
+export interface StoredFile {
+  id: string;
+  name: string;
+  mime: string;
+  size: number;
+  folder: string;
+  channelId: string | null;
+  description: string | null;
+  uploadedBy: string;
+  createdAt: number;
+  updatedAt: number;
+  url: string;
+}
+
+export interface StorageUsage {
+  used: number;
+  quota: number;
+  fileCount: number;
 }
