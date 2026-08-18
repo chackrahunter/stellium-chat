@@ -8,7 +8,7 @@ const SHOTS = '/private/tmp/claude-501/-Users-don-calvinkuhn-Documents-Projekte/
 fs.mkdirSync(SHOTS, { recursive: true });
 
 const LOGIN = 'don-calvinkuhn';
-const EINMAL = 'UTUU-YXYD-RN2B-7G67';
+const EINMAL = process.env.STELLIUM_OTP ?? 'KY4D-3FKZ-9EBC-UQRZ';
 const PASSWORT = 'MeinLangesPasswort-2026';
 
 const ergebnisse = [];
@@ -216,6 +216,31 @@ await pruefe('Chat funktioniert weiterhin', async () => {
   await seite.waitForTimeout(1200);
   const text = await seite.locator('.app').innerText();
   if (!text.includes('Test nach dem Umbau')) throw new Error('Nachricht fehlt');
+});
+
+await zu();
+
+/* ── Kontextmenü ─────────────────────────────────────────── */
+await pruefe('Kontextmenü wird nicht abgeschnitten', async () => {
+  const kanal = seite.locator('.chan').filter({ hasText: 'allgemein' }).first();
+  await kanal.click({ button: 'right' });
+  await seite.waitForSelector('.kontextmenue', { timeout: 6000 });
+  const menue = await seite.locator('.kontextmenue').boundingBox();
+  if (!menue) throw new Error('Menü ohne Fläche');
+  // Ein abgeschnittenes Menü war nur so breit wie die Seitenleiste.
+  if (menue.width < 180) throw new Error(`nur ${Math.round(menue.width)} px breit`);
+  const leiste = await seite.locator('.sidebar').boundingBox();
+  if (menue.x + menue.width <= leiste.x + leiste.width + 1) {
+    throw new Error('Menü endet am Rand der Seitenleiste — vermutlich beschnitten');
+  }
+  // Und jeder Eintrag muss seinen Text ganz zeigen.
+  const beschnitten = await seite.evaluate(() =>
+    [...document.querySelectorAll('.kontextmenue__eintrag')]
+      .filter((el) => el.scrollWidth > el.clientWidth + 1).length);
+  if (beschnitten) throw new Error(`${beschnitten} Einträge mit abgeschnittenem Text`);
+  await seite.keyboard.press('Escape');
+  await seite.waitForTimeout(300);
+  return `${Math.round(menue.width)} px breit, vollständig`;
 });
 
 await zu();

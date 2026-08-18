@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { motion } from 'framer-motion';
 
 /**
@@ -6,6 +7,12 @@ import { motion } from 'framer-motion';
  *
  * Es positioniert sich am Mauszeiger und dreht sich um, wenn es sonst über den
  * Fensterrand hinausliefe — sonst wären die untersten Einträge unerreichbar.
+ *
+ * Gezeichnet wird es direkt am <body>, nicht dort, wo es im Baum steht. Grund:
+ * die Seitenleiste hat einen backdrop-filter, und ein Filter macht das Element
+ * zum Bezugsrahmen für alles darin, was "fixed" positioniert ist. Zusammen mit
+ * ihrem overflow: hidden schnitt sie das Menü am eigenen Rand ab — sichtbar
+ * blieben nur die Symbole und der erste Buchstabe.
  */
 
 export interface MenuEintrag {
@@ -58,7 +65,7 @@ export function ContextMenu({ position, eintraege, onClose }: {
     };
   }, [onClose]);
 
-  return (
+  return createPortal(
     <motion.div
       ref={ref}
       className="kontextmenue"
@@ -82,7 +89,8 @@ export function ContextMenu({ position, eintraege, onClose }: {
           </button>
         </div>
       ))}
-    </motion.div>
+    </motion.div>,
+    document.body,
   );
 }
 
