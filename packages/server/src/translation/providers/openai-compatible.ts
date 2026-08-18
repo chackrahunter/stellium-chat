@@ -44,6 +44,18 @@ export class OpenAICompatibleProvider implements TranslationProvider, AssistantP
       });
       if (!res.ok) {
         const detail = await res.text().catch(() => '');
+
+        // Das Modell hat das JSON nicht fertig bekommen — praktisch immer zu
+        // wenig Token-Budget. Das ist ein vorübergehender Fehler, kein Grund,
+        // das Modell auszusortieren.
+        if (res.status === 400 && /json_validate_failed|max completion tokens/i.test(detail)) {
+          throw new ProviderError(
+            `${this.ep.name}: Antwort wurde abgeschnitten, bevor das JSON fertig war`,
+            400,
+            true,
+          );
+        }
+
         // Modell weg oder kann kein JSON-Format? Aussortieren und neu wählen.
         if (looksLikeModelProblem(res.status, detail) && this.registry.markBroken(modelId)) {
           throw new ProviderError(
@@ -75,7 +87,8 @@ export class OpenAICompatibleProvider implements TranslationProvider, AssistantP
     const data = await this.request({
       messages,
       temperature: opts.temperature ?? 0.2,
-      max_tokens: opts.maxTokens ?? 1024,
+      max_completion_tokens: opts.maxTokens ?? 2048,
+      ...reasoningOptions(modelId, opts.reasoning ?? 'low'),
       ...(opts.json ? { response_format: { type: 'json_object' } } : {}),
     }, modelId);
 
@@ -125,7 +138,14 @@ export class OpenAICompatibleProvider implements TranslationProvider, AssistantP
         { role: 'system', content: rules.join('\n') },
         { role: 'user', content: req.text },
       ],
-      { temperature: 0, maxTokens: Math.min(4096, Math.max(256, req.text.length * 3)) },
+      {
+        temperature: 0,
+        // Großzügig rechnen: Denkmodelle wie gpt-oss verbrauchen Tokens, bevor
+        // das erste Zeichen der Antwort kommt. Zu knapp bemessen bricht die
+        // Ausgabe mitten im JSON ab und Groq antwortet mit 400.
+        maxTokens: translationBudget(req.text),
+        reasoning: 'low',
+      },
     );
 
     if (typeof data.translation !== 'string') {
@@ -138,6 +158,27 @@ export class OpenAICompatibleProvider implements TranslationProvider, AssistantP
       model: this.registry.current.quality,
     };
   }
+}
+
+/**
+ * Wie viele Tokens die Übersetzung höchstens brauchen darf.
+ * Faustregel: rund ein Token pro drei Zeichen, dazu Luft für JSON-Gerüst und
+ * die internen Denkschritte der Reasoning-Modelle.
+ */
+function translationBudget(text: string): number {
+  const geschaetzt = Math.ceil(text.length / 3);
+  return Math.min(8192, Math.max(1500, geschaetzt * 4 + 800));
+}
+
+/**
+ * Denkaufwand drosseln, wo das Modell es unterstützt. Eine Chat-Nachricht zu
+ * übersetzen braucht keine langen Überlegungen — und jede Denkzeile geht vom
+ * Token-Budget ab. Der Parameter existiert nur bei den gpt-oss-Modellen,
+ * deshalb wird er nicht blind mitgeschickt.
+ */
+function reasoningOptions(modelId: string, effort: 'low' | 'medium' | 'high'): Record<string, unknown> {
+  if (/gpt-oss/i.test(modelId)) return { reasoning_effort: effort };
+  return {};
 }
 
 /** Fehler, die am gewählten Modell liegen — nicht an der Anfrage. */

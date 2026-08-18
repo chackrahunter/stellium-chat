@@ -25,8 +25,10 @@ export function createMessage(input: CreateMessageInput): Message {
 
   const id = newId('m_');
   const at = Date.now();
-  const detected = input.sourceLang ? normalizeLang(input.sourceLang) : detectLanguage(text).lang;
-  const sourceLang = detected === 'unknown' ? null : detected;
+  // Bei unsicherer Erkennung lieber nichts eintragen: das Übersetzungsmodell
+  // erkennt die Sprache zuverlässiger und das Ergebnis wird zurückgeschrieben.
+  const erkannt = input.sourceLang ? { lang: normalizeLang(input.sourceLang), confidence: 1 } : detectLanguage(text);
+  const sourceLang = erkannt.lang === 'unknown' || erkannt.confidence < 0.35 ? null : erkannt.lang;
 
   db.transaction(() => {
     db.run(

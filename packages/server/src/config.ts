@@ -2,6 +2,7 @@ import 'dotenv/config';
 import path from 'node:path';
 import fs from 'node:fs';
 import crypto from 'node:crypto';
+import { Vault, redact, resolvePassphrase } from './secrets.js';
 
 const root = process.cwd();
 
@@ -35,6 +36,60 @@ function resolveSecret(): string {
   }
 }
 
+/* ── Verschlüsselte Schlüssel ─────────────────────────────────── */
+
+/**
+ * Schlüssel kommen entweder aus der Umgebung oder aus dem verschlüsselten
+ * Tresor. Die Umgebung gewinnt, weil sie ausdrücklich gesetzt wurde — dann
+ * gibt es aber einen deutlichen Hinweis, dass der Schlüssel im Klartext liegt.
+ */
+const vault = new Vault(path.join(dataDir, 'secrets.enc'));
+
+let vaultSecrets: Record<string, string> | null = null;
+export let vaultStatus: 'aus' | 'offen' | 'verschlossen' = 'aus';
+
+function openVault(): Record<string, string> {
+  if (vaultSecrets) return vaultSecrets;
+  if (!vault.exists()) { vaultStatus = 'aus'; vaultSecrets = {}; return vaultSecrets; }
+
+  const passphrase = resolvePassphrase();
+  if (!passphrase) {
+    vaultStatus = 'verschlossen';
+    console.warn(
+      '[secrets] Es gibt einen verschlüsselten Tresor, aber kein Masterpasswort.\n'
+      + '          Setze STELLIUM_MASTER_PASSPHRASE oder lege es mit\n'
+      + '          "npm run secret -w @stellium/server -- setzen groq" in der Keychain ab.',
+    );
+    vaultSecrets = {};
+    return vaultSecrets;
+  }
+
+  try {
+    vaultSecrets = vault.load(passphrase.passphrase);
+    vaultStatus = 'offen';
+  } catch (err) {
+    vaultStatus = 'verschlossen';
+    console.error(`[secrets] Tresor lässt sich nicht öffnen: ${(err as Error).message}`);
+    vaultSecrets = {};
+  }
+  return vaultSecrets;
+}
+
+/** Schlüssel holen: erst Umgebung, dann Tresor. */
+function secret(envName: string, vaultName: string): string {
+  const fromEnv = str(envName);
+  if (fromEnv) {
+    if (vault.exists() && openVault()[vaultName]) {
+      console.warn(
+        `[secrets] ${envName} steht im Klartext in der Umgebung und überschreibt den`
+        + ' verschlüsselten Wert. Entferne die Zeile aus der .env, damit der Tresor greift.',
+      );
+    }
+    return fromEnv;
+  }
+  return openVault()[vaultName] ?? '';
+}
+
 export type AiProvider = 'groq' | 'openai' | 'deepl' | 'libre' | 'demo';
 
 export const config = {
@@ -51,7 +106,7 @@ export const config = {
   ai: {
     provider: (str('AI_PROVIDER', 'groq') as AiProvider),
     groq: {
-      apiKey: str('GROQ_API_KEY'),
+      apiKey: secret('GROQ_API_KEY', 'groq'),
       baseUrl: str('GROQ_BASE_URL', 'https://api.groq.com/openai/v1'),
       // Leer = der Server holt die Modell-Liste bei Groq und wählt selbst.
       // Eine gesetzte ID nagelt das Modell fest.
@@ -59,13 +114,13 @@ export const config = {
       fastModel: str('GROQ_FAST_MODEL'),
     },
     openai: {
-      apiKey: str('OPENAI_API_KEY'),
+      apiKey: secret('OPENAI_API_KEY', 'openai'),
       baseUrl: str('OPENAI_BASE_URL', 'https://api.openai.com/v1'),
       model: str('OPENAI_MODEL'),
       fastModel: str('OPENAI_FAST_MODEL'),
     },
     deepl: {
-      apiKey: str('DEEPL_API_KEY'),
+      apiKey: secret('DEEPL_API_KEY', 'deepl'),
       get baseUrl() {
         const key = str('DEEPL_API_KEY');
         return str('DEEPL_BASE_URL', key.endsWith(':fx')
@@ -97,4 +152,28 @@ export function aiConfigured(): boolean {
 export function assistantAvailable(): boolean {
   return (config.ai.provider === 'groq' && Boolean(config.ai.groq.apiKey)) ||
          (config.ai.provider === 'openai' && Boolean(config.ai.openai.apiKey));
+}
+
+
+/** Woher der aktive Schlüssel stammt — nur für die Anzeige, nie der Wert selbst. */
+export function secretOrigin(): { quelle: 'umgebung' | 'tresor' | 'keiner'; tresor: typeof vaultStatus; hinweis: string } {
+  const key = config.ai.provider === 'groq' ? config.ai.groq.apiKey
+    : config.ai.provider === 'openai' ? config.ai.openai.apiKey
+    : config.ai.provider === 'deepl' ? config.ai.deepl.apiKey : '';
+
+  if (!key) return { quelle: 'keiner', tresor: vaultStatus, hinweis: 'Kein Schlüssel gefunden.' };
+
+  const ausUmgebung = Boolean(
+    (config.ai.provider === 'groq' && process.env.GROQ_API_KEY)
+    || (config.ai.provider === 'openai' && process.env.OPENAI_API_KEY)
+    || (config.ai.provider === 'deepl' && process.env.DEEPL_API_KEY),
+  );
+
+  return {
+    quelle: ausUmgebung ? 'umgebung' : 'tresor',
+    tresor: vaultStatus,
+    hinweis: ausUmgebung
+      ? `im Klartext aus der Umgebung — ${redact(key)}`
+      : `entschlüsselt aus dem Tresor — ${redact(key)}`,
+  };
 }

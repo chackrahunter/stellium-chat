@@ -33,6 +33,12 @@ export interface ChatOptions {
   /** true erzwingt ein JSON-Objekt als Antwort. */
   json?: boolean;
   fast?: boolean;
+  /**
+   * Wie viel das Modell vor der Antwort nachdenken soll. Übersetzen kommt mit
+   * 'low' aus; Zusammenfassungen dürfen mehr. Wirkt nur bei Modellen, die den
+   * Parameter kennen.
+   */
+  reasoning?: 'low' | 'medium' | 'high';
 }
 
 /** Provider, die mehr können als übersetzen (Groq, OpenAI-kompatible). */

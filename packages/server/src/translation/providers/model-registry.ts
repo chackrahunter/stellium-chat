@@ -36,21 +36,39 @@ export interface ModelSelection {
 
 /** Modelle, die keine Chat-Completions beantworten. */
 const NOT_CHAT = [
-  { re: /whisper/i,               why: 'Spracherkennung' },
-  { re: /\btts\b|playai-tts/i,    why: 'Sprachsynthese' },
-  { re: /guard/i,                 why: 'Sicherheits-Klassifikator' },
-  { re: /embed/i,                 why: 'Embeddings' },
-  { re: /moderation/i,            why: 'Moderation' },
-  { re: /rerank/i,                why: 'Reranking' },
+  { re: /whisper/i,                    why: 'Spracherkennung' },
+  { re: /\btts\b|playai-tts|orpheus/i, why: 'Sprachsynthese' },
+  { re: /guard|safeguard/i,            why: 'Sicherheits-Klassifikator' },
+  { re: /embed/i,                      why: 'Embeddings' },
+  { re: /moderation/i,                 why: 'Moderation' },
+  { re: /rerank/i,                     why: 'Reranking' },
 ];
 
 /**
- * Familien, von denen wir wissen, dass sie sauberes JSON liefern.
- * Wir verlangen das in jeder Übersetzungsanfrage, deshalb bekommen sie
- * einen Bonus — ausgeschlossen wird aber nichts, sonst wäre die Auswahl
- * wieder eine fest verdrahtete Liste.
+ * Unter diesem Kontextfenster ist ein Modell für uns nutzlos: wir schicken den
+ * Gesprächskontext, das Glossar und bei Zusammenfassungen Hunderte Nachrichten
+ * mit. 4k reicht dafür nicht. Nebeneffekt: Spezialmodelle mit winzigem Fenster
+ * fallen automatisch raus, ohne dass wir sie namentlich kennen müssen.
  */
-const TRUSTED = /llama|qwen|gpt-oss|kimi|gemma|mixtral|mistral/i;
+const MIN_CONTEXT = 8192;
+
+/**
+ * Agentische Systeme (Groqs "compound") bauen Werkzeugaufrufe und Websuche ein.
+ * Für eine Übersetzung, die exakt ein JSON-Objekt zurückgeben soll, ist das
+ * unnötige Unsicherheit — nicht ausgeschlossen, aber nachrangig.
+ */
+const AGENTIC = /compound|agent/i;
+
+/**
+ * Breit einsetzbare Modellfamilien, die zuverlässig mehrsprachig arbeiten und
+ * sauberes JSON liefern. Sie bekommen einen Bonus — ausgeschlossen wird nichts,
+ * sonst wäre die Auswahl wieder eine fest verdrahtete Liste.
+ *
+ * Wichtig beim Schnellmodell: ohne diese Einschränkung gewinnt dort das
+ * kleinste Modell überhaupt, und das war in Groqs Liste zeitweise ein auf
+ * Arabisch spezialisiertes 7B — für deutsche Antwortvorschläge unbrauchbar.
+ */
+const TRUSTED = /llama|qwen|gpt-oss|kimi|gemma|mixtral|mistral|ministral|phi|deepseek/i;
 
 /** Modelle, die ihre Gedankenkette mit ausgeben — für strenges JSON heikel. */
 const REASONING = /-r1-|reasoning|thinking|\bqwq\b/i;
@@ -86,6 +104,9 @@ function evaluate(raw: any): DiscoveredModel {
     for (const { re, why } of NOT_CHAT) {
       if (re.test(id)) { rejected = why; break; }
     }
+    if (!rejected && contextWindow < MIN_CONTEXT) {
+      rejected = `Kontextfenster zu klein (${contextWindow})`;
+    }
   }
 
   // Größe zählt am stärksten, Kontextfenster als Nebenkriterium.
@@ -94,6 +115,7 @@ function evaluate(raw: any): DiscoveredModel {
   if (TRUSTED.test(id)) score += 12;
   if (REASONING.test(id)) score -= 18;
   if (PREVIEW.test(id)) score -= 14;
+  if (AGENTIC.test(id)) score -= 10;
 
   return {
     id, contextWindow, maxCompletionTokens,
@@ -209,14 +231,21 @@ export class ModelRegistry {
     const quality = this.opts.pinnedQuality || usable[0].id;
 
     // Schnellmodell: das kleinste, das noch etwas taugt. Unter 3 Mrd.
-    // Parametern wird die Qualität für Antwortvorschläge zu dünn.
-    const small = usable
-      .filter((m) => m.params !== null && m.params >= 3 && m.params <= 25)
-      .sort((a, b) => (a.params! - b.params!) || (b.contextWindow - a.contextWindow));
+    // Parametern wird die Qualität für Antwortvorschläge zu dünn, über 30 Mrd.
+    // ist es kein Schnellmodell mehr.
+    const bySize = (a: DiscoveredModel, b: DiscoveredModel) =>
+      (a.params! - b.params!) || (b.contextWindow - a.contextWindow);
+
+    const small = usable.filter((m) => m.params !== null && m.params >= 3 && m.params <= 30);
+    // Erst unter den breit einsetzbaren suchen — sonst gewinnt hier ein
+    // Spezialmodell nur deshalb, weil es das kleinste ist.
+    const preferred = small.filter((m) => TRUSTED.test(m.id) && !AGENTIC.test(m.id)).sort(bySize);
+    const fallback = small.sort(bySize);
 
     const fast = this.opts.pinnedFast
-      || small.find((m) => /instant|flash|mini|lite/i.test(m.id))?.id
-      || small[0]?.id
+      || preferred.find((m) => /instant|flash|mini|lite/i.test(m.id))?.id
+      || preferred[0]?.id
+      || fallback[0]?.id
       || quality;
 
     const source: ModelSelection['source'] =

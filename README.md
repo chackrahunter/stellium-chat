@@ -44,7 +44,18 @@ Melde dich in zwei Fenstern mit unterschiedlichen Konten an — dann siehst du d
 ## KI einrichten (Groq)
 
 1. Kostenlosen Key holen: <https://console.groq.com/keys>
-2. In `.env` eintragen — mehr als den Schlüssel braucht es nicht:
+2. Schlüssel **verschlüsselt** ablegen — er landet dann nirgends im Klartext:
+
+```bash
+npm run secret -w @stellium/server -- setzen groq
+```
+
+Beim ersten Mal erzeugt der Befehl ein 256-Bit-Masterpasswort und legt es in
+der macOS-Keychain ab. Der Schlüssel wandert verschlüsselt nach
+`packages/server/data/secrets.enc`.
+
+Für schnelles Ausprobieren geht auch die `.env` — dann steht er allerdings
+lesbar auf der Platte:
 
 ```env
 AI_PROVIDER=groq
@@ -185,6 +196,20 @@ aktivieren.
 
 ---
 
+## Tests
+
+```bash
+npm run e2e            # klickt die Oberfläche in einem echten Chromium durch
+npm run e2e:sichtbar   # dasselbe mit sichtbarem Browserfenster
+```
+
+29 Prüfungen: Anmeldung, Layout, Senden, Reaktionen, Erwähnungen,
+Antwortvorschläge, Umformulieren, Live-Übersetzung, Umfragen, Suche,
+Profilkarten, Weiterleiten, Erinnerungen, Threads, Einstellungen, Modellwahl,
+Themawechsel. Fehlschläge landen als Screenshot in `scripts/screenshots/`.
+
+Voraussetzung: Server und Vite laufen (`npm run dev`).
+
 ## Architektur
 
 ```
@@ -207,6 +232,48 @@ packages/
 
 **Datenhaltung.** Eine SQLite-Datei unter `packages/server/data/stellium.db`.
 Für den Produktivbetrieb reicht ein kleiner Server; sichere das `data/`-Verzeichnis.
+
+### Schlüssel verschlüsselt ablegen
+
+```bash
+npm run secret -w @stellium/server -- setzen groq     # ablegen
+npm run secret -w @stellium/server -- liste           # zeigt Namen, nie Werte
+npm run secret -w @stellium/server -- passwort-neu    # Masterpasswort erneuern
+npm run secret -w @stellium/server -- entfernen groq
+```
+
+**Wie es funktioniert**
+
+```
+Masterpasswort  →  scrypt (N=2¹⁷, ~128 MB je Versuch)  →  256-Bit-Schlüssel
+                →  HKDF  →  zwei unabhängige Teilschlüssel
+Klartext        →  AES-256-GCM  →  ChaCha20-Poly1305  →  secrets.enc
+```
+
+Beide Verfahren sind authentifiziert: ein einziges gekipptes Bit in der Datei
+wird erkannt und die Entschlüsselung abgelehnt. Die Kaskade ist eine
+Absicherung für den Fall, dass eines der Verfahren gebrochen wird.
+
+Den eigentlichen Widerstand liefert aber scrypt, nicht die Anzahl der
+Verfahren: **ein Rateversuch dauert rund 200 ms**, also etwa fünf Versuche pro
+Sekunde und Kern statt Millionen.
+
+**Was das schützt — und was nicht**
+
+Geschützt ist der Schlüssel gegen jemanden, der an die *Dateien* kommt: ein
+gestohlenes Backup, eine kopierte Platte, ein versehentlich geteiltes
+`data/`-Verzeichnis, ein Kollege mit Leserechten. Die Datei allein ist wertlos.
+
+Nicht geschützt ist er gegen jemanden, der Code **als der Serverbenutzer**
+ausführen kann. Der Server muss den Schlüssel im Klartext an Groq schicken,
+also hat er ihn zur Laufzeit im Speicher. Das ist keine Schwäche dieser
+Umsetzung, sondern liegt in der Natur der Sache — jede Lösung, die der Server
+selbst entschlüsseln kann, hat diese Grenze.
+
+Das Masterpasswort liegt am Anmelde-Schlüsselbund: abgemeldet oder unter einem
+anderen Konto kommt niemand daran. Für Server ohne Keychain setzt du
+stattdessen `STELLIUM_MASTER_PASSPHRASE` beim Start — dann steht es nie auf der
+Platte.
 
 **Sicherheit.** Passwörter mit scrypt gehasht, Tokens HMAC-signiert.
 Im Renderer sind `contextIsolation` an und `nodeIntegration` aus; Markdown wird

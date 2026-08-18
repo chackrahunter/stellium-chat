@@ -9,7 +9,8 @@
     "build": "tsc -p tsconfig.json && node -e \"const fs=require('fs');fs.mkdirSync('dist/db',{recursive:true});fs.copyFileSync('src/db/schema.sql','dist/db/schema.sql')\"",
     "start": "node --experimental-sqlite dist/index.js",
     "seed": "tsx src/seed.ts",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "secret": "tsx src/cli/secret.ts"
   },
   "dependencies": {
     "@fastify/cors": "^10.0.2",

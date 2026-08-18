@@ -34,6 +34,23 @@ export function assistant(): AssistantProvider | null {
   return provider instanceof OpenAICompatibleProvider ? provider : null;
 }
 
+/**
+ * Übersetzungen wegwerfen, die ein anderer Provider erzeugt hat.
+ * Typischer Fall: Die App lief erst ohne Schlüssel mit dem Demo-Provider,
+ * dann wurde ein Groq-Schlüssel eingetragen. Ohne das hier bliebe der
+ * unübersetzte Demo-Text für immer stehen.
+ */
+export function dropForeignTranslations(): void {
+  const veraltet = db.run('DELETE FROM message_translations WHERE provider <> ?', provider.name);
+  const phrasen = db.run('DELETE FROM translation_memory WHERE provider <> ?', provider.name);
+  if (veraltet.changes || phrasen.changes) {
+    console.log(
+      `[translate] ${veraltet.changes} Nachrichten- und ${phrasen.changes} Phrasen-Übersetzungen`
+      + ` von einem anderen Anbieter verworfen — sie werden mit "${provider.name}" neu erzeugt.`,
+    );
+  }
+}
+
 /** Modell-Liste beim Anbieter holen, damit die Auswahl aktuell ist. */
 export async function warmUpModels(): Promise<void> {
   if (!(provider instanceof OpenAICompatibleProvider)) return;
@@ -148,7 +165,12 @@ const memory = new Lru<{ text: string; provider: string; model: string | null; c
   config.ai.memoryCacheSize,
 );
 
-const tmKey = (src: string, tgt: string, text: string) => sha1(`${src}|${tgt}|${text}`);
+/**
+ * Der Provider gehört in den Schlüssel: sonst liefert der Cache nach einem
+ * Wechsel von demo auf groq weiter die alten, nicht übersetzten Ergebnisse.
+ */
+const tmKey = (src: string, tgt: string, text: string) =>
+  sha1(`${provider.name}|${src}|${tgt}|${text}`);
 
 /* ── Kernfunktion ─────────────────────────────────────────────── */
 
@@ -287,7 +309,9 @@ export async function translateMessage(
       'SELECT text, provider, model, confidence, source_hash FROM message_translations WHERE message_id = ? AND lang = ?',
       messageId, target,
     );
-    if (cached && cached.source_hash === hash) {
+    // Nur gültig, wenn Text UND Provider noch dieselben sind. Sonst zeigt die
+    // App nach einem Providerwechsel ewig die alten Ergebnisse an.
+    if (cached && cached.source_hash === hash && cached.provider === provider.name) {
       return { lang: target, text: cached.text, provider: cached.provider, model: cached.model, confidence: cached.confidence, cached: true };
     }
   }
@@ -299,6 +323,12 @@ export async function translateMessage(
     context: opts.context ?? null,
     skipCache: opts.force,
   });
+
+  // Hat das Modell die Ausgangssprache bestimmt, wo wir unsicher waren?
+  // Dann festhalten — davon profitieren alle weiteren Empfänger und die Suche.
+  if (!msg.source_lang && outcome.sourceLang && outcome.sourceLang !== 'unknown') {
+    db.run('UPDATE messages SET source_lang = ? WHERE id = ?', outcome.sourceLang, messageId);
+  }
 
   if (outcome.noop) return null;
 

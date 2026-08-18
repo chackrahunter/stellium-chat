@@ -6,7 +6,7 @@ import { config } from './config.js';
 import { initDb, db } from './db/index.js';
 import { registerRoutes } from './http/routes.js';
 import { handleConnection, startBackgroundJobs } from './ws/gateway.js';
-import { aiCapabilities, warmUpModels } from './translation/index.js';
+import { aiCapabilities, dropForeignTranslations, warmUpModels } from './translation/index.js';
 import { ensureSeed } from './seed.js';
 
 const app = Fastify({
@@ -17,6 +17,9 @@ const app = Fastify({
 async function main(): Promise<void> {
   initDb();
   await ensureSeed();
+
+  // Übersetzungen eines früheren Anbieters wegräumen, bevor jemand sie sieht.
+  dropForeignTranslations();
 
   // Modell-Liste beim Anbieter holen, damit der erste Chat schon das
   // passende Modell trifft. Schlägt es fehl, greifen die Standardwerte.

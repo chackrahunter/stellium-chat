@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
   AtSign, BarChart3, Clock, Languages, Loader2, Mic, Paperclip, Send, Smile,
@@ -89,14 +89,16 @@ export function Composer({ channelId, parentId = null, placeholder, autoFocus }:
   }, [text, needsPreview, targetLang, channelId]);
 
   /* @-Vervollständigung */
-  useEffect(() => {
+  const refreshMentionQuery = useCallback(() => {
     const el = inputRef.current;
     if (!el) { setMentionQuery(null); return; }
-    const upToCaret = text.slice(0, el.selectionStart ?? text.length);
+    const upToCaret = el.value.slice(0, el.selectionStart ?? el.value.length);
     const m = /(?:^|\s)@([a-zA-Z0-9_.-]*)$/.exec(upToCaret);
     setMentionQuery(m ? m[1].toLowerCase() : null);
     setMentionIndex(0);
-  }, [text]);
+  }, []);
+
+  useEffect(() => { refreshMentionQuery(); }, [text, refreshMentionQuery]);
 
   const mentionMatches = mentionQuery === null ? [] : Object.values(users)
     .filter((u) => u.id !== self?.id)
@@ -187,7 +189,11 @@ export function Composer({ channelId, parentId = null, placeholder, autoFocus }:
   return (
     <div className="composer-wrap">
       <AnimatePresence>
-        {smartReplies.length > 0 && !text && (
+        {/* Früher hing die Anzeige an "Feld ist leer". Wer die Vorschläge
+            ausdrücklich anfordert, hat aber meist schon etwas getippt — dann
+            kam nichts. Jetzt werden sie immer gezeigt und verschwinden erst,
+            wenn wirklich weitergetippt wird. */}
+        {smartReplies.length > 0 && (
           <motion.div
             className="smart-replies"
             initial={{ opacity: 0, y: 8 }}
@@ -196,7 +202,21 @@ export function Composer({ channelId, parentId = null, placeholder, autoFocus }:
             style={{ padding: '0 0 var(--sp-2)' }}
           >
             {smartReplies.map((reply, i) => (
-              <button key={i} className="smart-reply" onClick={() => { setText(reply.text); inputRef.current?.focus(); }}>
+              <button
+                key={i}
+                className="smart-reply"
+                onClick={() => {
+                  setText(reply.text);
+                  useStore.getState().saveDraft(channelId, parentId, reply.text);
+                  useStore.getState().clearSmartReplies();
+                  requestAnimationFrame(() => {
+                    const el = inputRef.current;
+                    if (!el) return;
+                    el.focus();
+                    el.selectionStart = el.selectionEnd = el.value.length;
+                  });
+                }}
+              >
                 <Sparkles size={12} className="spark" style={{ color: 'var(--violet-soft)' }} />
                 {reply.text}
                 <span className="smart-reply__tone">{reply.tone}</span>
@@ -260,10 +280,14 @@ export function Composer({ channelId, parentId = null, placeholder, autoFocus }:
             setText(e.target.value);
             useStore.getState().sendTyping(channelId, parentId);
             useStore.getState().saveDraft(channelId, parentId, e.target.value);
+            // Sobald jemand selbst formuliert, sind die Vorschläge erledigt.
+            if (useStore.getState().smartReplies.length) useStore.getState().clearSmartReplies();
           }}
           onKeyDown={onKeyDown}
           onFocus={() => setFocused(true)}
           onBlur={() => setFocused(false)}
+          onSelect={refreshMentionQuery}
+          onClick={refreshMentionQuery}
           onPaste={(e) => {
             const files = Array.from(e.clipboardData.files);
             if (files.length) { e.preventDefault(); void uploadFiles(files); }
@@ -286,7 +310,17 @@ export function Composer({ channelId, parentId = null, placeholder, autoFocus }:
           </button>
           <button
             className="icon-btn icon-btn--sm"
-            onClick={() => { setText((t) => `${t}@`); inputRef.current?.focus(); }}
+            onClick={() => {
+              // Vor dem @ braucht es ein Leerzeichen, sonst greift die
+              // Vervollständigung nicht — und der Cursor muss ans Ende.
+              setText((t) => (t && !/\s$/.test(t) ? `${t} @` : `${t}@`));
+              requestAnimationFrame(() => {
+                const el = inputRef.current;
+                if (!el) return;
+                el.focus();
+                el.selectionStart = el.selectionEnd = el.value.length;
+              });
+            }}
             title="Jemanden erwähnen"
           >
             <AtSign size={16} />

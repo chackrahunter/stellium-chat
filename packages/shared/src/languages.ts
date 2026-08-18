@@ -99,6 +99,29 @@ export interface DetectionResult {
   confidence: number;   // 0..1
 }
 
+/**
+ * Anteil der großgeschriebenen Wörter, die nicht am Satzanfang stehen.
+ * Im Deutschen liegt der Wert hoch (alle Substantive), im Englischen niedrig.
+ */
+function capitalizedMidSentenceRatio(text: string): number {
+  // Satzanfänge und Eigennamen am Beginn ausklammern
+  const saetze = text.split(/(?<=[.!?:\n])\s+/);
+  let mittig = 0;
+  let gross = 0;
+  for (const satz of saetze) {
+    const woerter = satz.trim().split(/\s+/).filter((w) => /^\p{L}/u.test(w));
+    for (let i = 1; i < woerter.length; i++) {
+      const w = woerter[i];
+      if (w.length < 3) continue;
+      // Durchgehend groß ist eine Abkürzung, kein Substantiv
+      if (w === w.toUpperCase()) continue;
+      mittig++;
+      if (w[0] === w[0].toUpperCase() && w[0] !== w[0].toLowerCase()) gross++;
+    }
+  }
+  return mittig >= 2 ? gross / mittig : 0;
+}
+
 export function detectLanguage(rawText: string): DetectionResult {
   const text = rawText.trim();
   if (text.length < 2) return { lang: 'unknown', confidence: 0 };
@@ -134,9 +157,21 @@ export function detectLanguage(rawText: string): DetectionResult {
     if (re.test(text)) scores.set(lang, (scores.get(lang) ?? 0) + 0.9);
   }
 
+  // Deutsch schreibt alle Substantive groß. Großgeschriebene Wörter mitten im
+  // Satz sind deshalb ein starkes Signal — und retten kurze Texte ohne
+  // Stoppwörter, etwa "Test — automatischer Durchlauf".
+  const germanCaps = capitalizedMidSentenceRatio(text);
+  if (germanCaps > 0.25) scores.set('de', (scores.get('de') ?? 0) + germanCaps * 2.2);
+
+  // Typisch deutsche Wortendungen als zweites schwaches Signal.
+  const germanSuffixes = words.filter((w) =>
+    w.length > 5 && /(ung|heit|keit|schaft|lich|isch|chen|lein|ieren)$/.test(w)).length;
+  if (germanSuffixes > 0) scores.set('de', (scores.get('de') ?? 0) + Math.min(germanSuffixes, 3) * 0.5);
+
   if (scores.size === 0) {
-    // Nur ASCII, keine Stoppwörter -> englisch ist die wahrscheinlichste Annahme
-    return { lang: 'en', confidence: 0.25 };
+    // Nur ASCII, keine Anhaltspunkte. Englisch ist die häufigste Annahme,
+    // aber die niedrige Konfidenz sagt dem Aufrufer: bitte nachprüfen lassen.
+    return { lang: 'en', confidence: 0.15 };
   }
 
   const ranked = [...scores.entries()].sort((a, b) => b[1] - a[1]);

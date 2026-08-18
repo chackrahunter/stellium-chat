@@ -32,7 +32,27 @@ export function MessageList({ channelId }: Props) {
     prevCount.current = 0;
     const el = scrollRef.current;
     if (el) el.scrollTop = el.scrollHeight;
+    // Bilder und Vorschaukarten laden nachträglich und ändern die Höhe —
+    // deshalb kurz danach noch einmal nachfassen.
+    const settle = window.setTimeout(() => {
+      const node = scrollRef.current;
+      if (node && stickToBottom.current) node.scrollTop = node.scrollHeight;
+    }, 120);
+    return () => clearTimeout(settle);
   }, [channelId]);
+
+  // Nachladende Inhalte (Bilder, Link-Vorschauen, Transkripte) verschieben
+  // die Höhe. Solange der Blick unten hängt, bleibt er unten.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(() => {
+      if (stickToBottom.current) el.scrollTop = el.scrollHeight;
+    });
+    observer.observe(el);
+    for (const child of Array.from(el.children)) observer.observe(child);
+    return () => observer.disconnect();
+  }, [channelId, messages.length]);
 
   // Neue Nachrichten: nur nachscrollen, wenn der Nutzer unten steht.
   useLayoutEffect(() => {
@@ -78,7 +98,7 @@ export function MessageList({ channelId }: Props) {
   const jumpDown = () => {
     stickToBottom.current = true;
     setAtBottom(true);
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
   };
 
   return (

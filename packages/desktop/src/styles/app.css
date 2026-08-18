@@ -93,10 +93,19 @@ a:hover { text-decoration: underline; }
   z-index: 1;
   display: grid;
   grid-template-columns: var(--rail-w) var(--sidebar-w) minmax(0, 1fr);
+  /* Genau eine Zeile über die volle Fensterhöhe. Ohne die feste Zeilenhöhe
+     wachsen die Spalten mit ihrem Inhalt und schieben den Composer aus dem Bild. */
+  grid-template-rows: 100%;
   height: 100vh;
+  height: 100dvh;   /* auf Mobilgeräten und im Browser die tatsächlich sichtbare Höhe */
+  overflow: hidden;
 }
 .app--thread { grid-template-columns: var(--rail-w) var(--sidebar-w) minmax(0, 1fr) var(--thread-w); }
 .app--collapsed { grid-template-columns: var(--rail-w) 0 minmax(0, 1fr); }
+
+/* Grid- und Flex-Kinder dürfen sonst nicht unter ihre Inhaltsgröße schrumpfen —
+   dann läuft die Nachrichtenliste über und der Eingabebereich verschwindet. */
+.app > * { min-height: 0; max-height: 100%; }
 
 .glass {
   background: var(--bg-panel);
@@ -113,6 +122,8 @@ a:hover { text-decoration: underline; }
 .rail {
   display: flex;
   flex-direction: column;
+  min-height: 0;
+  height: 100%;
   align-items: center;
   gap: var(--sp-3);
   padding: var(--sp-4) 0 var(--sp-3);
@@ -161,12 +172,15 @@ a:hover { text-decoration: underline; }
   display: flex;
   flex-direction: column;
   min-width: 0;
+  min-height: 0;
+  height: 100%;
   border-right: 1px solid var(--line);
   background: var(--bg-panel);
   backdrop-filter: blur(24px);
   overflow: hidden;
 }
 .sidebar__head {
+  flex: 0 0 auto;
   padding: var(--sp-4) var(--sp-4) var(--sp-3);
   border-bottom: 1px solid var(--line);
 }
@@ -180,7 +194,11 @@ a:hover { text-decoration: underline; }
   -webkit-text-fill-color: transparent;
 }
 .sidebar__sub { font-size: 12px; color: var(--tx-lo); margin-top: 2px; }
-.sidebar__scroll { flex: 1; overflow-y: auto; padding: var(--sp-3) var(--sp-2) var(--sp-5); }
+.sidebar__scroll {
+  flex: 1 1 auto; min-height: 0;
+  overflow-y: auto; overscroll-behavior: contain;
+  padding: var(--sp-3) var(--sp-2) var(--sp-5);
+}
 
 .search-trigger {
   width: 100%;
@@ -252,12 +270,20 @@ a:hover { text-decoration: underline; }
 
 /* ── Kopfzeile ──────────────────────────────────────────────── */
 
-.main { display: flex; flex-direction: column; min-width: 0; position: relative; }
+.main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+  position: relative;
+}
 
 .header {
   display: flex; align-items: center; gap: var(--sp-3);
   height: var(--header-h);
-  flex: none;
+  flex: 0 0 var(--header-h);
   padding: 0 var(--sp-4);
   border-bottom: 1px solid var(--line);
   background: var(--bg-panel);
@@ -309,12 +335,18 @@ a:hover { text-decoration: underline; }
 /* ── Nachrichtenliste ───────────────────────────────────────── */
 
 .stream {
-  flex: 1;
+  flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
   padding: var(--sp-5) 0 var(--sp-3);
-  scroll-behavior: smooth;
+  /* Bewusst kein scroll-behavior: smooth — das automatische Nachrücken bei
+     neuen Nachrichten würde sonst animieren und hinterherhinken. Der
+     "nach unten"-Knopf scrollt gezielt weich, das reicht.
+     Dazu Trägheitsscrollen und eine eigene Scroll-Kette, damit das Rad nicht
+     an das Fenster dahinter durchschlägt. */
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
 }
 
 .daybar {
@@ -529,7 +561,15 @@ a:hover { text-decoration: underline; }
 
 /* ── Composer ───────────────────────────────────────────────── */
 
-.composer-wrap { flex: none; padding: 0 var(--sp-5) var(--sp-4); }
+.composer-wrap {
+  flex: 0 0 auto;
+  padding: 0 var(--sp-5) var(--sp-4);
+  /* Hier darf KEIN overflow stehen: Erwähnungsliste, Emoji-Auswahl und das
+     Umformulieren-Menü liegen mit bottom:100% über dem Eingabefeld und damit
+     außerhalb dieses Kastens — ein overflow würde sie abschneiden.
+     Dass der Composer die Nachrichtenliste nicht auffrisst, regelt stattdessen
+     die max-height des Textfelds. */
+}
 
 .composer {
   border-radius: var(--r-lg);
@@ -538,8 +578,13 @@ a:hover { text-decoration: underline; }
   backdrop-filter: blur(20px);
   box-shadow: var(--shadow-sm);
   transition: border-color var(--t-base), box-shadow var(--t-base);
-  overflow: hidden;
+  /* Kein overflow: hidden. Erwähnungsliste, Emoji-Auswahl und das
+     Umformulieren-Menü klappen mit bottom:100% nach oben auf und lägen
+     damit außerhalb — sie würden abgeschnitten. Die runden Ecken sorgen
+     stattdessen die Kindelemente selbst. */
 }
+.composer > .composer__reply:first-child { border-radius: var(--r-lg) var(--r-lg) 0 0; }
+.composer > .composer__bar:last-child { border-radius: 0 0 var(--r-lg) var(--r-lg); }
 .composer--focus { border-color: rgba(124, 92, 255, 0.55); box-shadow: var(--glow); }
 .composer--drag { border-color: var(--cyan); border-style: dashed; background: rgba(34, 211, 238, 0.07); }
 
@@ -597,6 +642,7 @@ a:hover { text-decoration: underline; }
 
 .typing {
   display: flex; align-items: center; gap: 7px;
+  flex: 0 0 auto;
   height: 20px; padding: 0 var(--sp-5) 0;
   font-size: 12px; color: var(--tx-lo);
 }
@@ -655,18 +701,24 @@ a:hover { text-decoration: underline; }
 .thread {
   display: flex; flex-direction: column;
   min-width: 0;
+  min-height: 0;
+  height: 100%;
   border-left: 1px solid var(--line);
   background: var(--bg-panel);
   backdrop-filter: blur(24px);
 }
 .thread__head {
   display: flex; align-items: center; gap: var(--sp-2);
-  height: var(--header-h); flex: none;
+  height: var(--header-h); flex: 0 0 var(--header-h);
   padding: 0 var(--sp-3) 0 var(--sp-4);
   border-bottom: 1px solid var(--line);
 }
 .thread__head h2 { margin: 0; font-size: 15px; font-weight: 700; }
-.thread__scroll { flex: 1; min-height: 0; overflow-y: auto; padding: var(--sp-3) 0; }
+.thread__scroll {
+  flex: 1 1 auto; min-height: 0;
+  overflow-y: auto; overscroll-behavior: contain;
+  padding: var(--sp-3) 0;
+}
 
 /* ── Overlays ───────────────────────────────────────────────── */
 
@@ -901,6 +953,7 @@ a:hover { text-decoration: underline; }
 
 .conn-banner {
   display: flex; align-items: center; justify-content: center; gap: 9px;
+  flex: 0 0 auto;
   padding: 7px;
   background: rgba(251, 191, 36, 0.14);
   color: var(--amber);
@@ -1363,3 +1416,59 @@ button.msg__author:hover { color: var(--violet-soft); text-decoration: underline
 [data-density='compact'] .msg { padding-top: 2px; padding-bottom: 2px; }
 [data-density='compact'] .msg__body { font-size: 13.8px; }
 [data-density='compact'] .daybar { margin-top: var(--sp-4); margin-bottom: var(--sp-2); }
+
+/* ═══════════════════════════════════════════════════════════════
+   Schmale Fenster
+   Das Electron-Fenster kann auf 940px verkleinert werden, im Browser
+   geht es weiter herunter. Statt alles zu quetschen, fallen die
+   Randbereiche der Reihe nach weg — die Nachrichten bleiben lesbar.
+   ═══════════════════════════════════════════════════════════════ */
+
+@media (max-width: 1180px) {
+  :root { --sidebar-w: 232px; --thread-w: 360px; }
+}
+
+/* Ist ein Thread offen, weicht zuerst die Kanalliste. */
+@media (max-width: 1080px) {
+  .app--thread { grid-template-columns: var(--rail-w) 0 minmax(0, 1fr) var(--thread-w); }
+  .app--thread .sidebar { display: none; }
+}
+
+/* Darunter verschwindet die Kanalliste ganz, der Thread legt sich darüber. */
+@media (max-width: 880px) {
+  .app,
+  .app--thread,
+  .app--collapsed { grid-template-columns: var(--rail-w) minmax(0, 1fr); }
+
+  .sidebar { display: none; }
+
+  .thread {
+    position: absolute;
+    top: 0; right: 0; bottom: 0;
+    width: min(400px, 100%);
+    z-index: 20;
+    box-shadow: var(--shadow-lg);
+  }
+
+  .msg { padding-left: var(--sp-4); padding-right: var(--sp-4); }
+  .composer-wrap { padding-left: var(--sp-4); padding-right: var(--sp-4); }
+  .header { padding: 0 var(--sp-3); }
+  .header__topic { display: none; }
+  .att-img { max-width: 100%; }
+  .poll, .voice, .link-card { max-width: 100%; }
+}
+
+/* Ganz schmal: auch die Rail-Beschriftungen und Kopfzeilen-Pillen weichen. */
+@media (max-width: 680px) {
+  .header__actions .pill { display: none; }
+  .msg { grid-template-columns: 34px minmax(0, 1fr); }
+  .link-card__image { display: none; }
+}
+
+/* Niedrige Fenster: weniger Luft, damit der Composer nicht die Liste frisst. */
+@media (max-height: 620px) {
+  :root { --header-h: 50px; }
+  .stream { padding-top: var(--sp-3); }
+  .daybar { margin-top: var(--sp-3); margin-bottom: var(--sp-2); }
+  .composer__input { max-height: 130px; }
+}
