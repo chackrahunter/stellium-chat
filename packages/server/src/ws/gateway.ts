@@ -1,0 +1,591 @@
+import type { WebSocket } from 'ws';
+import {
+  decode, encode, normalizeLang, WS_PROTOCOL_VERSION,
+  type ClientEvent, type Message, type ServerEvent, type UserStatus,
+} from '@stellium/shared';
+import { verifyToken } from '../auth.js';
+import { db } from '../db/index.js';
+import { newId } from '../util/id.js';
+import { aiCapabilities, roundTrip, translate, translateMessage } from '../translation/index.js';
+import * as ai from '../services/ai.js';
+import * as channels from '../services/channels.js';
+import * as messages from '../services/messages.js';
+import * as store from '../services/store.js';
+
+interface Session {
+  id: string;
+  socket: WebSocket;
+  userId: string | null;
+  language: string;
+  autoTranslate: boolean;
+  openChannelId: string | null;
+  alive: boolean;
+}
+
+const sessions = new Map<string, Session>();
+const byUser = new Map<string, Set<Session>>();
+/** Verhindert doppelte Übersetzungsaufträge für dieselbe Nachricht+Sprache. */
+const inflight = new Map<string, Promise<unknown>>();
+
+function send(session: Session, ev: ServerEvent): void {
+  if (session.socket.readyState !== 1) return;
+  try { session.socket.send(encode(ev)); } catch { /* Socket ist weg */ }
+}
+
+function sendToUser(userId: string, ev: ServerEvent): void {
+  for (const s of byUser.get(userId) ?? []) send(s, ev);
+}
+
+function broadcast(ev: ServerEvent, userIds?: Iterable<string>): void {
+  if (userIds) { for (const uid of userIds) sendToUser(uid, ev); return; }
+  for (const s of sessions.values()) if (s.userId) send(s, ev);
+}
+
+function fail(session: Session, code: string, message: string, requestId?: string): void {
+  send(session, { t: 'error', code, message, requestId });
+}
+
+function isOnline(userId: string): boolean {
+  return (byUser.get(userId)?.size ?? 0) > 0;
+}
+
+/* ── Übersetzung für Empfänger ────────────────────────────────── */
+
+/** Füllt Übersetzungen aus dem Cache und meldet, was noch fehlt. */
+function fillCachedTranslations(list: Message[], lang: string): Message[] {
+  const target = normalizeLang(lang);
+  const need: Message[] = [];
+  for (const m of list) {
+    if (!m.text || m.deletedAt) continue;
+    if ((m.sourceLang ?? 'unknown') === target) continue;
+    const row = db.get<{ text: string; provider: string; model: string | null; confidence: number | null }>(
+      'SELECT text, provider, model, confidence FROM message_translations WHERE message_id = ? AND lang = ?',
+      m.id, target,
+    );
+    if (row) {
+      m.translation = { lang: target, text: row.text, provider: row.provider, model: row.model, confidence: row.confidence, cached: true };
+    } else {
+      need.push(m);
+    }
+  }
+  return need;
+}
+
+/** Übersetzt fehlende Nachrichten im Hintergrund und schiebt sie nach. */
+function translateInBackground(list: Message[], lang: string, userId: string, context?: string | null): void {
+  const target = normalizeLang(lang);
+  let chain = Promise.resolve();
+  for (const m of list) {
+    const key = `${m.id}:${target}`;
+    chain = chain.then(async () => {
+      let job = inflight.get(key);
+      if (!job) {
+        job = translateMessage(m.id, target, { context }).finally(() => inflight.delete(key));
+        inflight.set(key, job);
+      }
+      const view = await job as Awaited<ReturnType<typeof translateMessage>>;
+      if (view) sendToUser(userId, { t: 'translation', messageId: m.id, translation: view });
+    }).catch((err) => console.error('[ws] Übersetzung fehlgeschlagen:', (err as Error).message));
+  }
+}
+
+/** Kurzer Gesprächskontext, damit das Modell Anrede und Fachbegriffe trifft. */
+function channelContext(channelId: string): string | null {
+  const ch = db.get<{ name: string; topic: string | null; purpose: string | null }>(
+    'SELECT name, topic, purpose FROM channels WHERE id = ?', channelId,
+  );
+  if (!ch) return null;
+  const parts = [ch.name && `Kanal #${ch.name}`, ch.topic, ch.purpose].filter(Boolean);
+  return parts.length ? parts.join(' — ').slice(0, 300) : null;
+}
+
+/**
+ * Nachricht ausliefern: erst sofort an alle (schnell), dann pro Zielsprache
+ * genau einmal übersetzen und das Ergebnis nachschieben.
+ */
+function deliverMessage(message: Message, senderClientId?: string): void {
+  const recipients = new Set(store.memberIds(message.channelId));
+  // Öffentliche Kanäle: auch Nicht-Mitglieder, die gerade zuschauen
+  for (const s of sessions.values()) {
+    if (s.userId && s.openChannelId === message.channelId) recipients.add(s.userId);
+  }
+
+  for (const uid of recipients) {
+    const payload: ServerEvent = {
+      t: 'message:new',
+      message,
+      ...(uid === message.userId && senderClientId ? { clientId: senderClientId } : {}),
+    };
+    sendToUser(uid, payload);
+    const state = store.channelState(message.channelId, uid);
+    if (state) sendToUser(uid, { t: 'channel:state', state });
+  }
+
+  // Zielsprachen einsammeln (nur für Leute, die auto-translate anhaben)
+  const sourceLang = message.sourceLang ?? 'unknown';
+  const langs = new Map<string, string[]>();
+  for (const uid of recipients) {
+    if (uid === message.userId) continue;
+    const u = db.get<{ language: string; auto_translate: number }>(
+      'SELECT language, auto_translate FROM users WHERE id = ?', uid,
+    );
+    if (!u || !u.auto_translate) continue;
+    const target = normalizeLang(u.language);
+    if (target === sourceLang) continue;
+    langs.set(target, [...(langs.get(target) ?? []), uid]);
+  }
+
+  const context = channelContext(message.channelId);
+  for (const [target, users] of langs) {
+    const key = `${message.id}:${target}`;
+    let job = inflight.get(key);
+    if (!job) {
+      job = translateMessage(message.id, target, { context }).finally(() => inflight.delete(key));
+      inflight.set(key, job);
+    }
+    void job
+      .then((view) => {
+        if (!view) return;
+        for (const uid of users) sendToUser(uid, { t: 'translation', messageId: message.id, translation: view as any });
+      })
+      .catch((err) => console.error('[ws] Übersetzung fehlgeschlagen:', (err as Error).message));
+  }
+}
+
+/* ── Presence ─────────────────────────────────────────────────── */
+
+function setStatus(userId: string, status: UserStatus, emoji?: string | null, text?: string | null): void {
+  const sets = ['status = ?', 'last_seen_at = ?'];
+  const vals: any[] = [status, Date.now()];
+  if (emoji !== undefined) { sets.push('status_emoji = ?'); vals.push(emoji); }
+  if (text !== undefined) { sets.push('status_text = ?'); vals.push(text); }
+  db.run(`UPDATE users SET ${sets.join(', ')} WHERE id = ?`, ...vals, userId);
+
+  const u = store.getUser(userId);
+  if (u) {
+    broadcast({
+      t: 'presence', userId, status: u.status,
+      statusEmoji: u.statusEmoji, statusText: u.statusText, lastSeenAt: u.lastSeenAt,
+    });
+  }
+}
+
+/* ── Verbindungsaufbau ────────────────────────────────────────── */
+
+export function handleConnection(socket: WebSocket): void {
+  const session: Session = {
+    id: newId('s_'), socket, userId: null, language: 'en',
+    autoTranslate: true, openChannelId: null, alive: true,
+  };
+  sessions.set(session.id, session);
+
+  const authTimer = setTimeout(() => {
+    if (!session.userId) { fail(session, 'auth_timeout', 'Keine Anmeldung innerhalb von 10 Sekunden'); socket.close(); }
+  }, 10_000);
+
+  socket.on('message', (raw: Buffer | string) => {
+    const ev = decode<ClientEvent>(raw.toString());
+    if (!ev || typeof ev.t !== 'string') return;
+    if (ev.t === 'auth') { clearTimeout(authTimer); void authenticate(session, ev); return; }
+    if (!session.userId) { fail(session, 'unauthorized', 'Bitte zuerst anmelden'); return; }
+    void handleEvent(session, ev).catch((err) => {
+      console.error('[ws]', ev.t, (err as Error).message);
+      fail(session, 'handler_error', (err as Error).message, (ev as any).requestId);
+    });
+  });
+
+  socket.on('pong', () => { session.alive = true; });
+
+  socket.on('close', () => {
+    clearTimeout(authTimer);
+    sessions.delete(session.id);
+    if (session.userId) {
+      const set = byUser.get(session.userId);
+      set?.delete(session);
+      if (set && set.size === 0) {
+        byUser.delete(session.userId);
+        setStatus(session.userId, 'offline');
+      }
+    }
+  });
+
+  socket.on('error', () => { /* close folgt */ });
+}
+
+async function authenticate(session: Session, ev: Extract<ClientEvent, { t: 'auth' }>): Promise<void> {
+  if (ev.protocol !== WS_PROTOCOL_VERSION) {
+    fail(session, 'protocol_mismatch', `Client-Protokoll ${ev.protocol}, Server erwartet ${WS_PROTOCOL_VERSION}. Bitte App aktualisieren.`);
+    session.socket.close();
+    return;
+  }
+  const userId = verifyToken(ev.token);
+  if (!userId) { fail(session, 'invalid_token', 'Anmeldung abgelaufen'); session.socket.close(); return; }
+
+  const self = store.getSelf(userId);
+  if (!self) { fail(session, 'unknown_user', 'Konto existiert nicht mehr'); session.socket.close(); return; }
+
+  session.userId = userId;
+  session.language = normalizeLang(self.language);
+  session.autoTranslate = self.autoTranslate;
+
+  const set = byUser.get(userId) ?? new Set<Session>();
+  const wasOffline = set.size === 0;
+  set.add(session);
+  byUser.set(userId, set);
+
+  send(session, {
+    t: 'ready',
+    self,
+    users: store.listUsers().map((u) => ({ ...u, status: isOnline(u.id) ? u.status : 'offline' })),
+    channels: store.visibleChannels(userId),
+    states: store.channelStates(userId),
+    scheduled: store.scheduledFor(userId),
+    serverTime: Date.now(),
+    ai: aiCapabilities(),
+  });
+
+  if (wasOffline) setStatus(userId, self.status === 'offline' ? 'online' : self.status);
+}
+
+/* ── Event-Dispatch ───────────────────────────────────────────── */
+
+async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
+  const userId = session.userId!;
+
+  switch (ev.t) {
+    case 'ping':
+      send(session, { t: 'pong', ts: ev.ts });
+      return;
+
+    case 'channel:open': {
+      const ch = store.getChannel(ev.channelId, userId);
+      if (!ch) return fail(session, 'not_found', 'Kanal nicht gefunden');
+      if (ch.kind !== 'public' && !store.isMember(ch.id, userId)) {
+        return fail(session, 'forbidden', 'Kein Zugriff auf diesen Kanal');
+      }
+      session.openChannelId = ch.id;
+
+      const { messages: list, hasMore } = store.channelHistory(ch.id, ev.before ?? null, Math.min(ev.limit ?? 50, 100));
+      const missing = session.autoTranslate ? fillCachedTranslations(list, session.language) : [];
+      send(session, { t: 'channel:history', channelId: ch.id, messages: list, hasMore });
+      if (missing.length) translateInBackground(missing, session.language, userId, channelContext(ch.id));
+      return;
+    }
+
+    case 'channel:create': {
+      const ch = channels.createChannel({
+        kind: ev.kind, name: ev.name, topic: ev.topic ?? null,
+        primaryLanguage: ev.primaryLanguage ?? null, createdBy: userId, memberIds: ev.memberIds,
+      });
+      const audience = ev.kind === 'public' ? undefined : ch.memberIds;
+      broadcast({ t: 'channel:upsert', channel: ch }, audience);
+      for (const uid of ch.memberIds) {
+        const st = store.channelState(ch.id, uid);
+        if (st) sendToUser(uid, { t: 'channel:state', state: st });
+      }
+      return;
+    }
+
+    case 'channel:join': {
+      const ch = channels.joinChannel(ev.channelId, userId);
+      sendToUser(userId, { t: 'channel:upsert', channel: ch });
+      const st = store.channelState(ch.id, userId);
+      if (st) sendToUser(userId, { t: 'channel:state', state: st });
+      const sys = messages.createMessage({
+        channelId: ch.id, userId, text: `@${store.getUser(userId)?.handle} ist dem Kanal beigetreten`, systemKind: 'join',
+      });
+      deliverMessage(sys);
+      return;
+    }
+
+    case 'channel:leave':
+      channels.leaveChannel(ev.channelId, userId);
+      sendToUser(userId, { t: 'channel:removed', channelId: ev.channelId });
+      return;
+
+    case 'channel:update': {
+      const ch = channels.updateChannel(ev.channelId, {
+        topic: ev.topic, purpose: ev.purpose, primaryLanguage: ev.primaryLanguage, archived: ev.archived,
+      });
+      if (ch) broadcast({ t: 'channel:upsert', channel: ch }, ch.kind === 'public' ? undefined : ch.memberIds);
+      return;
+    }
+
+    case 'dm:open': {
+      const ch = channels.openDm(userId, ev.userId);
+      for (const uid of ch.memberIds) {
+        sendToUser(uid, { t: 'channel:upsert', channel: store.getChannel(ch.id, uid)! });
+        const st = store.channelState(ch.id, uid);
+        if (st) sendToUser(uid, { t: 'channel:state', state: st });
+      }
+      session.openChannelId = ch.id;
+      const { messages: list, hasMore } = store.channelHistory(ch.id, null, 50);
+      const missing = session.autoTranslate ? fillCachedTranslations(list, session.language) : [];
+      send(session, { t: 'channel:history', channelId: ch.id, messages: list, hasMore });
+      if (missing.length) translateInBackground(missing, session.language, userId, null);
+      return;
+    }
+
+    case 'message:send': {
+      const ch = store.getChannel(ev.channelId, userId);
+      if (!ch) return fail(session, 'not_found', 'Kanal nicht gefunden');
+      if (ch.kind !== 'public' && !store.isMember(ch.id, userId)) {
+        return fail(session, 'forbidden', 'Kein Zugriff auf diesen Kanal');
+      }
+      if (ch.kind === 'public') channels.ensureMember(ch.id, userId);
+
+      const msg = messages.createMessage({
+        channelId: ch.id, userId, text: ev.text, parentId: ev.parentId ?? null,
+        attachmentIds: ev.attachmentIds, sourceLang: ev.sourceLang ?? null,
+      });
+      messages.markRead(ch.id, userId, msg.id);
+      deliverMessage(msg, ev.clientId);
+      return;
+    }
+
+    case 'message:edit': {
+      const msg = messages.editMessage(ev.messageId, userId, ev.text);
+      broadcast({ t: 'message:updated', message: msg }, store.memberIds(msg.channelId));
+      // Neu übersetzen für alle, die zuschauen
+      const targets = new Set<string>();
+      for (const uid of store.memberIds(msg.channelId)) {
+        if (uid === userId || !isOnline(uid)) continue;
+        const u = store.getUser(uid);
+        if (u?.autoTranslate) targets.add(normalizeLang(u.language));
+      }
+      for (const lang of targets) {
+        void translateMessage(msg.id, lang, { force: true, context: channelContext(msg.channelId) })
+          .then((view) => {
+            if (!view) return;
+            for (const uid of store.memberIds(msg.channelId)) {
+              const u = store.getUser(uid);
+              if (u && u.autoTranslate && normalizeLang(u.language) === lang) {
+                sendToUser(uid, { t: 'translation', messageId: msg.id, translation: view });
+              }
+            }
+          })
+          .catch(() => { /* Original bleibt sichtbar */ });
+      }
+      return;
+    }
+
+    case 'message:delete': {
+      const self = store.getSelf(userId);
+      const { channelId } = messages.deleteMessage(ev.messageId, userId, self?.role === 'owner' || self?.role === 'admin');
+      broadcast({ t: 'message:deleted', messageId: ev.messageId, channelId }, store.memberIds(channelId));
+      return;
+    }
+
+    case 'message:react': {
+      const { channelId } = messages.toggleReaction(ev.messageId, userId, ev.emoji);
+      const msg = store.getMessage(ev.messageId);
+      if (msg) broadcast({ t: 'reaction:updated', messageId: msg.id, channelId, reactions: msg.reactions }, store.memberIds(channelId));
+      return;
+    }
+
+    case 'message:pin': {
+      const msg = messages.setPinned(ev.messageId, ev.pinned);
+      if (msg) broadcast({ t: 'message:updated', message: msg }, store.memberIds(msg.channelId));
+      return;
+    }
+
+    case 'message:save':
+      messages.setSaved(ev.messageId, userId, ev.saved);
+      return;
+
+    case 'message:schedule': {
+      const id = messages.scheduleMessage({
+        channelId: ev.channelId, userId, text: ev.text, sendAt: ev.sendAt, parentId: ev.parentId ?? null,
+      });
+      const item = db.get('SELECT * FROM scheduled_messages WHERE id = ?', id);
+      if (item) send(session, { t: 'scheduled:upsert', item: store.toScheduled(item) });
+      return;
+    }
+
+    case 'message:unschedule':
+      if (messages.cancelScheduled(ev.scheduledId, userId)) {
+        sendToUser(userId, { t: 'scheduled:removed', scheduledId: ev.scheduledId });
+      }
+      return;
+
+    case 'thread:open': {
+      const list = store.threadHistory(ev.messageId);
+      if (!list.length) return fail(session, 'not_found', 'Thread nicht gefunden');
+      const missing = session.autoTranslate ? fillCachedTranslations(list, session.language) : [];
+      send(session, { t: 'thread:history', parentId: ev.messageId, channelId: list[0].channelId, messages: list });
+      if (missing.length) translateInBackground(missing, session.language, userId, channelContext(list[0].channelId));
+      return;
+    }
+
+    case 'typing': {
+      const audience = store.memberIds(ev.channelId).filter((uid) => uid !== userId);
+      broadcast({ t: 'typing', channelId: ev.channelId, userId, parentId: ev.parentId ?? null }, audience);
+      return;
+    }
+
+    case 'read': {
+      messages.markRead(ev.channelId, userId, ev.lastMessageId);
+      const st = store.channelState(ev.channelId, userId);
+      if (st) send(session, { t: 'channel:state', state: st });
+      broadcast({ t: 'read', channelId: ev.channelId, userId, lastMessageId: ev.lastMessageId },
+        store.memberIds(ev.channelId).filter((uid) => uid !== userId));
+      return;
+    }
+
+    case 'presence:set':
+      setStatus(userId, ev.status, ev.statusEmoji, ev.statusText);
+      return;
+
+    case 'prefs:update': {
+      const map: Record<string, string> = {
+        language: 'language', autoTranslate: 'auto_translate', notifyOn: 'notify_on',
+        theme: 'theme', density: 'density', composeTargetPreview: 'compose_target_preview',
+        quietHoursStart: 'quiet_hours_start', quietHoursEnd: 'quiet_hours_end',
+        displayName: 'display_name', title: 'title', timezone: 'timezone',
+      };
+      const sets: string[] = [];
+      const vals: any[] = [];
+      for (const [key, value] of Object.entries(ev.patch)) {
+        const col = map[key];
+        if (!col) continue;
+        sets.push(`${col} = ?`);
+        vals.push(typeof value === 'boolean' ? (value ? 1 : 0) : value);
+      }
+      if (!sets.length) return;
+      db.run(`UPDATE users SET ${sets.join(', ')} WHERE id = ?`, ...vals, userId);
+
+      const self = store.getSelf(userId)!;
+      session.language = normalizeLang(self.language);
+      session.autoTranslate = self.autoTranslate;
+      for (const s of byUser.get(userId) ?? []) {
+        s.language = session.language;
+        s.autoTranslate = session.autoTranslate;
+        send(s, { t: 'self:updated', self });
+      }
+      broadcast({ t: 'user:upsert', user: store.getUser(userId)! });
+
+      // Sprache gewechselt -> offenen Kanal in der neuen Sprache nachliefern
+      if (ev.patch.language && session.openChannelId) {
+        const { messages: list } = store.channelHistory(session.openChannelId, null, 50);
+        const missing = fillCachedTranslations(list, session.language);
+        for (const m of list) {
+          if (m.translation) send(session, { t: 'translation', messageId: m.id, translation: m.translation });
+        }
+        if (missing.length) translateInBackground(missing, session.language, userId, channelContext(session.openChannelId));
+      }
+      return;
+    }
+
+    case 'translate:request': {
+      const view = await translateMessage(ev.messageId, ev.targetLang, { force: ev.force });
+      if (view) send(session, { t: 'translation', messageId: ev.messageId, translation: view });
+      else fail(session, 'no_translation', 'Keine Übersetzung nötig oder möglich');
+      return;
+    }
+
+    case 'translate:roundtrip': {
+      const result = await roundTrip(ev.messageId, ev.targetLang);
+      if (!result) return fail(session, 'no_translation', 'Für diese Nachricht liegt keine Übersetzung vor');
+      send(session, { t: 'roundtrip', messageId: ev.messageId, targetLang: ev.targetLang, ...result });
+      return;
+    }
+
+    case 'compose:preview': {
+      const outcome = await translate({
+        text: ev.text, targetLang: ev.targetLang, context: channelContext(ev.channelId),
+      });
+      send(session, {
+        t: 'compose:preview', requestId: ev.requestId,
+        text: outcome.text, targetLang: ev.targetLang, sourceLang: outcome.sourceLang,
+      });
+      return;
+    }
+
+    case 'ai:catchup': {
+      const ch = store.getChannel(ev.channelId, userId);
+      if (!ch) return fail(session, 'not_found', 'Kanal nicht gefunden', ev.requestId);
+      const state = store.channelState(ev.channelId, userId);
+      const summary = await ai.catchUp({
+        channelId: ev.channelId,
+        sinceMessageId: ev.sinceMessageId ?? state?.lastReadMessageId ?? null,
+        language: session.language,
+        channelName: channels.channelLabel(ch, userId, (id) => store.getUser(id)?.displayName ?? 'Unbekannt'),
+      });
+      send(session, { t: 'ai:catchup', requestId: ev.requestId, summary });
+      return;
+    }
+
+    case 'ai:thread-summary': {
+      const summary = await ai.summarizeThread(ev.messageId, session.language);
+      send(session, { t: 'ai:thread-summary', requestId: ev.requestId, messageId: ev.messageId, summary });
+      return;
+    }
+
+    case 'ai:smart-replies': {
+      const self = store.getSelf(userId)!;
+      const replies = await ai.smartReplies({
+        channelId: ev.channelId, parentId: ev.parentId ?? null,
+        language: session.language, selfName: self.displayName,
+      });
+      send(session, { t: 'ai:smart-replies', requestId: ev.requestId, replies });
+      return;
+    }
+
+    case 'ai:rewrite': {
+      const text = await ai.rewrite({ text: ev.text, tone: ev.tone, targetLang: ev.targetLang ?? null });
+      send(session, { t: 'ai:rewrite', requestId: ev.requestId, text });
+      return;
+    }
+
+    case 'ai:ask': {
+      const ch = store.getChannel(ev.channelId, userId);
+      if (!ch) return fail(session, 'not_found', 'Kanal nicht gefunden', ev.requestId);
+      const result = await ai.askChannel({
+        channelId: ev.channelId, question: ev.question, language: session.language,
+        channelName: channels.channelLabel(ch, userId, (id) => store.getUser(id)?.displayName ?? 'Unbekannt'),
+      });
+      send(session, { t: 'ai:ask', requestId: ev.requestId, ...result });
+      return;
+    }
+  }
+}
+
+/* ── Hintergrundaufgaben ──────────────────────────────────────── */
+
+export function startBackgroundJobs(): () => void {
+  // Geplante Nachrichten ausliefern
+  const scheduler = setInterval(() => {
+    try {
+      for (const row of messages.dueScheduled(Date.now())) {
+        try {
+          const msg = messages.createMessage({
+            channelId: row.channel_id, userId: row.user_id, text: row.text, parentId: row.parent_id,
+          });
+          messages.removeScheduled(row.id);
+          sendToUser(row.user_id, { t: 'scheduled:removed', scheduledId: row.id });
+          deliverMessage(msg);
+        } catch (err) {
+          console.error('[scheduler]', (err as Error).message);
+          messages.removeScheduled(row.id);
+        }
+      }
+    } catch (err) {
+      console.error('[scheduler]', (err as Error).message);
+    }
+  }, 5_000);
+
+  // Tote Sockets aussortieren
+  const heartbeat = setInterval(() => {
+    for (const s of sessions.values()) {
+      if (!s.alive) { s.socket.terminate(); continue; }
+      s.alive = false;
+      try { s.socket.ping(); } catch { /* ignore */ }
+    }
+  }, 30_000);
+
+  return () => { clearInterval(scheduler); clearInterval(heartbeat); };
+}
+
+export function onlineUserIds(): string[] {
+  return [...byUser.keys()];
+}

@@ -1,0 +1,306 @@
+import type {
+  Attachment, Channel, ChannelState, Message, Reaction,
+  ScheduledMessage, SelfUser, User,
+} from '@stellium/shared';
+import { db, placeholders } from '../db/index.js';
+
+/* ── Nutzer ───────────────────────────────────────────────────── */
+
+export function toUser(r: any): User {
+  return {
+    id: r.id,
+    handle: r.handle,
+    displayName: r.display_name,
+    email: r.email,
+    avatarColor: r.avatar_color,
+    avatarUrl: r.avatar_url ?? null,
+    title: r.title ?? null,
+    timezone: r.timezone,
+    language: r.language,
+    autoTranslate: Boolean(r.auto_translate),
+    status: r.status,
+    statusEmoji: r.status_emoji ?? null,
+    statusText: r.status_text ?? null,
+    lastSeenAt: r.last_seen_at ?? null,
+    role: r.role,
+    createdAt: r.created_at,
+  };
+}
+
+export function toSelf(r: any): SelfUser {
+  return {
+    ...toUser(r),
+    notifyOn: r.notify_on,
+    quietHoursStart: r.quiet_hours_start ?? null,
+    quietHoursEnd: r.quiet_hours_end ?? null,
+    composeTargetPreview: Boolean(r.compose_target_preview),
+    theme: r.theme,
+    density: r.density,
+  };
+}
+
+export function getUser(id: string): User | null {
+  const r = db.get('SELECT * FROM users WHERE id = ?', id);
+  return r ? toUser(r) : null;
+}
+
+export function getSelf(id: string): SelfUser | null {
+  const r = db.get('SELECT * FROM users WHERE id = ?', id);
+  return r ? toSelf(r) : null;
+}
+
+export function getUserByHandle(handle: string): User | null {
+  const r = db.get('SELECT * FROM users WHERE lower(handle) = lower(?)', handle);
+  return r ? toUser(r) : null;
+}
+
+export function listUsers(): User[] {
+  return db.all('SELECT * FROM users ORDER BY display_name COLLATE NOCASE').map(toUser);
+}
+
+export function userLanguage(id: string): string {
+  return db.get<{ language: string }>('SELECT language FROM users WHERE id = ?', id)?.language ?? 'en';
+}
+
+/* ── Kanäle ───────────────────────────────────────────────────── */
+
+export function memberIds(channelId: string): string[] {
+  return db.all<{ user_id: string }>('SELECT user_id FROM channel_members WHERE channel_id = ?', channelId)
+    .map((r) => r.user_id);
+}
+
+export function toChannel(r: any, viewerId?: string): Channel {
+  const members = memberIds(r.id);
+  return {
+    id: r.id,
+    kind: r.kind,
+    name: r.name,
+    topic: r.topic ?? null,
+    purpose: r.purpose ?? null,
+    primaryLanguage: r.primary_language ?? null,
+    archived: Boolean(r.archived),
+    createdBy: r.created_by,
+    createdAt: r.created_at,
+    memberIds: members,
+    dmPeerId: r.kind === 'dm' && viewerId ? members.find((m) => m !== viewerId) ?? null : null,
+  };
+}
+
+export function getChannel(id: string, viewerId?: string): Channel | null {
+  const r = db.get('SELECT * FROM channels WHERE id = ?', id);
+  return r ? toChannel(r, viewerId) : null;
+}
+
+export function isMember(channelId: string, userId: string): boolean {
+  return Boolean(db.get('SELECT 1 AS x FROM channel_members WHERE channel_id = ? AND user_id = ?', channelId, userId));
+}
+
+/** Kanäle, die der Nutzer sieht: eigene Mitgliedschaften + offene Kanäle. */
+export function visibleChannels(userId: string): Channel[] {
+  const rows = db.all(
+    `SELECT DISTINCT c.* FROM channels c
+     LEFT JOIN channel_members m ON m.channel_id = c.id AND m.user_id = ?
+     WHERE c.archived = 0 AND (m.user_id IS NOT NULL OR c.kind = 'public')
+     ORDER BY c.kind, c.name COLLATE NOCASE`,
+    userId,
+  );
+  return rows.map((r) => toChannel(r, userId));
+}
+
+export function channelStates(userId: string): ChannelState[] {
+  const rows = db.all<{ channel_id: string; last_read_message_id: string | null; muted: number; starred: number }>(
+    'SELECT channel_id, last_read_message_id, muted, starred FROM channel_members WHERE user_id = ?',
+    userId,
+  );
+  return rows.map((r) => ({
+    channelId: r.channel_id,
+    lastReadMessageId: r.last_read_message_id,
+    muted: Boolean(r.muted),
+    starred: Boolean(r.starred),
+    ...unreadCounts(r.channel_id, userId, r.last_read_message_id),
+  }));
+}
+
+export function unreadCounts(channelId: string, userId: string, lastReadId: string | null) {
+  const boundary = lastReadId ?? '';
+  const unread = db.get<{ n: number }>(
+    `SELECT COUNT(*) AS n FROM messages
+     WHERE channel_id = ? AND deleted_at IS NULL AND user_id <> ? AND id > ?`,
+    channelId, userId, boundary,
+  )?.n ?? 0;
+  const mentions = db.get<{ n: number }>(
+    `SELECT COUNT(*) AS n FROM messages m
+     JOIN message_mentions mm ON mm.message_id = m.id
+     WHERE m.channel_id = ? AND m.deleted_at IS NULL AND m.user_id <> ? AND m.id > ? AND mm.user_id = ?`,
+    channelId, userId, boundary, userId,
+  )?.n ?? 0;
+  return { unreadCount: unread, mentionCount: mentions };
+}
+
+export function channelState(channelId: string, userId: string): ChannelState | null {
+  const r = db.get<{ last_read_message_id: string | null; muted: number; starred: number }>(
+    'SELECT last_read_message_id, muted, starred FROM channel_members WHERE channel_id = ? AND user_id = ?',
+    channelId, userId,
+  );
+  if (!r) return null;
+  return {
+    channelId,
+    lastReadMessageId: r.last_read_message_id,
+    muted: Boolean(r.muted),
+    starred: Boolean(r.starred),
+    ...unreadCounts(channelId, userId, r.last_read_message_id),
+  };
+}
+
+/* ── Nachrichten ──────────────────────────────────────────────── */
+
+function attachmentsFor(messageIds: string[]): Map<string, Attachment[]> {
+  const out = new Map<string, Attachment[]>();
+  if (!messageIds.length) return out;
+  const rows = db.all<any>(
+    `SELECT id, message_id, name, mime, size, width, height FROM attachments
+     WHERE message_id IN (${placeholders(messageIds.length)})`,
+    ...messageIds,
+  );
+  for (const r of rows) {
+    const list = out.get(r.message_id) ?? [];
+    list.push({
+      id: r.id, messageId: r.message_id, name: r.name, mime: r.mime,
+      size: r.size, url: `/files/${r.id}`, width: r.width ?? null, height: r.height ?? null,
+    });
+    out.set(r.message_id, list);
+  }
+  return out;
+}
+
+function reactionsFor(messageIds: string[]): Map<string, Reaction[]> {
+  const out = new Map<string, Reaction[]>();
+  if (!messageIds.length) return out;
+  const rows = db.all<{ message_id: string; emoji: string; user_id: string }>(
+    `SELECT message_id, emoji, user_id FROM reactions
+     WHERE message_id IN (${placeholders(messageIds.length)}) ORDER BY created_at ASC`,
+    ...messageIds,
+  );
+  for (const r of rows) {
+    const list = out.get(r.message_id) ?? [];
+    const hit = list.find((x) => x.emoji === r.emoji);
+    if (hit) hit.userIds.push(r.user_id);
+    else list.push({ emoji: r.emoji, userIds: [r.user_id] });
+    out.set(r.message_id, list);
+  }
+  return out;
+}
+
+function mentionsFor(messageIds: string[]): Map<string, string[]> {
+  const out = new Map<string, string[]>();
+  if (!messageIds.length) return out;
+  const rows = db.all<{ message_id: string; user_id: string }>(
+    `SELECT message_id, user_id FROM message_mentions WHERE message_id IN (${placeholders(messageIds.length)})`,
+    ...messageIds,
+  );
+  for (const r of rows) out.set(r.message_id, [...(out.get(r.message_id) ?? []), r.user_id]);
+  return out;
+}
+
+function threadInfoFor(messageIds: string[]): Map<string, { count: number; lastAt: number; participants: string[] }> {
+  const out = new Map<string, { count: number; lastAt: number; participants: string[] }>();
+  if (!messageIds.length) return out;
+  const rows = db.all<{ parent_id: string; user_id: string; created_at: number }>(
+    `SELECT parent_id, user_id, created_at FROM messages
+     WHERE parent_id IN (${placeholders(messageIds.length)}) AND deleted_at IS NULL
+     ORDER BY created_at ASC`,
+    ...messageIds,
+  );
+  for (const r of rows) {
+    const entry = out.get(r.parent_id) ?? { count: 0, lastAt: 0, participants: [] };
+    entry.count++;
+    entry.lastAt = Math.max(entry.lastAt, r.created_at);
+    if (!entry.participants.includes(r.user_id)) entry.participants.push(r.user_id);
+    out.set(r.parent_id, entry);
+  }
+  return out;
+}
+
+export function hydrateMessages(rows: any[]): Message[] {
+  const ids = rows.map((r) => r.id);
+  const atts = attachmentsFor(ids);
+  const reacts = reactionsFor(ids);
+  const mentions = mentionsFor(ids);
+  const threads = threadInfoFor(ids);
+
+  return rows.map((r) => {
+    const thread = threads.get(r.id);
+    return {
+      id: r.id,
+      channelId: r.channel_id,
+      userId: r.user_id,
+      parentId: r.parent_id ?? null,
+      text: r.deleted_at ? '' : r.text,
+      sourceLang: r.source_lang ?? null,
+      createdAt: r.created_at,
+      editedAt: r.edited_at ?? null,
+      deletedAt: r.deleted_at ?? null,
+      systemKind: r.system_kind ?? null,
+      attachments: r.deleted_at ? [] : (atts.get(r.id) ?? []),
+      reactions: reacts.get(r.id) ?? [],
+      replyCount: thread?.count ?? 0,
+      lastReplyAt: thread?.lastAt ?? null,
+      threadParticipantIds: thread?.participants ?? [],
+      mentionUserIds: mentions.get(r.id) ?? [],
+      pinned: Boolean(r.pinned),
+      translation: null,
+    } satisfies Message;
+  });
+}
+
+export function getMessage(id: string): Message | null {
+  const r = db.get('SELECT * FROM messages WHERE id = ?', id);
+  return r ? hydrateMessages([r])[0] : null;
+}
+
+export function channelHistory(channelId: string, before: string | null, limit: number): { messages: Message[]; hasMore: boolean } {
+  const rows = before
+    ? db.all(
+        `SELECT * FROM messages WHERE channel_id = ? AND parent_id IS NULL AND id < ?
+         ORDER BY created_at DESC LIMIT ?`, channelId, before, limit + 1)
+    : db.all(
+        `SELECT * FROM messages WHERE channel_id = ? AND parent_id IS NULL
+         ORDER BY created_at DESC LIMIT ?`, channelId, limit + 1);
+  const hasMore = rows.length > limit;
+  const page = hasMore ? rows.slice(0, limit) : rows;
+  return { messages: hydrateMessages(page.reverse()), hasMore };
+}
+
+export function threadHistory(parentId: string): Message[] {
+  const root = db.get('SELECT * FROM messages WHERE id = ?', parentId);
+  const replies = db.all('SELECT * FROM messages WHERE parent_id = ? ORDER BY created_at ASC', parentId);
+  return hydrateMessages(root ? [root, ...replies] : replies);
+}
+
+export function pinnedMessages(channelId: string): Message[] {
+  return hydrateMessages(db.all(
+    'SELECT * FROM messages WHERE channel_id = ? AND pinned = 1 AND deleted_at IS NULL ORDER BY created_at DESC LIMIT 50',
+    channelId,
+  ));
+}
+
+export function savedMessages(userId: string): Message[] {
+  return hydrateMessages(db.all(
+    `SELECT m.* FROM saved_messages s JOIN messages m ON m.id = s.message_id
+     WHERE s.user_id = ? AND m.deleted_at IS NULL ORDER BY s.created_at DESC LIMIT 100`,
+    userId,
+  ));
+}
+
+/* ── Geplante Nachrichten ─────────────────────────────────────── */
+
+export function toScheduled(r: any): ScheduledMessage {
+  return {
+    id: r.id, channelId: r.channel_id, userId: r.user_id,
+    text: r.text, sendAt: r.send_at, parentId: r.parent_id ?? null, createdAt: r.created_at,
+  };
+}
+
+export function scheduledFor(userId: string): ScheduledMessage[] {
+  return db.all('SELECT * FROM scheduled_messages WHERE user_id = ? ORDER BY send_at ASC', userId).map(toScheduled);
+}

@@ -1,0 +1,28 @@
+node_modules/
+*.nosync
+
+# Build-Ergebnisse
+dist/
+dist-electron/
+release/
+out/
+packages/*/dist/
+
+# Laufzeitdaten
+data/
+uploads/
+*.db
+*.db-shm
+*.db-wal
+
+# Konfiguration mit Geheimnissen
+.env
+.env.local
+
+# Betriebssystem und Editor
+.DS_Store
+Thumbs.db
+*.log
+.idea/
+.vscode/*
+!.vscode/extensions.json

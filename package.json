@@ -1,0 +1,25 @@
+{
+  "name": "stellium-chat",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Stellium — Team-Chat mit Live-Übersetzung und KI (macOS Intel/ARM, Windows, Linux)",
+  "workspaces": ["packages/shared", "packages/server", "packages/desktop"],
+  "engines": { "node": ">=20.11" },
+  "scripts": {
+    "build:shared": "npm run build -w @stellium/shared",
+    "dev": "npm run build:shared && concurrently -n server,desktop -c cyan,magenta \"npm:dev:server\" \"npm:dev:desktop\"",
+    "dev:server": "npm run dev -w @stellium/server",
+    "dev:desktop": "npm run dev -w @stellium/desktop",
+    "seed": "npm run build:shared && npm run seed -w @stellium/server",
+    "build": "npm run build:shared && npm run build -w @stellium/server && npm run build -w @stellium/desktop",
+    "dist:mac": "npm run build && npm run dist:mac -w @stellium/desktop",
+    "dist:win": "npm run build && npm run dist:win -w @stellium/desktop",
+    "dist:linux": "npm run build && npm run dist:linux -w @stellium/desktop",
+    "start:server": "npm run start -w @stellium/server",
+    "typecheck": "npm run typecheck --workspaces --if-present"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2",
+    "typescript": "^5.7.3"
+  }
+}
