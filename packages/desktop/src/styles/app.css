@@ -1749,3 +1749,33 @@ button.msg__author:hover { color: var(--violet-soft); text-decoration: underline
   .tour__buehne { min-height: 320px; padding: var(--sp-5) var(--sp-5) var(--sp-3); }
   .tour__titel { font-size: 20px; }
 }
+
+/* ── Kontextmenü ─────────────────────────────────────────────── */
+
+.kontextmenue {
+  position: fixed;
+  z-index: 80;
+  min-width: 218px;
+  padding: 5px;
+  border-radius: var(--r-md);
+  border: 1px solid var(--line-strong);
+  background: var(--bg-elevated);
+  backdrop-filter: blur(24px) saturate(160%);
+  box-shadow: var(--shadow-lg);
+}
+.kontextmenue__eintrag {
+  display: flex; align-items: center; gap: 10px;
+  width: 100%;
+  padding: 7px 10px;
+  border-radius: var(--r-xs);
+  color: var(--tx-mid);
+  font-size: 13.5px;
+  text-align: left;
+  transition: background var(--t-fast), color var(--t-fast);
+}
+.kontextmenue__eintrag:hover:not(:disabled) { background: var(--bg-hover); color: var(--tx-hi); }
+.kontextmenue__eintrag:disabled { opacity: 0.4; cursor: default; }
+.kontextmenue__eintrag--danger { color: var(--rose); }
+.kontextmenue__eintrag--danger:hover:not(:disabled) { background: rgba(251, 113, 133, 0.12); color: var(--rose); }
+.kontextmenue__icon { display: grid; place-items: center; width: 16px; flex: none; opacity: 0.8; }
+.kontextmenue__trenner { height: 1px; margin: 4px 6px; background: var(--line); }

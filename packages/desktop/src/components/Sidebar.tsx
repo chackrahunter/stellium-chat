@@ -1,12 +1,14 @@
 import { useMemo, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
-  Bot, ChevronDown, Hash, Lock, Plus, Search, Sparkles, Users, UsersRound,
+  Archive, Bell, BellOff, Bot, ChevronDown, EyeOff, Hash, Lock, LogOut, Plus,
+  Search, Settings2, Sparkles, Star, StarOff, Trash2, Users, UsersRound,
 } from 'lucide-react';
 import type { Channel } from '@stellium/shared';
 import { useStore } from '../state/store.js';
 import { useT } from '../i18n/index.js';
 import { Avatar } from './Avatar.jsx';
+import { ContextMenu, useContextMenu, type MenuEintrag } from './ContextMenu.jsx';
 import { clsx, languageInfo, localTimeFor } from '../lib/format.js';
 
 export function Sidebar() {
@@ -18,6 +20,7 @@ export function Sidebar() {
   const activeId = useStore((s) => s.activeChannelId);
   const ai = useStore((s) => s.ai);
   const { openChannel, setOverlay, openDm } = useStore.getState();
+  const menue = useContextMenu<string>();
 
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const toggle = (key: string) => setCollapsed((c) => ({ ...c, [key]: !c[key] }));
@@ -49,6 +52,7 @@ export function Sidebar() {
         className={clsx('chan', unread > 0 && 'chan--unread')}
         aria-current={activeId === channel.id}
         onClick={() => openChannel(channel.id)}
+        onContextMenu={(e) => menue.oeffnen(e, channel.id)}
       >
         {channel.kind === 'dm'
           ? <Avatar user={peer} size={20} showPresence />
@@ -61,11 +65,72 @@ export function Sidebar() {
             {languageInfo(channel.primaryLanguage).flag}
           </span>
         )}
+        {state?.starred && <Star size={11} className="chan__lang" style={{ color: 'var(--amber)' }} />}
+        {state?.muted && <BellOff size={11} className="chan__lang" />}
         {mentions > 0
           ? <span className="chan__badge">@{mentions}</span>
-          : unread > 0 ? <span className="chan__badge">{unread > 99 ? '99+' : unread}</span> : null}
+          : unread > 0 && !state?.muted ? <span className="chan__badge">{unread > 99 ? '99+' : unread}</span> : null}
       </button>
     );
+  };
+
+  const menueEintraege = (channelId: string): MenuEintrag[] => {
+    const ch = channels[channelId];
+    if (!ch) return [];
+    const st = states[channelId];
+    const istDm = ch.kind === 'dm';
+    const store = useStore.getState();
+    const p = self?.permissions;
+
+    const eintraege: MenuEintrag[] = [
+      { id: 'oeffnen', label: t('ctx.open'), icon: <Hash size={14} />, onClick: () => openChannel(channelId) },
+      {
+        id: 'stumm', trenner: true,
+        label: st?.muted ? t('ctx.unmute') : t('ctx.mute'),
+        icon: st?.muted ? <Bell size={14} /> : <BellOff size={14} />,
+        onClick: () => store.muteChannel(channelId, !st?.muted),
+      },
+      {
+        id: 'anheften',
+        label: st?.starred ? t('ctx.unstar') : t('ctx.star'),
+        icon: st?.starred ? <StarOff size={14} /> : <Star size={14} />,
+        onClick: () => store.starChannel(channelId, !st?.starred),
+      },
+      {
+        id: 'einstellungen', trenner: true,
+        label: t('channel.settingsTitle'), icon: <Settings2 size={14} />,
+        onClick: () => { openChannel(channelId); setOverlay('channelSettings'); },
+      },
+    ];
+
+    if (istDm) {
+      eintraege.push({
+        id: 'ausblenden', trenner: true, danger: true,
+        label: t('channel.hideDm'), icon: <EyeOff size={14} />,
+        onClick: () => store.hideChannel(channelId),
+      });
+    } else {
+      if (p?.['channel.archive']) {
+        eintraege.push({
+          id: 'archivieren', trenner: true,
+          label: t('channel.archive'), icon: <Archive size={14} />,
+          onClick: () => store.updateChannel(channelId, { archived: true }),
+        });
+      }
+      eintraege.push({
+        id: 'verlassen', trenner: !p?.['channel.archive'],
+        label: t('channel.leave'), icon: <LogOut size={14} />,
+        onClick: () => store.leaveChannel(channelId),
+      });
+      if (p?.['channel.delete']) {
+        eintraege.push({
+          id: 'loeschen', danger: true,
+          label: t('channel.delete'), icon: <Trash2 size={14} />,
+          onClick: () => { openChannel(channelId); setOverlay('channelSettings'); },
+        });
+      }
+    }
+    return eintraege;
   };
 
   return (
@@ -144,7 +209,8 @@ export function Sidebar() {
           {otherUsers.filter((u) => !dmPeerIds.has(u.id)).map((u) => {
             const { time, offHours } = localTimeFor(u.timezone);
             return (
-              <button key={u.id} className="chan" onClick={() => openDm(u.id)} style={{ opacity: 0.72 }}>
+              <button key={u.id} className="chan" onClick={() => openDm(u.id)} style={{ opacity: 0.72 }}
+                onContextMenu={(e) => { e.preventDefault(); openDm(u.id); }}>
                 <Avatar user={u} size={20} showPresence />
                 <span className="chan__name">{u.displayName}</span>
                 <span className="chan__lang" title={offHours ? `Ortszeit ${time} — vermutlich Feierabend` : `Ortszeit ${time}`}>
@@ -155,6 +221,14 @@ export function Sidebar() {
           })}
         </Group>
       </div>
+
+      {menue.zustand && (
+        <ContextMenu
+          position={menue.zustand.position}
+          eintraege={menueEintraege(menue.zustand.ziel)}
+          onClose={menue.schliessen}
+        />
+      )}
     </aside>
   );
 }

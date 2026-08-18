@@ -1,8 +1,9 @@
 /** WebSocket-Protokoll zwischen Desktop-Client und Server. */
 
 import type {
-  AiSummary, Channel, ChannelState, Draft, LinkPreview, Message, Poll, Reaction,
-  Reminder, ScheduledMessage, SelfUser, SmartReply, TranslationView, User,
+  AiSummary, CalendarEvent, Channel, ChannelState, Draft, LinkPreview, Message,
+  Poll, Reaction, Reminder, ScheduledMessage, SelfUser, SmartReply, StoredFile,
+  Task, TaskEvent, TaskPriority, TaskStatus, TranslationView, User,
   UserStatus, VoiceNote,
 } from './types.js';
 
@@ -73,7 +74,31 @@ export type ClientEvent =
   /* KI-Assistent als Gesprächspartner */
   | { t: 'ai:open-chat' }
   | { t: 'ai:open-team-channel' }
-  | { t: 'ai:set-mode'; channelId: string; mode: 'off' | 'mention' | 'always' };
+  | { t: 'ai:set-mode'; channelId: string; mode: 'off' | 'mention' | 'always' }
+
+  /* Aufgaben */
+  | { t: 'task:list'; channelId?: string | null; assigneeId?: string | null }
+  | { t: 'task:create'; title: string; description?: string | null; assigneeId?: string | null; channelId?: string | null; messageId?: string | null; dueAt?: number | null; priority?: TaskPriority; status?: TaskStatus }
+  | { t: 'task:update'; taskId: string; patch: { title?: string; description?: string | null; status?: TaskStatus; priority?: TaskPriority; assigneeId?: string | null; dueAt?: number | null } }
+  | { t: 'task:move'; taskId: string; status: TaskStatus; afterId?: string | null }
+  | { t: 'task:comment'; taskId: string; text: string }
+  | { t: 'task:watch'; taskId: string; watching: boolean }
+  | { t: 'task:delete'; taskId: string }
+  | { t: 'task:history'; taskId: string }
+  | { t: 'ai:extract-tasks'; requestId: string; channelId: string }
+
+  /* Kalender */
+  | { t: 'event:list'; from: number; to: number }
+  | { t: 'event:create'; title: string; description?: string | null; kind?: string; startsAt: number; endsAt: number; allDay?: boolean; location?: string | null; channelId?: string | null; attendeeIds?: string[] }
+  | { t: 'event:update'; eventId: string; patch: { title?: string; description?: string | null; startsAt?: number; endsAt?: number; allDay?: boolean; location?: string | null; kind?: string } }
+  | { t: 'event:respond'; eventId: string; response: 'yes' | 'no' | 'maybe' }
+  | { t: 'event:attendees'; eventId: string; add?: string[]; remove?: string[] }
+  | { t: 'event:delete'; eventId: string }
+
+  /* Dateiablage */
+  | { t: 'file:list'; channelId?: string | null; folder?: string }
+  | { t: 'file:update'; fileId: string; name?: string; description?: string | null; folder?: string }
+  | { t: 'file:delete'; fileId: string };
 
 export type RewriteTone =
   | 'polish' | 'formal' | 'friendly' | 'concise' | 'expand' | 'bullets' | 'apologize';
@@ -118,7 +143,21 @@ export type ServerEvent =
   | { t: 'links'; messageId: string; links: LinkPreview[] }
   | { t: 'ai:model-changed'; ai: AiCapabilities }
   /** Der Assistent formuliert gerade eine Antwort. */
-  | { t: 'ai:thinking'; channelId: string; active: boolean };
+  | { t: 'ai:thinking'; channelId: string; active: boolean }
+
+  | { t: 'task:list'; tasks: Task[] }
+  | { t: 'task:upsert'; task: Task }
+  | { t: 'task:removed'; taskId: string }
+  | { t: 'task:history'; taskId: string; events: TaskEvent[] }
+  | { t: 'ai:extract-tasks'; requestId: string; tasks: { title: string; assigneeId: string | null; dueAt: number | null }[] }
+
+  | { t: 'event:list'; events: CalendarEvent[] }
+  | { t: 'event:upsert'; event: CalendarEvent }
+  | { t: 'event:removed'; eventId: string }
+
+  | { t: 'file:list'; files: StoredFile[]; usage: { used: number; quota: number; fileCount: number } }
+  | { t: 'file:upsert'; file: StoredFile }
+  | { t: 'file:removed'; fileId: string };
 
 export interface AiCapabilities {
   provider: string;

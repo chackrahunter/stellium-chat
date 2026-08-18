@@ -33,6 +33,12 @@ export type PermissionKey =
   | 'voice.send'
   | 'poll.create'
   | 'poll.close_any'
+  | 'task.create'
+  | 'task.assign'
+  | 'task.delete'
+  | 'event.create'
+  | 'event.manage'
+  | 'file.manage'
   /* KI und Übersetzung */
   | 'ai.translate'
   | 'ai.assistant'
@@ -126,6 +132,24 @@ export const PERMISSIONS: PermissionInfo[] = [
   { key: 'poll.close_any', group: 'inhalte',
     labelDe: 'Fremde Umfragen beenden', labelEn: 'Close anyone’s polls',
     hintDe: '', hintEn: '' },
+  { key: 'task.create', group: 'inhalte',
+    labelDe: 'Aufgaben anlegen', labelEn: 'Create tasks',
+    hintDe: 'Eigene Aufgaben erstellen und bearbeiten.', hintEn: 'Create and edit own tasks.' },
+  { key: 'task.assign', group: 'inhalte',
+    labelDe: 'Aufgaben zuweisen', labelEn: 'Assign tasks',
+    hintDe: 'Aufgaben an andere Personen übergeben.', hintEn: 'Hand tasks over to other people.' },
+  { key: 'task.delete', group: 'inhalte',
+    labelDe: 'Aufgaben löschen', labelEn: 'Delete tasks',
+    hintDe: 'Auch fremde. Erledigen ist meist die bessere Wahl.', hintEn: 'Including others’. Completing is usually better.' },
+  { key: 'event.create', group: 'inhalte',
+    labelDe: 'Termine anlegen', labelEn: 'Create events',
+    hintDe: 'Eigene Termine und Abwesenheiten eintragen.', hintEn: 'Add own events and absences.' },
+  { key: 'event.manage', group: 'inhalte',
+    labelDe: 'Fremde Termine bearbeiten', labelEn: 'Edit anyone’s events',
+    hintDe: '', hintEn: '' },
+  { key: 'file.manage', group: 'inhalte',
+    labelDe: 'Dateiablage verwalten', labelEn: 'Manage file storage',
+    hintDe: 'Fremde Dateien umbenennen und löschen.', hintEn: 'Rename and delete other people’s files.' },
 
   { key: 'ai.translate', group: 'ki',
     labelDe: 'Live-Übersetzung nutzen', labelEn: 'Use live translation',
@@ -191,13 +215,14 @@ const GAST: PermissionKey[] = [
 const MITWIRKEND: PermissionKey[] = [
   ...GAST,
   'mention.user', 'file.upload', 'voice.send', 'message.forward', 'dm.start',
-  'ai.assistant',
+  'ai.assistant', 'task.create', 'event.create',
 ];
 
 /** Der Normalfall im Team. */
 const MITGLIED: PermissionKey[] = [
   ...MITWIRKEND,
   'message.pin', 'message.schedule', 'channel.create', 'poll.create',
+  'task.assign',
 ];
 
 /** Hält die Kanäle in Ordnung, verwaltet aber keine Konten. */
@@ -205,14 +230,14 @@ const MODERATOR: PermissionKey[] = [
   ...MITGLIED,
   'message.delete_any', 'mention.everyone', 'poll.close_any',
   'channel.create_private', 'channel.manage', 'channel.archive', 'channel.members',
-  'glossary.manage',
+  'glossary.manage', 'task.delete', 'event.manage', 'file.manage',
 ];
 
 /** Führt ein Team: nimmt Leute auf und setzt Passwörter zurück. */
 const TEAMLEITUNG: PermissionKey[] = [
   ...MITGLIED,
   'mention.everyone', 'channel.create_private', 'channel.manage', 'channel.members',
-  'user.invite', 'user.manage',
+  'user.invite', 'user.manage', 'task.delete', 'event.manage',
 ];
 
 /** Alles außer den Owner-Vorbehalten (Löschen und Rechtevergabe). */
