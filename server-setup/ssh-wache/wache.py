@@ -145,17 +145,28 @@ class Fenster:
         )
         self.titel.pack(side="left")
 
+        # Schließen soll nicht gehen — wer aus der Ferne arbeitet, soll nicht
+        # unsichtbar werden können. Einklappen genügt: dann bleibt eine
+        # schmale Leiste stehen, die weiterhin zeigt, dass jemand da ist.
+        self.klappe = tk.Button(
+            kopf, text="▾", command=self.umschalten, relief="flat",
+            bg=FARBEN["grund"], fg=FARBEN["leise"], activebackground=FARBEN["grund"],
+            activeforeground=FARBEN["tinte"], bd=0, highlightthickness=0,
+            font=fett, cursor="hand2", padx=8,
+        )
+        self.klappe.pack(side="right")
+
         self.wer = tk.Label(
             self.wurzel, text="", fg=FARBEN["leise"], bg=FARBEN["grund"],
             font=eng, anchor="w", justify="left",
         )
         self.wer.pack(fill="x", padx=14)
 
-        rahmen = tk.Frame(self.wurzel, bg=FARBEN["rand"], bd=0)
-        rahmen.pack(fill="both", expand=True, padx=14, pady=12)
+        self.rahmen = tk.Frame(self.wurzel, bg=FARBEN["rand"], bd=0)
+        self.rahmen.pack(fill="both", expand=True, padx=14, pady=12)
 
         self.text = tk.Text(
-            rahmen, bg="#070912", fg=FARBEN["tinte"], font=eng,
+            self.rahmen, bg="#070912", fg=FARBEN["tinte"], font=eng,
             insertbackground=FARBEN["tinte"], relief="flat", padx=10, pady=8,
             wrap="none", state="disabled",
         )
@@ -164,17 +175,44 @@ class Fenster:
         self.text.tag_config("beginn", foreground=FARBEN["gut"])
         self.text.tag_config("ende", foreground=FARBEN["warn"])
 
-        fuss = tk.Label(
+        self.fuss = tk.Label(
             self.wurzel,
             text="Alles Mitgeschriebene steht auch im Journal:  journalctl -t stellium-ssh",
             fg=FARBEN["leise"], bg=FARBEN["grund"], anchor="w",
         )
-        fuss.pack(fill="x", padx=14, pady=(0, 10))
+        self.fuss.pack(fill="x", padx=14, pady=(0, 10))
+
+        self.eingeklappt = False
+        self.wurzel.protocol("WM_DELETE_WINDOW", self.einklappen)
 
         self.warteschlange = queue.Queue()
         threading.Thread(target=self.mitlesen, daemon=True).start()
         self.nachsehen()
         self.abarbeiten()
+
+    # ── Ein- und ausklappen ─────────────────────────────────────
+    def einklappen(self):
+        if self.eingeklappt:
+            return
+        self.eingeklappt = True
+        self.rahmen.pack_forget()
+        self.fuss.pack_forget()
+        self.wer.pack_forget()
+        self.klappe.config(text="▴")
+        self.wurzel.geometry("420x74")
+
+    def ausklappen(self):
+        if not self.eingeklappt:
+            return
+        self.eingeklappt = False
+        self.wer.pack(fill="x", padx=14)
+        self.rahmen.pack(fill="both", expand=True, padx=14, pady=12)
+        self.fuss.pack(fill="x", padx=14, pady=(0, 10))
+        self.klappe.config(text="▾")
+        self.wurzel.geometry("720x420")
+
+    def umschalten(self):
+        self.ausklappen() if self.eingeklappt else self.einklappen()
 
     # ── Sitzungen beobachten ────────────────────────────────────
     def nachsehen(self):

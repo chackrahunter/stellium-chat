@@ -18,6 +18,7 @@ fi
 echo "→ Dateien"
 install -d -m 755 "$ZIEL"
 install -m 755 "$HIER/wache.py"      "$ZIEL/ssh-wache.py"
+install -m 755 "$HIER/starter.sh"    /usr/local/bin/stellium-ssh-wache
 install -m 755 "$HIER/mitschrift.sh" /usr/local/bin/stellium-ssh-mitschrift
 install -m 644 "$HIER/jeder-befehl.sh" /etc/profile.d/stellium-ssh.sh
 
@@ -38,7 +39,13 @@ cat > /etc/logrotate.d/stellium-ssh <<'ENDE'
   copytruncate
 }
 ENDE
-systemctl restart rsyslog || true
+if systemctl list-unit-files --no-legend 2>/dev/null | grep -q '^rsyslog.service'; then
+  systemctl restart rsyslog || true
+else
+  # Debian 12 schreibt nur noch ins Journal — das Fenster liest von dort.
+  rm -f /etc/rsyslog.d/40-stellium-ssh.conf /etc/logrotate.d/stellium-ssh "$LOG"
+  echo "  kein rsyslog — die Mitschrift läuft über das Journal"
+fi
 
 echo "→ SSH verdrahten"
 SICHERUNG="$(mktemp)"
@@ -66,7 +73,7 @@ cat > /etc/xdg/autostart/stellium-ssh-wache.desktop <<ENDE
 Type=Application
 Name=Stellium — Fernzugriff
 Comment=Zeigt an, wenn jemand über SSH auf diesem Pi arbeitet
-Exec=/usr/bin/python3 $ZIEL/ssh-wache.py
+Exec=/usr/local/bin/stellium-ssh-wache
 Icon=utilities-terminal
 Terminal=false
 X-GNOME-Autostart-enabled=true
@@ -76,7 +83,7 @@ ENDE
 NUTZER="$(who 2>/dev/null | awk '$0 ~ /\(:0/ {print $1; exit}')"
 [ -z "$NUTZER" ] && NUTZER="$(logname 2>/dev/null || echo '')"
 if [ -n "$NUTZER" ] && ! pgrep -f ssh-wache.py >/dev/null; then
-  su - "$NUTZER" -c "DISPLAY=:0 nohup python3 $ZIEL/ssh-wache.py >/dev/null 2>&1 &" || true
+  su - "$NUTZER" -c "DISPLAY=:0 nohup /usr/local/bin/stellium-ssh-wache >/dev/null 2>&1 &" || true
 fi
 
 echo
