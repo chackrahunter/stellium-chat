@@ -51,7 +51,12 @@ export type ClientEvent =
   | { t: 'ai:catchup'; requestId: string; channelId: string; sinceMessageId?: string | null }
   | { t: 'ai:thread-summary'; requestId: string; messageId: string }
   | { t: 'ai:smart-replies'; requestId: string; channelId: string; parentId?: string | null }
-  | { t: 'ai:rewrite'; requestId: string; text: string; tone: RewriteTone; targetLang?: string | null }
+  /* channelId ist kein Beiwerk: ohne sie kann der Server nicht erkennen, ob
+     der Entwurf aus einem vertraulichen Kanal stammt — und schickte ihn dann
+     ahnungslos an die KI. Die Oberfläche blendet den Knopf dort zwar aus,
+     aber eine Zusage, die nur die eigene App einhält, ist keine Zusage. */
+  | { t: 'ai:rewrite'; requestId: string; text: string; tone: RewriteTone; targetLang?: string | null;
+      channelId?: string | null }
   | { t: 'ai:ask'; requestId: string; channelId: string; question: string }
 
   /* Umfragen */
@@ -155,7 +160,14 @@ export type ServerEvent =
       /** Fassung, die für den Server bereitliegt und noch nicht eingespielt ist. */
       serverUpdate: string | null; ai: AiCapabilities }
   | { t: 'pong'; ts: number }
-  | { t: 'error'; code: string; message: string; requestId?: string }
+  /**
+   * Eine Meldung an den Client. `code` ist eine Kennung aus dem Wörterbuch
+   * der Oberfläche, `werte` füllt ihre Platzhalter. `message` ist derselbe
+   * Satz auf Deutsch — der Rückfall für Clients, die die Kennung noch nicht
+   * kennen. So muss der Server nicht wissen, welche Sprache am anderen Ende
+   * läuft.
+   */
+  | { t: 'error'; code?: string; message: string; werte?: Record<string, string>; requestId?: string }
   | { t: 'channel:history'; channelId: string; messages: Message[]; hasMore: boolean }
   | { t: 'channel:upsert'; channel: Channel }
   | { t: 'channel:removed'; channelId: string }
@@ -270,7 +282,32 @@ export interface AiCapabilities {
   lokal: boolean;
   /** Adresse des lokalen Dienstes — nur zur Anzeige. */
   lokaleAdresse: string | null;
-  /** Menschenlesbarer Hinweis, wenn KI deaktiviert ist. */
+  /**
+   * Antwortet der Rechner mit dem lokalen Modell gerade?
+   *
+   * null heißt: kein lokales Modell eingestellt, oder es wurde noch nicht
+   * nachgesehen. „translation" allein sagt nur, ob ein Anbieter eingestellt
+   * ist — für ein Modell im eigenen Netz ist das die halbe Wahrheit.
+   */
+  lokalerZustand: 'erreichbar' | 'antwortet-nicht' | 'kein-modell' | null;
+  /** Was dort zuletzt geladen war. */
+  lokaleModelle: string[] | null;
+  /** Klartext-Grund, wenn es klemmt. */
+  lokalerFehler: string | null;
+  /** Wann zuletzt nachgesehen wurde. */
+  lokalGeprueftAm: number | null;
+  /** Wann zuletzt wirklich jemand geantwortet hat. */
+  lokalErfolgAm: number | null;
+  /**
+   * Hinweis zum Stand der KI — dieselbe Machart wie bei den Fehlermeldungen:
+   * der Server schickt eine Kennung, die Oberfläche setzt ihren eigenen Satz in
+   * der eingestellten Sprache ein. So muss der Server nicht wissen, welche
+   * Sprache am anderen Ende läuft.
+   */
+  noteCode: string | null;
+  /** Platzhalterwerte zur Kennung, etwa der Name des Anbieters. */
+  noteWerte: Record<string, string> | null;
+  /** Derselbe Hinweis auf Deutsch — Rückfall für Clients, die die Kennung noch nicht kennen. */
   note: string | null;
 }
 
