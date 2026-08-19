@@ -381,6 +381,14 @@ a:hover { text-decoration: underline; }
   overflow-y: auto;
   overflow-x: hidden;
   padding: var(--sp-5) 0 var(--sp-3);
+  /* Wer zu einer Nachricht springt, soll sie ganz sehen. Ohne diesen Abstand
+     landet sie unter der Kopfzeile und wirkt abgeschnitten. */
+  scroll-padding-top: var(--sp-5);
+  /* Am Ende der Liste nicht die ganze Seite mitziehen — auf dem Telefon führt
+     das sonst zum Gummiband-Effekt über der Adressleiste. */
+  overscroll-behavior: contain;
+  /* Auf iOS sonst ruckelig, sobald die Liste länger wird. */
+  -webkit-overflow-scrolling: touch;
   /* Bewusst kein scroll-behavior: smooth — das automatische Nachrücken bei
      neuen Nachrichten würde sonst animieren und hinterherhinken. Der
      "nach unten"-Knopf scrollt gezielt weich, das reicht.

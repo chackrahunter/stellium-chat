@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- Randlos und ohne eigene Ecken: iOS und Android legen ihre eigene Maske
+       darüber. Ein Bild, das seine Rundung mitbringt, bekommt dadurch einen
+       dunklen Saum — genau der war zu sehen. -->
+  <defs>
+    <linearGradient id="grund" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%"   stop-color="#7c5cff"/>
+      <stop offset="55%"  stop-color="#5b8cff"/>
+      <stop offset="100%" stop-color="#22d3ee"/>
+    </linearGradient>
+    <radialGradient id="schein" cx="50%" cy="46%" r="46%">
+      <stop offset="0%"   stop-color="#ffffff" stop-opacity="0.55"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <rect width="1024" height="1024" fill="url(#grund)"/>
+  <circle cx="512" cy="470" r="470" fill="url(#schein)"/>
+
+  <!-- Der Stern aus dem Programmsymbol, mittig und mit Luft zum Rand, damit
+       ihn keine Maske anschneidet. -->
+  <path fill="#ffffff"
+        d="M512 196 L575 425 L804 488 L575 551 L512 780 L449 551 L220 488 L449 425 Z"/>
+
+  <circle cx="286" cy="286" r="13" fill="#ffffff" opacity="0.85"/>
+  <circle cx="762" cy="330" r="9"  fill="#ffffff" opacity="0.7"/>
+  <circle cx="720" cy="742" r="12" fill="#ffffff" opacity="0.75"/>
+  <circle cx="300" cy="726" r="8"  fill="#ffffff" opacity="0.6"/>
+</svg>
