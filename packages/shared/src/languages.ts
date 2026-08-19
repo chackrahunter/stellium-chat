@@ -61,8 +61,29 @@ const SCRIPT_RANGES: [RegExp, string][] = [
   [/[ऀ-ॿ]/, 'hi'],
 ];
 
+/*
+ * Deutsch trug lange nur Wörter, die es in keiner anderen Sprache gibt — und
+ * war damit ausgerechnet bei kurzen Sätzen blind. „Was meinst du?" enthielt
+ * kein einziges deutsches Stoppwort, wohl aber das englische „was": der Satz
+ * galt als Englisch, wurde in der Anzeige mit EN ausgezeichnet und dem
+ * Übersetzer als englisch untergeschoben. Dasselbe bei „Wie sieht es aus?",
+ * das über das spanische „es" stolperte.
+ *
+ * Deshalb stehen hier jetzt auch die häufigen deutschen Funktionswörter, die
+ * anderswo ebenfalls vorkommen. Ein geteiltes Wort schadet nicht: gezählt
+ * werden Treffer, und ein deutscher Satz bringt fast immer mehrere davon mit,
+ * während ein englischer Satz mit „was" nur diesen einen deutschen Treffer
+ * hat. Entscheidend ist der Abstand zwischen erster und zweiter Sprache, nicht
+ * die Einzigartigkeit der Wörter.
+ */
 const STOPWORDS: Record<string, string[]> = {
-  de: ['der','die','das','und','ist','nicht','ich','wir','mit','auf','für','ein','eine','sich','noch','schon','aber','auch','kann','wird','haben','sind','beim','wenn','dass','oder','mal','doch','vom','zum','zur','bitte','danke','heute','morgen'],
+  de: ['der','die','das','und','ist','nicht','ich','wir','mit','auf','für','ein','eine','sich','noch','schon','aber','auch','kann','wird','haben','sind','beim','wenn','dass','oder','mal','doch','vom','zum','zur','bitte','danke','heute','morgen',
+    'was','es','du','dir','dich','mir','mich','uns','euch','ihr','sie','er','ihn','ihm',
+    'wie','wo','wer','wann','warum','den','dem','im','am','zu','aus','bei','nach',
+    'über','unter','vor','ohne','gegen','um','nur','sehr','immer','wieder','jetzt',
+    'dann','hier','man','muss','soll','war','hat','habe','bin','sein','werden','wurde',
+    'gibt','geht','machen','nichts','etwas','alles','alle','kein','keine','mehr','gut',
+    'nein','so','wirklich','vielleicht'],
   en: ['the','and','is','not','you','we','with','for','a','an','this','that','have','are','was','will','can','should','would','about','there','their','from','just','please','thanks','today','tomorrow','been','what'],
   fr: ['le','la','les','et','est','pas','je','nous','avec','pour','une','des','que','qui','dans','sur','vous','plus','être','avoir','mais','tout','merci','bonjour','aujourd'],
   es: ['el','la','los','las','y','es','no','yo','nosotros','con','para','una','que','en','por','pero','todo','gracias','hola','hoy','mañana','está','muy'],
@@ -71,7 +92,17 @@ const STOPWORDS: Record<string, string[]> = {
   nl: ['de','het','een','en','is','niet','ik','wij','met','voor','dat','die','op','zijn','maar','ook','graag','bedankt','vandaag','morgen'],
   pl: ['nie','jest','się','to','na','że','ale','jak','czy','dla','przez','jeszcze','dziękuję','dzień','dobry','proszę','dzisiaj'],
   tr: ['bir','ve','bu','için','ile','ama','değil','çok','var','yok','olarak','teşekkür','merhaba','bugün','yarın'],
-  sv: ['och','att','det','som','inte','för','med','har','jag','vi','men','tack','hej','idag','imorgon'],
+  /* Skandinavisch teilt „du", „er", „man" und „alle" mit dem Deutschen. Solange
+     Dänisch und Norwegisch gar keine Liste hatten, fiel das nicht auf — jeder
+     solche Satz blieb ohne Treffer und damit ohne Sprache. Seit Deutsch diese
+     Wörter führt, würde er deutsch heißen. Deshalb stehen die drei hier mit
+     ihren eigenen häufigen Wörtern, die den Ausschlag geben. */
+  sv: ['och','att','det','som','inte','för','med','har','jag','vi','men','tack','hej','idag','imorgon',
+    'du','vad','kan','här','är','på','till','om','hur','när','var','bra','nej','ska','mycket'],
+  da: ['og','er','det','en','at','til','på','for','med','ikke','jeg','du','vi','har','kan',
+    'hvad','hvor','hvornår','tak','hej','nej','godt','men','som','af','meget','alle'],
+  no: ['og','er','det','en','til','på','for','med','ikke','jeg','du','vi','har','kan',
+    'hva','hvor','når','takk','hei','nei','godt','men','som','av','mye','alle'],
   ru: ['не','что','это','как','для','или','его','был','привет','спасибо','сегодня','завтра','пожалуйста'],
   uk: ['не','що','це','як','для','або','його','був','привіт','дякую','сьогодні','завтра','будь'],
   cs: ['je','na','se','že','ale','pro','jak','nebo','děkuji','ahoj','dnes','zítra','prosím'],
