@@ -22,7 +22,10 @@ html {
     radial-gradient(900px 620px at 10% 108%, var(--aurora-2), transparent 60%),
     radial-gradient(760px 520px at 96% 82%, var(--aurora-3), transparent 62%),
     var(--bg-void);
-  background-attachment: fixed;
+  /* Bewusst OHNE background-attachment: fixed — das ist auf iOS seit Jahren
+     fehlerhaft und lässt den Verlauf genau dort weg, wo er gebraucht wird:
+     im Bereich hinter der Wischleiste. */
+  min-height: 100%;
 }
 
 body {

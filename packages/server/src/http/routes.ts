@@ -834,6 +834,10 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         channelId: feld('channelId') ?? null,
         description: feld('description') ?? null,
         uploadedBy: userId,
+        /* Das Formular sagt nur, ob der Inhalt schon verschlüsselt ist —
+           verschlüsselt hat ihn die App, bevor sie ihn geschickt hat. Der
+           Server hat hier nichts zu tun außer es sich zu merken. */
+        privat: feld('privat') === '1',
       });
       const belegung = files.usage();
       // Alle sollen die neue Datei sofort in der Ablage sehen.
@@ -980,8 +984,13 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       return fehler(reply, 404, 'fehler.dateiNichtGefunden', 'Datei nicht gefunden');
     }
 
-    const inline = /^(image|video|audio)\//.test(datei.mime) || datei.mime === 'application/pdf';
-    reply.header('content-type', datei.mime);
+    /* Private Dateien gehen nie inline hinaus. Was hier liegt, ist Chiffrat:
+       als Bild angezeigt ergäbe es ein kaputtes Bild, und der Browser bekäme
+       eine Angabe über den Inhalt, die nicht stimmt. Die App holt sich die
+       Datei, entschlüsselt sie und zeigt sie selbst an. */
+    const inline = !datei.privat
+      && (/^(image|video|audio)\//.test(datei.mime) || datei.mime === 'application/pdf');
+    reply.header('content-type', datei.privat ? 'application/octet-stream' : datei.mime);
     reply.header('content-disposition', `${inline ? 'inline' : 'attachment'}; filename*=UTF-8''${encodeURIComponent(datei.name)}`);
 
     const strom = ablage.oeffnen({
