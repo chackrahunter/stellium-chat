@@ -10,10 +10,20 @@
 /* ── Reset ──────────────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; }
 html, body, #root { height: 100%; margin: 0; }
-/* Auf dem Startbildschirm reicht die Fläche bis unter die Home-Leiste. Ohne
-   eine Farbe an dieser Stelle bleibt dort ein schwarzer Streifen stehen — die
-   App hört auf, das Gerät zeigt seinen eigenen Grund. */
-html { background: var(--bg-void); }
+/* Derselbe Schimmer wie in der App — aber auf der Seite selbst.
+   Bisher malte ihn nur die App-Fläche. Bleibt irgendwo ein Streifen übrig —
+   über der Adressleiste von Safari, unter der Wischleiste, beim Gummiband-
+   Effekt am Rand —, zeigte sich dort der nackte Grund, und das sah aus wie ein
+   schwarzer Balken. Liegt der Verlauf auf der Seite, kann kein Streifen mehr
+   anders aussehen als der Rest, egal wodurch er entsteht. */
+html {
+  background:
+    radial-gradient(1200px 700px at 78% -8%, var(--aurora-1), transparent 62%),
+    radial-gradient(900px 620px at 10% 108%, var(--aurora-2), transparent 60%),
+    radial-gradient(760px 520px at 96% 82%, var(--aurora-3), transparent 62%),
+    var(--bg-void);
+  background-attachment: fixed;
+}
 
 body {
   font-family: var(--font-ui);
@@ -61,8 +71,11 @@ a:hover { text-decoration: underline; }
   overflow: hidden;
   /* Ohne diese Zeile misst Safari die Sternenleinwand mit ihrer eigenen Breite
      statt mit der des Fensters: auf dem iPhone ragte sie fast 800 px nach
-     rechts hinaus, und die ganze Seite ließ sich seitlich wegschieben. */
-  contain: strict;
+     rechts hinaus, und die ganze Seite ließ sich seitlich wegschieben.
+     Bewusst nur "paint" statt "strict": strict schließt die Größe mit ein und
+     macht die Fläche für die Anordnung null groß — dann malt sie unter Umständen
+     gar nichts mehr. */
+  contain: paint;
   max-width: 100vw;
   background:
     radial-gradient(1200px 700px at 78% -8%, var(--aurora-1), transparent 62%),

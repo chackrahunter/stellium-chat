@@ -47,6 +47,9 @@ export type PermissionKey =
   | 'ai.assistant'
   | 'ai.model_select'
   | 'glossary.manage'
+  /* Vertraulichkeit */
+  | 'vertraulich.kanal'
+  | 'vertraulich.freigabe_lesen'
   /* Verwaltung */
   | 'user.invite'
   | 'user.manage'
@@ -179,6 +182,15 @@ export const PERMISSIONS: PermissionInfo[] = [
     labelDe: 'Glossar pflegen', labelEn: 'Manage the glossary',
     hintDe: 'Begriffe, die nie falsch übersetzt werden dürfen.', hintEn: 'Terms that must never be mistranslated.' },
 
+  { key: 'vertraulich.kanal', group: 'kanaele',
+    labelDe: 'Kanäle vertraulich stellen', labelEn: 'Make channels confidential',
+    hintDe: 'Ende-zu-Ende verschlüsselt. Übersetzung, KI und serverseitige Suche fallen dort weg.',
+    hintEn: 'End-to-end encrypted. Translation, AI and server-side search stop working there.' },
+  { key: 'vertraulich.freigabe_lesen', group: 'verwaltung', ownerOnly: true,
+    labelDe: 'Freigaben bei Vorfällen lesen', labelEn: 'Read incident releases',
+    hintDe: 'Wer das hat, gehört zur Verwaltung im Sinne der Freigabe — und kann mit dem Code einen vertraulichen Kanal öffnen.',
+    hintEn: 'Whoever has this counts as management for a release — and can open a confidential channel with the code.' },
+
   { key: 'user.invite', group: 'verwaltung',
     labelDe: 'Konten anlegen', labelEn: 'Create accounts',
     hintDe: 'Erzeugt ein Einmal-Passwort für neue Kolleg:innen.', hintEn: 'Generates a one-time password for new colleagues.' },
@@ -238,6 +250,11 @@ const MITGLIED: PermissionKey[] = [
   ...MITWIRKEND,
   'message.pin', 'message.schedule', 'channel.create', 'poll.create',
   'task.assign',
+  /* Vertraulichkeit ist kein Vorrecht der Leitung: wer einen Kanal anlegen
+     darf, darf ihn auch schützen. Die Gegenprobe — Vertraulichkeit nur für
+     die Leitung — hätte genau die Gespräche ungeschützt gelassen, um die es
+     dabei am häufigsten geht. */
+  'vertraulich.kanal',
 ];
 
 /** Hält die Kanäle in Ordnung, verwaltet aber keine Konten. */
@@ -255,7 +272,13 @@ const TEAMLEITUNG: PermissionKey[] = [
   'user.invite', 'user.manage', 'task.delete', 'event.manage', 'idea.manage',
 ];
 
-/** Alles außer den Owner-Vorbehalten (Löschen und Rechtevergabe). */
+/**
+ * Alles außer den Owner-Vorbehalten (Löschen und Rechtevergabe).
+ *
+ * Das Freigaberecht bleibt drin: "die Verwaltung" im Sinne der Freigabe ist
+ * genau dieser Kreis. Wer ihn kleiner haben will, nimmt einzelnen Konten das
+ * Recht — dafür gibt es die persönlichen Ausnahmen.
+ */
 const ADMIN: PermissionKey[] = ALLE.filter(
   (k) => k !== 'user.delete' && k !== 'permission.manage' && k !== 'channel.delete',
 );

@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 import { config } from '../config.js';
 import { migrate } from './migrate.js';
+import { istE2EChiffrat } from '@stellium/shared';
 import { entschluesseln, suchWorte } from '../crypto/nachrichten.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -141,12 +142,19 @@ export function reindexMessage(messageId: string): void {
     'SELECT channel_id, text, source_lang, deleted_at FROM messages WHERE id = ?', messageId,
   );
   if (!msg || msg.deleted_at) return;
+  /* Aus vertraulichen Kanälen kommt gar nichts in den Index.
+     Es wäre technisch harmlos — im Index landeten Fingerabdrücke über
+     Base64-Zeichenfolgen, aus denen sich nichts ablesen lässt. Aber gefunden
+     würde damit auch nichts, und ein Index, der nur wächst und nie trifft,
+     ist schlimmer als keiner: er sähe aus, als arbeitete die Suche. */
+  const text = entschluesseln(msg.text);
+  if (istE2EChiffrat(text)) return;
   /* Im Index stehen nicht die Wörter selbst, sondern ihre Fingerabdrücke.
      Sonst läge der Inhalt jeder Nachricht doch wieder im Klartext in der
      Datenbank — nur eben in einer anderen Tabelle. */
   db.run(
     'INSERT INTO message_fts (message_id, channel_id, lang, body) VALUES (?,?,?,?)',
-    messageId, msg.channel_id, msg.source_lang ?? 'unknown', suchWorte(entschluesseln(msg.text)),
+    messageId, msg.channel_id, msg.source_lang ?? 'unknown', suchWorte(text),
   );
   const translations = db.all<{ lang: string; text: string }>(
     'SELECT lang, text FROM message_translations WHERE message_id = ?', messageId,

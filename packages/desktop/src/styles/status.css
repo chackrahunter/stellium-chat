@@ -1,0 +1,128 @@
+/* ── Statusmenü am eigenen Profilbild ────────────────────────────
+   Gehört zu components/StatusMenu.tsx. Farben und Abstände kommen
+   ausschließlich aus den Token, damit das Menü beide Themen mitmacht,
+   ohne dass hier eine zweite Palette entsteht.
+   ────────────────────────────────────────────────────────────── */
+
+/* Der Anker liegt in der Leiste; das Menü selbst wird an den <body> gezeichnet
+   (siehe StatusMenu.tsx), weil der backdrop-filter der Leiste sonst zum
+   Bezugsrahmen wird und alles darin am eigenen Rand abschneidet. */
+.statusmenue__anker {
+  position: relative;
+  display: flex;
+}
+
+.statusmenue__ausloeser {
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  /* Etwas Luft, damit der Punkt am Bildrand nicht vom Fokusring gestreift
+     wird — er ragt bewusst über das Bild hinaus. */
+  padding: 2px;
+  transition: transform var(--t-fast), box-shadow var(--t-fast);
+}
+.statusmenue__ausloeser:hover { transform: translateY(-1px); }
+.statusmenue__ausloeser[aria-expanded='true'] { box-shadow: var(--glow); }
+
+.statusmenue {
+  position: fixed;
+  z-index: 80;
+  width: 244px;
+  padding: var(--sp-1);
+  border-radius: var(--r-md);
+  border: 1px solid var(--line-strong);
+  background: var(--bg-elevated);
+  backdrop-filter: blur(24px) saturate(160%);
+  box-shadow: var(--shadow-lg);
+  /* Das Menü wächst aus dem Bild heraus, also von unten links. */
+  transform-origin: bottom left;
+}
+
+.statusmenue__titel {
+  padding: var(--sp-2) var(--sp-3) var(--sp-1);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--tx-lo);
+}
+
+.statusmenue__eintrag {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  width: 100%;
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--r-xs);
+  color: var(--tx-mid);
+  text-align: start;
+  transition: background var(--t-fast), color var(--t-fast);
+}
+.statusmenue__eintrag:hover { background: var(--bg-hover); color: var(--tx-hi); }
+.statusmenue__eintrag--aktiv { background: var(--bg-active); color: var(--tx-hi); }
+.statusmenue__eintrag--schlicht { color: var(--tx-mid); }
+
+/*
+ * Derselbe Punkt wie neben den Namen — die Farbe kommt aus .presence--*, damit
+ * die Auswahl im Menü und der Punkt am Profilbild nie auseinanderlaufen
+ * können. "position: relative" braucht der Querstrich von .presence--dnd, der
+ * dort absolut im Punkt liegt.
+ */
+.statusmenue__punkt {
+  position: relative;
+  flex: none;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.28);
+}
+
+.statusmenue__text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  flex: 1;
+}
+.statusmenue__name {
+  font-size: 13.5px;
+  line-height: 1.25;
+  /* Lange Übersetzungen — „Bitte nicht stören" ist in manchen Sprachen
+     deutlich länger — dürfen umbrechen statt abgeschnitten zu werden. */
+  overflow-wrap: anywhere;
+}
+.statusmenue__note {
+  font-size: 11.5px;
+  line-height: 1.3;
+  color: var(--tx-lo);
+  overflow-wrap: anywhere;
+}
+
+.statusmenue__haken {
+  flex: none;
+  color: var(--violet-soft);
+}
+.statusmenue__zahnrad {
+  flex: none;
+  opacity: 0.8;
+}
+
+.statusmenue__hinweis {
+  margin: 0;
+  padding: var(--sp-1) var(--sp-3) var(--sp-2);
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--tx-lo);
+}
+
+.statusmenue__trenner {
+  height: 1px;
+  margin: var(--sp-1) 6px;
+  background: var(--line);
+}
+
+/* Im hellen Thema liegt der Punkt auf hellem Grund — der schwarze Schimmer
+   darum wirkt dort schmutzig statt plastisch. */
+[data-theme='light'] .statusmenue__punkt {
+  box-shadow: 0 0 0 1px rgba(20, 28, 64, 0.12);
+}

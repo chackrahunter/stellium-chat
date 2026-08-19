@@ -253,6 +253,74 @@ function deliverMessage(message: Message, senderClientId?: string): void {
 
 /* ── Presence ─────────────────────────────────────────────────── */
 
+/**
+ * Wie lange ein selbst gesetzter Status gilt.
+ *
+ * Acht Stunden sind ein Arbeitstag. Wer morgens „bitte nicht stören" wählt,
+ * findet es nachmittags noch vor — und am nächsten Morgen nicht mehr. Kürzer
+ * wäre lästig, weil die Frist mitten in der Besprechung abliefe, für die man
+ * sie gesetzt hat. Unbegrenzt wäre schlimmer: ein einmal gesetztes „abwesend"
+ * bliebe wochenlang stehen, und dann glaubt niemand mehr den Punkten neben
+ * den Namen.
+ *
+ * Solange die Frist läuft, hat die eigene Wahl Vorrang vor allem, was von
+ * selbst geschieht — sonst nähme ein einziger Tastendruck sie zurück.
+ */
+const MANUELL_HAELT_MS = 8 * 60 * 60_000;
+
+/**
+ * Ab wann jemand ohne Zutun auf „abwesend" wandert.
+ *
+ * Der Server sieht keine Mausbewegung, nur Ereignisse. Eine halbe Stunde ohne
+ * jede Handlung ist deshalb mit Absicht großzügig: wer lange in einem Kanal
+ * liest, ohne zu wechseln oder zu schreiben, soll nicht fälschlich abwesend
+ * erscheinen. Der genaue Wächter sitzt in der Oberfläche (StatusMenu) und
+ * meldet schon nach fünf Minuten ohne Eingabe; das hier ist das Netz für
+ * alles, was ihn nicht mitbringt — ältere Apps und fremde Clients.
+ */
+const LEERLAUF_MS = 30 * 60_000;
+
+/** Wann jemand zuletzt etwas getan hat, hinter dem ein Mensch stecken muss. */
+const letzteAktion = new Map<string, number>();
+
+/**
+ * Ereignisse, die als Lebenszeichen zählen.
+ *
+ * Bewusst eine Auswahlliste und keine Ausnahmeliste: alles Neue gilt erst
+ * einmal als Hintergrundrauschen, statt versehentlich jemanden wachzuhalten.
+ * Nicht dabei ist vor allem "read" — das schickt die Oberfläche von selbst,
+ * sobald in einem sichtbaren Fenster eine Nachricht ankommt. Ein vergessener,
+ * offener Rechner bliebe damit für immer grün, und genau das ist der Fehler,
+ * den dieser Wächter beheben soll.
+ */
+const MENSCHLICHE_EREIGNISSE = new Set<string>([
+  'message:send', 'message:edit', 'message:delete', 'message:react',
+  'message:pin', 'message:forward', 'message:schedule', 'typing', 'draft:save',
+  'channel:open', 'channel:create', 'channel:join', 'channel:leave',
+  'thread:open', 'dm:open', 'poll:create', 'poll:vote', 'voice:send',
+  'task:create', 'task:update', 'task:move', 'task:comment',
+  'idea:create', 'idea:vote', 'idea:comment', 'event:create', 'event:respond',
+  'ai:ask', 'ai:rewrite', 'compose:preview',
+]);
+
+/** Gilt der selbst gesetzte Status gerade noch? */
+function statusHaelt(userId: string): boolean {
+  return (store.getUser(userId)?.statusExpiresAt ?? 0) > Date.now();
+}
+
+/**
+ * Ein Lebenszeichen verbuchen — und wer wieder da ist, ist wieder online.
+ *
+ * Die Rückkehr geschieht nur aus einem von selbst entstandenen „abwesend".
+ * Eine eigene Wahl bleibt stehen, solange ihre Frist läuft; sonst hätte das
+ * Statusmenü keinen Wert, weil schon das Tippen einer Antwort sie zurücknähme.
+ */
+function aktivitaetMerken(userId: string): void {
+  letzteAktion.set(userId, Date.now());
+  if (statusHaelt(userId)) return;
+  if (store.getUser(userId)?.status === 'away') setStatus(userId, 'online');
+}
+
 function setStatus(
   userId: string, status: UserStatus,
   emoji?: string | null, text?: string | null, expiresAt?: number | null,
@@ -288,6 +356,12 @@ export function handleConnection(socket: WebSocket): void {
   }, 10_000);
 
   socket.on('message', (raw: Buffer | string) => {
+    /* Wer etwas schickt, lebt — unabhängig davon, ob die Gegenstelle auf
+       Protokoll-Pings antwortet. Manche Zwischenstellen schlucken die
+       Ping/Pong-Rahmen; ohne diese Zeile würfe der Wächter unten eine
+       einwandfreie Verbindung alle 60 Sekunden weg, und die Person flackerte
+       für alle anderen zwischen online und offline. */
+    session.alive = true;
     const ev = decode<ClientEvent>(raw.toString());
     if (!ev || typeof ev.t !== 'string') return;
     if (ev.t === 'auth') {

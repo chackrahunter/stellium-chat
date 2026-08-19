@@ -497,3 +497,94 @@ CREATE TABLE IF NOT EXISTS datei_bloecke (
   PRIMARY KEY (art, datei_id, nummer)
 );
 CREATE INDEX IF NOT EXISTS idx_datei_bloecke_summe ON datei_bloecke(summe);
+
+-- ─────────────────────────────────────────────────────────────────
+-- Vertrauliche Kanäle: Ende-zu-Ende-Verschlüsselung
+--
+-- Hier liegt bewusst nichts, womit der Server etwas öffnen könnte. Er verwahrt
+-- öffentliche Schlüsselteile und verschlossene Pakete — mehr braucht er nicht,
+-- und mehr darf er nicht haben. Wer diese Datei mitsamt Masterpasswort in die
+-- Hand bekommt, hat damit trotzdem keinen einzigen Nachrichtentext.
+-- ─────────────────────────────────────────────────────────────────
+
+/* Der öffentliche Teil des Schlüsselpaars eines Kontos.
+   Absichtlich unverschlüsselt: er ist zum Verteilen da. Der Abdruck steht
+   daneben, damit zwei Menschen ihn vorlesen und vergleichen können — sonst
+   könnte der Server hier einen eigenen Schlüssel hinterlegen und mitlesen. */
+CREATE TABLE IF NOT EXISTS vertraulich_schluessel (
+  user_id     TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  jwk         TEXT NOT NULL,
+  abdruck     TEXT NOT NULL,
+  erstellt_am INTEGER NOT NULL
+);
+
+/* Der private Teil, verschlossen mit dem Wiederherstellungscode.
+   Der Code steht nirgends auf dem Server — ohne ihn ist diese Zeile eine
+   Zeichenkette ohne Bedeutung. Sie existiert nur, damit ein neues Gerät nicht
+   bei null anfangen muss. */
+CREATE TABLE IF NOT EXISTS vertraulich_sicherung (
+  user_id     TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  paket       TEXT NOT NULL,
+  erstellt_am INTEGER NOT NULL
+);
+
+/* Welche Fassungen des Kanalschlüssels es gibt. Der Schlüssel selbst steht
+   hier nicht — nur die Buchführung darüber, wer wann gewechselt hat. */
+CREATE TABLE IF NOT EXISTS kanal_schluessel (
+  channel_id  TEXT NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
+  fassung     INTEGER NOT NULL,
+  erzeugt_von TEXT NOT NULL REFERENCES users(id),
+  grund       TEXT,
+  erstellt_am INTEGER NOT NULL,
+  PRIMARY KEY (channel_id, fassung)
+);
+
+/* Der Kanalschlüssel, verpackt für genau ein Konto.
+   `von_user_id` sagt, wessen öffentlicher Teil beim Aushandeln mitgewirkt hat —
+   ohne diese Angabe könnte die empfangende App das gemeinsame Geheimnis nicht
+   nachbilden. */
+CREATE TABLE IF NOT EXISTS kanal_schluessel_pakete (
+  channel_id  TEXT NOT NULL,
+  fassung     INTEGER NOT NULL,
+  user_id     TEXT NOT NULL,
+  von_user_id TEXT NOT NULL,
+  alg         TEXT NOT NULL,
+  iv          TEXT NOT NULL,
+  daten       TEXT NOT NULL,
+  erstellt_am INTEGER NOT NULL,
+  PRIMARY KEY (channel_id, fassung, user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_kanal_pakete_user ON kanal_schluessel_pakete(user_id);
+
+/* Eine Freigabe nach einem Vorfall.
+   `code_abdruck` ist der Abdruck des Codes, nicht der Code: der Server soll
+   prüfen können, ob jemand ihn kennt, ohne ihn selbst zu kennen. Und selbst
+   wer den Abdruck bricht, kommt nicht an den Inhalt — das Paket ist zusätzlich
+   für den privaten Schlüssel der Verwaltung verschlossen. */
+CREATE TABLE IF NOT EXISTS vertraulich_freigaben (
+  id                 TEXT PRIMARY KEY,
+  channel_id         TEXT NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
+  fassung            INTEGER NOT NULL,
+  melder_id          TEXT NOT NULL REFERENCES users(id),
+  grund              TEXT NOT NULL,
+  code_abdruck       TEXT NOT NULL,
+  fehlversuche       INTEGER NOT NULL DEFAULT 0,
+  erstellt_am        INTEGER NOT NULL,
+  laeuft_ab          INTEGER NOT NULL,
+  zurueckgenommen_am INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_freigaben_kanal ON vertraulich_freigaben(channel_id, erstellt_am DESC);
+
+/* Der freigegebene Kanalschlüssel, verpackt für ein Mitglied der Verwaltung
+   und zusätzlich mit dem Code verschlossen. Zwei Schlösser, zwei Besitzer:
+   ohne Code gibt der Server nichts heraus, ohne privaten Schlüssel nützt der
+   Code nichts. */
+CREATE TABLE IF NOT EXISTS vertraulich_freigabe_pakete (
+  freigabe_id TEXT NOT NULL REFERENCES vertraulich_freigaben(id) ON DELETE CASCADE,
+  user_id     TEXT NOT NULL,
+  von_user_id TEXT NOT NULL,
+  alg         TEXT NOT NULL,
+  iv          TEXT NOT NULL,
+  daten       TEXT NOT NULL,
+  PRIMARY KEY (freigabe_id, user_id)
+);

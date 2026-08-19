@@ -132,14 +132,21 @@ export function toChannel(r: any, viewerId?: string): Channel {
     primaryLanguage: r.primary_language ?? null,
     aiMode: (r.ai_mode ?? 'off') as Channel['aiMode'],
     readOnly: Boolean(r.read_only),
+    vertraulich: Boolean(r.vertraulich),
+    schluesselFassung: r.schluessel_fassung ?? 0,
     archived: Boolean(r.archived),
     createdBy: r.created_by,
     createdAt: r.created_at,
     memberIds: members,
     dmPeerId: r.kind === 'dm' && viewerId ? members.find((m) => m !== viewerId) ?? null : null,
-    // Bereits übersetzt? Dann gleich mitschicken. Fehlt sie, kommt sie als
-    // eigenes Ereignis nach.
-    translation: viewerId && r.kind !== 'dm' ? kanalUebersetzung(r.id, viewerId) : null,
+    /* Bereits übersetzt? Dann gleich mitschicken. Fehlt sie, kommt sie als
+       eigenes Ereignis nach.
+
+       In vertraulichen Kanälen gar nicht: Name, Thema und Zweck stehen zwar im
+       Klartext auf dem Server, aber sie durch das Übersetzungsmodell zu
+       schicken hieße, sie an einen fremden Dienst zu geben. Wer einen Kanal
+       vertraulich stellt, erwartet das Gegenteil. */
+    translation: viewerId && r.kind !== 'dm' && !r.vertraulich ? kanalUebersetzung(r.id, viewerId) : null,
   };
 }
 

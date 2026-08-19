@@ -38,6 +38,15 @@ const COLUMNS: { table: string; column: string; definition: string }[] = [
   { table: 'channels', column: 'ai_mode',            definition: "TEXT NOT NULL DEFAULT 'off'" },
   { table: 'channels', column: 'read_only',          definition: 'INTEGER NOT NULL DEFAULT 0' },
   { table: 'channel_members', column: 'hidden',      definition: 'INTEGER NOT NULL DEFAULT 0' },
+  /* Vertrauliche Kanäle. `schluessel_fassung` bleibt bei 0, solange nichts
+     verschlüsselt ist — die erste Fassung ist die 1, und daran erkennt der
+     Server, ob überhaupt schon ein Schlüssel ausgehandelt wurde. */
+  { table: 'channels', column: 'vertraulich',        definition: 'INTEGER NOT NULL DEFAULT 0' },
+  { table: 'channels', column: 'schluessel_fassung', definition: 'INTEGER NOT NULL DEFAULT 0' },
+  /* Private Dateien in der Ablage. Der Inhalt ist dann schon verschlüsselt,
+     wenn er hier ankommt — die Spalte sagt nur, dass man ihn nicht als
+     Klartext ausliefern oder in eine Vorschau stecken darf. */
+  { table: 'files', column: 'privat',                definition: 'INTEGER NOT NULL DEFAULT 0' },
 ];
 
 export function migrate(): void {

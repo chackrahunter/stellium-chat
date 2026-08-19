@@ -1,0 +1,193 @@
+/* ── Bereich „App herunterladen" ─────────────────────────────
+   Eine eigene Datei statt weiterer Zeilen in app.css: der Bereich erscheint
+   nur im Browser, und so kann die Komponente ihr Aussehen selbst mitbringen.
+   Geladen wird sie von DownloadPanel.tsx — dadurch braucht app.css nichts
+   davon zu wissen, und wer die Datei löscht, hinterlässt keine Leiche.
+
+   Alle Maße stammen aus tokens.css. Eigene Zahlen stünden hier nur so lange
+   richtig, bis jemand die Abstände der App einmal anfasst.
+
+   Durchgehend logische Eigenschaften (inline-start/end), weil Arabisch zu den
+   zweiundzwanzig Sprachen gehört und die Oberfläche dort spiegelt. */
+
+.dl-liste {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.dl-karte {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-3);
+  border-radius: var(--r-md);
+  border: 1px solid var(--line);
+  background: var(--bg-panel);
+  transition: border-color var(--t-fast), background var(--t-fast);
+}
+
+.dl-karte:hover {
+  border-color: var(--line-strong);
+  background: var(--bg-panel-2);
+}
+
+/* Die Karte für das erkannte System.
+   Sie ist nicht nur größer, sie trägt auch den Farbverlauf der App als Rand —
+   damit das Auge sie vor der Liste darunter findet, ohne dass irgendwo
+   „hier klicken" stehen muss. */
+.dl-karte--gross {
+  margin-bottom: var(--sp-4);
+  padding: var(--sp-4);
+  border-color: transparent;
+  background:
+    linear-gradient(var(--bg-panel-2), var(--bg-panel-2)) padding-box,
+    var(--grad-nebula) border-box;
+  border: 1px solid transparent;
+  box-shadow: var(--shadow-sm);
+}
+
+.dl-karte--gross:hover {
+  border-color: transparent;
+  filter: brightness(1.04);
+}
+
+.dl-karte__symbol {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--r-sm);
+  background: var(--bg-input);
+  color: var(--tx-mid);
+}
+
+.dl-karte--gross .dl-karte__symbol {
+  width: 52px;
+  height: 52px;
+  border-radius: var(--r-md);
+  background: var(--grad-nebula);
+  color: #fff;
+  box-shadow: var(--glow);
+}
+
+.dl-karte__text {
+  display: grid;
+  gap: var(--sp-1);
+  flex: 1;
+  min-width: 0;
+}
+
+.dl-karte__name {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--tx-hi);
+}
+
+.dl-karte--gross .dl-karte__name { font-size: 16.5px; }
+
+/* Version, Größe, Endung, Datum — vier Angaben in einer Zeile.
+   Umbrechen ist erlaubt: auf dem Telefon ist der Bereich schmal, und ein
+   abgeschnittenes Datum hilft niemandem. */
+.dl-karte__meta {
+  font-size: 12px;
+  color: var(--tx-lo);
+  line-height: 1.45;
+}
+
+.dl-marke {
+  padding: 2px var(--sp-2);
+  border-radius: 99px;
+  background: var(--grad-nebula);
+  color: #fff;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+/* Die Prüfsumme ist ein Knopf, kein Text: ein Klick legt sie vollständig in
+   die Zwischenablage. Sichtbar bleibt nur der Anfang — die ganzen 64 Zeichen
+   würden die Karte sprengen und liest ohnehin niemand mit dem Auge ab. */
+.dl-pruef {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  align-self: start;
+  max-width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--tx-lo);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  cursor: pointer;
+  transition: color var(--t-fast);
+}
+
+.dl-pruef:hover { color: var(--cyan); }
+
+.dl-pruef__wert {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Der Knopf darf nicht schrumpfen: bei einem langen Wort wie „Descărcare"
+   wäre er sonst das Erste, was die Zeile hergibt. */
+.dl-knopf {
+  flex: none;
+  text-decoration: none;
+}
+
+/* Kein Treffer bei der Erkennung — Telefon oder unbekanntes System. */
+.dl-hinweis {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-4);
+  padding: var(--sp-3);
+  border-radius: var(--r-md);
+  border: 1px solid var(--line);
+  background: var(--bg-panel);
+  color: var(--tx-mid);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.dl-hinweis svg {
+  flex: none;
+  color: var(--cyan);
+}
+
+/* Was neu ist, kommt aus dem Feld der Veröffentlichung — also von Hand
+   geschrieben. Zeilenumbrüche darin sollen erhalten bleiben. */
+.dl-neu {
+  margin: 0;
+  padding: var(--sp-3);
+  border-radius: var(--r-sm);
+  border-inline-start: 2px solid var(--violet);
+  background: var(--bg-panel);
+  color: var(--tx-mid);
+  font-size: 12.5px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+}
+
+/* Auf dem Telefon steht der Knopf unter den Angaben statt daneben — nebenan
+   bliebe für Name und Datum kaum noch Platz. */
+@media (max-width: 560px) {
+  .dl-karte {
+    flex-wrap: wrap;
+  }
+
+  .dl-knopf {
+    width: 100%;
+    justify-content: center;
+  }
+}

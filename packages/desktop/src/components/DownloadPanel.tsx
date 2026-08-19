@@ -64,7 +64,7 @@ const SYSTEME: Record<ReleasePlatform, { name: string; symbol: React.ReactNode }
  */
 function systemErkennen(): ReleasePlatform | null {
   if (typeof navigator === 'undefined') return null;
-  const kennung = `${navigator.userAgent} ${navigator.platform ?? ''}`.toLowerCase();
+  const kennung = navigator.userAgent.toLowerCase();
 
   // Telefone und Tablets zuerst: in ihrer Kennung steht ebenfalls „mac os x"
   // beziehungsweise „linux", und ohne diese Zeile bekäme ein iPhone eine
@@ -83,7 +83,7 @@ function systemErkennen(): ReleasePlatform | null {
 /** Handelt es sich um ein Telefon oder Tablet? Dafür gibt es einen eigenen Hinweis. */
 function istMobil(): boolean {
   if (typeof navigator === 'undefined') return false;
-  const kennung = `${navigator.userAgent} ${navigator.platform ?? ''}`.toLowerCase();
+  const kennung = navigator.userAgent.toLowerCase();
   if (/iphone|ipad|ipod|android/.test(kennung)) return true;
   return /macintosh/.test(kennung) && navigator.maxTouchPoints > 2;
 }
@@ -116,6 +116,12 @@ export function DownloadPanel({ onClose }: { onClose: () => void }) {
   };
 
   useEffect(laden, []);
+
+  /* Doppelt gesichert: die Leiste zeigt den Knopf ohnehin nur im Browser, aber
+     die Regel soll nicht allein an einer fremden Datei hängen. Die Prüfung
+     steht bewusst hinter allen Haken — vor ihnen brächte sie die Reihenfolge
+     durcheinander, sobald der Bereich doch einmal gezeigt würde. */
+  if (!imBrowser()) return null;
 
   /* Der Server hält je System genau eine Zeile vor und ersetzt sie beim
      Veröffentlichen. Was hier ankommt, ist damit von sich aus die neueste
@@ -209,9 +215,13 @@ export function DownloadPanel({ onClose }: { onClose: () => void }) {
       onClose={onClose}
       width={720}
       actions={
+        /* Derselbe Text wie bei der Aktualisierung: gemeint ist dasselbe —
+           jetzt beim Server nachfragen, statt auf das nächste Öffnen zu warten.
+           Ein zweiter Satz für dieselbe Handlung wäre in zweiundzwanzig
+           Sprachen zweiundzwanzigmal Gelegenheit, auseinanderzulaufen. */
         <button className="pill" onClick={laden} disabled={fassungen === null}>
           <RefreshCw size={13} className={fassungen === null ? 'spin' : undefined} />
-          {t('download.retry')}
+          {t('update.check')}
         </button>
       }
     >
