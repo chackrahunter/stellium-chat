@@ -30,14 +30,77 @@ FARBEN = {
 }
 
 
+def lebt(pid):
+    """Steht hinter dem Eintrag noch ein Prozess?
+
+    `who` liest utmp, und dort bleiben abgebrochene Sitzungen als Karteileichen
+    stehen — sonst zeigte das Fenster tagelang jemanden an, der längst weg ist.
+    """
+    try:
+        os.kill(int(pid), 0)
+        return True
+    except (OSError, ValueError):
+        return False
+
+
+def schluesselnamen():
+    """Fingerabdruck → Name, damit man sieht, *wer* da ist, nicht nur welches Konto."""
+    namen = {}
+    for heim in ("/home", "/root"):
+        if not os.path.isdir(heim):
+            continue
+        kandidaten = ([os.path.join(heim, d, ".ssh/authorized_keys")
+                       for d in os.listdir(heim)] if heim == "/home"
+                      else [os.path.join(heim, ".ssh/authorized_keys")])
+        for datei in kandidaten:
+            if not os.path.isfile(datei):
+                continue
+            try:
+                roh = subprocess.run(["ssh-keygen", "-lf", datei],
+                                     capture_output=True, text=True, timeout=5).stdout
+            except Exception:
+                continue
+            for zeile in roh.splitlines():
+                teile = zeile.split()
+                if len(teile) >= 3 and teile[1].startswith("SHA256:"):
+                    bemerkung = " ".join(teile[2:-1]) if len(teile) > 3 else teile[2]
+                    namen[teile[1]] = bemerkung
+    return namen
+
+
+def herkunft_namen():
+    """Welche Adresse hat sich zuletzt mit welchem Schlüssel angemeldet?"""
+    namen = schluesselnamen()
+    zuordnung = {}
+    try:
+        roh = subprocess.run(
+            ["journalctl", "-u", "ssh", "-n", "300", "--no-pager", "-o", "cat"],
+            capture_output=True, text=True, timeout=6).stdout
+    except Exception:
+        return zuordnung
+    for zeile in roh.splitlines():
+        if "Accepted publickey for" not in zeile:
+            continue
+        teile = zeile.split()
+        try:
+            adresse = teile[teile.index("from") + 1]
+        except (ValueError, IndexError):
+            continue
+        abdruck = next((t for t in teile if t.startswith("SHA256:")), None)
+        if abdruck and abdruck in namen:
+            zuordnung[adresse] = namen[abdruck]
+    return zuordnung
+
+
 def sitzungen():
-    """Wer ist gerade über SSH da? Gibt (konto, herkunft, seit) zurück."""
+    """Wer ist gerade über SSH da? Gibt (name, herkunft, seit) zurück."""
     try:
         roh = subprocess.run(
             ["who", "-u"], capture_output=True, text=True, timeout=5
         ).stdout
     except Exception:
         return []
+    benannt = herkunft_namen()
     aus = []
     for zeile in roh.splitlines():
         # who zeigt die Herkunft in Klammern — lokal steht dort nichts.
@@ -49,7 +112,10 @@ def sitzungen():
         herkunft = zeile[zeile.rfind("(") + 1: zeile.rfind(")")]
         if not herkunft or herkunft.startswith(":"):
             continue          # das ist der Bildschirm hier, keine Ferne
-        aus.append((teile[0], herkunft, " ".join(teile[2:4])))
+        if not lebt(teile[-2]):
+            continue          # Karteileiche einer abgebrochenen Sitzung
+        wer = benannt.get(herkunft, teile[0])
+        aus.append((wer, herkunft, " ".join(teile[2:4])))
     return aus
 
 
@@ -74,7 +140,7 @@ class Fenster:
         self.punkt.pack(side="left", padx=(0, 8))
 
         self.titel = tk.Label(
-            kopf, text="Jemand arbeitet gerade über SSH",
+            kopf, text="Fernzugriff läuft",
             fg=FARBEN["tinte"], bg=FARBEN["grund"], font=fett, anchor="w",
         )
         self.titel.pack(side="left")
@@ -100,7 +166,7 @@ class Fenster:
 
         fuss = tk.Label(
             self.wurzel,
-            text=f"Alles Mitgeschriebene steht auch in {LOG}",
+            text="Alles Mitgeschriebene steht auch im Journal:  journalctl -t stellium-ssh",
             fg=FARBEN["leise"], bg=FARBEN["grund"], anchor="w",
         )
         fuss.pack(fill="x", padx=14, pady=(0, 10))
@@ -122,13 +188,52 @@ class Fenster:
             self.sichtbar = False
 
         if offen:
+            self.titel.config(text=(
+                f"{offen[0][0]} arbeitet gerade über SSH" if len(offen) == 1
+                else f"{len(offen)} Fernzugriffe laufen"
+            ))
             self.wer.config(text="\n".join(
-                f"{konto} von {herkunft} — seit {seit}" for konto, herkunft, seit in offen
+                f"{wer} · {herkunft} · seit {seit}" for wer, herkunft, seit in offen
             ))
         self.wurzel.after(int(TAKT * 1000), self.nachsehen)
 
     # ── Mitschrift lesen ────────────────────────────────────────
     def mitlesen(self):
+        """Dem Journal folgen — und einer Datei, falls es eine gibt.
+
+        Debian schreibt seit Bookworm nur noch ins Journal; eine eigene
+        Logdatei entsteht erst, wenn rsyslog nachinstalliert wurde. Beides
+        kann vorkommen, also wird genommen, was da ist.
+        """
+        if os.path.exists(LOG):
+            self.datei_lesen()
+        else:
+            self.journal_lesen()
+
+    def journal_lesen(self):
+        while True:
+            try:
+                lauf = subprocess.Popen(
+                    ["journalctl", "-t", "stellium-ssh", "-f", "-n", "40",
+                     "-o", "short-iso", "--no-pager"],
+                    stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True,
+                )
+                for zeile in lauf.stdout:
+                    # Der Zeitstempel darf bleiben, der Rechnername nicht —
+                    # er steht auf jeder Zeile und sagt nichts Neues.
+                    teile = zeile.rstrip("\n").split(" ", 2)
+                    if len(teile) == 3 and "stellium-ssh" in teile[2]:
+                        rest = teile[2].split(": ", 1)
+                        text = rest[1] if len(rest) == 2 else teile[2]
+                        self.warteschlange.put(f"{teile[0][11:19]}  {text}")
+                    else:
+                        self.warteschlange.put(zeile.rstrip("\n"))
+            except FileNotFoundError:
+                return                      # kein journalctl — dann eben nichts
+            except Exception:
+                time.sleep(2.0)
+
+    def datei_lesen(self):
         """Der Datei folgen, auch wenn sie zwischendurch gedreht wird."""
         while True:
             try:
