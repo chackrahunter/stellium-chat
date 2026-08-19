@@ -11,6 +11,21 @@ type StateListener = (state: ConnectionState, detail?: string) => void;
  * Unterbrechung entstehen, wandern in eine Warteschlange und gehen raus,
  * sobald die Verbindung wieder steht.
  */
+/**
+ * Kennungen, nach denen die Leitung nicht wieder aufgebaut wird.
+ *
+ * Der Server schickt Kennungen aus dem Wörterbuch der Oberfläche — dieselben,
+ * die auch den übersetzten Text auswählen. Wer hier eine ändert, muss sie in
+ * packages/server/src/ws/gateway.ts mitändern; scripts/e2e-fehlertexte.mjs
+ * vergleicht beide Seiten und schlägt an, wenn eine Kennung ins Leere zeigt.
+ */
+const ABBRUCH_KENNUNGEN = new Set([
+  'fehler.anmeldungAbgelaufen',   // Token abgelaufen oder gefälscht
+  'fehler.protokollVeraltet',     // App zu alt für diesen Server
+  'fehler.kontoInaktiv',          // Konto gesperrt oder gelöscht
+  'fehler.kontoWeg',
+]);
+
 class Socket {
   private ws: WebSocket | null = null;
   private listeners = new Set<Listener>();
@@ -74,8 +89,7 @@ class Socket {
         this.flush();
         this.startPing();
       }
-      if (ev.t === 'error' && (ev.code === 'invalid_token' || ev.code === 'protocol_mismatch'
-                               || ev.code === 'account_blocked')) {
+      if (ev.t === 'error' && ev.code !== undefined && ABBRUCH_KENNUNGEN.has(ev.code)) {
         this.closedByUs = true;   // kein Reconnect-Sturm bei kaputtem Token
         // Der Grund muss mit: bei 'protocol_mismatch' ist das Token in Ordnung,
         // nur die App zu alt. Wer dabei abmeldet, schickt in eine Schleife —

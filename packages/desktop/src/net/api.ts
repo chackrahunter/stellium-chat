@@ -57,9 +57,11 @@ export function setToken(value: string | null): void {
  * bleibt jede Meldung lesbar, auch wenn eine neue Serverfassung eine Kennung
  * schickt, die eine ältere App noch nicht kennt.
  */
-function uebersetzterFehler(code: string | undefined, ersatz: string): string {
+function uebersetzterFehler(
+  code: string | undefined, ersatz: string, werte?: Record<string, string>,
+): string {
   if (!code) return ersatz;
-  const uebersetzt = txt(code as Parameters<typeof txt>[0]);
+  const uebersetzt = txt(code as Parameters<typeof txt>[0], werte);
   return uebersetzt && uebersetzt !== code ? uebersetzt : ersatz;
 }
 
@@ -122,12 +124,15 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   if (!res.ok) {
     let message = txt('api.error', { status: res.status });
     let code: string | undefined;
+    let werte: Record<string, string> | undefined;
     try {
-      const rumpf = (await res.json()) as { error?: string; code?: string };
+      const rumpf = (await res.json()) as
+        { error?: string; code?: string; werte?: Record<string, string> };
       message = rumpf.error ?? message;
       code = rumpf.code;
+      werte = rumpf.werte;
     } catch { /* kein JSON */ }
-    throw new ApiError(uebersetzterFehler(code, message), res.status, code);
+    throw new ApiError(uebersetzterFehler(code, message, werte), res.status, code);
   }
   return res.status === 204 ? (undefined as T) : ((await res.json()) as T);
 }
@@ -136,6 +141,20 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 export interface Anhang {
   id: string; messageId: string | null; name: string; mime: string; size: number;
   url: string; width: number | null; height: number | null;
+}
+
+/**
+ * Zusatzangaben zum Hochladen.
+ *
+ * `verschluesselt` ist keine Mitteilung an den Server — der sieht am Inhalt
+ * selbst, was er bekommen hat. Es steuert nur, was die App sich hier sparen
+ * kann: die Frage nach einer schon vorhandenen Datei. Bei Chiffrat kann sie
+ * grundsätzlich nicht anschlagen, denn jeder Dateischlüssel ist Zufall und
+ * dieselbe Datei sieht zweimal völlig anders aus. Die Prüfsumme trotzdem zu
+ * rechnen hieße, eine große Datei ohne jede Aussicht einmal durchzulesen.
+ */
+export interface UploadWunsch {
+  verschluesselt?: boolean;
 }
 
 /**
@@ -262,6 +281,24 @@ export const api = {
       method: 'POST', body: JSON.stringify({ kategorie }),
     }),
 
+  /**
+   * Die Ablage holen — über HTTP und nicht über die Ereignisleitung.
+   *
+   * Der Unterschied ist nicht die Technik, sondern die Auskunft: dieser Weg
+   * weiß, wer fragt, und gibt private Dateien deshalb nur ihrem Besitzer
+   * heraus. Über die Leitung käme die Liste ohne Konto, und dort ließe sich
+   * gar nicht entscheiden, wessen private Dateien dazugehören.
+   */
+  libraryFiles: (filter?: { channelId?: string; folder?: string }) => {
+    const qs = new URLSearchParams();
+    if (filter?.channelId) qs.set('channelId', filter.channelId);
+    if (filter?.folder !== undefined) qs.set('folder', filter.folder);
+    const anhang = qs.toString();
+    return request<{ files: StoredFile[]; usage: StorageUsage }>(
+      `/api/files${anhang ? `?${anhang}` : ''}`,
+    );
+  },
+
   glossary: () => request<{ entries: GlossaryEntry[] }>('/api/glossary'),
   addGlossary: (input: { term: string; translations: Record<string, string> | null; note?: string }) =>
     request<{ entries: GlossaryEntry[] }>('/api/glossary', { method: 'POST', body: JSON.stringify(input) }),
@@ -278,11 +315,15 @@ export const api = {
   uploadSchnell: async (
     file: File,
     onProgress?: (fraction: number, bytes: number) => void,
+    wunsch?: UploadWunsch,
   ): Promise<{ attachment: Anhang }> => {
     /* Zuerst fragen, ob der Server die Datei schon hat. Das Rechnen der
        Prüfsumme dauert Millisekunden, das Übertragen Minuten — bei allem, was
-       schon einmal geschickt wurde, ist der Upload danach sofort fertig. */
-    const bekannt = await schonDa(file, onProgress);
+       schon einmal geschickt wurde, ist der Upload danach sofort fertig.
+
+       Bei verschlüsseltem Inhalt entfällt die Frage: dort ist nie etwas schon
+       da (siehe UploadWunsch), und die Antwort dürfte es auch nicht sein. */
+    const bekannt = wunsch?.verschluesselt ? null : await schonDa(file, onProgress);
     if (bekannt) return { attachment: bekannt };
 
     const GRENZE = 8 * 1024 * 1024;      // darunter lohnt der Aufwand nicht

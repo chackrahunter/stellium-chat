@@ -11,6 +11,7 @@ import { KONTO_KATEGORIEN } from '@stellium/shared';
 import { PERMISSIONS, type MemberRole, type PermissionKey } from '@stellium/shared';
 import { config } from '../config.js';
 import { db } from '../db/index.js';
+import { kennungVon } from '../util/abweisung.js';
 import { newId } from '../util/id.js';
 import {
   addGlossaryEntry, aiCapabilities, anbieterWaehlen, chooseModels, listGlossary, lokalePruefung,
@@ -24,6 +25,7 @@ import { downloadSeite, systemErkennen } from './download/seite.js';
 
 import { broadcastAll, sitzungenBeenden, verbindungen } from '../ws/gateway.js';
 import * as ablage from '../services/ablage.js';
+import { huelleSchreiben, umschlagVonDatei } from '../crypto/dateien.js';
 
 function bearer(req: FastifyRequest): string | null {
   const header = req.headers.authorization;
@@ -125,6 +127,42 @@ function dateiSumme(datei: string): Promise<string> {
   });
 }
 
+/**
+ * Eine Datei zur Übernahme in den Blockspeicher anmelden — außer sie ist
+ * verschlüsselt.
+ *
+ * Angemeldet, nicht übernommen: die Zerlegung läuft im Hintergrund, der
+ * Aufrufer kehrt sofort zurück. Warum das auch für die kleinen Wege gilt und
+ * nicht nur für den Weg in Teilen, steht bei `spaeterUebernehmen()` — kurz:
+ * die Zerlegung ist durchweg synchron, und wie lange sie dauert, entscheidet
+ * nicht die Größe, sondern der Inhalt. Auf dem Raspberry Pi gemessen: 4 MB
+ * packbarer CSV-Abzug 18 Sekunden, in denen kein Ping und keine Nachricht
+ * durchkam, weil die Ereignisschleife stand. Bei den 50 MB, die
+ * `MAX_UPLOAD_MB` erlaubt, wären das über drei Minuten Stillstand für alle.
+ *
+ * Der Blockspeicher lebt davon, gleiche Bytes wiederzuerkennen. Bei einer
+ * verschlüsselten Datei kann er das grundsätzlich nicht: ihr Schlüssel ist
+ * gewürfelt, dieselbe Datei ergibt beim zweiten Hochladen ein völlig anderes
+ * Chiffrat, und gepackt wird sie auch nicht — Chiffrat sieht für jeden Packer
+ * aus wie Rauschen. Ein Durchlauf fände also garantiert nichts und kostete auf
+ * dem Raspberry Pi trotzdem eine volle Zerlegung samt Packversuch je Block.
+ *
+ * Wichtiger als die Ersparnis ist aber, dass es so bleiben **muss**. Würde der
+ * Dateischlüssel aus dem Inhalt abgeleitet — der naheliegende Weg, um auch
+ * verschlüsselt noch zusammenlegen zu können —, dann verriete genau dieses
+ * Zusammenlegen dem Server, ob er eine bestimmte Datei schon verwahrt: er
+ * müsste sie nur selbst verschlüsseln und die Blöcke vergleichen. Bei privaten
+ * Dateien geht Privatsphäre vor Speicherplatz, und diese Abzweigung ist die
+ * Stelle, an der das steht.
+ */
+function uebernehmenWennOffen(
+  input: { id: string; art: ablage.Art; pfad: string; mime: string },
+  umschlag: unknown | null,
+): void {
+  if (umschlag) return;
+  ablage.spaeterUebernehmen(input);
+}
+
 async function teileAufraeumen(id: string, anzahl: number): Promise<void> {
   for (let i = 0; i < anzahl; i += 1) {
     await fs.promises.rm(path.join(config.uploadDir, `${id}.teil${i}`), { force: true }).catch(() => {});
@@ -143,6 +181,12 @@ setInterval(() => {
 }, 15 * 60 * 1000).unref();
 
 export async function registerRoutes(app: FastifyInstance): Promise<void> {
+  /* Was ein Absturz mitten in einer Übernahme liegengelassen hat, wird jetzt
+     zu Ende gebracht. Steht hier und nicht in einem eigenen Zeitgeber, weil es
+     genau einmal beim Hochfahren gehört — und die Zerlegung läuft ohnehin im
+     Hintergrund weiter, hält den Start also nicht auf. */
+  ablage.offeneUebernahmenFortsetzen();
+
   app.get('/api/health', async () => ({
     verbunden: verbindungen(),
     ok: true,
@@ -162,12 +206,12 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const userId = requireUser(req);
     const self = store.getSelf(userId);
     if (self?.role !== 'owner' && self?.role !== 'admin') {
-      return reply.code(403).send({ error: 'Das Übersetzungsmodell darf nur die Team-Leitung ändern.' });
+      return fehler(reply, 403, 'fehler.nurLeitungModell', 'Das Übersetzungsmodell darf nur die Team-Leitung ändern.');
     }
 
     const body = req.body as { quality?: string | null; fast?: string | null; auto?: boolean };
     const registry = modelRegistry();
-    if (!registry) return reply.code(400).send({ error: 'Der aktuelle Anbieter kennt keine Modellwahl.' });
+    if (!registry) return fehler(reply, 400, 'fehler.keineModellwahl', 'Der aktuelle Anbieter kennt keine Modellwahl.');
 
     if (body.auto) {
       chooseModels(null, null, userId);
@@ -178,7 +222,8 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const known = new Set(registry.discovered.filter((m) => !m.rejected).map((m) => m.id));
     for (const id of [body.quality, body.fast]) {
       if (id && known.size && !known.has(id)) {
-        return reply.code(400).send({ error: `Modell "${id}" gibt es nicht oder es beantwortet keine Chat-Anfragen.` });
+        return fehler(reply, 400, 'fehler.modellUnbekannt',
+          `Modell "${id}" gibt es nicht oder es beantwortet keine Chat-Anfragen.`, { modell: id });
       }
     }
     chooseModels(body.quality ?? null, body.fast ?? body.quality ?? null, userId);
@@ -193,7 +238,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const userId = requireUser(req);
     const self = store.getSelf(userId);
     if (self?.role !== 'owner' && self?.role !== 'admin') {
-      return reply.code(403).send({ error: 'Den KI-Anbieter darf nur die Team-Leitung ändern.' });
+      return fehler(reply, 403, 'fehler.nurLeitungAnbieter', 'Den KI-Anbieter darf nur die Team-Leitung ändern.');
     }
 
     const body = req.body as {
@@ -202,7 +247,8 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const erlaubt = ['groq', 'openai', 'ollama', 'llamacpp', 'local', 'deepl', 'libre', 'demo'];
     const anbieter = body.anbieter ? String(body.anbieter) : null;
     if (anbieter && !erlaubt.includes(anbieter)) {
-      return reply.code(400).send({ error: `Unbekannter Anbieter "${anbieter}".` });
+      return fehler(reply, 400, 'fehler.anbieterUnbekannt',
+        `Unbekannter Anbieter "${anbieter}".`, { anbieter: String(anbieter) });
     }
 
     // Bei einem lokalen Dienst zuerst nachsehen, ob dort überhaupt etwas
@@ -215,11 +261,15 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
             : config.ai.ollama.baseUrl);
       const probe = await lokalePruefung(adresse);
       if (!probe.erreichbar) {
-        return reply.code(400).send({ error: `Unter ${adresse} antwortet nichts (${probe.fehler}).` });
+        return fehler(reply, 400, 'fehler.dienstStumm',
+          `Unter ${adresse} antwortet nichts (${probe.fehler}).`,
+          { adresse: String(adresse), grund: String(probe.fehler) });
       }
       if (body.model && probe.modelle.length && !probe.modelle.includes(body.model)) {
         return reply.code(400).send({
           error: `Dort ist "${body.model}" nicht geladen. Vorhanden: ${probe.modelle.slice(0, 6).join(', ')}.`,
+          code: 'fehler.modellNichtGeladen',
+          werte: { modell: String(body.model), vorhanden: probe.modelle.slice(0, 6).join(', ') },
         });
       }
     }
@@ -310,14 +360,14 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   app.post('/api/auth/setup', async (req, reply) => {
     const userId = requireUser(req);
     const body = req.body as { handle?: string; email?: string; displayName?: string; newPassword?: string };
-    if (!body.newPassword) return reply.code(400).send({ error: 'Neues Passwort fehlt' });
+    if (!body.newPassword) return fehler(reply, 400, 'fehler.neuesPasswortFehlt', 'Neues Passwort fehlt');
     try {
       users.completeSetup(userId, {
         handle: body.handle, email: body.email,
         displayName: body.displayName, newPassword: body.newPassword,
       });
     } catch (err) {
-      return reply.code(400).send({ error: (err as Error).message });
+      return weiterreichen(reply, 400, err);
     }
     return { user: store.getSelf(userId) };
   });
@@ -326,11 +376,11 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   app.post('/api/auth/password', async (req, reply) => {
     const userId = requireUser(req);
     const { current, next } = req.body as { current?: string; next?: string };
-    if (!current || !next) return reply.code(400).send({ error: 'Beide Passwörter angeben' });
+    if (!current || !next) return fehler(reply, 400, 'fehler.beidePasswoerter', 'Beide Passwörter angeben');
     try {
       users.changeOwnPassword(userId, current, next, verifyPassword);
     } catch (err) {
-      return reply.code(400).send({ error: (err as Error).message });
+      return weiterreichen(reply, 400, err);
     }
     return { ok: true };
   });
@@ -364,9 +414,9 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       displayName?: string; handle?: string; email?: string;
       role?: MemberRole; language?: string; timezone?: string;
     };
-    if (!body.displayName) return reply.code(400).send({ error: 'Name fehlt' });
+    if (!body.displayName) return fehler(reply, 400, 'fehler.nameFehlt', 'Name fehlt');
     if (body.role === 'owner' && store.getSelf(userId)?.role !== 'owner') {
-      return reply.code(403).send({ error: 'Nur der Owner kann einen weiteren Owner ernennen.' });
+      return fehler(reply, 403, 'fehler.nurOwnerErnennt', 'Nur der Owner kann einen weiteren Owner ernennen.');
     }
     try {
       const konto = users.createAccount({ ...body, displayName: body.displayName, createdBy: userId });
@@ -385,7 +435,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         users: store.listManagedUsers(),
       };
     } catch (err) {
-      return reply.code(400).send({ error: (err as Error).message });
+      return weiterreichen(reply, 400, err);
     }
   });
 
@@ -394,9 +444,9 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     requirePermission(userId, 'user.manage');
     const { id } = req.params as { id: string };
     const ziel = store.getUser(id);
-    if (!ziel) return reply.code(404).send({ error: 'Konto nicht gefunden' });
+    if (!ziel) return fehler(reply, 404, 'fehler.kontoNichtGefunden', 'Konto nicht gefunden');
     if (ziel.role === 'owner' && id !== userId) {
-      return reply.code(403).send({ error: 'Das Passwort des Owners kann nur er selbst zurücksetzen.' });
+      return fehler(reply, 403, 'fehler.ownerPasswortSelbst', 'Das Passwort des Owners kann nur er selbst zurücksetzen.');
     }
     try {
       const passwort = users.resetPassword(id, userId);
@@ -408,7 +458,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         users: store.listManagedUsers(),
       };
     } catch (err) {
-      return reply.code(400).send({ error: (err as Error).message });
+      return weiterreichen(reply, 400, err);
     }
   });
 
@@ -418,18 +468,18 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const { id } = req.params as { id: string };
     const { role } = req.body as { role?: MemberRole };
     if (role === 'owner' && store.getSelf(userId)?.role !== 'owner') {
-      return reply.code(403).send({ error: 'Nur der Owner kann diese Rolle vergeben.' });
+      return fehler(reply, 403, 'fehler.nurOwnerRolle', 'Nur der Owner kann diese Rolle vergeben.');
     }
     /* Die eigene Rolle bleibt tabu. Sonst könnte sich jeder mit 'user.manage'
        selbst hochstufen — die Rechteverwaltung wäre dann nur noch Zierde. */
     if (id === userId) {
-      return reply.code(403).send({ error: 'Die eigene Rolle lässt sich nicht ändern.' });
+      return fehler(reply, 403, 'fehler.eigeneRolle', 'Die eigene Rolle lässt sich nicht ändern.');
     }
     try {
       users.setRole(id, role as any, userId);
       return { users: store.listManagedUsers() };
     } catch (err) {
-      return reply.code(400).send({ error: (err as Error).message });
+      return weiterreichen(reply, 400, err);
     }
   });
 
@@ -438,16 +488,16 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     requirePermission(userId, 'permission.manage');
     const { id } = req.params as { id: string };
     const { permission, allowed } = req.body as { permission?: PermissionKey; allowed?: boolean | null };
-    if (!permission) return reply.code(400).send({ error: 'Recht fehlt' });
+    if (!permission) return fehler(reply, 400, 'fehler.rechtFehlt', 'Recht fehlt');
     // Wer sich selbst Rechte zurückgeben kann, dem kann man keine nehmen.
     if (id === userId) {
-      return reply.code(403).send({ error: 'Eigene Rechte lassen sich nicht ändern.' });
+      return fehler(reply, 403, 'fehler.eigeneRechte', 'Eigene Rechte lassen sich nicht ändern.');
     }
     try {
       users.setPermission(id, permission, allowed ?? null, userId);
       return { users: store.listManagedUsers() };
     } catch (err) {
-      return reply.code(400).send({ error: (err as Error).message });
+      return weiterreichen(reply, 400, err);
     }
   });
 
@@ -461,12 +511,13 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const body = req.body as { kategorie?: string | null };
     const wert = body.kategorie ? String(body.kategorie) : null;
     if (wert && !KONTO_KATEGORIEN.includes(wert as never)) {
-      return reply.code(400).send({ error: `Unbekannte Kategorie "${wert}".` });
+      return fehler(reply, 400, 'fehler.kategorieUnbekannt',
+        `Unbekannte Kategorie "${wert}".`, { kategorie: String(wert) });
     }
     // Gelöschte bleiben gelöscht — dafür gibt es keine andere Schublade.
     const ziel = store.listManagedUsers().find((u) => u.id === id);
-    if (!ziel) return reply.code(404).send({ error: 'Konto nicht gefunden.' });
-    if (ziel.deletedAt) return reply.code(400).send({ error: 'Gelöschte Konten lassen sich nicht einsortieren.' });
+    if (!ziel) return fehler(reply, 404, 'fehler.kontoNichtGefunden', 'Konto nicht gefunden.');
+    if (ziel.deletedAt) return fehler(reply, 400, 'fehler.geloeschtEinsortieren', 'Gelöschte Konten lassen sich nicht einsortieren.');
 
     db.run('UPDATE users SET kategorie = ? WHERE id = ?', wert, id);
     return { users: store.listManagedUsers() };
@@ -483,7 +534,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       if (person) broadcastAll({ t: 'user:upsert', user: person });
       return { users: store.listManagedUsers() };
     } catch (err) {
-      return reply.code(400).send({ error: (err as Error).message });
+      return weiterreichen(reply, 400, err);
     }
   });
 
@@ -491,7 +542,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const userId = requireUser(req);
     requirePermission(userId, 'user.delete');
     const { id } = req.params as { id: string };
-    if (id === userId) return reply.code(400).send({ error: 'Das eigene Konto lässt sich nicht löschen.' });
+    if (id === userId) return fehler(reply, 400, 'fehler.eigenesKontoLoeschen', 'Das eigene Konto lässt sich nicht löschen.');
     try {
       users.deleteAccount(id);
       // Wer gerade verbunden ist, fliegt sofort heraus — sonst liest das
@@ -503,7 +554,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       if (person) broadcastAll({ t: 'user:upsert', user: person });
       return { users: store.listManagedUsers() };
     } catch (err) {
-      return reply.code(400).send({ error: (err as Error).message });
+      return weiterreichen(reply, 400, err);
     }
   });
 
@@ -511,7 +562,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const userId = bearer(req);
     if (!userId) return fehler(reply, 401, 'fehler.nichtAngemeldet', 'Nicht angemeldet');
     const self = store.getSelf(userId);
-    if (!self) return reply.code(401).send({ error: 'Konto existiert nicht mehr' });
+    if (!self) return fehler(reply, 401, 'fehler.kontoWeg', 'Konto existiert nicht mehr');
     return { user: self, ai: aiCapabilities() };
   });
 
@@ -555,7 +606,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
        hat es niemand. */
     requirePermission(userId, 'glossary.manage');
     const body = req.body as { term?: string; translations?: Record<string, string> | null; caseSensitive?: boolean; note?: string };
-    if (!body.term?.trim()) return reply.code(400).send({ error: 'Begriff fehlt' });
+    if (!body.term?.trim()) return fehler(reply, 400, 'fehler.begriffFehlt', 'Begriff fehlt');
     const id = addGlossaryEntry({
       term: body.term.trim(),
       translations: body.translations ?? null,
@@ -581,8 +632,22 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
    * ihren eigenen Satz in der eingestellten Sprache. So muss der Server nicht
    * wissen, welche Sprache am anderen Ende läuft.
    */
-  const fehler = (reply: FastifyReply, status: number, code: string, text: string) =>
-    reply.code(status).send({ error: text, code });
+  const fehler = (
+    reply: FastifyReply, status: number, code: string, text: string,
+    werte?: Record<string, string>,
+  ) => reply.code(status).send({ error: text, code, werte });
+
+  /**
+   * Eine Abweisung aus einem Dienst weiterreichen.
+   *
+   * Trägt sie eine Kennung, geht die mit hinaus und die Oberfläche setzt ihren
+   * eigenen Satz ein. Trägt sie keine — etwa weil es ein unerwarteter Fehler
+   * ist —, bleibt es beim deutschen Text; lesbar ist er allemal.
+   */
+  const weiterreichen = (reply: FastifyReply, status: number, err: unknown) => {
+    const { code, werte } = kennungVon(err);
+    return reply.code(status).send({ error: (err as Error).message, code, werte });
+  };
 
   /* ── Dateien ───────────────────────────────────────────────── */
 
@@ -599,28 +664,36 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       await pipeline(file.file, fs.createWriteStream(target));
     } catch (err) {
       await fs.promises.rm(target, { force: true });
-      return reply.code(500).send({ error: `Upload fehlgeschlagen: ${(err as Error).message}` });
+      return fehler(reply, 500, 'fehler.uploadFehlgeschlagen',
+        `Upload fehlgeschlagen: ${(err as Error).message}`, { grund: (err as Error).message });
     }
     if (file.file.truncated) {
       await fs.promises.rm(target, { force: true });
-      return reply.code(413).send({ error: `Datei überschreitet ${config.maxUploadBytes / 1024 / 1024} MB` });
+      return fehler(reply, 413, 'fehler.dateiZuGross',
+        `Datei überschreitet ${config.maxUploadBytes / 1024 / 1024} MB`,
+        { mb: String(config.maxUploadBytes / 1024 / 1024) });
     }
 
     const size = (await fs.promises.stat(target)).size;
-    const dims = file.mimetype.startsWith('image/') ? await imageSize(target) : null;
-    const summe = await dateiSumme(target);
+    const umschlag = umschlagVonDatei(target);
+    /* Bei einer verschlüsselten Datei gibt es nichts zu vermessen: der Anfang
+       ist ein Umschlag und kein Bildkopf. Ohne diese Abzweigung stünden hier
+       Maße, die aus Zufallsbytes geraten wären. */
+    const dims = !umschlag && file.mimetype.startsWith('image/') ? await imageSize(target) : null;
+    const summe = umschlag ? null : await dateiSumme(target);
 
     db.run(
-      `INSERT INTO attachments (id, message_id, uploader_id, name, mime, size, path, width, height, sha256, created_at)
-       VALUES (?, NULL, ?,?,?,?,?,?,?,?,?)`,
+      `INSERT INTO attachments (id, message_id, uploader_id, name, mime, size, path, width, height, sha256, huelle, created_at)
+       VALUES (?, NULL, ?,?,?,?,?,?,?,?,?,?)`,
       id, userId, safeName, file.mimetype || 'application/octet-stream', size, target,
-      dims?.width ?? null, dims?.height ?? null, summe, Date.now(),
+      dims?.width ?? null, dims?.height ?? null, summe, huelleSchreiben(umschlag), Date.now(),
     );
 
-    /* Ab in den Blockspeicher. Das läuft bewusst nach dem Eintragen: die
-       Datei ist ab sofort benutzbar, und wenn die Übernahme scheitert, liegt
-       sie weiterhin ganz normal auf der Platte. */
-    ablage.uebernehmen({ id, art: 'attachment', pfad: target, mime: file.mimetype || '' });
+    /* Ab in den Blockspeicher — angemeldet, nicht abgewartet. Das läuft
+       bewusst nach dem Eintragen: die Datei ist ab sofort benutzbar, sie wird
+       bis zum Ende der Zerlegung ganz von der Platte ausgeliefert, und wenn
+       die Übernahme scheitert, bleibt sie schlicht liegen. */
+    uebernehmenWennOffen({ id, art: 'attachment', pfad: target, mime: file.mimetype || '' }, umschlag);
 
     return {
       attachment: {
@@ -638,30 +711,73 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
    * sind das Minuten für etwas, das längst dort liegt. Der Client rechnet die
    * Prüfsumme aus und fragt vorher nach; passt sie, entsteht nur ein neuer
    * Verweis auf dieselben Bytes.
+   *
+   * Was hier als Nachweis zählt, ist die Prüfsumme über den **ganzen** Inhalt
+   * zusammen mit der Größe. Wer die hat, hat die Datei — sie lässt sich nicht
+   * erraten und nicht aus Bruchstücken zusammenlegen. Das ist die Grenze, an
+   * der diese Route steht und stehen bleiben muss: eine Auskunft auf weniger
+   * hin — auf einen Blocknamen etwa, oder auf eine Prüfsumme ohne Größe —
+   * würde aus der Ersparnis einen Weg machen, an fremde Dateien zu kommen.
    */
   app.post('/api/uploads/bekannt', async (req, reply) => {
     const userId = requireUser(req);
     const body = req.body as { sha256?: string; size?: number; name?: string; mime?: string };
     const summe = String(body.sha256 ?? '').toLowerCase();
-    if (!/^[a-f0-9]{64}$/.test(summe)) return reply.code(400).send({ error: 'Ungültige Prüfsumme.' });
+    if (!/^[a-f0-9]{64}$/.test(summe)) return fehler(reply, 400, 'fehler.pruefsummeFalsch', 'Ungültige Prüfsumme.');
 
-    const vorhanden = db.get<any>(
-      'SELECT * FROM attachments WHERE sha256 = ? AND size = ? ORDER BY created_at DESC LIMIT 1',
-      summe, Number(body.size ?? 0),
+    const groesse = Number(body.size ?? 0);
+    // Ohne Größe kein Nachweis: die Prüfsumme allein soll hier nicht genügen.
+    if (!Number.isSafeInteger(groesse) || groesse <= 0) return { bekannt: false };
+
+    /* Denselben Inhalt können mehrere Zeilen tragen, und sie sind
+       unterschiedlich brauchbar: eine liegt noch als ganze Datei da, die
+       nächste ist längst in Blöcken, eine dritte ist der Rest eines
+       abgebrochenen Vorgangs und hat gar nichts mehr. Deshalb nicht die
+       neueste nehmen, sondern die neueste, aus der wirklich wieder eine Datei
+       entsteht. */
+    const kandidaten = db.all<any>(
+      'SELECT * FROM attachments WHERE sha256 = ? AND size = ? ORDER BY created_at DESC LIMIT 25',
+      summe, groesse,
     );
-    if (!vorhanden || !fs.existsSync(vorhanden.path)) return { bekannt: false };
+    const vorhanden = kandidaten.find((zeile) => (zeile.encoding === 'bloecke'
+      ? ablage.blockListe(zeile.id, 'attachment').length > 0
+      : Boolean(zeile.path) && fs.existsSync(zeile.path)));
+    if (!vorhanden) return { bekannt: false };
 
     /* Ein neuer Eintrag auf dieselbe Datei: Name und Absender gehören zu
        diesem Vorgang, die Bytes werden geteilt. Gelöscht wird eine Datei erst,
        wenn kein Eintrag mehr auf sie zeigt. */
     const id = newId('at_');
     const name = path.basename(String(body.name ?? vorhanden.name)).replace(/[^\p{L}\p{N}._ -]/gu, '_').slice(0, 120);
+    const inBloecken = vorhanden.encoding === 'bloecke';
     db.run(
-      `INSERT INTO attachments (id, message_id, uploader_id, name, mime, size, path, width, height, sha256, created_at)
-       VALUES (?, NULL, ?,?,?,?,?,?,?,?,?)`,
+      `INSERT INTO attachments (id, message_id, uploader_id, name, mime, size, path, width, height, sha256, encoding, stored_size, created_at)
+       VALUES (?, NULL, ?,?,?,?,?,?,?,?,?,?,?)`,
       id, userId, name, String(body.mime ?? vorhanden.mime), vorhanden.size, vorhanden.path,
-      vorhanden.width ?? null, vorhanden.height ?? null, summe, Date.now(),
+      vorhanden.width ?? null, vorhanden.height ?? null, summe,
+      /* Alles außer „liegt in Blöcken" ist für diesen Eintrag schlicht eine
+         ganze Datei. Insbesondere darf ein laufender `uebernahme`-Vermerk
+         nicht mitkopiert werden: er gehört zu genau einem Vorgang, und die
+         zweite Zeile würde sonst beim nächsten Start als unterbrochen gelten
+         und eine Übernahme starten, die niemand angestoßen hat. */
+      inBloecken ? 'bloecke' : null,
+      /* Was dieser zweite Eintrag zusätzlich auf der Platte kostet: nichts.
+         Die Blöcke liegen schon da, und genau so rechnet der Blockspeicher
+         auch bei einem zweiten Upload derselben Datei. */
+      inBloecken ? 0 : null,
+      Date.now(),
     );
+
+    /* Liegt die Vorlage in Blöcken, gibt es ihren Pfad nicht mehr — geteilt
+       wird dann die Blockliste. Ohne diesen Zweig meldete die Route für jede
+       Datei im Blockspeicher „kenne ich nicht", und der Client übertrug eine
+       Datei, die längst da war. */
+    if (inBloecken && !ablage.bloeckeTeilen({ id: vorhanden.id, art: 'attachment' }, { id, art: 'attachment' })) {
+      // Zwischen Nachsehen und Übernehmen ist die Vorlage verschwunden. Dann
+      // lieber ehrlich "unbekannt" als ein Eintrag, der ins Leere zeigt.
+      db.run('DELETE FROM attachments WHERE id = ?', id);
+      return { bekannt: false };
+    }
 
     return {
       bekannt: true,
@@ -686,15 +802,17 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const body = req.body as { name?: string; mime?: string; size?: number; parts?: number };
     const groesse = Number(body.size ?? 0);
     if (!Number.isFinite(groesse) || groesse <= 0) {
-      return reply.code(400).send({ error: 'Größe fehlt.' });
+      return fehler(reply, 400, 'fehler.groesseFehlt', 'Größe fehlt.');
     }
     if (groesse > config.maxUploadBytes) {
-      return reply.code(413).send({ error: `Datei überschreitet ${Math.round(config.maxUploadBytes / 1024 / 1024)} MB` });
+      return fehler(reply, 413, 'fehler.dateiZuGross',
+        `Datei überschreitet ${Math.round(config.maxUploadBytes / 1024 / 1024)} MB`,
+        { mb: String(Math.round(config.maxUploadBytes / 1024 / 1024)) });
     }
     const teile = Number(body.parts ?? 0);
     // Obergrenze, damit niemand mit hunderttausend Teilen das Verzeichnis flutet.
     if (!Number.isInteger(teile) || teile < 1 || teile > 2000) {
-      return reply.code(400).send({ error: 'Ungültige Anzahl Teile.' });
+      return fehler(reply, 400, 'fehler.teileAnzahl', 'Ungültige Anzahl Teile.');
     }
 
     const id = newId('up_');
@@ -715,11 +833,11 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const userId = requireUser(req);
     const { id, index } = req.params as { id: string; index: string };
     const auftrag = teilUploads.get(id);
-    if (!auftrag || auftrag.userId !== userId) return reply.code(404).send({ error: 'Unbekannter Upload.' });
+    if (!auftrag || auftrag.userId !== userId) return fehler(reply, 404, 'fehler.uploadUnbekannt', 'Unbekannter Upload.');
 
     const nummer = Number.parseInt(index, 10);
     if (!Number.isInteger(nummer) || nummer < 0 || nummer >= auftrag.parts) {
-      return reply.code(400).send({ error: 'Ungültige Teilnummer.' });
+      return fehler(reply, 400, 'fehler.teilnummer', 'Ungültige Teilnummer.');
     }
 
     const ziel = path.join(config.uploadDir, `${id}.teil${nummer}`);
@@ -727,7 +845,9 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       await pipeline(req.raw, fs.createWriteStream(ziel, { highWaterMark: 1024 * 1024 }));
     } catch (err) {
       await fs.promises.rm(ziel, { force: true });
-      return reply.code(500).send({ error: `Teil ${nummer} fehlgeschlagen: ${(err as Error).message}` });
+      return fehler(reply, 500, 'fehler.teilFehlgeschlagen',
+        `Teil ${nummer} fehlgeschlagen: ${(err as Error).message}`,
+        { nummer: String(nummer), grund: (err as Error).message });
     }
     auftrag.da.add(nummer);
     return { ok: true, teil: nummer };
@@ -738,12 +858,14 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const userId = requireUser(req);
     const { id } = req.params as { id: string };
     const auftrag = teilUploads.get(id);
-    if (!auftrag || auftrag.userId !== userId) return reply.code(404).send({ error: 'Unbekannter Upload.' });
+    if (!auftrag || auftrag.userId !== userId) return fehler(reply, 404, 'fehler.uploadUnbekannt', 'Unbekannter Upload.');
 
     const fehlend = [];
     for (let i = 0; i < auftrag.parts; i += 1) if (!auftrag.da.has(i)) fehlend.push(i);
     if (fehlend.length) {
-      return reply.code(400).send({ error: `Es fehlen Teile: ${fehlend.slice(0, 10).join(', ')}` });
+      return fehler(reply, 400, 'fehler.teileFehlen',
+        `Es fehlen Teile: ${fehlend.slice(0, 10).join(', ')}`,
+        { teile: fehlend.slice(0, 10).join(', ') });
     }
 
     const anhangId = newId('at_');
@@ -762,7 +884,8 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       await fs.promises.rm(ziel, { force: true });
       await teileAufraeumen(id, auftrag.parts);
       teilUploads.delete(id);
-      return reply.code(500).send({ error: `Zusammensetzen fehlgeschlagen: ${(err as Error).message}` });
+      return fehler(reply, 500, 'fehler.zusammensetzen',
+        `Zusammensetzen fehlgeschlagen: ${(err as Error).message}`, { grund: (err as Error).message });
     }
 
     await teileAufraeumen(id, auftrag.parts);
@@ -771,17 +894,46 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const size = (await fs.promises.stat(ziel)).size;
     if (size !== auftrag.size) {
       await fs.promises.rm(ziel, { force: true });
-      return reply.code(400).send({ error: `Unvollständig: ${size} statt ${auftrag.size} Bytes.` });
+      return fehler(reply, 400, 'fehler.unvollstaendig',
+        `Unvollständig: ${size} statt ${auftrag.size} Bytes.`,
+        { ist: String(size), soll: String(auftrag.size) });
     }
 
-    const dims = auftrag.mime.startsWith('image/') ? await imageSize(ziel) : null;
-    const summe = await dateiSumme(ziel);
+    const umschlag = umschlagVonDatei(ziel);
+    const dims = !umschlag && auftrag.mime.startsWith('image/') ? await imageSize(ziel) : null;
+    const summe = umschlag ? null : await dateiSumme(ziel);
     db.run(
-      `INSERT INTO attachments (id, message_id, uploader_id, name, mime, size, path, width, height, sha256, created_at)
-       VALUES (?, NULL, ?,?,?,?,?,?,?,?,?)`,
+      `INSERT INTO attachments (id, message_id, uploader_id, name, mime, size, path, width, height, sha256, huelle, created_at)
+       VALUES (?, NULL, ?,?,?,?,?,?,?,?,?,?)`,
       anhangId, userId, auftrag.name, auftrag.mime, size, ziel,
-      dims?.width ?? null, dims?.height ?? null, summe, Date.now(),
+      dims?.width ?? null, dims?.height ?? null, summe, huelleSchreiben(umschlag), Date.now(),
     );
+
+    /* Ab in den Blockspeicher. Das lief hier bisher nicht, und damit ging
+       ausgerechnet das an den Blöcken vorbei, wofür der Weg in Teilen
+       überhaupt gebaut wurde: die großen Dateien.
+
+       Anders als beim Upload am Stück aber erst **nach** der Antwort. Wie
+       lange eine Zerlegung dauert, entscheidet der Inhalt, und die Spanne ist
+       gewaltig: hier gemessen 30 MB Rauschen in 0,3 Sekunden, 8 MB packbarer
+       Text in eineinhalb Minuten — jeder Block wird einzeln gepackt, und bei
+       packbarem Inhalt kostet das Sekunden je Block. Diese Spanne in eine
+       Antwort zu legen hieße, den Client bei ungünstigem Inhalt so lange
+       warten zu lassen, dass er den Upload für gescheitert hält, obwohl
+       längst alles da ist.
+
+       Bis die Zerlegung durch ist, trägt die Zeile den Vermerk `uebernahme`:
+       die Datei liegt ganz da und wird ganz ausgeliefert, niemand merkt, dass
+       noch etwas läuft. Bricht der Server mittendrin ab, findet der nächste
+       Start genau diesen Vermerk und fängt von vorn an.
+
+       Verschlüsselte Dateien bleiben außen vor — der Grund steht bei
+       uebernehmenWennOffen(). */
+    if (!umschlag) {
+      ablage.spaeterUebernehmen({
+        id: anhangId, art: 'attachment', pfad: ziel, mime: auftrag.mime,
+      });
+    }
 
     return {
       attachment: {
@@ -796,7 +948,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   app.post('/api/files', async (req, reply) => {
     const userId = requireUser(req);
     if (!may(userId, 'file.upload')) {
-      return reply.code(403).send({ error: 'Dir fehlt das Recht, Dateien abzulegen.' });
+      return fehler(reply, 403, 'fehler.keinRechtAblage', 'Dir fehlt das Recht, Dateien abzulegen.');
     }
     const file = await req.file({ limits: { fileSize: config.maxUploadBytes } });
     if (!file) return fehler(reply, 400, 'fehler.keineDatei', 'Keine Datei im Request');
@@ -815,14 +967,29 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       await pipeline(file.file, fs.createWriteStream(target));
     } catch (err) {
       await fs.promises.rm(target, { force: true });
-      return reply.code(500).send({ error: `Upload fehlgeschlagen: ${(err as Error).message}` });
+      return fehler(reply, 500, 'fehler.uploadFehlgeschlagen',
+        `Upload fehlgeschlagen: ${(err as Error).message}`, { grund: (err as Error).message });
     }
     if (file.file.truncated) {
       await fs.promises.rm(target, { force: true });
-      return reply.code(413).send({ error: `Datei überschreitet ${config.maxUploadBytes / 1024 / 1024} MB` });
+      return fehler(reply, 413, 'fehler.dateiZuGross',
+        `Datei überschreitet ${config.maxUploadBytes / 1024 / 1024} MB`,
+        { mb: String(config.maxUploadBytes / 1024 / 1024) });
     }
 
     const size = (await fs.promises.stat(target)).size;
+    /* Ob eine Datei privat ist, entscheidet ihr Inhalt und nicht das Formular.
+       Ein Feld "privat=1" wäre eine Behauptung, und die Zusage "nicht einmal
+       der Host sieht das" darf nicht auf einer Behauptung ruhen: eine ältere
+       App schickte den Klartext und bekäme trotzdem das Schloss danebengemalt.
+       Umgekehrt gilt dasselbe — was verschlüsselt ankommt, ist privat, auch
+       wenn das Feld fehlt. Siehe crypto/dateien.ts. */
+    const umschlag = umschlagVonDatei(target);
+    if (feld('privat') === '1' && !umschlag) {
+      await fs.promises.rm(target, { force: true });
+      return fehler(reply, 400, 'fehler.privatUnverschluesselt',
+        'Diese Datei sollte privat sein, kam aber unverschlüsselt an. Bitte die App aktualisieren.');
+    }
     try {
       const gespeichert = files.addFile({
         id,
@@ -834,20 +1001,38 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         channelId: feld('channelId') ?? null,
         description: feld('description') ?? null,
         uploadedBy: userId,
-        /* Das Formular sagt nur, ob der Inhalt schon verschlüsselt ist —
-           verschlüsselt hat ihn die App, bevor sie ihn geschickt hat. Der
-           Server hat hier nichts zu tun außer es sich zu merken. */
-        privat: feld('privat') === '1',
+        privat: Boolean(umschlag),
+        huelle: huelleSchreiben(umschlag),
       });
       const belegung = files.usage();
-      // Alle sollen die neue Datei sofort in der Ablage sehen.
-      broadcastAll({ t: 'file:upsert', file: gespeichert, usage: belegung });
+      /* Alle sollen die neue Datei sofort in der Ablage sehen — alle außer bei
+         einer privaten. Die gehört einem einzigen Konto, und schon ihr Name im
+         Verzeichnis aller anderen wäre mehr, als "privat" verspricht. Die
+         hochladende App bekommt sie in der Antwort und lädt danach ohnehin neu. */
+      if (!gespeichert.privat) broadcastAll({ t: 'file:upsert', file: gespeichert, usage: belegung });
       return { file: gespeichert, usage: belegung };
     } catch (err) {
       // Kontingent überschritten: die Datei darf nicht liegen bleiben.
       await fs.promises.rm(target, { force: true });
-      return reply.code(409).send({ error: (err as Error).message });
+      return weiterreichen(reply, 409, err);
     }
+  });
+
+  /**
+   * Die Ablage, wie sie für dieses Konto aussieht.
+   *
+   * Es gibt sie auch über die Ereignisleitung (`file:list`), aber dort fehlt
+   * dem Aufruf das Konto — und ohne Konto lässt sich nicht entscheiden, wessen
+   * private Dateien dazugehören. Deshalb dieser Weg: er weiß, wer fragt, und
+   * gibt private Dateien nur ihrem Besitzer.
+   */
+  app.get('/api/files', async (req) => {
+    const userId = requireUser(req);
+    const q = req.query as { channelId?: string; folder?: string } | undefined;
+    return {
+      files: files.listFiles({ channelId: q?.channelId, folder: q?.folder, fuerUserId: userId }),
+      usage: files.usage(),
+    };
   });
 
   /* ── App-Versionen ─────────────────────────────────────────── */
@@ -903,7 +1088,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       return { release: info, releases: releases.listReleases() };
     } catch (err) {
       await fs.promises.rm(temp, { force: true });
-      return reply.code(400).send({ error: (err as Error).message });
+      return weiterreichen(reply, 400, err);
     }
   });
 
@@ -941,10 +1126,10 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     requireLeser(req);
     const { platform } = req.params as { platform: string };
     // Das Serverpaket gehört nicht auf die öffentliche Seite.
-    if (platform === 'server') return reply.code(404).send({ error: 'Nicht gefunden' });
+    if (platform === 'server') return fehler(reply, 404, 'fehler.nichtGefunden', 'Nicht gefunden');
     const vorhanden = releases.getRelease(platform);
     if (!vorhanden || !fs.existsSync(vorhanden.path)) {
-      return reply.code(404).send({ error: 'Für dieses System liegt nichts bereit.' });
+      return fehler(reply, 404, 'fehler.keinBauSystem', 'Für dieses System liegt nichts bereit.');
     }
     reply.header('content-type', 'application/octet-stream');
     reply.header('content-length', String(vorhanden.size));
@@ -963,7 +1148,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     if (platform === 'server') requirePermission(leser, 'user.manage');
     const vorhanden = releases.getRelease(platform);
     if (!vorhanden || !fs.existsSync(vorhanden.path)) {
-      return reply.code(404).send({ error: 'Für diese Plattform liegt nichts bereit.' });
+      return fehler(reply, 404, 'fehler.keinBauPlattform', 'Für diese Plattform liegt nichts bereit.');
     }
     reply.header('content-type', 'application/octet-stream');
     reply.header('content-length', String(vorhanden.size));
@@ -981,6 +1166,15 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     // Hängt die Datei an einem Kanal, gilt dessen Mitgliederkreis. Sonst
     // käme jeder mit der Kennung an Anhänge aus fremden Kanälen.
     if (datei.channelId && !store.memberIds(datei.channelId).includes(userId)) {
+      return fehler(reply, 404, 'fehler.dateiNichtGefunden', 'Datei nicht gefunden');
+    }
+
+    /* Eine private Datei geht nur an ihren Besitzer. Öffnen könnte sie ohnehin
+       niemand sonst — aber sie herauszugeben hieße, ihre bloße Existenz und
+       ihre Größe zu bestätigen, und dafür gibt es keinen Grund. Dieselbe
+       Antwort wie bei "gibt es nicht": sonst verriete schon der Unterschied,
+       dass es sie gibt. */
+    if (datei.privat && datei.uploadedBy !== userId) {
       return fehler(reply, 404, 'fehler.dateiNichtGefunden', 'Datei nicht gefunden');
     }
 
@@ -1015,9 +1209,9 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const { id } = req.params as { id: string };
     const row = db.get<{
       path: string; mime: string; name: string; message_id: string | null;
-      uploader_id: string; encoding: string | null;
+      uploader_id: string; encoding: string | null; huelle: string | null;
     }>(
-      'SELECT path, mime, name, message_id, uploader_id, encoding FROM attachments WHERE id = ?', id,
+      'SELECT path, mime, name, message_id, uploader_id, encoding, huelle FROM attachments WHERE id = ?', id,
     );
     if (!row) return fehler(reply, 404, 'fehler.dateiNichtGefunden', 'Datei nicht gefunden');
 
@@ -1035,8 +1229,15 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       return fehler(reply, 404, 'fehler.dateiNichtGefunden', 'Datei nicht gefunden');
     }
 
-    const inline = /^(image|video|audio)\//.test(row.mime) || row.mime === 'application/pdf';
-    reply.header('content-type', row.mime);
+    /* Ein verschlüsselter Anhang geht nie inline hinaus — genau wie eine
+       private Datei in /storage/:id, und aus demselben Grund: was hier liegt,
+       ist Chiffrat. Als Bild ausgeliefert ergäbe es ein kaputtes Bild, und der
+       Browser bekäme eine Angabe über den Inhalt, die nicht stimmt. Die App
+       holt sich die Bytes, schließt sie auf und zeigt sie selbst an. */
+    const verschlossen = Boolean(row.huelle);
+    const inline = !verschlossen
+      && (/^(image|video|audio)\//.test(row.mime) || row.mime === 'application/pdf');
+    reply.header('content-type', verschlossen ? 'application/octet-stream' : row.mime);
     reply.header('content-disposition', `${inline ? 'inline' : 'attachment'}; filename*=UTF-8''${encodeURIComponent(row.name)}`);
     reply.header('cache-control', 'private, max-age=31536000, immutable');
 
