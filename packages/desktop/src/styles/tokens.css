@@ -4,6 +4,14 @@
 */
 
 :root {
+  /* Was Dynamic Island, Kameraloch und Home-Leiste verdecken. Auf Geräten ohne
+     solche Ränder sind die Werte null — die Regeln kosten dort also nichts,
+     und man muss nicht nach Gerät unterscheiden. */
+  --sicher-oben:   env(safe-area-inset-top, 0px);
+  --sicher-unten:  env(safe-area-inset-bottom, 0px);
+  --sicher-links:  env(safe-area-inset-left, 0px);
+  --sicher-rechts: env(safe-area-inset-right, 0px);
+
   /* Akzente — bleiben in beiden Themes gleich */
   --violet:      #7c5cff;
   --violet-soft: #9d86ff;
@@ -51,6 +59,10 @@
   --bg-active:    rgba(124, 92, 255, 0.16);
   --bg-input:     rgba(255, 255, 255, 0.045);
   --bg-elevated:  rgba(18, 21, 38, 0.92);
+  /* Die Schublade auf dem Telefon liegt über dem Gespräch und muss es
+     verdecken. Der Glaseffekt der Seitenleiste lebt davon, dass hinter ihr
+     nur der Sternenhimmel liegt — über Text wird daraus Durcheinander. */
+  --bg-schublade: #0a0d1a;
 
   --line:         rgba(255, 255, 255, 0.075);
   --line-strong:  rgba(255, 255, 255, 0.14);

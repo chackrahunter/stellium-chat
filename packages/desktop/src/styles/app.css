@@ -52,6 +52,11 @@ a:hover { text-decoration: underline; }
   inset: 0;
   z-index: 0;
   overflow: hidden;
+  /* Ohne diese Zeile misst Safari die Sternenleinwand mit ihrer eigenen Breite
+     statt mit der des Fensters: auf dem iPhone ragte sie fast 800 px nach
+     rechts hinaus, und die ganze Seite ließ sich seitlich wegschieben. */
+  contain: strict;
+  max-width: 100vw;
   background:
     radial-gradient(1200px 700px at 78% -8%, var(--aurora-1), transparent 62%),
     radial-gradient(900px 620px at 10% 108%, var(--aurora-2), transparent 60%),
@@ -59,7 +64,7 @@ a:hover { text-decoration: underline; }
     var(--bg-void);
 }
 
-.cosmos__stars { position: absolute; inset: 0; opacity: var(--star-alpha); }
+.cosmos__stars { position: absolute; inset: 0; width: 100%; height: 100%; opacity: var(--star-alpha); }
 
 .cosmos__blob {
   position: absolute;
@@ -1523,6 +1528,21 @@ button.msg__author:hover { color: var(--violet-soft); text-decoration: underline
 .header__menue { display: none; }
 .schublade-schleier { display: none; }
 
+/* ── Abstand zu Insel, Kamera und Home-Leiste ─────────────────────
+   Auf einem Telefon liegt die Symbolleiste links am Rand, die Kopfzeile unter
+   der Dynamic Island und das Eingabefeld über der Home-Leiste. Ohne diese
+   Abstände verschwinden Knöpfe unter der Systemanzeige. */
+.rahmen {
+  padding-left: var(--sicher-links);
+  padding-right: var(--sicher-rechts);
+}
+.rail { padding-top: calc(var(--sp-4) + var(--sicher-oben)); padding-bottom: calc(var(--sp-4) + var(--sicher-unten)); }
+.header { padding-top: var(--sicher-oben); height: calc(var(--header-h) + var(--sicher-oben)); }
+.sidebar { padding-top: var(--sicher-oben); padding-bottom: var(--sicher-unten); }
+.composer { padding-bottom: calc(var(--sp-3) + var(--sicher-unten)); }
+
+/* Ab hier wird die Kanalliste zur Schublade — auch auf Tablets. So bleibt das
+   Gespräch überall die Hauptsache, und die Liste ist einen Griff entfernt. */
 @media (max-width: 880px) {
   .app,
   .app--thread,
@@ -1592,6 +1612,42 @@ button.msg__author:hover { color: var(--violet-soft); text-decoration: underline
 }
 
 /* Ganz schmal: auch die Rail-Beschriftungen und Kopfzeilen-Pillen weichen. */
+/* ── Telefon: die Breite gehört dem Gespräch ──────────────────────
+   Bis hierher stand die Symbolleiste dauerhaft am Rand und nahm auf einem
+   402 Punkte breiten Bildschirm ein Viertel davon ein — für zwölf Symbole,
+   von denen man beim Lesen keines braucht. Jetzt fährt sie zusammen mit der
+   Kanalliste ein und aus: eine Schublade, zwei Spalten darin. Geschlossen
+   bleibt der ganze Platz für die Nachrichten. */
+@media (max-width: 680px) {
+  .app,
+  .app--thread,
+  .app--collapsed { grid-template-columns: minmax(0, 1fr); }
+
+  .rail {
+    position: fixed;
+    top: 0; bottom: 0; left: 0;
+    width: var(--rail-w);
+    z-index: 31;
+    transform: translateX(-100%);
+    visibility: hidden;
+    transition: transform 0.26s cubic-bezier(0.16, 1, 0.3, 1), visibility 0.26s;
+    box-shadow: var(--shadow-lg);
+  }
+  .app--schublade .rail {
+    transform: none;
+    visibility: visible;
+  }
+  /* Die Liste rückt neben die Symbolleiste — beide bilden eine Schublade. */
+  .sidebar {
+    left: var(--rail-w);
+    width: min(300px, calc(100vw - var(--rail-w) - 28px));
+  }
+  /* Undurchsichtig, sonst liest man Kopfzeile und Eingabefeld hindurch. */
+  .rail, .sidebar { background: var(--bg-schublade); }
+  /* Und dahinter deutlich abdunkeln, damit klar ist, was gerade zählt. */
+  .schublade-schleier { background: rgba(3, 4, 10, 0.72); }
+}
+
 @media (max-width: 680px) {
   .header__actions .pill { display: none; }
   .msg { grid-template-columns: 34px minmax(0, 1fr); }

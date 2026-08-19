@@ -2,7 +2,24 @@
 <html lang="de">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- viewport-fit=cover: sonst bleibt unter der Dynamic Island und über der
+         Home-Leiste ein schwarzer Balken statt Inhalt. Das Freihalten
+         übernimmt das Stylesheet über env(safe-area-inset-*). -->
+    <meta name="viewport"
+          content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no" />
+    <meta name="theme-color" content="#05060f" />
+    <meta name="color-scheme" content="dark light" />
+
+    <!-- Zum Startbildschirm hinzufügen: Android liest das Manifest, iOS die
+         drei apple-Zeilen darunter. Ohne sie hieße das Symbol wie die Seite
+         und öffnete sich weiter im Browser mit Adressleiste. -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Stellium Chat" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="application-name" content="Stellium Chat" />
     <!--CSP-->
     <title>Stellium</title>
   </head>
