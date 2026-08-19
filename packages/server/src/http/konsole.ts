@@ -21,6 +21,12 @@ const ausfuehren = promisify(execFile);
  */
 
 function nurVonHier(req: FastifyRequest): boolean {
+  // Hinter nginx kommt jede Anfrage von 127.0.0.1 — auch die aus dem Internet.
+  // Die Adresse allein genügt deshalb nicht: kämen wir durch einen Vermittler,
+  // stünde das in diesen Kopfzeilen. Sind sie da, war es nicht das Gerät selbst.
+  for (const kopf of ['x-forwarded-for', 'x-real-ip', 'forwarded', 'x-forwarded-host']) {
+    if (req.headers[kopf]) return false;
+  }
   const ip = req.ip;
   return ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1';
 }

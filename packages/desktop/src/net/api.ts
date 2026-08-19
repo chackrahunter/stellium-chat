@@ -60,7 +60,12 @@ class ApiError extends Error {
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers);
-  if (!(init.body instanceof FormData)) headers.set('content-type', 'application/json');
+  // Nur wenn wirklich etwas mitgeht. Ein DELETE ohne Rumpf, aber mit
+  // JSON-Kopfzeile, weist Fastify mit "Bad Request" ab, bevor die eigene
+  // Behandlung überhaupt drankommt — Konten ließen sich deshalb nicht löschen.
+  if (init.body !== undefined && init.body !== null && !(init.body instanceof FormData)) {
+    headers.set('content-type', 'application/json');
+  }
   const t = token();
   if (t) headers.set('authorization', `Bearer ${t}`);
 
