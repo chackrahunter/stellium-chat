@@ -1,7 +1,8 @@
-import { Bell, Bookmark, Bot, CalendarDays, FolderOpen, Lightbulb, ListChecks, MessageSquare, Settings, ShieldCheck, Sparkles, Star } from 'lucide-react';
+import { Bell, Bookmark, Bot, CalendarDays, Download, FolderOpen, Lightbulb, ListChecks, MessageSquare, Settings, ShieldCheck, Sparkles, Star } from 'lucide-react';
 import { useStore } from '../state/store.js';
 import { useT } from '../i18n/index.js';
-import { Avatar } from './Avatar.jsx';
+import { imBrowser } from './DownloadPanel.jsx';
+import { StatusMenu } from './StatusMenu.jsx';
 import { useKiKanaele } from '../lib/ai-channels.js';
 
 export function Rail() {
@@ -67,6 +68,15 @@ export function Rail() {
         <FolderOpen size={20} />
       </button>
 
+      {/* Nur im Browser: wer die App schon installiert hat, braucht keinen
+          Weg zum Herunterladen. imBrowser() ist bewusst keine Zustandsabfrage —
+          window.stellium ändert sich zur Laufzeit nie. */}
+      {imBrowser() && (
+        <button className="rail-btn no-drag" onClick={() => setOverlay('download')} title={t('download.nav')}>
+          <Download size={20} />
+        </button>
+      )}
+
       <button className="rail-btn no-drag" data-tour="ideas" onClick={() => setOverlay('ideas')} title={t('nav.ideas')}>
         <Lightbulb size={20} />
       </button>
@@ -95,9 +105,7 @@ export function Rail() {
       <button className="rail-btn no-drag" data-tour="settings" onClick={() => setOverlay('settings')} title={t('nav.settings')}>
         <Settings size={20} />
       </button>
-      <button className="no-drag" onClick={() => setOverlay('settings')} title={self?.displayName}>
-        <Avatar user={self} size={34} showPresence />
-      </button>
+      <StatusMenu />
     </nav>
   );
 }
