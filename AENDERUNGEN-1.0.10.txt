@@ -1,0 +1,4 @@
+Gelöschte Konten verschwinden aus der Verwaltung statt weiter dazustehen
+Ein neuer Chat weiß, dass "lade das Update hoch" den Auslieferungsla
+Ein neuer Chat weiß, dass "lade das Update hoch" den Auslieferungslauf meint
+Probelauf prüft den Zugang, Änderungsliste entsteht aus den Commits
