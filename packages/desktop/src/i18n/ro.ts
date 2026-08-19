@@ -109,6 +109,7 @@ export const ro = {
   'composer.placeholder': 'Mesaj pentru {target}',
   'composer.threadPlaceholder': 'Răspunde în fir…',
   'composer.attach': 'Atașează fișier',
+  'composer.hideKeyboard': 'Ascunde tastatura',
   'composer.emoji': 'Emoji',
   'composer.mention': 'Menționează pe cineva',
   'composer.channelLink': 'Leagă un canal',

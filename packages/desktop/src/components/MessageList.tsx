@@ -131,7 +131,17 @@ export function MessageList({ channelId }: Props) {
   };
 
   return (
-    <div className="stream" ref={scrollRef}>
+    <div
+      className="stream"
+      ref={scrollRef}
+      /* Auf dem Telefon nimmt die Tastatur die halbe Höhe ein und lässt sich
+         nur über die Systemgeste schließen. Wer den Verlauf anfasst, will
+         lesen — also fährt sie dabei ein, wie in jeder Nachrichten-App. */
+      onTouchStart={() => {
+        const el = document.activeElement as HTMLElement | null;
+        if (el && (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT')) el.blur();
+      }}
+    >
       {mehrImSpeicher && (
         <div style={{ textAlign: 'center', padding: 'var(--sp-3)' }}>
           <button

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import {
+import { ChevronDown,
   AtSign, BarChart3, Clock, Hash, Languages, Loader2, Lock, Mic, Paperclip,
   Send, Smile, Sparkles, Wand2, X,
 } from 'lucide-react';
@@ -46,6 +46,7 @@ export function Composer({ channelId, parentId = null, placeholder, autoFocus }:
   const smartRepliesLoading = useStore((s) => s.smartRepliesLoading);
 
   const [text, setText] = useState('');
+  const [tastaturOffen, setTastaturOffen] = useState(false);
   const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
   const [focused, setFocused] = useState(false);
   const [dragging, setDragging] = useState(false);
@@ -427,8 +428,8 @@ export function Composer({ channelId, parentId = null, placeholder, autoFocus }:
             if (useStore.getState().smartReplies.length) useStore.getState().clearSmartReplies();
           }}
           onKeyDown={onKeyDown}
-          onFocus={() => setFocused(true)}
-          onBlur={() => setFocused(false)}
+          onFocus={() => { setFocused(true); setTastaturOffen(true); }}
+          onBlur={() => { setFocused(false); setTastaturOffen(false); }}
           onSelect={refreshMentionQuery}
           onClick={refreshMentionQuery}
           onPaste={(e) => {
@@ -438,6 +439,20 @@ export function Composer({ channelId, parentId = null, placeholder, autoFocus }:
         />
 
         <div className="composer__bar">
+          {/* Auf dem Telefon verdeckt die Tastatur den halben Bildschirm, und
+              sie geht nur über eine Systemgeste wieder weg. Dieser Knopf
+              erscheint erst beim Tippen und nimmt sonst keinen Platz. */}
+          {tastaturOffen && (
+            <button
+              className="icon-btn icon-btn--sm nur-beruehrung"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => inputRef.current?.blur()}
+              title={t('composer.hideKeyboard')}
+              aria-label={t('composer.hideKeyboard')}
+            >
+              <ChevronDown size={16} />
+            </button>
+          )}
           <input
             ref={fileRef}
             type="file"

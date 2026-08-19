@@ -109,6 +109,7 @@ export const fi = {
   'composer.placeholder': 'Viesti käyttäjälle {target}',
   'composer.threadPlaceholder': 'Vastaa ketjuun…',
   'composer.attach': 'Liitä tiedosto',
+  'composer.hideKeyboard': 'Piilota näppäimistö',
   'composer.emoji': 'Emoji',
   'composer.mention': 'Mainitse joku',
   'composer.channelLink': 'Linkitä kanava',

@@ -109,6 +109,7 @@ export const hi = {
   'composer.placeholder': '{target} को संदेश',
   'composer.threadPlaceholder': 'थ्रेड में उत्तर दें…',
   'composer.attach': 'फ़ाइल संलग्न करें',
+  'composer.hideKeyboard': 'कीबोर्ड छिपाएँ',
   'composer.emoji': 'इमोजी',
   'composer.mention': 'किसी को उल्लेख करें',
   'composer.channelLink': 'एक चैनल लिंक करें',

@@ -109,6 +109,7 @@ export const ru = {
   'composer.placeholder': 'Сообщение {target}',
   'composer.threadPlaceholder': 'Ответ в цепочке…',
   'composer.attach': 'Прикрепить файл',
+  'composer.hideKeyboard': 'Скрыть клавиатуру',
   'composer.emoji': 'Эмодзи',
   'composer.mention': 'Упомянуть кого‑нибудь',
   'composer.channelLink': 'Ссылка на канал',

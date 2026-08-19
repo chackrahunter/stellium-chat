@@ -4,6 +4,12 @@
 */
 
 :root {
+  /* Ein Stempel, der den Bau überlebt. Kommentare wirft der Bauvorgang weg —
+     damit bleibt der Dateiname gleich, und ein Browser, der eine kaputte
+     Antwort unter diesem Namen abgelegt hat, fragt nie wieder nach. Diese
+     Zeile ändert den Namen und bricht den Bann. */
+  --stand-oberflaeche: '2026-08-19-mobil';
+
   /* Was Dynamic Island, Kameraloch und Home-Leiste verdecken. Auf Geräten ohne
      solche Ränder sind die Werte null — die Regeln kosten dort also nichts,
      und man muss nicht nach Gerät unterscheiden. */

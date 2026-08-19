@@ -109,6 +109,7 @@ export const it = {
   'composer.placeholder': 'Messaggio a {target}',
   'composer.threadPlaceholder': 'Rispondi nel thread…',
   'composer.attach': 'Allega un file',
+  'composer.hideKeyboard': 'Nascondi la tastiera',
   'composer.emoji': 'Emoji',
   'composer.mention': 'Menziona qualcuno',
   'composer.channelLink': 'Collega un canale',

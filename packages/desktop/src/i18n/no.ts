@@ -109,6 +109,7 @@ export const no = {
   'composer.placeholder': 'Melding til {target}',
   'composer.threadPlaceholder': 'Svar i tråd…',
   'composer.attach': 'Legg ved fil',
+  'composer.hideKeyboard': 'Skjul tastaturet',
   'composer.emoji': 'Emoji',
   'composer.mention': 'Nevn noen',
   'composer.channelLink': 'Lenk til kanal',

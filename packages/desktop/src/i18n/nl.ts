@@ -109,6 +109,7 @@ export const nl = {
   'composer.placeholder': 'Bericht aan {target}',
   'composer.threadPlaceholder': 'Antwoorden in thread…',
   'composer.attach': 'Bestand bijvoegen',
+  'composer.hideKeyboard': 'Toetsenbord verbergen',
   'composer.emoji': 'Emoji',
   'composer.mention': 'Iemand noemen',
   'composer.channelLink': 'Naar een kanaal verwijzen',

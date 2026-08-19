@@ -109,6 +109,7 @@ export const tr = {
   'composer.placeholder': '{target} mesajı',
   'composer.threadPlaceholder': 'İlmekte yanıtla…',
   'composer.attach': 'Dosya ekle',
+  'composer.hideKeyboard': 'Klavyeyi gizle',
   'composer.emoji': 'Emoji',
   'composer.mention': 'Birini etiketle',
   'composer.channelLink': 'Kanal bağlantısı ekle',

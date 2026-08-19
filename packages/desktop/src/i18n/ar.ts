@@ -109,6 +109,7 @@ export const ar = {
   'composer.placeholder': 'رسالة إلى {target}',
   'composer.threadPlaceholder': 'الرد في السلسلة…',
   'composer.attach': 'إرفاق ملف',
+  'composer.hideKeyboard': 'إخفاء لوحة المفاتيح',
   'composer.emoji': 'إيموجي',
   'composer.mention': 'الإشارة إلى شخص',
   'composer.channelLink': 'الإشارة إلى قناة',

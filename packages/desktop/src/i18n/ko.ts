@@ -109,6 +109,7 @@ export const ko = {
   'composer.placeholder': '{target}에게 메시지',
   'composer.threadPlaceholder': '스레드에 답장…',
   'composer.attach': '파일 첨부',
+  'composer.hideKeyboard': '키보드 숨기기',
   'composer.emoji': '이모지',
   'composer.mention': '멘션하기',
   'composer.channelLink': '채널 링크',

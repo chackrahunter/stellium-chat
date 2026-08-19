@@ -109,6 +109,7 @@ export const da = {
   'composer.placeholder': 'Besked til {target}',
   'composer.threadPlaceholder': 'Svar i tråd…',
   'composer.attach': 'Vedhæft fil',
+  'composer.hideKeyboard': 'Skjul tastatur',
   'composer.emoji': 'Emoji',
   'composer.mention': 'Nævn nogen',
   'composer.channelLink': 'Link til kanal',

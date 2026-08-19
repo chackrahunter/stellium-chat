@@ -109,6 +109,7 @@ export const uk = {
   'composer.placeholder': 'Повідомлення {target}',
   'composer.threadPlaceholder': 'Відповісти в темі…',
   'composer.attach': 'Додати файл',
+  'composer.hideKeyboard': 'Сховати клавіатуру',
   'composer.emoji': 'Емодзі',
   'composer.mention': 'Згадати когось',
   'composer.channelLink': 'Посилання на канал',

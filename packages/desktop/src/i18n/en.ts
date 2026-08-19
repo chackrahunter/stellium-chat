@@ -111,6 +111,7 @@ export const en: Partial<Dictionary> = {
   'composer.placeholder': 'Message {target}',
   'composer.threadPlaceholder': 'Reply in thread…',
   'composer.attach': 'Attach a file',
+  'composer.hideKeyboard': 'Hide keyboard',
   'composer.emoji': 'Emoji',
   'composer.mention': 'Mention someone',
   'composer.channelLink': 'Link a channel',

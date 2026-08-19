@@ -109,6 +109,7 @@ export const sv = {
   'composer.placeholder': 'Meddelande till {target}',
   'composer.threadPlaceholder': 'Svara i tråd…',
   'composer.attach': 'Bifoga en fil',
+  'composer.hideKeyboard': 'Dölj tangentbordet',
   'composer.emoji': 'Emoji',
   'composer.mention': 'Nämn någon',
   'composer.channelLink': 'Länka en kanal',

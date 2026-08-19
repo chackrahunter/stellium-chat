@@ -82,6 +82,18 @@ async function main(): Promise<void> {
         || pfad.startsWith('/releases/')) {
         return reply.code(404).send({ error: 'Nicht gefunden' });
       }
+
+      /* Auf eine fehlende Datei niemals die Startseite ausliefern.
+         Genau das hat einmal echten Schaden angerichtet: nach einem Austausch
+         fehlten die alten Bausteine, der Browser bekam auf jede Anfrage nach
+         einem Stylesheet die Startseite — und legte diese Antwort ein Jahr
+         lang als unveränderlich ab. Danach half kein Neuladen mehr, weil der
+         Browser gar nicht erst nachfragte. Ein ehrliches 404 kostet einen
+         Fehlversuch, ein falsches HTML kostet die ganze Seite. */
+      if (/\.[a-z0-9]{2,5}$/i.test(pfad)) {
+        return reply.code(404).send({ error: 'Nicht gefunden' });
+      }
+
       return reply.type('text/html').sendFile('index.html');
     });
   } else {

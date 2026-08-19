@@ -114,6 +114,7 @@ export const de = {
   'composer.placeholder': 'Nachricht an {target}',
   'composer.threadPlaceholder': 'Im Thread antworten…',
   'composer.attach': 'Datei anhängen',
+  'composer.hideKeyboard': 'Tastatur ausblenden',
   'composer.emoji': 'Emoji',
   'composer.mention': 'Jemanden erwähnen',
   'composer.channelLink': 'Auf einen Kanal verweisen',

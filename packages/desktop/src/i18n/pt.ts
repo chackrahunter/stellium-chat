@@ -109,6 +109,7 @@ export const pt = {
   'composer.placeholder': 'Mensagem para {target}',
   'composer.threadPlaceholder': 'Responder na thread…',
   'composer.attach': 'Anexar arquivo',
+  'composer.hideKeyboard': 'Ocultar o teclado',
   'composer.emoji': 'Emoji',
   'composer.mention': 'Mencionar alguém',
   'composer.channelLink': 'Linkar um canal',

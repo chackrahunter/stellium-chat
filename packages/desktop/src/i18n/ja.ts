@@ -109,6 +109,7 @@ export const ja = {
   'composer.placeholder': '{target}へメッセージ',
   'composer.threadPlaceholder': 'スレッドで返信…',
   'composer.attach': 'ファイルを添付',
+  'composer.hideKeyboard': 'キーボードを閉じる',
   'composer.emoji': '絵文字',
   'composer.mention': 'メンション',
   'composer.channelLink': 'チャンネルにリンク',

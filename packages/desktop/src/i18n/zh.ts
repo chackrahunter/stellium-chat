@@ -109,6 +109,7 @@ export const zh = {
   'composer.placeholder': '给 {target} 发送消息',
   'composer.threadPlaceholder': '在串中回复…',
   'composer.attach': '添加文件',
+  'composer.hideKeyboard': '收起键盘',
   'composer.emoji': '表情符号',
   'composer.mention': '提及某人',
   'composer.channelLink': '链接频道',

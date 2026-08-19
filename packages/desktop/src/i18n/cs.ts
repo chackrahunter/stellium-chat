@@ -109,6 +109,7 @@ export const cs = {
   'composer.placeholder': 'Zpráva pro {target}',
   'composer.threadPlaceholder': 'Odpovědět ve vláknu…',
   'composer.attach': 'Připojit soubor',
+  'composer.hideKeyboard': 'Skrýt klávesnici',
   'composer.emoji': 'Emoji',
   'composer.mention': 'Zmiňte někoho',
   'composer.channelLink': 'Odkaz na kanál',

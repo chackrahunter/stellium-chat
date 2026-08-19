@@ -109,6 +109,7 @@ export const pl = {
   'composer.placeholder': 'Wiadomość do {target}',
   'composer.threadPlaceholder': 'Odpowiedz w wątku…',
   'composer.attach': 'Dołącz plik',
+  'composer.hideKeyboard': 'Ukryj klawiaturę',
   'composer.emoji': 'Emoji',
   'composer.mention': 'Wspomnij kogoś',
   'composer.channelLink': 'Odnośnik do kanału',
