@@ -35,11 +35,14 @@ def lebt(pid):
 
     `who` liest utmp, und dort bleiben abgebrochene Sitzungen als Karteileichen
     stehen — sonst zeigte das Fenster tagelang jemanden an, der längst weg ist.
+
+    Nachgesehen wird in /proc und nicht mit kill(pid, 0): SSH-Sitzungen gehören
+    root, und die Nachfrage von einem gewöhnlichen Konto beantwortet der Kern
+    mit „keine Berechtigung" — was hieße, jede echte Sitzung gälte als tot.
     """
     try:
-        os.kill(int(pid), 0)
-        return True
-    except (OSError, ValueError):
+        return os.path.exists(f"/proc/{int(pid)}")
+    except (TypeError, ValueError):
         return False
 
 
