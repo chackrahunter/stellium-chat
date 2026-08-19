@@ -635,9 +635,28 @@ a:hover { text-decoration: underline; }
 
 /* ── Composer ───────────────────────────────────────────────── */
 
+/* Knöpfe, die nur mit dem Finger Sinn ergeben. Wer eine Maus hat, braucht
+   keinen Knopf zum Einfahren der Tastatur — dort ist ohnehin keine. */
+.nur-beruehrung { display: none; }
+@media (pointer: coarse) {
+  .nur-beruehrung { display: inline-flex; }
+}
+
 .composer-wrap {
   flex: 0 0 auto;
   padding: 0 var(--sp-5) var(--sp-4);
+  /* Der Streifen über der Home-Leiste gehört optisch zum Eingabefeld.
+     Neuere iPhones haben keinen Home-Knopf mehr, aber die Wischleiste ist
+     geblieben — Bedienelemente dürfen dort nicht liegen, weil jede Berührung
+     als Geste gilt. Der Platz bleibt also; er soll nur nicht wie ein
+     abgeschnittener schwarzer Balken wirken, sondern wie der Fuß der App. */
+  padding-bottom: calc(var(--sp-4) + var(--sicher-unten));
+  background: linear-gradient(
+    to bottom,
+    transparent 0,
+    var(--bg-deep) calc(100% - var(--sicher-unten) - var(--sp-4)),
+    var(--bg-deep) 100%
+  );
   /* Hier darf KEIN overflow stehen: Erwähnungsliste, Emoji-Auswahl und das
      Umformulieren-Menü liegen mit bottom:100% über dem Eingabefeld und damit
      außerhalb dieses Kastens — ein overflow würde sie abschneiden.
@@ -1554,7 +1573,7 @@ button.msg__author:hover { color: var(--violet-soft); text-decoration: underline
 .rail { padding-top: calc(var(--sp-4) + var(--sicher-oben)); padding-bottom: calc(var(--sp-4) + var(--sicher-unten)); }
 .header { padding-top: var(--sicher-oben); height: calc(var(--header-h) + var(--sicher-oben)); }
 .sidebar { padding-top: var(--sicher-oben); padding-bottom: var(--sicher-unten); }
-.composer { padding-bottom: calc(var(--sp-3) + var(--sicher-unten)); }
+
 
 /* Ab hier wird die Kanalliste zur Schublade — auch auf Tablets. So bleibt das
    Gespräch überall die Hauptsache, und die Liste ist einen Griff entfernt. */
@@ -1619,7 +1638,14 @@ button.msg__author:hover { color: var(--violet-soft); text-decoration: underline
   }
 
   .msg { padding-inline-start: var(--sp-4); padding-inline-end: var(--sp-4); }
-  .composer-wrap { padding-inline-start: var(--sp-4); padding-inline-end: var(--sp-4); }
+  /* Knöpfe, die nur mit dem Finger Sinn ergeben. Wer eine Maus hat, braucht
+   keinen Knopf zum Einfahren der Tastatur — dort ist ohnehin keine. */
+.nur-beruehrung { display: none; }
+@media (pointer: coarse) {
+  .nur-beruehrung { display: inline-flex; }
+}
+
+.composer-wrap { padding-inline-start: var(--sp-4); padding-inline-end: var(--sp-4); }
   .header { padding: 0 var(--sp-3); }
   .header__topic { display: none; }
   .att-img { max-width: 100%; }
@@ -1686,7 +1712,14 @@ button.msg__author:hover { color: var(--violet-soft); text-decoration: underline
   /* Nichts darf breiter sein als das Gerät. Eine einzige zu breite Zeile
      zwingt den ganzen Bildschirm ins seitliche Scrollen. */
   html, body, .rahmen, .app { max-width: 100vw; overflow-x: hidden; }
-  .app > *, .main, .stream, .msg, .composer-wrap { min-width: 0; }
+  .app > *, .main, .stream, .msg, /* Knöpfe, die nur mit dem Finger Sinn ergeben. Wer eine Maus hat, braucht
+   keinen Knopf zum Einfahren der Tastatur — dort ist ohnehin keine. */
+.nur-beruehrung { display: none; }
+@media (pointer: coarse) {
+  .nur-beruehrung { display: inline-flex; }
+}
+
+.composer-wrap { min-width: 0; }
 
   /* Zehn Symbole passen auf ein kurzes Telefon nicht untereinander. Statt
      welche zu verstecken darf die Leiste rollen — sonst wären einzelne
@@ -1718,7 +1751,14 @@ button.msg__author:hover { color: var(--violet-soft); text-decoration: underline
   .msg__body { font-size: 15px; }
   .stream { padding-inline-start: 0; padding-inline-end: 0; }
 
-  .composer-wrap { padding: 0 8px 8px; }
+  /* Knöpfe, die nur mit dem Finger Sinn ergeben. Wer eine Maus hat, braucht
+   keinen Knopf zum Einfahren der Tastatur — dort ist ohnehin keine. */
+.nur-beruehrung { display: none; }
+@media (pointer: coarse) {
+  .nur-beruehrung { display: inline-flex; }
+}
+
+.composer-wrap { padding: 0 8px 8px; }
   /* 16 Pixel: darunter zoomt iOS beim Antippen von selbst hinein. */
   .composer__input { font-size: 16px; }
   /* Umgebrochen belegte die Werkzeugleiste drei Zeilen und drückte den
