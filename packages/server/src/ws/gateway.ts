@@ -379,7 +379,10 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
       }
       session.openChannelId = ch.id;
 
-      const { messages: list, hasMore } = store.channelHistory(ch.id, ev.before ?? null, Math.min(ev.limit ?? 50, 100), userId);
+      /* Math.min allein reicht nicht: eine negative Zahl kommt kleiner durch
+         und wird in SQL zu LIMIT -1 — das liefert den ganzen Kanal auf einmal. */
+      const wieviele = Math.min(Math.max(Math.trunc(ev.limit ?? 50) || 50, 1), 100);
+      const { messages: list, hasMore } = store.channelHistory(ch.id, ev.before ?? null, wieviele, userId);
       const missing = session.autoTranslate ? fillCachedTranslations(list, session.language) : [];
       send(session, { t: 'channel:history', channelId: ch.id, messages: list, hasMore });
       if (missing.length) translateInBackground(missing, session.language, userId, channelContext(ch.id));
@@ -601,6 +604,11 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
 
     case 'message:schedule': {
       if (!darf(session, 'message.schedule')) return;
+      // Ohne diese Prüfung ließe sich in jeden Kanal schreiben — auch in
+      // private und in fremde Direktchats. Nur eben zeitversetzt.
+      if (!store.getChannel(ev.channelId, userId) || !store.isMember(ev.channelId, userId)) {
+        return fail(session, 'forbidden', 'Kein Zugriff auf diesen Kanal');
+      }
       const id = messages.scheduleMessage({
         channelId: ev.channelId, userId, text: ev.text, sendAt: ev.sendAt, parentId: ev.parentId ?? null,
       });

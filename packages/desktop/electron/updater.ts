@@ -50,6 +50,9 @@ let timer: NodeJS.Timeout | null = null;
 let laeuft = false;
 /** Schon heruntergeladene Version — nicht zweimal ziehen. */
 let bereit: { version: string; datei: string } | null = null;
+/* Die Prüfsumme der geladenen Datei. Zwischen Laden und Einspielen liegt oft
+   eine Stunde — in der Zeit kann sich die Datei verändert haben. */
+let erwarteteSumme: string | null = null;
 let letzteNotizen: string | null = null;
 
 /**
@@ -144,6 +147,20 @@ export async function pruefen(manuell = false): Promise<Fern | null> {
       melden('update:none', { version: app.getVersion() });
       return null;
     }
+    /* Ist derselbe Austausch schon einmal stumm gescheitert, wird er nicht
+       von selbst wiederholt — sonst lädt die App dieselbe Datei, startet neu,
+       scheitert erneut, und das im Takt der Prüfung. Auf Knopfdruck darf man
+       es weiter versuchen; vielleicht war die Platte nur kurz voll. */
+    if (update.version === gescheitert && !manuell) {
+      melden('update:error', {
+        message: `Version ${update.version} ließ sich beim letzten Mal nicht einspielen. `
+          + 'Unter „Nach Updates suchen“ kannst du es erneut versuchen.',
+        version: update.version,
+      });
+      return null;
+    }
+    if (manuell) gescheitert = null;
+
     melden('update:found', update);
     await laden(update);
     return update;
@@ -192,6 +209,7 @@ async function laden(update: Fern): Promise<void> {
     try {
       await ladenVersuch(update, halb, ziel);
       bereit = { version: update.version, datei: ziel };
+      erwarteteSumme = update.sha256;
       letzteNotizen = update.notes;
       melden('update:ready', { version: update.version, datei: ziel, notes: update.notes });
       if (!installiertBeimBeenden) fristStarten();

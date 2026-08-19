@@ -419,6 +419,11 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     if (role === 'owner' && store.getSelf(userId)?.role !== 'owner') {
       return reply.code(403).send({ error: 'Nur der Owner kann diese Rolle vergeben.' });
     }
+    /* Die eigene Rolle bleibt tabu. Sonst könnte sich jeder mit 'user.manage'
+       selbst hochstufen — die Rechteverwaltung wäre dann nur noch Zierde. */
+    if (id === userId) {
+      return reply.code(403).send({ error: 'Die eigene Rolle lässt sich nicht ändern.' });
+    }
     try {
       users.setRole(id, role as any, userId);
       return { users: store.listManagedUsers() };
@@ -433,6 +438,10 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const { id } = req.params as { id: string };
     const { permission, allowed } = req.body as { permission?: PermissionKey; allowed?: boolean | null };
     if (!permission) return reply.code(400).send({ error: 'Recht fehlt' });
+    // Wer sich selbst Rechte zurückgeben kann, dem kann man keine nehmen.
+    if (id === userId) {
+      return reply.code(403).send({ error: 'Eigene Rechte lassen sich nicht ändern.' });
+    }
     try {
       users.setPermission(id, permission, allowed ?? null, userId);
       return { users: store.listManagedUsers() };
@@ -916,8 +925,14 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   });
 
   app.get('/releases/:platform/download', async (req, reply) => {
-    requireLeser(req);
-    const vorhanden = releases.getRelease((req.params as { platform: string }).platform);
+    const leser = requireLeser(req);
+    const { platform } = req.params as { platform: string };
+    /* Das Serverpaket ist kein Client — es enthält den kompletten Quelltext
+       samt Einrichtung und gehört in die Hände derer, die den Server auch
+       betreiben. Die App-Pakete darf dagegen jedes Teammitglied laden, sonst
+       könnte sich niemand aktualisieren. */
+    if (platform === 'server') requirePermission(leser, 'user.manage');
+    const vorhanden = releases.getRelease(platform);
     if (!vorhanden || !fs.existsSync(vorhanden.path)) {
       return reply.code(404).send({ error: 'Für diese Plattform liegt nichts bereit.' });
     }
@@ -946,12 +961,37 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     return reply.send(fs.createReadStream(datei.path));
   });
 
+  /**
+   * Anhänge ausliefern — nur an Leute, die den Kanal auch sehen dürfen.
+   *
+   * Der Nachweis darf in der Adresse stehen (`?token=`), weil ein `<img src>`
+   * keinen Kopf mitschicken kann. Ohne diese Prüfung genügte die Kennung einer
+   * Datei, um sie zu holen — auch aus einem Kanal, in dem man nichts verloren
+   * hat, und ganz ohne Anmeldung.
+   */
   app.get('/files/:id', async (req, reply) => {
+    const leser = bearerOderAdresse(req);
+    if (!leser) return reply.code(401).send({ error: 'Nicht angemeldet' });
+
     const { id } = req.params as { id: string };
-    const row = db.get<{ path: string; mime: string; name: string }>(
-      'SELECT path, mime, name FROM attachments WHERE id = ?', id,
+    const row = db.get<{ path: string; mime: string; name: string; message_id: string | null; uploader_id: string }>(
+      'SELECT path, mime, name, message_id, uploader_id FROM attachments WHERE id = ?', id,
     );
     if (!row || !fs.existsSync(row.path)) return reply.code(404).send({ error: 'Datei nicht gefunden' });
+
+    if (row.message_id) {
+      const msg = db.get<{ channel_id: string }>(
+        'SELECT channel_id FROM messages WHERE id = ?', row.message_id,
+      );
+      // Gleiche Antwort wie bei „gibt es nicht": sonst verrät schon der
+      // Unterschied, dass diese Datei existiert.
+      if (!msg || !store.memberIds(msg.channel_id).includes(leser)) {
+        return reply.code(404).send({ error: 'Datei nicht gefunden' });
+      }
+    } else if (row.uploader_id !== leser) {
+      // Noch an keiner Nachricht: gehört bis dahin dem, der sie hochgeladen hat.
+      return reply.code(404).send({ error: 'Datei nicht gefunden' });
+    }
 
     const inline = /^(image|video|audio)\//.test(row.mime) || row.mime === 'application/pdf';
     reply.header('content-type', row.mime);

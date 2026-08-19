@@ -61,9 +61,16 @@ export function wsUrl(): string {
   return `${http.replace(/^http/, 'ws')}/ws`;
 }
 
-/** Absolute URL für Anhänge (der Server liefert relative Pfade). */
+/**
+ * Absolute Adresse für Anhänge (der Server liefert relative Pfade).
+ *
+ * Führt bewusst über denselben Weg wie {@link dateiUrl}: seit der Server
+ * Anhänge nur noch an Berechtigte ausliefert, braucht auch ein `<img src>`
+ * den Nachweis in der Adresse. Zwei Wege für dieselbe Sache waren einer zu
+ * viel — der ohne Nachweis lieferte nur noch 401.
+ */
 export function fileUrl(relative: string): string {
-  return relative.startsWith('http') ? relative : `${serverUrl()}${relative}`;
+  return relative.startsWith('http') ? relative : dateiUrl(relative);
 }
 
 class ApiError extends Error {
