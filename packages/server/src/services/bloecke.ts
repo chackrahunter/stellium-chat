@@ -103,12 +103,22 @@ export interface Zerlegt {
 }
 
 /**
- * Eine Datei in den Blockspeicher legen.
+ * Eine Datei in den Blockspeicher legen — in Schritten, einen Block je Schritt.
  *
  * Die Ausgangsdatei bleibt unberührt — der Aufrufer entscheidet, wann er sie
  * löscht. So bleibt bei einem Fehler mitten im Vorgang alles benutzbar.
+ *
+ * Warum das schrittweise geht: das Packen eines einzelnen Blocks kostet je
+ * nach Inhalt Sekunden, und der ganze Vorgang läuft synchron. Eine große,
+ * gut packbare Datei am Stück zu zerlegen hielte den Server minutenlang an —
+ * keine Nachricht käme durch, keine Leitung bekäme ein Lebenszeichen. Wer die
+ * Zerlegung im Hintergrund fährt, kann zwischen zwei Blöcken Luft lassen;
+ * gemessen liegt die Zerlegung zwischen 100 MB/s (schon gepackter Inhalt,
+ * die Stichprobe winkt ihn durch) und unter 1 MB/s (packbarer Inhalt).
+ *
+ * Wer das nicht braucht, nimmt `ablegen()` — dieselbe Arbeit an einem Stück.
  */
-export function ablegen(pfad: string, mime: string): Zerlegt {
+export function* ablegenSchritte(pfad: string, mime: string): Generator<void, Zerlegt> {
   const groesse = fs.statSync(pfad).size;
   const bloecke: string[] = [];
   let neuBelegt = 0;
@@ -173,6 +183,12 @@ export function ablegen(pfad: string, mime: string): Zerlegt {
            Zeilen stehen, wird er ohnehin aus der Wahrheit nachgerechnet. */
         db.run('UPDATE bloecke SET verweise = verweise + 1 WHERE summe = ?', summe);
         ab += laenge;
+
+        /* Der Block steht, seine Zeile auch — hier darf ein Aufrufer, der es
+           eilig hat, den Server dazwischenkommen lassen. An `datei_bloecke`
+           ist bis zum Schluss nichts angefasst, und die vorläufige Anmeldung
+           oben hält den frischen Block so lange am Leben. */
+        yield;
       }
 
       if (ab === 0 && gelesen === 0) break;
@@ -186,6 +202,20 @@ export function ablegen(pfad: string, mime: string): Zerlegt {
   }
 
   return { bloecke, groesse, pruefsumme: gesamt.digest('hex'), neuBelegt, gespart };
+}
+
+/**
+ * Eine Datei in den Blockspeicher legen, an einem Stück.
+ *
+ * Für alle, die ohnehin warten, bis es fertig ist — kleine Dateien beim
+ * Hochladen, der Nachziehlauf von Hand.
+ */
+export function ablegen(pfad: string, mime: string): Zerlegt {
+  const lauf = ablegenSchritte(pfad, mime);
+  for (;;) {
+    const schritt = lauf.next();
+    if (schritt.done) return schritt.value;
+  }
 }
 
 /* ── Rückweg ──────────────────────────────────────────────────── */

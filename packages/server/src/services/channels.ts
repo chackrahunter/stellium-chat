@@ -3,6 +3,7 @@ import { db } from '../db/index.js';
 import { newId } from '../util/id.js';
 import { getChannel, isMember, toChannel } from './store.js';
 import { assistantUserId } from './assistant.js';
+import * as ablage from './ablage.js';
 
 export function createChannel(input: {
   kind: 'public' | 'private';
@@ -152,9 +153,30 @@ export function deleteChannel(channelId: string): { name: string; messages: numb
   if (ch.kind === 'dm') throw new Error('Direktnachrichten lassen sich nicht löschen, nur ausblenden.');
 
   const anzahl = db.get<{ n: number }>('SELECT COUNT(*) n FROM messages WHERE channel_id = ?', channelId)?.n ?? 0;
-  // Anhänge liegen als Dateien auf der Platte; die Verweise fallen über
-  // ON DELETE CASCADE weg, die Dateien räumt der Aufräumlauf ab.
+
+  /* Die Pfade müssen vor dem Löschen gelesen werden. Gleich darauf räumt die
+     Datenbank die Zeilen über ON DELETE CASCADE selbst ab — Nachrichten,
+     Anhänge, Dateien — und dann weiß niemand mehr, welche Inhalte auf der
+     Platte dazugehörten. */
+  const pfade = [
+    ...db.all<{ path: string }>(
+      `SELECT a.path FROM attachments a
+         JOIN messages m ON m.id = a.message_id
+        WHERE m.channel_id = ?`,
+      channelId,
+    ),
+    ...db.all<{ path: string }>('SELECT path FROM files WHERE channel_id = ?', channelId),
+  ].map((r) => r.path);
+
   db.run('DELETE FROM channels WHERE id = ?', channelId);
+
+  /* Was der Kanal hinterlässt, liegt in zwei Formen da: Blöcke für alles, was
+     in den Blockspeicher gewandert ist, und ganze Dateien für alles andere.
+     Beides wird hier eingesammelt — bis eben behauptete an dieser Stelle ein
+     Kommentar, das erledige ein Aufräumlauf, den es nie gegeben hat. */
+  ablage.verwaisteAufraeumen();
+  ablage.dateienAufraeumen(pfade);
+
   return { name: ch.name, messages: anzahl };
 }
 
