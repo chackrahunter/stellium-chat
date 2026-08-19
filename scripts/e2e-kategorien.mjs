@@ -113,7 +113,7 @@ await pruefe('Jede Gruppe trägt ihre Anzahl', async () => {
 
 await p.screenshot({ path: '/tmp/kategorien.png' });
 await b.close();
-server.stop();
+await server.stop();
 
 const schlecht = ergebnisse.filter((x) => !x).length;
 console.log(`\n${ergebnisse.length - schlecht}/${ergebnisse.length} bestanden`);
