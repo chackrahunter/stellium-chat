@@ -1,6 +1,7 @@
 import { motion } from 'framer-motion';
 import { AtSign, Clock, Languages, MessageSquare, X } from 'lucide-react';
 import { useStore } from '../state/store.js';
+import { t } from '../i18n/index.js';
 import { Avatar } from './Avatar.jsx';
 import { languageInfo, localTimeFor, relativeTime } from '../lib/format.js';
 
@@ -55,22 +56,22 @@ export function ProfileCard({ userId, onClose }: { userId: string; onClose: () =
               <div className="profile__fact">
                 <Clock size={13} />
                 <span>
-                  {time} Ortszeit
-                  {offHours && <span className="muted"> · vermutlich Feierabend</span>}
+                  {t('profile.localTime', { zeit: time })}
+                  {offHours && <span className="muted"> · {t('profile.offHours')}</span>}
                 </span>
               </div>
             )}
             {user.status === 'offline' && user.lastSeenAt && (
               <div className="profile__fact muted">
                 <span style={{ width: 13 }} />
-                <span>zuletzt gesehen {relativeTime(user.lastSeenAt)}</span>
+                <span>{t('profile.lastSeen', { zeit: relativeTime(user.lastSeenAt) })}</span>
               </div>
             )}
           </div>
 
           {!isSelf && (
             <button className="btn btn--primary btn--block" onClick={() => { openDm(user.id); onClose(); }}>
-              <MessageSquare size={15} /> Nachricht schreiben
+              <MessageSquare size={15} /> {t('profile.message')}
             </button>
           )}
         </div>

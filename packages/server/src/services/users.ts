@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { abweisung } from '../util/abweisung.js';
 import {
   effectivePermissions, PERMISSION_KEYS,
   type MemberRoleName, type PermissionKey,
@@ -90,10 +91,10 @@ export function may(userId: string, permission: PermissionKey): boolean {
 
 /** Recht setzen. null bedeutet: zurück zur Rollenvorgabe. */
 export function setPermission(userId: string, permission: PermissionKey, allowed: boolean | null, setBy: string): void {
-  if (!PERMISSION_KEYS.includes(permission)) throw new Error(`Unbekanntes Recht: ${permission}`);
+  if (!PERMISSION_KEYS.includes(permission)) throw abweisung('fehler.rechtUnbekannt', `Unbekanntes Recht: ${permission}`, { recht: permission });
   const ziel = db.get<{ role: string }>('SELECT role FROM users WHERE id = ?', userId);
-  if (!ziel) throw new Error('Konto nicht gefunden');
-  if (ziel.role === 'owner') throw new Error('Dem Owner lassen sich keine Rechte nehmen.');
+  if (!ziel) throw abweisung('fehler.kontoNichtGefunden', 'Konto nicht gefunden');
+  if (ziel.role === 'owner') throw abweisung('fehler.ownerRechte', 'Dem Owner lassen sich keine Rechte nehmen.');
 
   if (allowed === null) {
     db.run('DELETE FROM user_permissions WHERE user_id = ? AND permission = ?', userId, permission);
@@ -107,12 +108,12 @@ export function setPermission(userId: string, permission: PermissionKey, allowed
 }
 
 export function setRole(userId: string, role: MemberRoleName, setBy: string): void {
-  if (!['owner', 'admin', 'member', 'guest'].includes(role)) throw new Error('Unbekannte Rolle');
+  if (!['owner', 'admin', 'member', 'guest'].includes(role)) throw abweisung('fehler.rolleUnbekannt', 'Unbekannte Rolle');
   const ziel = db.get<{ role: string }>('SELECT role FROM users WHERE id = ?', userId);
-  if (!ziel) throw new Error('Konto nicht gefunden');
+  if (!ziel) throw abweisung('fehler.kontoNichtGefunden', 'Konto nicht gefunden');
   if (ziel.role === 'owner' && role !== 'owner') {
     const andere = db.get<{ n: number }>("SELECT COUNT(*) n FROM users WHERE role = 'owner' AND id <> ?", userId);
-    if ((andere?.n ?? 0) === 0) throw new Error('Der letzte Owner kann seine Rolle nicht abgeben.');
+    if ((andere?.n ?? 0) === 0) throw abweisung('fehler.letzterOwner', 'Der letzte Owner kann seine Rolle nicht abgeben.');
   }
   db.run('UPDATE users SET role = ? WHERE id = ?', role, userId);
   // Persönliche Ausnahmen passen selten zur neuen Rolle.
@@ -142,18 +143,18 @@ export function createAccount(input: {
   createdBy: string;
 }): CreatedAccount {
   const displayName = input.displayName.trim();
-  if (displayName.length < 2) throw new Error('Bitte einen Namen angeben.');
+  if (displayName.length < 2) throw abweisung('fehler.nameAngeben', 'Bitte einen Namen angeben.');
 
   const handle = (input.handle?.trim().toLowerCase() || vorschlagHandle(displayName));
   if (!/^[a-z0-9][a-z0-9._-]{1,31}$/.test(handle)) {
-    throw new Error('Benutzername: 2–32 Zeichen, Kleinbuchstaben, Ziffern, Punkt, Unterstrich, Bindestrich.');
+    throw abweisung('fehler.benutzernameForm', 'Benutzername: 2–32 Zeichen, Kleinbuchstaben, Ziffern, Punkt, Unterstrich, Bindestrich.');
   }
-  if (handleTaken(handle)) throw new Error(`Benutzername "${handle}" ist schon vergeben.`);
+  if (handleTaken(handle)) throw abweisung('fehler.benutzernameVergeben', `Benutzername "${handle}" ist schon vergeben.`, { name: handle });
 
   const email = input.email?.trim().toLowerCase() ?? '';
   if (email) {
-    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw new Error('E-Mail ist ungültig.');
-    if (emailTaken(email)) throw new Error('Diese E-Mail wird bereits verwendet.');
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw abweisung('fehler.emailUngueltig', 'E-Mail ist ungültig.');
+    if (emailTaken(email)) throw abweisung('fehler.emailVergeben', 'Diese E-Mail wird bereits verwendet.');
   }
 
   const passwort = generateOneTimePassword();
@@ -202,7 +203,7 @@ function vorschlagHandle(displayName: string): string {
 /** Passwort zurücksetzen — erzeugt ein neues Einmal-Passwort. */
 export function resetPassword(userId: string, byUserId: string): string {
   const ziel = db.get<{ role: string }>('SELECT role FROM users WHERE id = ?', userId);
-  if (!ziel) throw new Error('Konto nicht gefunden');
+  if (!ziel) throw abweisung('fehler.kontoNichtGefunden', 'Konto nicht gefunden');
 
   const passwort = generateOneTimePassword();
   db.run(
@@ -215,7 +216,7 @@ export function resetPassword(userId: string, byUserId: string): string {
 
 export function setDisabled(userId: string, disabled: boolean): void {
   const ziel = db.get<{ role: string }>('SELECT role FROM users WHERE id = ?', userId);
-  if (ziel?.role === 'owner' && disabled) throw new Error('Der Owner lässt sich nicht sperren.');
+  if (ziel?.role === 'owner' && disabled) throw abweisung('fehler.ownerSperren', 'Der Owner lässt sich nicht sperren.');
   db.run('UPDATE users SET disabled = ? WHERE id = ?', disabled ? 1 : 0, userId);
 }
 
@@ -227,9 +228,9 @@ export function deleteAccount(userId: string): void {
   const ziel = db.get<{ role: string; deleted_at: number | null }>(
     'SELECT role, deleted_at FROM users WHERE id = ?', userId,
   );
-  if (!ziel) throw new Error('Konto nicht gefunden');
-  if (ziel.role === 'owner') throw new Error('Der Owner lässt sich nicht löschen. Erst die Rolle übergeben.');
-  if (ziel.deleted_at) throw new Error('Dieses Konto ist bereits gelöscht.');
+  if (!ziel) throw abweisung('fehler.kontoNichtGefunden', 'Konto nicht gefunden');
+  if (ziel.role === 'owner') throw abweisung('fehler.ownerLoeschen', 'Der Owner lässt sich nicht löschen. Erst die Rolle übergeben.');
+  if (ziel.deleted_at) throw abweisung('fehler.kontoSchonGeloescht', 'Dieses Konto ist bereits gelöscht.');
 
   db.transaction(() => {
     db.run(
@@ -257,7 +258,7 @@ export function deleteAccount(userId: string): void {
 export function completeSetup(userId: string, input: {
   handle?: string; email?: string; displayName?: string; newPassword: string;
 }): void {
-  if (input.newPassword.length < 10) throw new Error('Das neue Passwort braucht mindestens 10 Zeichen.');
+  if (input.newPassword.length < 10) throw abweisung('fehler.passwortZuKurz', 'Das neue Passwort braucht mindestens 10 Zeichen.');
 
   /* Dieser Weg setzt ein neues Passwort, ohne das bisherige zu kennen. Das ist
      nur in der Einrichtungsphase vertretbar — nach dem Anlegen des Kontos und
@@ -273,17 +274,17 @@ export function completeSetup(userId: string, input: {
   if (input.handle) {
     const handle = input.handle.trim().toLowerCase();
     if (!/^[a-z0-9][a-z0-9._-]{1,31}$/.test(handle)) {
-      throw new Error('Benutzername: 2–32 Zeichen, Kleinbuchstaben, Ziffern, Punkt, Unterstrich, Bindestrich.');
+      throw abweisung('fehler.benutzernameForm', 'Benutzername: 2–32 Zeichen, Kleinbuchstaben, Ziffern, Punkt, Unterstrich, Bindestrich.');
     }
-    if (handleTaken(handle, userId)) throw new Error(`Benutzername "${handle}" ist schon vergeben.`);
+    if (handleTaken(handle, userId)) throw abweisung('fehler.benutzernameVergeben', `Benutzername "${handle}" ist schon vergeben.`, { name: handle });
     felder.push('handle = ?', 'handle_bidx = ?');
     werte.push(encryptField(handle), blindIndex(handle));
   }
 
   if (input.email) {
     const email = input.email.trim().toLowerCase();
-    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw new Error('E-Mail ist ungültig.');
-    if (emailTaken(email, userId)) throw new Error('Diese E-Mail wird bereits verwendet.');
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw abweisung('fehler.emailUngueltig', 'E-Mail ist ungültig.');
+    if (emailTaken(email, userId)) throw abweisung('fehler.emailVergeben', 'Diese E-Mail wird bereits verwendet.');
     felder.push('email = ?', 'email_bidx = ?');
     werte.push(encryptField(email), blindIndex(email));
   }
@@ -300,16 +301,16 @@ export function completeSetup(userId: string, input: {
     ...werte, userId,
   );
   if (!changes) {
-    throw new Error('Die Ersteinrichtung ist bereits abgeschlossen. Das Passwort änderst du in den Einstellungen.');
+    throw abweisung('fehler.einrichtungFertig', 'Die Ersteinrichtung ist bereits abgeschlossen. Das Passwort änderst du in den Einstellungen.');
   }
 }
 
 /** Passwort selbst ändern — dafür braucht es das alte. */
 export function changeOwnPassword(userId: string, altes: string, neues: string,
                                   pruefe: (klartext: string, hash: string) => boolean): void {
-  if (neues.length < 10) throw new Error('Das neue Passwort braucht mindestens 10 Zeichen.');
+  if (neues.length < 10) throw abweisung('fehler.passwortZuKurz', 'Das neue Passwort braucht mindestens 10 Zeichen.');
   const row = db.get<{ password_hash: string }>('SELECT password_hash FROM users WHERE id = ?', userId);
-  if (!row || !pruefe(altes, row.password_hash)) throw new Error('Das bisherige Passwort stimmt nicht.');
+  if (!row || !pruefe(altes, row.password_hash)) throw abweisung('fehler.altesPasswortFalsch', 'Das bisherige Passwort stimmt nicht.');
   db.run(
     'UPDATE users SET password_hash = ?, must_change_password = 0, password_set_at = ? WHERE id = ?',
     hashPassword(neues), Date.now(), userId,

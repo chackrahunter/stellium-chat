@@ -27,15 +27,25 @@
 .statusmenue {
   position: fixed;
   z-index: 80;
-  width: 244px;
+  /* 284 statt 244: seit die Meldung dazugehört, stehen hier ein Eingabefeld
+     und eine Auswahl nebeneinander. Schmaler ginge das Feld auf ein Dutzend
+     Zeichen zurück. Breiter passte es auf einem 360er Telefon nicht mehr neben
+     die Symbolleiste. */
+  width: 284px;
   padding: var(--sp-1);
   border-radius: var(--r-md);
   border: 1px solid var(--line-strong);
   background: var(--bg-elevated);
   backdrop-filter: blur(24px) saturate(160%);
   box-shadow: var(--shadow-lg);
-  /* Das Menü wächst aus dem Bild heraus, also von unten links. */
+  /* Das Menü wächst aus dem Bild heraus — auf Arabisch also von unten rechts,
+     weil die Leiste dort auf der anderen Seite liegt. */
   transform-origin: bottom left;
+  /* Passt es nicht mehr — kurzes Telefon, oder die Tastatur nimmt die untere
+     Hälfte —, rollt es in sich statt aus dem Bild zu laufen. Die Höhe setzt
+     StatusMenu.tsx nach dem sichtbaren Ausschnitt. */
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .statusmenue__titel {
@@ -126,3 +136,181 @@
 [data-theme='light'] .statusmenue__punkt {
   box-shadow: 0 0 0 1px rgba(20, 28, 64, 0.12);
 }
+
+/* ── Statusmeldung ───────────────────────────────────────────────
+   Der freie Text neben dem Punkt. Datenbank und Protokoll kannten ihn
+   schon lange; hier bekommt er endlich Bedienelemente.
+   ────────────────────────────────────────────────────────────── */
+
+/* Ein Zeichen am Bild verrät von außen, dass eine Meldung steht. Oben rechts,
+   weil unten rechts der Anwesenheitspunkt sitzt — die beiden dürfen sich nicht
+   überlagern, sonst ist keines von beiden zu lesen. */
+.statusmenue__ausloeser { position: relative; }
+.statusmenue__marke {
+  position: absolute;
+  top: -2px;
+  inset-inline-end: -2px;
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--bg-elevated);
+  box-shadow: 0 0 0 1.5px var(--bg-schublade);
+  font-size: 10px;
+  line-height: 1;
+  pointer-events: none;
+}
+
+.statusmenue__zeile {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-1) var(--sp-3) var(--sp-2);
+}
+
+/* Zwei Klassen tief, damit die Polsterung von .input aus app.css nicht
+   gewinnt: die rechnet mit 10px oben und unten, und bei 34px Höhe schneidet
+   das die Schrift unten ab. Die Reihenfolge der Stylesheets entscheidet sonst
+   je nach Bündelung mal so, mal so. */
+.statusmenue .statusmenue__feld {
+  flex: 1;
+  min-width: 0;
+  height: 34px;
+  padding: 0 10px;
+  font-size: 13px;
+  line-height: 1;
+}
+
+/*
+ * Zeichenknopf und Zeichenauswahl.
+ *
+ * Bewusst nicht die große Auswahl aus dem Eingabefeld: die hängt selbst am
+ * <body> und schließt sich auf einen Klick daneben — und „daneben" wäre für
+ * sie alles im Statusmenü. Zwei Auswahlen, die sich gegenseitig zuklappen,
+ * sind schlimmer als achtzehn Zeichen, die für diesen Zweck reichen.
+ */
+.statusmenue__zeichenknopf {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: var(--r-xs);
+  border: 1px solid var(--line);
+  background: var(--bg-input);
+  color: var(--tx-mid);
+  font-size: 16px;
+  line-height: 1;
+  transition: background var(--t-fast), border-color var(--t-fast);
+}
+.statusmenue__zeichenknopf:hover { background: var(--bg-hover); border-color: var(--line-strong); }
+.statusmenue__zeichenknopf[aria-expanded='true'] { border-color: var(--violet); }
+.statusmenue__zeichenknopf--weg { border-color: transparent; background: transparent; }
+
+.statusmenue__zeichen {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 2px;
+  margin: 0 var(--sp-2) var(--sp-2);
+  padding: var(--sp-1);
+  border-radius: var(--r-sm);
+  background: var(--bg-sunken, var(--bg-input));
+}
+.statusmenue__zeichenfeld {
+  display: grid;
+  place-items: center;
+  height: 32px;
+  border-radius: var(--r-xs);
+  color: var(--tx-mid);
+  font-size: 17px;
+  line-height: 1;
+}
+.statusmenue__zeichenfeld:hover { background: var(--bg-hover); }
+.statusmenue__zeichenfeld--aktiv { background: var(--bg-active); }
+
+/*
+ * Fertige Meldungen. Ein Tippen füllt Zeichen und Feld darüber; abgeschickt
+ * wird erst mit einem Zustand oder mit „übernehmen".
+ *
+ * Sie brechen um, statt seitlich zu rollen. Als rollende Reihe endete der
+ * zweite Vorschlag mitten im Wort am Menürand: das sieht nach einem Fehler aus
+ * und nicht nach etwas, das man schieben kann. Dazu käme auf dem Telefon eine
+ * Wischrichtung, die mit dem Rollen des Menüs selbst streitet.
+ */
+.statusmenue__vorschlaege {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin: 0 var(--sp-3) var(--sp-2);
+}
+.statusmenue__vorschlag {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex: none;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--bg-input);
+  color: var(--tx-mid);
+  font-size: 12px;
+  /* Lange Übersetzungen ("Concentrado en el trabajo") bekommen eine eigene
+     Zeile, statt über den Rand zu laufen. */
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: background var(--t-fast), color var(--t-fast), border-color var(--t-fast);
+}
+.statusmenue__vorschlag > span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.statusmenue__vorschlag:hover {
+  background: var(--bg-hover);
+  border-color: var(--line-strong);
+  color: var(--tx-hi);
+}
+
+.statusmenue__dauer { cursor: pointer; }
+.statusmenue__dauername {
+  flex: none;
+  font-size: 12px;
+  color: var(--tx-lo);
+}
+.statusmenue .statusmenue__auswahl {
+  flex: 1;
+  min-width: 0;
+  height: 34px;
+  /* .select in app.css setzt padding-inline-end eigens — ohne die zweite
+     Klasse hier stünde der Text unter dem Pfeil statt daneben. */
+  padding: 0 30px 0 10px;
+  font-size: 12.5px;
+  line-height: 1;
+}
+
+.statusmenue__uebernehmen { width: 100%; }
+
+/*
+ * Am Finger bedient braucht jeder Knopf eine Fläche, die man ohne Zielen
+ * trifft. "pointer: coarse" trennt das sauber vom Mauszeiger, statt es an der
+ * Fensterbreite festzumachen — ein Tablet am Schreibtisch ist breit und wird
+ * trotzdem angetippt.
+ */
+@media (pointer: coarse) {
+  .statusmenue__eintrag { padding-block: 10px; }
+  .statusmenue__zeichenknopf,
+  .statusmenue__feld { height: 40px; }
+  .statusmenue__zeichenfeld { height: 40px; font-size: 19px; }
+  .statusmenue__vorschlag { height: 34px; font-size: 12.5px; }
+  .statusmenue__auswahl { height: 38px; }
+}
+
+/* Im hellen Thema trägt die Zeichenauswahl sonst keinen sichtbaren Grund —
+   var(--bg-sunken) gibt es nur im dunklen. */
+[data-theme='light'] .statusmenue__zeichen { background: rgba(14, 20, 48, 0.05); }
+[data-theme='light'] .statusmenue__marke { box-shadow: 0 0 0 1.5px var(--bg-elevated); }
+
+[dir='rtl'] .statusmenue { transform-origin: bottom right; }
