@@ -244,6 +244,14 @@ class Konsole:
             f"{d.get('modell') or ''}  ·  {time.strftime('%d.%m.%Y, %H:%M:%S')}"))
 
         # ── Adressen
+        # Nur neu aufbauen, wenn sich wirklich etwas geändert hat. Vorher wurden die
+        # Zeilen bei jedem Takt weggeworfen und neu gesetzt — das sah aus wie
+        # Flackern, obwohl sich nichts tat.
+        kennung = tuple((a["art"], a["url"]) for a in d.get("adressen", []))
+        if kennung == getattr(self, "adressen_stand", None):
+            self.rest_zeichnen(d)
+            return
+        self.adressen_stand = kennung
         for kind in self.adressen.winfo_children():
             kind.destroy()
         art_farbe = {"sicher": (F["gut"], "🔒"), "tunnel": (F["gut"], "🔒"),
@@ -268,6 +276,9 @@ class Konsole:
                          font=tkfont.Font(family="DejaVu Sans", size=9)).pack(side="left")
             gezeigt += 1
 
+        self.rest_zeichnen(d)
+
+    def rest_zeichnen(self, d):
         # ── Chat-Server
         dienste = d.get("dienste", {})
         chat = dienste.get("chat", {})
