@@ -3,6 +3,7 @@ import { motion } from 'framer-motion';
 import { BarChart3, Bell, Forward, Hash, Lock, Plus, Trash2, X } from 'lucide-react';
 import type { Message } from '@stellium/shared';
 import { useStore } from '../state/store.js';
+import { useT, t } from '../i18n/index.js';
 import { Avatar } from './Avatar.jsx';
 
 /* ── Weiterleiten ─────────────────────────────────────────────── */
@@ -28,12 +29,12 @@ export function ForwardDialog({ message, onClose }: { message: Message; onClose:
 
       <div className="field">
         <label className="field__label">Kommentar (optional)</label>
-        <input className="input" value={comment} placeholder="Warum leitest du das weiter?" onChange={(e) => setComment(e.target.value)} />
+        <input className="input" value={comment} placeholder="{t('forward.why')}" onChange={(e) => setComment(e.target.value)} />
       </div>
 
       <div className="field">
         <label className="field__label">Ziel</label>
-        <input className="input" value={query} autoFocus placeholder="Kanal oder Person suchen…" onChange={(e) => setQuery(e.target.value)} />
+        <input className="input" value={query} autoFocus placeholder={t('forward.search')} onChange={(e) => setQuery(e.target.value)} />
       </div>
 
       <div style={{ maxHeight: 240, overflowY: 'auto', marginBottom: 'var(--sp-3)' }}>
@@ -71,7 +72,7 @@ export function ReminderDialog({ message, onClose }: { message: Message; onClose
   const presets = [
     { label: 'In 20 Minuten', ms: 20 * 60_000 },
     { label: 'In einer Stunde', ms: 3600_000 },
-    { label: 'Heute Abend, 18:00', ms: msUntilHour(18) },
+    { label: t('reminder.tonight'), ms: msUntilHour(18) },
     { label: 'Morgen früh, 9:00', ms: msUntilHour(9, 1) },
     { label: 'Nächste Woche', ms: 7 * 86_400_000 },
   ];
@@ -86,7 +87,7 @@ export function ReminderDialog({ message, onClose }: { message: Message; onClose
       <div className="forward-preview">{message.text.slice(0, 220) || '🎙️ Sprachnachricht'}</div>
 
       <div className="field">
-        <label className="field__label">Wobei soll ich dich erinnern?</label>
+        <label className="field__label">{t('reminder.about')}</label>
         <input className="input" value={note} autoFocus placeholder="z.B. Antwort an Sarah schreiben" onChange={(e) => setNote(e.target.value)} />
       </div>
 
@@ -134,14 +135,14 @@ export function PollDialog({ channelId, onClose }: { channelId: string; onClose:
   const ready = question.trim().length > 2 && filled.length >= 2;
 
   return (
-    <Frame title="Umfrage starten" icon={<BarChart3 size={18} />} onClose={onClose} width={520}>
+    <Frame title={t('poll.start')} icon={<BarChart3 size={18} />} onClose={onClose} width={520}>
       <div className="field">
         <label className="field__label">Frage</label>
         <input
           className="input"
           value={question}
           autoFocus
-          placeholder="Wann machen wir das Team-Meeting?"
+          placeholder={t('poll.questionPlaceholder')}
           onChange={(e) => setQuestion(e.target.value)}
         />
       </div>
@@ -180,7 +181,7 @@ export function PollDialog({ channelId, onClose }: { channelId: string; onClose:
       </div>
 
       <Toggle title="Mehrfachwahl" sub="Man darf mehrere Antworten ankreuzen" value={multiple} onChange={setMultiple} />
-      <Toggle title="Anonym" sub="Es wird nur gezählt, nicht wer gestimmt hat" value={anonymous} onChange={setAnonymous} />
+      <Toggle title="Anonym" sub={t('poll.anonymousHint')} value={anonymous} onChange={setAnonymous} />
 
       <button
         className="btn btn--primary btn--block"
@@ -190,7 +191,7 @@ export function PollDialog({ channelId, onClose }: { channelId: string; onClose:
           channelId, question: question.trim(), options: filled, multiple, anonymous,
         })}
       >
-        Umfrage starten
+        {t('poll.start')}
       </button>
     </Frame>
   );

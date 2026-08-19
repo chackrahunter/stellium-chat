@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import { Hash, Lock, Search, Sparkles } from 'lucide-react';
 import { useStore } from '../state/store.js';
+import { useT, t } from '../i18n/index.js';
 import { kanalName } from '../lib/format.js';
 import { Avatar } from './Avatar.jsx';
 import { languageInfo } from '../lib/format.js';
@@ -50,20 +51,20 @@ export function QuickSwitcher({ onClose }: { onClose: () => void }) {
 
     out.push(
       {
-        id: 'act:catchup', kind: 'action', title: 'Was habe ich verpasst?',
-        sub: 'KI fasst die ungelesenen Nachrichten zusammen',
+        id: 'act:catchup', kind: 'action', title: t('quick.catchup'),
+        sub: t('quick.catchupHint'),
         icon: <Sparkles size={16} style={{ color: 'var(--violet-soft)' }} />,
         run: () => { if (activeChannelId) store.runCatchup(activeChannelId); onClose(); },
       },
       {
         id: 'act:search', kind: 'action', title: 'Nachrichten durchsuchen',
-        sub: 'Sucht im Original und in allen Übersetzungen',
+        sub: t('quick.searchHint'),
         icon: <Search size={16} className="muted" />,
         run: () => { store.setOverlay('search'); },
       },
       {
         id: 'act:glossary', kind: 'action', title: 'Glossar öffnen',
-        sub: 'Firmenbegriffe, die nie falsch übersetzt werden sollen',
+        sub: t('quick.glossaryHint'),
         icon: <Sparkles size={16} className="muted" />,
         run: () => { store.setOverlay('glossary'); },
       },
@@ -110,7 +111,7 @@ export function QuickSwitcher({ onClose }: { onClose: () => void }) {
       >
         <input
           className="omni-input"
-          placeholder="Kanal, Person oder Aktion…"
+          placeholder={t('quick.placeholder')}
           value={query}
           autoFocus
           onChange={(e) => setQuery(e.target.value)}

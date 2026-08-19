@@ -33,6 +33,10 @@ interface StoreState {
   booted: boolean;
   self: SelfUser | null;
   ai: AiCapabilities | null;
+  /** Stand, der auf dem Server läuft — für die Aktualisierungsansicht. */
+  serverVersion: string | null;
+  /** Fassung, die für den Server bereitliegt, aber noch nicht läuft. */
+  serverBereitVersion: string | null;
 
   /* Daten */
   users: Record<string, User>;
@@ -56,7 +60,8 @@ interface StoreState {
   files: StoredFile[];
   storageUsage: StorageUsage | null;
   taskHistory: Record<string, TaskEvent[]>;
-  extractedTasks: { title: string; assigneeId: string | null; dueAt: number | null }[] | null;
+  /** Ergebnis der Aufgabenerkennung — sie legt die Aufgaben selbst an. */
+  extractErgebnis: { erstellt: { id: string; title: string }[]; uebersprungen: number } | null;
   extractingTasks: boolean;
   /** Stand der Selbstaktualisierung. Im Browser bleibt er auf 'aus'. */
   update: {
@@ -84,6 +89,8 @@ interface StoreState {
   ideaComments: Record<string, IdeaComment[]>;
   protocol: MeetingProtocol | null;
   protocolLoading: boolean;
+  /** Auf schmalen Geräten liegt die Seitenleiste über dem Chat. */
+  schubladeOffen: boolean;
   activeChannelId: string | null;
   /** Zuletzt geöffneter Kanal außerhalb des KI-Reiters. */
   lastHumanChannelId: string | null;
@@ -180,6 +187,7 @@ interface StoreState {
   /* KI als Gesprächspartner */
   openAiChat: () => void;
   openLastHumanChannel: () => void;
+  setSchublade: (offen: boolean) => void;
 
   loadTasks: (filter?: { channelId?: string; assigneeId?: string }) => void;
   createTask: (input: {
@@ -195,6 +203,8 @@ interface StoreState {
   loadTaskHistory: (taskId: string) => void;
   extractTasks: (channelId: string) => void;
   clearExtractedTasks: () => void;
+  /** Die eben automatisch angelegten Aufgaben wieder entfernen. */
+  extractRueckgaengig: () => void;
   loadProtocol: (channelId: string) => void;
   clearProtocol: () => void;
 
@@ -329,14 +339,17 @@ export const useStore = create<StoreState>((set, get) => ({
   files: [],
   storageUsage: null,
   taskHistory: {},
-  extractedTasks: null,
+  extractErgebnis: null,
   extractingTasks: false,
+  serverVersion: null,
+  serverBereitVersion: null,
   update: { zustand: 'aus' },
   serverUpdate: null,
   ideas: {},
   ideaComments: {},
   protocol: null,
   protocolLoading: false,
+  schubladeOffen: false,
   activeChannelId: null,
   lastHumanChannelId: null,
   threadParentId: null,
@@ -410,6 +423,9 @@ export const useStore = create<StoreState>((set, get) => ({
         || (kanal.kind === 'public' && kanal.name === 'ki-team'));
     set((s) => ({
       lastHumanChannelId: istKi ? s.lastHumanChannelId : channelId,
+      // Auf dem Telefon liegt die Liste über dem Chat; nach der Wahl gehört
+      // sie weg, sonst sieht man nicht, was man gerade geöffnet hat.
+      schubladeOffen: false,
       activeChannelId: channelId,
       threadParentId: null,
       smartReplies: [],
@@ -673,6 +689,8 @@ export const useStore = create<StoreState>((set, get) => ({
     socket.send({ t: 'ai:open-chat' });
   },
 
+  setSchublade: (offen) => set({ schubladeOffen: offen }),
+
   openLastHumanChannel: () => {
     const gemerkt = get().lastHumanChannelId;
     if (gemerkt && get().channels[gemerkt]) return get().openChannel(gemerkt);
@@ -699,10 +717,14 @@ export const useStore = create<StoreState>((set, get) => ({
       get().toast({ kind: 'error', title: 'KI nicht aktiv', body: get().ai?.note ?? undefined });
       return;
     }
-    set({ extractingTasks: true, extractedTasks: null });
+    set({ extractingTasks: true, extractErgebnis: null });
     socket.send({ t: 'ai:extract-tasks', channelId, requestId: `x_${Date.now()}` });
   },
-  clearExtractedTasks: () => set({ extractedTasks: null, extractingTasks: false }),
+  clearExtractedTasks: () => set({ extractErgebnis: null, extractingTasks: false }),
+  extractRueckgaengig: () => {
+    for (const a of get().extractErgebnis?.erstellt ?? []) socket.send({ t: 'task:delete', taskId: a.id });
+    set({ extractErgebnis: null });
+  },
 
   loadProtocol: (channelId) => {
     if (!get().ai?.assistant) {
@@ -841,6 +863,8 @@ socket.onEvent((ev: ServerEvent) => {
       useStore.setState({
         self: ev.self,
         ai: ev.ai,
+        serverVersion: ev.serverVersion,
+        serverBereitVersion: ev.serverUpdate,
         users: Object.fromEntries(ev.users.map((u) => [u.id, u])),
         channels: Object.fromEntries(ev.channels.map((c) => [c.id, c])),
         states: Object.fromEntries(ev.states.map((s) => [s.channelId, s])),
@@ -1095,7 +1119,13 @@ socket.onEvent((ev: ServerEvent) => {
       break;
 
     case 'ai:extract-tasks':
-      useStore.setState({ extractedTasks: ev.tasks, extractingTasks: false });
+      useStore.setState({
+        extractingTasks: false,
+        extractErgebnis: {
+          erstellt: ev.erstellt.map((a) => ({ id: a.id, title: a.title })),
+          uebersprungen: ev.uebersprungen,
+        },
+      });
       if (!ev.tasks.length) {
         store.toast({ kind: 'info', title: 'Nichts gefunden', body: 'In diesem Verlauf steckt gerade keine offene Aufgabe.' });
       }

@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Loader2, WifiOff } from 'lucide-react';
 import { useStore } from './state/store.js';
+import { t } from './i18n/index.js';
 import { Cosmos } from './components/Cosmos.jsx';
 import { Rail } from './components/Rail.jsx';
 import { Sidebar } from './components/Sidebar.jsx';
@@ -21,7 +22,7 @@ import { Tour, tourBereitsGesehen } from './components/Tour.jsx';
 import { Login } from './components/Login.jsx';
 import { Setup } from './components/Setup.jsx';
 import { TeamAdmin } from './components/TeamAdmin.jsx';
-import { TasksBoard, TaskExtract } from './components/TasksBoard.jsx';
+import { TasksBoard } from './components/TasksBoard.jsx';
 import { CalendarPanel } from './components/CalendarPanel.jsx';
 import { FilesPanel } from './components/FilesPanel.jsx';
 import { ProtocolPanel } from './components/ProtocolPanel.jsx';
@@ -37,6 +38,7 @@ export function App() {
   const connectionDetail = useStore((s) => s.connectionDetail);
   const activeChannelId = useStore((s) => s.activeChannelId);
   const threadParentId = useStore((s) => s.threadParentId);
+  const schubladeOffen = useStore((s) => s.schubladeOffen);
   const overlay = useStore((s) => s.overlay);
   const lightbox = useStore((s) => s.lightbox);
   const forwarding = useStore((s) => s.forwarding);
@@ -74,6 +76,7 @@ export function App() {
         else if (store.forwarding) store.startForward(null);
         else if (store.remindingAbout) store.startReminder(null);
         else if (store.overlay) store.setOverlay(null);
+        else if (store.schubladeOffen) store.setSchublade(false);
         else if (store.threadParentId) store.openThread(null);
       }
     };
@@ -140,9 +143,16 @@ export function App() {
       <div className="rahmen">
         <ServerWartung />
         <UpdateBanner />
-        <div className={clsx('app', threadParentId && 'app--thread')}>
+        <div className={clsx('app', threadParentId && 'app--thread', schubladeOffen && 'app--schublade')}>
         <Rail />
         <Sidebar />
+        {/* Auf dem Telefon liegt die Liste über dem Chat. Ein Tippen daneben
+            schließt sie — der übliche Handgriff. */}
+        <div
+          className="schublade-schleier"
+          onClick={() => useStore.getState().setSchublade(false)}
+          aria-hidden="true"
+        />
 
         <main className="main">
           {connection !== 'open' && (
@@ -163,7 +173,7 @@ export function App() {
           ) : (
             <div className="empty">
               <div className="empty__orb" />
-              <h2>Wähle einen Kanal</h2>
+              <h2>{t('app.pickChannel')}</h2>
               <p>
                 Links geht es los. Mit {navigator.platform.includes('Mac') ? '⌘' : 'Strg'}+K springst du
                 direkt zu jedem Kanal oder Menschen.
@@ -190,7 +200,6 @@ export function App() {
         {overlay === 'team' && <TeamAdmin key="team" onClose={closeOverlay} />}
         {overlay === 'tour' && <Tour key="tour" onClose={closeOverlay} />}
         {overlay === 'tasks' && <TasksBoard key="tasks" onClose={closeOverlay} />}
-        {overlay === 'taskExtract' && <TaskExtract key="extract" onClose={closeOverlay} />}
         {overlay === 'calendar' && <CalendarPanel key="calendar" onClose={closeOverlay} />}
         {overlay === 'files' && <FilesPanel key="files" onClose={closeOverlay} />}
         {overlay === 'protocol' && <ProtocolPanel key="protocol" onClose={closeOverlay} />}

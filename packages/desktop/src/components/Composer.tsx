@@ -7,7 +7,7 @@ import {
 import type { Attachment, RewriteTone } from '@stellium/shared';
 import { normalizeLang } from '@stellium/shared';
 import { useStore } from '../state/store.js';
-import { useT } from '../i18n/index.js';
+import { useT, t } from '../i18n/index.js';
 import { api } from '../net/api.js';
 import { EmojiPicker } from './EmojiPicker.jsx';
 import { Avatar } from './Avatar.jsx';
@@ -242,7 +242,7 @@ export function Composer({ channelId, parentId = null, placeholder, autoFocus }:
   return (
     <div className="composer-wrap" data-tour="composer">
       <AnimatePresence>
-        {/* Früher hing die Anzeige an "Feld ist leer". Wer die Vorschläge
+        {/* Früher hing die Anzeige an {t('composer.empty')}. Wer die Vorschläge
             ausdrücklich anfordert, hat aber meist schon etwas getippt — dann
             kam nichts. Jetzt werden sie immer gezeigt und verschwinden erst,
             wenn wirklich weitergetippt wird. */}
@@ -551,7 +551,7 @@ export function Composer({ channelId, parentId = null, placeholder, autoFocus }:
               useStore.getState().schedule({ channelId, text: text.trim(), sendAt, parentId });
               setText('');
               setScheduleOpen(false);
-              useStore.getState().toast({ kind: 'ok', title: 'Geplant', body: 'Die Nachricht geht zur gewählten Zeit raus.' });
+              useStore.getState().toast({ kind: 'ok', title: 'Geplant', body: t('composer.scheduleHint') });
             }}
           />
         )}
@@ -580,12 +580,12 @@ function handleSlashCommand(text: string, channelId: string): SlashResult {
     case 'sprache':
       if (arg) {
         store.updatePrefs({ language: normalizeLang(arg) });
-        store.toast({ kind: 'ok', title: 'Sprache geändert', body: `Alles erscheint jetzt auf ${languageInfo(arg).native}.` });
+        store.toast({ kind: 'ok', title: 'Sprache geändert', body: t('composer.languageSet', { sprache: languageInfo(arg).native }) });
       }
       return { handled: true };
     case 'dnd':
-      store.setStatus('dnd', '🔕', arg || 'Bitte nicht stören');
-      store.toast({ kind: 'ok', title: 'Bitte nicht stören ist an' });
+      store.setStatus('dnd', '🔕', arg || t('composer.dnd'));
+      store.toast({ kind: 'ok', title: t('composer.dndOn') });
       return { handled: true };
     case 'aktiv':
     case 'active':

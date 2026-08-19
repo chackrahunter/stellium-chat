@@ -118,7 +118,30 @@ function secret(envName: string, vaultName: string): string {
 
 export type AiProvider = 'groq' | 'openai' | 'deepl' | 'libre' | 'demo';
 
+/**
+ * Welcher Stand hier gerade läuft.
+ *
+ * Der Server kannte seine eigene Version bisher nicht — dadurch stand in der
+ * Aktualisierungsansicht "alles aktuell", während der Server noch auf dem
+ * alten Stand lief. Die Nummer steht in der Version der App: aus demselben
+ * Quelltextstand entsteht beides, und das Serverpaket trägt sie mit.
+ */
+function eigeneVersion(): string {
+  for (const kandidat of [
+    path.resolve(paketWurzel, '../desktop/package.json'),
+    path.resolve(paketWurzel, '../../packages/desktop/package.json'),
+    path.resolve(paketWurzel, 'package.json'),
+  ]) {
+    try {
+      const v = JSON.parse(fs.readFileSync(kandidat, 'utf8')).version;
+      if (typeof v === 'string' && /^\d+\.\d+\.\d+/.test(v)) return v;
+    } catch { /* nächster Kandidat */ }
+  }
+  return '0.0.0';
+}
+
 export const config = {
+  version: eigeneVersion(),
   port: int('PORT', 8787),
   host: str('HOST', '0.0.0.0'),
   jwtSecret: resolveSecret(),

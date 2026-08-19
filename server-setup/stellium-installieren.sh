@@ -991,6 +991,31 @@ STAND="$(date +%Y%m%d-%H%M)"
 sqlite3 /var/lib/stellium/stellium.db ".backup '$ZIEL/stellium-$STAND.db'" 2>/dev/null \
   || cp /var/lib/stellium/stellium.db "$ZIEL/stellium-$STAND.db"
 gzip -f "$ZIEL/stellium-$STAND.db"
+
+# Der Tresor gehört dazu: ohne ihn fehlt nach einer Wiederherstellung der
+# Groq-Schlüssel. Er ist selbst verschlüsselt und darf hier liegen.
+[[ -f /var/lib/stellium/secrets.enc ]] && cp -f /var/lib/stellium/secrets.enc "$ZIEL/secrets.enc"
+
+# Der Hinweis, ohne den eine Sicherung wertlos wäre.
+cat > "$ZIEL/LIESMICH.txt" <<'HINWEIS'
+Diese Sicherungen enthalten die Datenbank — die Nachrichten darin sind
+verschlüsselt.
+
+Zum Wiederherstellen braucht es zusätzlich das Masterpasswort aus
+
+    /etc/stellium.env      (Zeile STELLIUM_MASTER_PASSPHRASE=...)
+
+Ohne dieses Passwort lässt sich keine Nachricht mehr lesen — auch nicht
+mit Zugriff auf die Datenbankdatei. Bewahre es getrennt von den
+Sicherungen auf, zum Beispiel im Passwortmanager der Firma.
+
+Wiederherstellen:
+    sudo systemctl stop stellium
+    gunzip -c stellium-JJJJMMTT-HHMM.db.gz > /var/lib/stellium/stellium.db
+    sudo chown stellium:stellium /var/lib/stellium/stellium.db
+    sudo systemctl start stellium
+HINWEIS
+
 # Vierzehn Stände reichen; ältere weg.
 ls -1t "$ZIEL"/stellium-*.db.gz 2>/dev/null | tail -n +15 | xargs -r rm -f
 SICHERUNG
@@ -1115,6 +1140,16 @@ cat <<BEFEHLE
    Der Server startet bei jedem Neustart von selbst mit.
 
 BEFEHLE
+
+cat <<SCHLUESSEL
+   ${FETT}Masterpasswort${AUS}
+     Nachrichten liegen verschlüsselt in der Datenbank. Der Schlüssel
+     dazu steht in ${FETT}/etc/stellium.env${AUS}.
+
+     ${GELB}Schreibe ihn dir weg — ohne ihn ist keine Sicherung lesbar.${AUS}
+     ${GRAU}sudo grep MASTER /etc/stellium.env${AUS}
+
+SCHLUESSEL
 
 if [[ "$WAHL" == "3" ]]; then
   printf '   %s! Diese Einrichtung ist unverschlüsselt. Für den Firmenbetrieb%s\n' "$GELB" "$AUS"

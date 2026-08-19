@@ -1,5 +1,6 @@
 import type { User, UserStatus } from '@stellium/shared';
 import { fileUrl } from '../net/api.js';
+import { t } from '../i18n/index.js';
 import { initials } from '../lib/format.js';
 
 interface Props {
@@ -39,7 +40,7 @@ export function Avatar({ user, size = 38, showPresence = false, status }: Props)
 }
 
 const PRESENCE_LABEL: Record<UserStatus, string> = {
-  online: 'Online', away: 'Abwesend', dnd: 'Bitte nicht stören', offline: 'Offline',
+  online: 'Online', away: 'Abwesend', dnd: t('user.dnd'), offline: 'Offline',
 };
 
 /** Hex-Farbe abdunkeln/aufhellen, damit der Avatar einen Verlauf bekommt. */

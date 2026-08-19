@@ -195,8 +195,11 @@ export const MessageItem = memo(function MessageItem({ message, grouped, inThrea
                 >
                   <Languages size={11} className="spark" />
                   {showOriginal
-                    ? `Original · ${languageInfo(message.sourceLang).native}`
-                    : `Übersetzt aus ${languageInfo(message.sourceLang).native} · ${translation!.provider}`}
+                    ? t('msg.original', { sprache: languageInfo(message.sourceLang).native })
+                    : t('msg.translatedFrom', {
+                      sprache: languageInfo(message.sourceLang).native,
+                      modell: translation!.provider,
+                    })}
                 </button>
 
                 {showOriginal && (

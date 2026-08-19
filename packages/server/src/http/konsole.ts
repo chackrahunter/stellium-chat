@@ -4,6 +4,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { db } from '../db/index.js';
+import { verschluesselungAktiv } from '../crypto/nachrichten.js';
 import { config } from '../config.js';
 import { aiCapabilities } from '../translation/index.js';
 import { anstehend } from '../services/wartung.js';
@@ -73,8 +74,8 @@ function temperaturen(): { name: string; grad: number }[] {
   return werte;
 }
 
-function zahlen(): Record<string, number> {
-  const ergebnis: Record<string, number> = {};
+function zahlen(): Record<string, number | boolean> {
+  const ergebnis: Record<string, number | boolean> = {};
   for (const tabelle of ['users', 'channels', 'messages', 'tasks', 'events', 'files', 'ideas']) {
     try {
       const r = db.get<{ n: number }>(`SELECT COUNT(*) AS n FROM ${tabelle}`);
@@ -87,6 +88,13 @@ function zahlen(): Record<string, number> {
       'SELECT COUNT(*) AS n FROM messages WHERE created_at > ?', heute,
     )?.n ?? 0;
     ergebnis.uebersetzungen = db.get<{ n: number }>('SELECT COUNT(*) AS n FROM message_translations')?.n ?? 0;
+    // Wie viele Nachrichten wirklich verschlüsselt liegen — die Zahl zeigt
+    // sofort, ob das Masterpasswort greift oder ob im Klartext geschrieben wird.
+    const offen = db.get<{ n: number }>(
+      "SELECT COUNT(*) AS n FROM messages WHERE text <> '' AND substr(text, 1, 3) <> 'm1:'",
+    )?.n ?? 0;
+    ergebnis.verschluesselt = verschluesselungAktiv() && offen === 0;
+    ergebnis.imKlartext = offen;
   } catch { /* egal */ }
   return ergebnis;
 }

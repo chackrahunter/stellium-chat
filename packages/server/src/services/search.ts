@@ -1,6 +1,7 @@
 import type { SearchHit } from '@stellium/shared';
 import { db, placeholders } from '../db/index.js';
 import { hydrateMessages, visibleChannels } from './store.js';
+import { entschluesseln, suchBegriffe } from '../crypto/nachrichten.js';
 
 export interface SearchQuery {
   userId: string;
@@ -64,9 +65,10 @@ function ftsSearch(q: string, channelIds: string[], limit: number): RawHit[] {
   if (!expr) return [];
   try {
     return db.all<RawHit>(
-      `SELECT message_id, lang,
-              snippet(message_fts, 3, '<em>', '</em>', '…', 14) AS snippet,
-              -bm25(message_fts) AS score
+      /* Kein snippet(): im Index stehen Fingerabdrücke, kein Text — ein
+         Ausschnitt daraus wäre unlesbar. Die Fundstelle schneidet danach
+         `excerpt` aus dem entschlüsselten Original. */
+      `SELECT message_id, lang, NULL AS snippet, -bm25(message_fts) AS score
        FROM message_fts
        WHERE message_fts MATCH ? AND channel_id IN (${placeholders(channelIds.length)})
        ORDER BY score DESC LIMIT ?`,
@@ -77,35 +79,41 @@ function ftsSearch(q: string, channelIds: string[], limit: number): RawHit[] {
   }
 }
 
-/** Anführungszeichen escapen und Präfixsuche für das letzte Wort erlauben. */
+/**
+ * Die Suchanfrage in dieselben Fingerabdrücke übersetzen, die im Index stehen.
+ *
+ * Präfixsuche gibt es hier nicht mehr: zwei Fingerabdrücke haben keinen
+ * gemeinsamen Anfang, auch wenn die Wörter einen hatten. Das ist der Preis
+ * dafür, dass im Index nichts Lesbares liegt.
+ */
 function toFtsExpression(q: string): string {
-  const terms = q.match(/"[^"]+"|\S+/g) ?? [];
-  const parts = terms.map((raw, i) => {
-    if (raw.startsWith('"')) return raw;
-    const clean = raw.replace(/["*]/g, '');
-    if (!clean) return '';
-    return i === terms.length - 1 ? `"${clean}"*` : `"${clean}"`;
-  }).filter(Boolean);
-  return parts.join(' AND ');
+  return suchBegriffe(q).map((t) => `"${t}"`).join(' AND ');
 }
 
+/**
+ * Rückfallweg ohne FTS5. Er kann nicht mehr per SQL filtern — in der Spalte
+ * steht ein Chiffrat, und danach zu suchen fände nichts. Also holt er einen
+ * begrenzten Ausschnitt der jüngsten Nachrichten und siebt ihn im Speicher.
+ */
 function likeSearch(q: string, channelIds: string[], limit: number): RawHit[] {
-  const needle = `%${q.replace(/[%_]/g, (m) => `\\${m}`)}%`;
+  const nadel = q.toLowerCase();
+  const passt = (t: string) => t.toLowerCase().includes(nadel);
+  const FENSTER = 4000;
+
   const original = db.all<{ id: string; source_lang: string | null; text: string }>(
     `SELECT id, source_lang, text FROM messages
      WHERE channel_id IN (${placeholders(channelIds.length)}) AND deleted_at IS NULL
-       AND text LIKE ? ESCAPE '\\'
      ORDER BY created_at DESC LIMIT ?`,
-    ...channelIds, needle, limit,
-  );
+    ...channelIds, FENSTER,
+  ).map((r) => ({ ...r, text: entschluesseln(r.text) })).filter((r) => passt(r.text)).slice(0, limit);
+
   const translated = db.all<{ message_id: string; lang: string; text: string }>(
     `SELECT t.message_id, t.lang, t.text FROM message_translations t
      JOIN messages m ON m.id = t.message_id
      WHERE m.channel_id IN (${placeholders(channelIds.length)}) AND m.deleted_at IS NULL
-       AND t.text LIKE ? ESCAPE '\\'
      ORDER BY m.created_at DESC LIMIT ?`,
-    ...channelIds, needle, limit,
-  );
+    ...channelIds, FENSTER,
+  ).map((r) => ({ ...r, text: entschluesseln(r.text) })).filter((r) => passt(r.text)).slice(0, limit);
   return [
     ...original.map((r) => ({ message_id: r.id, lang: r.source_lang ?? 'unknown', snippet: excerpt(r.text, q), score: 1 })),
     ...translated.map((r) => ({ message_id: r.message_id, lang: r.lang, snippet: excerpt(r.text, q), score: 0.6 })),

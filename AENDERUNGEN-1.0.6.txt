@@ -1,0 +1,6 @@
+Die Aktualisierungsansicht zeigt jetzt auch den Server: welcher Stand dort läuft und ob schon ein neuer bereitliegt.
+Bisher stand dort "alles aktuell", während der Server noch auf der alten Fassung lief — der Server kannte seine eigene Version nicht.
+Bei der neuesten Version steht jetzt die Nummer dabei, statt nur "Du hast die neueste Version".
+Der Server erscheint als vierte Zeile in der Verteilung — hochgeladen wurde er schon, sichtbar war er nie.
+Der Hinweis unter der Prüfung war veraltet: Stellium installiert Updates selbst und öffnet nicht mehr nur die Datei.
+Auch die Prüfung im Hintergrund meldet ihr Ergebnis, statt den Stand von vorhin stehen zu lassen.

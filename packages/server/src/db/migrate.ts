@@ -1,5 +1,6 @@
 import { db } from './index.js';
 import { blindIndex, encryptField, encryptionActive } from '../crypto/pii.js';
+import { istChiffrat, verschluesseln, verschluesselungAktiv } from '../crypto/nachrichten.js';
 
 /**
  * Spalten nachrüsten, die in älteren Datenbanken fehlen.
@@ -47,6 +48,74 @@ export function migrate(): void {
 
   rebuildUsersTable();
   encryptExistingUsers();
+  bestehendeTexteVerschluesseln();
+}
+
+/**
+ * Nachrichten, die vor der Umstellung im Klartext angelegt wurden,
+ * nachträglich verschlüsseln.
+ *
+ * In Schritten von tausend Zeilen und in einer Transaktion: auf einem
+ * Raspberry Pi mit hunderttausend Nachrichten soll der Start nicht am
+ * Speicher scheitern. Wer schon verschlüsselt ist, wird übersprungen —
+ * der Durchlauf darf jederzeit abbrechen und beim nächsten Start weitergehen.
+ */
+function bestehendeTexteVerschluesseln(): void {
+  if (!verschluesselungAktiv()) return;
+
+  const tabellen: { tabelle: string; schluessel: string }[] = [
+    { tabelle: 'messages', schluessel: 'id' },
+    { tabelle: 'message_translations', schluessel: 'rowid' },
+    { tabelle: 'scheduled_messages', schluessel: 'id' },
+    { tabelle: 'drafts', schluessel: 'rowid' },
+    { tabelle: 'voice_transcripts', schluessel: 'attachment_id' },
+    { tabelle: 'poll_options', schluessel: 'id' },
+  ];
+
+  /* Umfragen tragen ihren Text in anders benannten Spalten. */
+  const sonderfaelle: { tabelle: string; spalte: string; schluessel: string }[] = [
+    { tabelle: 'polls', spalte: 'question', schluessel: 'id' },
+    { tabelle: 'poll_translations', spalte: 'payload', schluessel: 'rowid' },
+  ];
+
+  let gesamt = 0;
+  for (const { tabelle, schluessel } of tabellen) {
+    if (!db.all(`PRAGMA table_info(${tabelle})`).length) continue;
+    for (;;) {
+      const offen = db.all<{ k: string | number; text: string }>(
+        `SELECT ${schluessel} AS k, text FROM ${tabelle}
+         WHERE text IS NOT NULL AND text <> '' AND substr(text, 1, 3) <> 'm1:' LIMIT 1000`,
+      ).filter((r) => !istChiffrat(r.text));
+      if (!offen.length) break;
+      db.transaction(() => {
+        for (const r of offen) {
+          db.run(`UPDATE ${tabelle} SET text = ? WHERE ${schluessel} = ?`, verschluesseln(r.text), r.k);
+        }
+      });
+      gesamt += offen.length;
+    }
+  }
+
+  for (const { tabelle, spalte, schluessel } of sonderfaelle) {
+    if (!db.all(`PRAGMA table_info(${tabelle})`).length) continue;
+    for (;;) {
+      const offen = db.all<{ k: string | number; wert: string }>(
+        `SELECT ${schluessel} AS k, ${spalte} AS wert FROM ${tabelle}
+         WHERE ${spalte} IS NOT NULL AND ${spalte} <> '' AND substr(${spalte}, 1, 3) <> 'm1:' LIMIT 1000`,
+      ).filter((r) => !istChiffrat(r.wert));
+      if (!offen.length) break;
+      db.transaction(() => {
+        for (const r of offen) {
+          db.run(`UPDATE ${tabelle} SET ${spalte} = ? WHERE ${schluessel} = ?`, verschluesseln(r.wert), r.k);
+        }
+      });
+      gesamt += offen.length;
+    }
+  }
+
+  if (gesamt) {
+    console.log(`[db] ${gesamt} gespeicherte Texte nachträglich verschlüsselt.`);
+  }
 }
 
 /**

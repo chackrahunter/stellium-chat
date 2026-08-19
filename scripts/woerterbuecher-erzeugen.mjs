@@ -6,6 +6,7 @@
  *   node scripts/woerterbuecher-erzeugen.mjs           alle fehlenden
  *   node scripts/woerterbuecher-erzeugen.mjs fr es     nur diese
  *   node scripts/woerterbuecher-erzeugen.mjs --alle    auch bestehende neu
+ *   node scripts/woerterbuecher-erzeugen.mjs --neue     nur fehlende Einträge
  *
  * Das Ergebnis sind feste Dateien, keine Aufrufe zur Laufzeit: die Oberfläche
  * muss sofort da sein, auch ohne Netz, und darf nichts kosten.
@@ -49,12 +50,13 @@ sag(`${F.blau}${F.fett}▸ Vorlage${F.aus}  ${schluessel.length} Einträge auf D
 const { LANGUAGES } = await import(path.join(wurzel, 'packages/shared/dist/languages.js'));
 const args = process.argv.slice(2);
 const alleNeu = args.includes('--alle');
+const nurNeue = args.includes('--neue');
 const gewuenscht = args.filter((a) => !a.startsWith('--'));
 
 const ziele = LANGUAGES
   .filter((l) => l.code !== 'de' && l.code !== 'en')
   .filter((l) => (gewuenscht.length ? gewuenscht.includes(l.code) : true))
-  .filter((l) => alleNeu || !fs.existsSync(path.join(i18n, `${l.code}.ts`)));
+  .filter((l) => alleNeu || nurNeue || !fs.existsSync(path.join(i18n, `${l.code}.ts`)));
 
 if (!ziele.length) { sag(`${F.grau}Nichts zu tun.${F.aus}`); process.exit(0); }
 sag(`${F.blau}${F.fett}▸ Ziele${F.aus}    ${ziele.map((l) => l.code).join(', ')}`);
@@ -139,11 +141,19 @@ function alsDatei(sprache, eintraege) {
 
 for (const sprache of ziele) {
   process.stdout.write(`  ${F.grau}${sprache.code} ${sprache.native}${F.aus} `);
-  const ergebnis = {};
-  let fehlend = 0;
 
-  for (let i = 0; i < schluessel.length; i += BUENDEL) {
-    const teil = schluessel.slice(i, i + BUENDEL);
+  // Bestehendes behalten und nur ergänzen: eine Sprache noch einmal komplett
+  // durchs Modell zu schicken kostet Zeit und macht Handkorrekturen zunichte.
+  const vorhanden = fs.existsSync(path.join(i18n, `${sprache.code}.ts`))
+    ? woerterbuchLesen(path.join(i18n, `${sprache.code}.ts`))
+    : {};
+  const ergebnis = { ...vorhanden };
+  const zuTun = nurNeue ? schluessel.filter((k) => !vorhanden[k]) : schluessel;
+
+  if (!zuTun.length) { sag(` ${F.grau}nichts zu tun${F.aus}`); continue; }
+
+  for (let i = 0; i < zuTun.length; i += BUENDEL) {
+    const teil = zuTun.slice(i, i + BUENDEL);
     let versuch = 0;
     for (;;) {
       try {

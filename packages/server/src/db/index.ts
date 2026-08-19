@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 import { config } from '../config.js';
 import { migrate } from './migrate.js';
+import { entschluesseln, suchWorte } from '../crypto/nachrichten.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -69,6 +70,37 @@ export function initDb(): void {
   db.exec(schema);
   migrate();
   setupFts();
+  indexAufFingerabdruckeUmstellen();
+}
+
+/** Kennung des Indexformats — ändert sie sich, wird neu aufgebaut. */
+const INDEX_FORMAT = 'fingerabdruck-v1';
+
+/**
+ * Bis zur Verschlüsselung standen die Wörter selbst im Volltextindex. Sie
+ * müssen dort verschwinden, sonst wäre der Inhalt jeder Nachricht weiter im
+ * Klartext lesbar — nur eben in einer anderen Tabelle.
+ */
+function indexAufFingerabdruckeUmstellen(): void {
+  if (!db.fts) return;
+  const stand = db.get<{ value: string }>(
+    "SELECT value FROM app_settings WHERE key = 'fts_format'",
+  )?.value;
+  if (stand === INDEX_FORMAT) return;
+
+  const ids = db.all<{ id: string }>(
+    'SELECT id FROM messages WHERE deleted_at IS NULL',
+  ).map((r) => r.id);
+
+  db.run('DELETE FROM message_fts');
+  for (const id of ids) reindexMessage(id);
+
+  db.run(
+    `INSERT INTO app_settings (key, value, updated_by, updated_at) VALUES ('fts_format', ?, NULL, ?)
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+    INDEX_FORMAT, Date.now(),
+  );
+  if (ids.length) console.log(`[db] Volltextindex neu aufgebaut (${ids.length} Nachrichten).`);
 }
 
 /**
@@ -101,9 +133,12 @@ export function reindexMessage(messageId: string): void {
     'SELECT channel_id, text, source_lang, deleted_at FROM messages WHERE id = ?', messageId,
   );
   if (!msg || msg.deleted_at) return;
+  /* Im Index stehen nicht die Wörter selbst, sondern ihre Fingerabdrücke.
+     Sonst läge der Inhalt jeder Nachricht doch wieder im Klartext in der
+     Datenbank — nur eben in einer anderen Tabelle. */
   db.run(
     'INSERT INTO message_fts (message_id, channel_id, lang, body) VALUES (?,?,?,?)',
-    messageId, msg.channel_id, msg.source_lang ?? 'unknown', msg.text,
+    messageId, msg.channel_id, msg.source_lang ?? 'unknown', suchWorte(entschluesseln(msg.text)),
   );
   const translations = db.all<{ lang: string; text: string }>(
     'SELECT lang, text FROM message_translations WHERE message_id = ?', messageId,
@@ -111,7 +146,7 @@ export function reindexMessage(messageId: string): void {
   for (const tr of translations) {
     db.run(
       'INSERT INTO message_fts (message_id, channel_id, lang, body) VALUES (?,?,?,?)',
-      messageId, msg.channel_id, tr.lang, tr.text,
+      messageId, msg.channel_id, tr.lang, suchWorte(entschluesseln(tr.text)),
     );
   }
 }

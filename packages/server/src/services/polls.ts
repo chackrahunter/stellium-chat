@@ -1,5 +1,6 @@
 import type { Poll, PollOption } from '@stellium/shared';
 import { db } from '../db/index.js';
+import { entschluesseln, verschluesseln } from '../crypto/nachrichten.js';
 import { newId } from '../util/id.js';
 
 export function createPoll(input: {
@@ -19,12 +20,12 @@ export function createPoll(input: {
     db.run(
       `INSERT INTO polls (id, message_id, question, multiple, anonymous, closed, closes_at, created_by, created_at)
        VALUES (?,?,?,?,?,0,?,?,?)`,
-      id, input.messageId, frage, input.multiple ? 1 : 0,
+      id, input.messageId, verschluesseln(frage), input.multiple ? 1 : 0,
       input.anonymous ? 1 : 0, input.closesAt ?? null, input.userId, at,
     );
     clean.forEach((text, position) => {
       db.run('INSERT INTO poll_options (id, poll_id, position, text) VALUES (?,?,?,?)',
-        newId('po_'), id, position, text.slice(0, 160));
+        newId('po_'), id, position, verschluesseln(text.slice(0, 160)));
     });
   });
   return id;
@@ -86,7 +87,7 @@ function hydrate(row: any, viewerId: string): Poll {
     const voters = byOption.get(o.id) ?? [];
     return {
       id: o.id,
-      text: o.text,
+      text: entschluesseln(o.text),
       // Bei anonymen Umfragen bleibt verborgen, wer gestimmt hat — nur die Zahl zählt.
       voterIds: anonymous ? [] : voters,
       votes: voters.length,
@@ -96,7 +97,7 @@ function hydrate(row: any, viewerId: string): Poll {
   return {
     id: row.id,
     messageId: row.message_id,
-    question: row.question,
+    question: entschluesseln(row.question),
     options,
     multiple: Boolean(row.multiple),
     anonymous,

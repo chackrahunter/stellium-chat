@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import {
-  Apple, CheckCircle2, Download, Loader2, Monitor, RefreshCw, Terminal, Trash2, Upload,
+  Apple, CheckCircle2, Clock, Download, Loader2, Monitor, RefreshCw, Server, Terminal, Trash2, Upload,
 } from 'lucide-react';
 import type { ReleaseInfo, ReleasePlatform } from '@stellium/shared';
 import { useStore } from '../state/store.js';
@@ -13,7 +13,19 @@ const PLATTFORMEN: { id: ReleasePlatform; name: string; icon: React.ReactNode; h
   { id: 'darwin', name: 'macOS', icon: <Apple size={15} />, hinweis: '.dmg' },
   { id: 'win32', name: 'Windows', icon: <Monitor size={15} />, hinweis: '.exe' },
   { id: 'linux', name: 'Linux', icon: <Terminal size={15} />, hinweis: '.AppImage oder .deb' },
+  // Der Server gehört dazu: er wurde hochgeladen, tauchte hier aber nie auf.
+  { id: 'server', name: 'Server', icon: <Server size={15} />, hinweis: '.tar.gz' },
 ];
+
+/** 1.10.0 ist neuer als 1.9.0 — ein Textvergleich sähe das andersherum. */
+function istNeuer(a: string, b: string): boolean {
+  const teile = (v: string) => v.split(/[.-]/).map((x) => Number.parseInt(x, 10) || 0);
+  const [x, y] = [teile(a), teile(b)];
+  for (let i = 0; i < Math.max(x.length, y.length); i++) {
+    if ((x[i] ?? 0) !== (y[i] ?? 0)) return (x[i] ?? 0) > (y[i] ?? 0);
+  }
+  return false;
+}
 
 function groesse(bytes: number): string {
   const mb = bytes / 1024 / 1024;
@@ -38,6 +50,14 @@ export function UpdatePanel() {
 
   const darfVeroeffentlichen = Boolean(self?.permissions['user.manage']);
   const inDerApp = Boolean(window.stellium);
+  const serverVersion = useStore((s) => s.serverVersion);
+  // Kommt vom Server selbst, nicht aus der Verwaltungsliste: sonst sähe nur
+  // die Verwaltung, dass gleich ein Neustart ansteht.
+  const gemeldet = useStore((s) => s.serverBereitVersion);
+  const ausListe = releases.find((r) => r.platform === 'server') ?? null;
+  const serverNeu = gemeldet
+    ?? (ausListe && serverVersion && istNeuer(ausListe.version, serverVersion) ? ausListe.version : null);
+  const serverVeraltet = Boolean(serverVersion && serverNeu);
 
   useEffect(() => {
     if (!darfVeroeffentlichen) return;
@@ -110,7 +130,7 @@ export function UpdatePanel() {
                 <div className="update-card__main">
                   <span>
                     {update.zustand === 'suche' ? t('update.checking')
-                      : update.zustand === 'aktuell' ? t('update.upToDate')
+                      : update.zustand === 'aktuell' ? t('update.upToDate', { version: update.version ?? '' })
                         : update.zustand === 'fehler' ? (update.fehler ?? t('update.failed'))
                           : t('update.idle')}
                   </span>
@@ -124,6 +144,27 @@ export function UpdatePanel() {
         )}
         <p className="field__hint">{t('update.installHint')}</p>
       </div>
+
+      {/* Der Server — bisher stand hier "alles aktuell", während er noch auf
+          dem alten Stand lief. Ohne diese Zeile sah man das nirgends. */}
+      {serverVersion && (
+        <div className="field">
+          <label className="field__label">{t('update.serverTitle')}</label>
+          <div className="update-card">
+            {serverVeraltet
+              ? <Clock size={16} style={{ color: 'var(--amber)' }} />
+              : <CheckCircle2 size={16} style={{ color: 'var(--green)' }} />}
+            <div className="update-card__main">
+              <span>
+                {serverVeraltet
+                  ? t('update.serverPending', { laeuft: serverVersion, neu: serverNeu! })
+                  : t('update.serverCurrent', { version: serverVersion })}
+              </span>
+              {serverVeraltet && <span className="muted">{t('update.serverWhen')}</span>}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Verteilung — nur für die Verwaltung */}
       {darfVeroeffentlichen && (

@@ -2,6 +2,7 @@ import { motion } from 'framer-motion';
 import { BarChart3, Check, Lock, Users } from 'lucide-react';
 import type { Poll } from '@stellium/shared';
 import { useStore } from '../state/store.js';
+import { useT, t } from '../i18n/index.js';
 import { Avatar } from './Avatar.jsx';
 import { relativeTime } from '../lib/format.js';
 
@@ -31,7 +32,7 @@ export function PollCard({ poll }: { poll: Poll }) {
     <div className="poll">
       <div className="poll__head">
         <BarChart3 size={13} />
-        Umfrage
+        {t('poll.label')}
         {poll.multiple && <span className="poll__flag">Mehrfachwahl</span>}
         {poll.anonymous && <span className="poll__flag"><Lock size={9} /> anonym</span>}
         {poll.closed && <span className="poll__flag poll__flag--closed">beendet</span>}
@@ -80,8 +81,8 @@ export function PollCard({ poll }: { poll: Poll }) {
       <div className="poll__foot">
         <Users size={11} />
         {poll.totalVoters === 0
-          ? 'Noch keine Stimme'
-          : `${poll.totalVoters} ${poll.totalVoters === 1 ? 'Stimme' : 'Stimmen'}`}
+          ? t('poll.noVotes')
+          : t(poll.totalVoters === 1 ? 'poll.oneVote' : 'poll.votes', { n: poll.totalVoters })}
         {poll.closesAt && !poll.closed && <span>· endet {relativeTime(poll.closesAt)}</span>}
         {canClose && !poll.closed && (
           <button className="poll__close" onClick={() => closePoll(poll.id)}>Beenden</button>

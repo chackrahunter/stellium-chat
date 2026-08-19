@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import { detectLanguage, type VoiceNote } from '@stellium/shared';
 import { config } from '../config.js';
 import { db } from '../db/index.js';
+import { entschluesseln, verschluesseln } from '../crypto/nachrichten.js';
 import { transcriptionAvailable, transcriptionModel } from '../translation/index.js';
 
 /**
@@ -94,7 +95,7 @@ export function saveTranscript(attachmentId: string, result: TranscriptResult): 
      ON CONFLICT(attachment_id) DO UPDATE SET
        text = excluded.text, lang = excluded.lang, duration_ms = excluded.duration_ms,
        provider = excluded.provider, model = excluded.model, created_at = excluded.created_at`,
-    attachmentId, result.text, result.lang, result.durationMs, 'groq', result.model, Date.now(),
+    attachmentId, verschluesseln(result.text), result.lang, result.durationMs, 'groq', result.model, Date.now(),
   );
 }
 
@@ -110,7 +111,7 @@ export function voiceNoteFor(messageId: string): VoiceNote | null {
     attachmentId: attachment.id,
     url: `/files/${attachment.id}`,
     durationMs: transcript?.duration_ms ?? null,
-    transcript: transcript?.text ?? null,
+    transcript: transcript?.text ? entschluesseln(transcript.text) : null,
     transcriptLang: transcript?.lang ?? null,
     translatedTranscript: null,
   };

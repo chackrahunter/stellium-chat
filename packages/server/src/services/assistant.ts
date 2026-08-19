@@ -4,6 +4,7 @@ import { newId } from '../util/id.js';
 import { assistant as aiProvider } from '../translation/index.js';
 import { createAccount } from './users.js';
 import { encryptField, blindIndex } from '../crypto/pii.js';
+import { entschluesseln } from '../crypto/nachrichten.js';
 
 /**
  * Der KI-Assistent als Gesprächspartner.
@@ -209,7 +210,7 @@ export async function generateReply(channelId: string, ansprache: 'privat' | 'te
      WHERE m.channel_id = ? AND m.deleted_at IS NULL AND m.system_kind IS NULL
      ORDER BY m.created_at DESC LIMIT ?`,
     channelId, VERLAUF_LAENGE,
-  ).reverse();
+  ).reverse().map((z) => ({ ...z, text: entschluesseln(z.text) }));
 
   if (!zeilen.length) {
     return ansprache === 'team'

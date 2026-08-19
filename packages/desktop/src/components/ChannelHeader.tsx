@@ -1,14 +1,16 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import {
-  Bot, ClipboardList, Hash, Languages, ListChecks, Loader2, Lock, Megaphone, MessageSquareText,
+  Bot, ClipboardList, Hash, Languages, ListChecks, Loader2, Lock, Megaphone, Menu, MessageSquareText,
   Settings2, Sparkles, Users,
 } from 'lucide-react';
+import { AnimatePresence } from 'framer-motion';
 import { LANGUAGES, normalizeLang } from '@stellium/shared';
 import { useStore } from '../state/store.js';
 import { useT } from '../i18n/index.js';
 import { Avatar } from './Avatar.jsx';
 import { kanalName, kanalThema, languageInfo, localTimeFor } from '../lib/format.js';
 import { useKiKanaele, KI_NAME } from '../lib/ai-channels.js';
+import { TaskExtractPop } from './TaskExtractPop.jsx';
 
 export function ChannelHeader({ channelId }: { channelId: string }) {
   const t = useT();
@@ -19,6 +21,8 @@ export function ChannelHeader({ channelId }: { channelId: string }) {
   const smartRepliesLoading = useStore((s) => s.smartRepliesLoading);
   const { runCatchup, setOverlay, updateChannel, updatePrefs, loadSmartReplies } = useStore.getState();
   const [langOpen, setLangOpen] = useState(false);
+  const [extractOffen, setExtractOffen] = useState(false);
+  const extractRef = useRef<HTMLButtonElement>(null);
   const { chatId: kiChatId, teamId: kiTeamId } = useKiKanaele();
 
   if (!channel) return null;
@@ -35,6 +39,15 @@ export function ChannelHeader({ channelId }: { channelId: string }) {
   return (
     <header className="header drag-region">
       <div className="header__title no-drag">
+        {/* Nur auf schmalen Geräten sichtbar: dort ist die Liste eingeklappt. */}
+        <button
+          className="header__menue"
+          onClick={() => useStore.getState().setSchublade(true)}
+          title={t('nav.channels')}
+          aria-label={t('nav.channels')}
+        >
+          <Menu size={18} />
+        </button>
         {ki
           ? <span className="ki-badge"><Bot size={16} /></span>
           : channel.kind === 'dm'
@@ -140,13 +153,32 @@ export function ChannelHeader({ channelId }: { channelId: string }) {
         )}
 
         {ai?.assistant && (
-          <button
-            className="icon-btn"
-            onClick={() => setOverlay('taskExtract')}
-            title={t('ai.extractTasks')}
-          >
-            <ListChecks size={17} />
-          </button>
+          <>
+            <button
+              ref={extractRef}
+              className="icon-btn"
+              onClick={() => {
+                // Die Erkennung legt die Aufgaben selbst an; hier daneben
+                // steht danach nur noch, was daraus geworden ist.
+                useStore.getState().extractTasks(channelId);
+                setExtractOffen(true);
+              }}
+              title={t('ai.extractTasks')}
+            >
+              <ListChecks size={17} />
+            </button>
+            <AnimatePresence>
+              {extractOffen && (
+                <TaskExtractPop
+                  ankerRef={extractRef}
+                  onClose={() => {
+                    setExtractOffen(false);
+                    useStore.getState().clearExtractedTasks();
+                  }}
+                />
+              )}
+            </AnimatePresence>
+          </>
         )}
 
         {!kiPrivat && (

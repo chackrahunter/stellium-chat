@@ -4,6 +4,7 @@ import type {
 } from '@stellium/shared';
 import { db, placeholders } from '../db/index.js';
 import { blindIndex, decryptField, maskEmail } from '../crypto/pii.js';
+import { entschluesseln } from '../crypto/nachrichten.js';
 import { overridesFor, permissionsFor } from './users.js';
 import { linkPreviewsFor } from './links.js';
 import { hiddenFor } from './messages.js';
@@ -293,7 +294,7 @@ export function hydrateMessages(rows: any[], viewerId = ''): Message[] {
       channelId: r.channel_id,
       userId: r.user_id,
       parentId: r.parent_id ?? null,
-      text: r.deleted_at ? '' : r.text,
+      text: r.deleted_at ? '' : entschluesseln(r.text),
       sourceLang: r.source_lang ?? null,
       createdAt: r.created_at,
       editedAt: r.edited_at ?? null,
@@ -367,7 +368,7 @@ export function savedMessages(userId: string): Message[] {
 export function toScheduled(r: any): ScheduledMessage {
   return {
     id: r.id, channelId: r.channel_id, userId: r.user_id,
-    text: r.text, sendAt: r.send_at, parentId: r.parent_id ?? null, createdAt: r.created_at,
+    text: entschluesseln(r.text), sendAt: r.send_at, parentId: r.parent_id ?? null, createdAt: r.created_at,
   };
 }
 

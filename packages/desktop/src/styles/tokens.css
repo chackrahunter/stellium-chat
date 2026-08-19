@@ -12,6 +12,9 @@
   --mint:        #34d399;
   --amber:       #fbbf24;
   --rose:        #fb7185;
+  /* Zweitname für Mint. Drei Regeln griffen ins Leere, weil sie --green
+     erwarteten — ein unbekannter Wert lässt die Deklaration ausfallen. */
+  --green:       var(--mint);
 
   --grad-nebula: linear-gradient(135deg, #7c5cff 0%, #22d3ee 100%);
   --grad-aurora: linear-gradient(135deg, #f472b6 0%, #7c5cff 55%, #22d3ee 100%);

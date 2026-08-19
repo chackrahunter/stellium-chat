@@ -1,0 +1,8 @@
+Nachrichten liegen jetzt verschlüsselt auf dem Server — auch Übersetzungen, Entwürfe, Umfragen und Sprachtranskripte.
+Die Aufgabenerkennung legt gefundene Aufgaben direkt an; die Blase am Symbol bestätigt nur noch und lässt sich zurücknehmen.
+Handy-Ansicht überarbeitet: Kanalliste als Schublade, nichts läuft mehr über den Rand, Eingabefeld ohne Hineinzoomen.
+Auf schmalen Fenstern war die Symbolleiste links nicht anklickbar — die eingeklappte Kanalliste lag unsichtbar darüber.
+Umfragen werden vollständig übersetzt, auch kurze Antworten wie "Ja, sehr".
+Benutzer löschen funktioniert wieder.
+Datum, Uhrzeit und Zeitangaben folgen der eingestellten Sprache statt immer Deutsch.
+Rund 50 Texte waren noch auf Deutsch — die Oberfläche ist jetzt in allen 22 Sprachen vollständig.

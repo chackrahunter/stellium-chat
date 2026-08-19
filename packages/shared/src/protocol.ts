@@ -118,7 +118,9 @@ export type RewriteTone =
 /* ── Server -> Client ─────────────────────────────────────────── */
 
 export type ServerEvent =
-  | { t: 'ready'; self: SelfUser; users: User[]; channels: Channel[]; states: ChannelState[]; scheduled: ScheduledMessage[]; reminders: Reminder[]; drafts: Draft[]; serverTime: number; ai: AiCapabilities }
+  | { t: 'ready'; self: SelfUser; users: User[]; channels: Channel[]; states: ChannelState[]; scheduled: ScheduledMessage[]; reminders: Reminder[]; drafts: Draft[]; serverTime: number; /** Stand, der auf dem Server läuft. */ serverVersion: string;
+      /** Fassung, die für den Server bereitliegt und noch nicht eingespielt ist. */
+      serverUpdate: string | null; ai: AiCapabilities }
   | { t: 'pong'; ts: number }
   | { t: 'error'; code: string; message: string; requestId?: string }
   | { t: 'channel:history'; channelId: string; messages: Message[]; hasMore: boolean }
@@ -161,7 +163,14 @@ export type ServerEvent =
   | { t: 'task:upsert'; task: Task }
   | { t: 'task:removed'; taskId: string }
   | { t: 'task:history'; taskId: string; events: TaskEvent[] }
-  | { t: 'ai:extract-tasks'; requestId: string; tasks: { title: string; assigneeId: string | null; dueAt: number | null }[] }
+  | {
+      t: 'ai:extract-tasks'; requestId: string;
+      tasks: { title: string; assigneeId: string | null; dueAt: number | null }[];
+      /** Gleich angelegte Aufgaben — die Erkennung fragt nicht mehr nach. */
+      erstellt: Task[];
+      /** Wie viele es schon gab und darum nicht doppelt entstanden sind. */
+      uebersprungen: number;
+    }
   | { t: 'ai:protocol'; protocol: MeetingProtocol }
   | { t: 'idea:list'; ideas: Idea[] }
   | { t: 'idea:upsert'; idea: Idea }

@@ -6,7 +6,7 @@ import { useStore } from '../state/store.js';
 import { api, serverUrl, setServerUrl } from '../net/api.js';
 import { Avatar } from './Avatar.jsx';
 import { languageInfo } from '../lib/format.js';
-import { coverage, UI_LANGUAGES, useT } from '../i18n/index.js';
+import { coverage, UI_LANGUAGES, useT, t } from '../i18n/index.js';
 import { tourZuruecksetzen } from './Tour.jsx';
 import { UpdatePanel } from './UpdatePanel.jsx';
 import { spracheDesSystems } from '../i18n/index.js';
@@ -105,7 +105,7 @@ export function Settings({ onClose }: { onClose: () => void }) {
                   {([
                     ['fast', t('settings.speedFast'), 'Kleines Modell, Antwort in Sekundenbruchteilen'],
                     ['balanced', t('settings.speedBalanced'), 'Kurzes schnell, Längeres gründlich'],
-                    ['accurate', t('settings.speedAccurate'), 'Immer das große Modell'],
+                    ['accurate', t('settings.speedAccurate'), t('settings.alwaysBig')],
                   ] as const).map(([value, label, hint]) => (
                     <button
                       key={value}
@@ -144,7 +144,7 @@ export function Settings({ onClose }: { onClose: () => void }) {
                       ? `Automatisch gewählt aus ${ai.modelsAvailable ?? '?'} Modellen, die ${ai.provider} gerade anbietet. Der Server sieht alle sechs Stunden nach, ob es etwas Besseres gibt.`
                       : ai.modelSource === 'pinned'
                         ? 'Fest in der .env eingetragen. Lösche GROQ_MODEL, damit der Server wieder selbst wählt.'
-                        : 'Standardwerte — die Modell-Liste war beim Start nicht abrufbar.'}
+                        : t('settings.modelFallback')}
                   </p>
                 )}
 
@@ -428,7 +428,7 @@ function ModelPicker() {
         </div>
         <p className="muted" style={{ fontSize: 12, margin: '8px 0 0' }}>
           {ai.modelSource === 'manual' ? 'Von Hand gewählt.'
-            : ai.modelSource === 'pinned' ? 'In der .env festgelegt.'
+            : ai.modelSource === 'pinned' ? t('settings.fixedInEnv')
             : ai.modelSource === 'auto' ? `Automatisch aus ${ai.modelsAvailable ?? '?'} Modellen gewählt.`
             : 'Standardwerte.'}
         </p>
@@ -443,7 +443,7 @@ function ModelPicker() {
       {mayChange && (
         <>
           <div className="field">
-            <label className="field__label">Modell für die Übersetzung</label>
+            <label className="field__label">{t('settings.modelForTranslation')}</label>
             <select
               className="select"
               value={ai.modelSource === 'manual' ? ai.model ?? '' : ''}

@@ -1,10 +1,11 @@
 import type { WebSocket } from 'ws';
 import {
   decode, encode, normalizeLang, WS_PROTOCOL_VERSION,
-  type ClientEvent, type Message, type ServerEvent, type UserStatus,
+  type ClientEvent, type Message, type ServerEvent, type Task, type UserStatus,
 } from '@stellium/shared';
 import { verifyToken } from '../auth.js';
 import { db } from '../db/index.js';
+import { config } from '../config.js';
 import { newId } from '../util/id.js';
 import { aiCapabilities, roundTrip, translate, translateMessage, translatePoll, translateChannel } from '../translation/index.js';
 import * as ai from '../services/ai.js';
@@ -20,6 +21,9 @@ import { attachPreviews, extractUrls } from '../services/links.js';
 import { saveTranscript, transcribe, voiceNoteFor } from '../services/voice.js';
 import * as ki from '../services/assistant.js';
 import * as tasks from '../services/tasks.js';
+import * as settings from '../services/settings.js';
+import * as releases from '../services/releases.js';
+import { entschluesseln, verschluesseln } from '../crypto/nachrichten.js';
 import * as events from '../services/events.js';
 import * as files from '../services/files.js';
 import * as ideas from '../services/ideas.js';
@@ -112,7 +116,7 @@ function fillCachedTranslations(list: Message[], lang: string): Message[] {
       m.id, target,
     );
     if (row) {
-      m.translation = { lang: target, text: row.text, provider: row.provider, model: row.model, confidence: row.confidence, cached: true };
+      m.translation = { lang: target, text: entschluesseln(row.text), provider: row.provider, model: row.model, confidence: row.confidence, cached: true };
     } else {
       need.push(m);
     }
@@ -325,6 +329,13 @@ async function authenticate(session: Session, ev: Extract<ClientEvent, { t: 'aut
     reminders: reminders.remindersFor(userId),
     drafts: drafts.draftsFor(userId),
     serverTime: Date.now(),
+    serverVersion: config.version,
+    /* Auch ohne Verwaltungsrecht soll jeder sehen, dass gleich neu gestartet
+       wird — die Liste der Fassungen bekommt nur die Verwaltung zu sehen. */
+    serverUpdate: (() => {
+      const bereit = releases.getRelease('server');
+      return bereit && releases.istNeuer(bereit.version, config.version) ? bereit.version : null;
+    })(),
     ai: aiCapabilities(),
   });
 
@@ -988,11 +999,59 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
 
     case 'ai:extract-tasks': {
       if (!darf(session, 'ai.assistant')) return;
+      /* Nur das Neue seit dem letzten Durchgang ansehen. */
+      const marke = `aufgaben_ab:${ev.channelId}`;
+      const seit = settings.getSetting(marke);
       const gefunden = await ai.extractTasks({
         channelId: ev.channelId,
         language: session.language,
+        sinceMessageId: seit,
       });
-      send(session, { t: 'ai:extract-tasks', requestId: ev.requestId, tasks: gefunden });
+      const neuste = database.get<{ id: string }>(
+        'SELECT id FROM messages WHERE channel_id = ? ORDER BY created_at DESC LIMIT 1', ev.channelId,
+      )?.id;
+
+      /* Früher bekam man eine Liste zum Ankreuzen. Gewünscht ist, dass die
+         Erkennung die Aufgaben gleich anlegt — bestätigt wird nur noch, dass
+         es passiert ist. Was im Kanal schon offen steht, entsteht nicht
+         zweimal, sonst füllt jeder Klick das Brett mit Dubletten. */
+      const erstellt: Task[] = [];
+      let uebersprungen = 0;
+      if (gefunden.length && may(userId, 'task.create')) {
+        const darfZuweisen = may(userId, 'task.assign');
+        const bekannt = new Set(
+          tasks.listTasks({ channelId: ev.channelId, includeFinished: false })
+            .map((a) => a.title.trim().toLowerCase()),
+        );
+        for (const vorschlag of gefunden) {
+          const schluessel = vorschlag.title.trim().toLowerCase();
+          if (bekannt.has(schluessel)) { uebersprungen++; continue; }
+          try {
+            const task = tasks.createTask({
+              title: vorschlag.title,
+              // Ohne das Recht zum Zuweisen landet sie beim Auslöser selbst.
+              assigneeId: darfZuweisen ? vorschlag.assigneeId : null,
+              dueAt: vorschlag.dueAt,
+              channelId: ev.channelId,
+              createdBy: userId,
+            });
+            bekannt.add(schluessel);
+            broadcastTask(task);
+            erstellt.push(task);
+          } catch {
+            uebersprungen++;
+          }
+        }
+      }
+
+      // Erst nach dem Anlegen merken — bricht etwas ab, wird beim nächsten
+      // Mal derselbe Abschnitt noch einmal gelesen statt übersprungen.
+      if (neuste) settings.setSetting(marke, neuste, userId);
+
+      send(session, {
+        t: 'ai:extract-tasks', requestId: ev.requestId,
+        tasks: gefunden, erstellt, uebersprungen,
+      });
       return;
     }
 
@@ -1267,7 +1326,7 @@ async function runTranscription(messageId: string, attachmentId: string): Promis
     // Das Transkript ist ab jetzt der Text der Nachricht.
     database.run(
       'UPDATE messages SET text = ?, source_lang = ? WHERE id = ?',
-      result.text, result.lang, messageId,
+      verschluesseln(result.text), result.lang, messageId,
     );
     reindexMessage(messageId);
 

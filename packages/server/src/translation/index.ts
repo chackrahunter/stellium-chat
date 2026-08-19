@@ -6,6 +6,7 @@ import { config, aiConfigured } from '../config.js';
 import { getSetting, setSetting, SETTING_MODEL_FAST, SETTING_MODEL_QUALITY } from '../services/settings.js';
 import { db, reindexMessage } from '../db/index.js';
 import { newId, sha1 } from '../util/id.js';
+import { entschluesseln, verschluesseln } from '../crypto/nachrichten.js';
 import { DeepLProvider } from './providers/deepl.js';
 import { DemoProvider } from './providers/demo.js';
 import { LibreProvider } from './providers/libre.js';
@@ -297,10 +298,12 @@ export async function translateMessage(
   opts: { force?: boolean; context?: string | null } = {},
 ): Promise<TranslationView | null> {
   const target = normalizeLang(targetLang);
-  const msg = db.get<MessageRow>(
+  const roh = db.get<MessageRow>(
     'SELECT id, channel_id, text, source_lang, deleted_at FROM messages WHERE id = ?', messageId,
   );
-  if (!msg || msg.deleted_at) return null;
+  if (!roh || roh.deleted_at) return null;
+  // In der Tabelle liegt nur das Chiffrat — ab hier wird mit Klartext gearbeitet.
+  const msg = { ...roh, text: entschluesseln(roh.text) };
 
   const hash = sha1(msg.text);
 
@@ -312,7 +315,7 @@ export async function translateMessage(
     // Nur gültig, wenn Text UND Provider noch dieselben sind. Sonst zeigt die
     // App nach einem Providerwechsel ewig die alten Ergebnisse an.
     if (cached && cached.source_hash === hash && cached.provider === provider.name) {
-      return { lang: target, text: cached.text, provider: cached.provider, model: cached.model, confidence: cached.confidence, cached: true };
+      return { lang: target, text: entschluesseln(cached.text), provider: cached.provider, model: cached.model, confidence: cached.confidence, cached: true };
     }
   }
 
@@ -338,7 +341,7 @@ export async function translateMessage(
      ON CONFLICT(message_id, lang) DO UPDATE SET
        text = excluded.text, provider = excluded.provider, model = excluded.model,
        confidence = excluded.confidence, source_hash = excluded.source_hash, created_at = excluded.created_at`,
-    messageId, target, outcome.text, outcome.provider, outcome.model, outcome.confidence, hash, Date.now(),
+    messageId, target, verschluesseln(outcome.text), outcome.provider, outcome.model, outcome.confidence, hash, Date.now(),
   );
   reindexMessage(messageId);
 
@@ -361,12 +364,14 @@ export function dropMessageTranslations(messageId: string): void {
  * sieht das als Warnhinweis.
  */
 export async function roundTrip(messageId: string, targetLang: string): Promise<{ backTranslation: string; similarity: number } | null> {
-  const msg = db.get<MessageRow>('SELECT id, channel_id, text, source_lang, deleted_at FROM messages WHERE id = ?', messageId);
-  if (!msg || msg.deleted_at) return null;
-  const translated = db.get<{ text: string }>(
+  const roh = db.get<MessageRow>('SELECT id, channel_id, text, source_lang, deleted_at FROM messages WHERE id = ?', messageId);
+  if (!roh || roh.deleted_at) return null;
+  const msg = { ...roh, text: entschluesseln(roh.text) };
+  const gespeichert = db.get<{ text: string }>(
     'SELECT text FROM message_translations WHERE message_id = ? AND lang = ?', messageId, normalizeLang(targetLang),
   );
-  if (!translated) return null;
+  if (!gespeichert) return null;
+  const translated = { text: entschluesseln(gespeichert.text) };
 
   const sourceLang = msg.source_lang ?? detectLanguage(msg.text).lang;
   const back = await translate({
@@ -452,7 +457,7 @@ export function cachedPollView(pollId: string, targetLang: string): PollView | n
   );
   if (!row) return null;
   try {
-    const daten = JSON.parse(row.payload) as { question: string; options: Record<string, string> };
+    const daten = JSON.parse(entschluesseln(row.payload)) as { question: string; options: Record<string, string> };
     return { lang: target, ...daten, provider: row.provider };
   } catch { return null; }
 }
@@ -474,11 +479,12 @@ export async function translatePoll(
 ): Promise<PollView | null> {
   const target = normalizeLang(targetLang);
 
-  const poll = db.get<{ question: string }>('SELECT question FROM polls WHERE id = ?', pollId);
-  if (!poll) return null;
+  const pollRoh = db.get<{ question: string }>('SELECT question FROM polls WHERE id = ?', pollId);
+  if (!pollRoh) return null;
+  const poll = { question: entschluesseln(pollRoh.question) };
   const optionen = db.all<{ id: string; text: string }>(
     'SELECT id, text FROM poll_options WHERE poll_id = ? ORDER BY position', pollId,
-  );
+  ).map((o) => ({ ...o, text: entschluesseln(o.text) }));
 
   const quelle = JSON.stringify([poll.question, ...optionen.map((o) => o.text)]);
   const hash = sha1(quelle);
@@ -489,7 +495,7 @@ export async function translatePoll(
       pollId, target,
     );
     if (cached && cached.source_hash === hash && cached.provider === provider.name) {
-      const daten = JSON.parse(cached.payload) as { question: string; options: Record<string, string> };
+      const daten = JSON.parse(entschluesseln(cached.payload)) as { question: string; options: Record<string, string> };
       return { lang: target, ...daten, provider: cached.provider };
     }
   }
@@ -532,7 +538,7 @@ export async function translatePoll(
      ON CONFLICT(poll_id, lang) DO UPDATE SET
        payload = excluded.payload, source_hash = excluded.source_hash,
        provider = excluded.provider, created_at = excluded.created_at`,
-    pollId, target, JSON.stringify(daten), hash, provider.name, Date.now(),
+    pollId, target, verschluesseln(JSON.stringify(daten)), hash, provider.name, Date.now(),
   );
 
   return { lang: target, ...daten, provider: provider.name };

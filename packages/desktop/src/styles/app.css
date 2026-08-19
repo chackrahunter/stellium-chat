@@ -1473,12 +1473,61 @@ button.msg__author:hover { color: var(--violet-soft); text-decoration: underline
 }
 
 /* Darunter verschwindet die Kanalliste ganz, der Thread legt sich darüber. */
+/* Der Griff zur Kanalliste — nur dort, wo sie eingeklappt ist. */
+.header__menue { display: none; }
+.schublade-schleier { display: none; }
+
 @media (max-width: 880px) {
   .app,
   .app--thread,
   .app--collapsed { grid-template-columns: var(--rail-w) minmax(0, 1fr); }
 
-  .sidebar { display: none; }
+  /* Die Liste verschwindet nicht mehr, sie legt sich beiseite. Ausgeblendet
+     kam man auf dem Telefon an keinen anderen Kanal — die App war dort nur
+     zum Lesen des zuletzt geöffneten zu gebrauchen. */
+  .sidebar {
+    position: fixed;
+    top: 0; bottom: 0;
+    left: var(--rail-w);
+    width: min(300px, calc(100vw - var(--rail-w) - 40px));
+    z-index: 30;
+    /* Weit genug nach links, dass sie auch die Symbolleiste freigibt —
+       sonst lag die eingeklappte Liste unsichtbar über deren Knöpfen und
+       fing jeden Fingertipp ab. */
+    transform: translateX(calc(-100% - var(--rail-w)));
+    pointer-events: none;
+    visibility: hidden;
+    transition: transform 0.26s cubic-bezier(0.16, 1, 0.3, 1), visibility 0.26s;
+    box-shadow: var(--shadow-lg);
+  }
+  .app--schublade .sidebar {
+    transform: none;
+    pointer-events: auto;
+    visibility: visible;
+  }
+
+  .schublade-schleier {
+    position: fixed;
+    inset: 0;
+    z-index: 29;
+    display: block;
+    background: rgba(4, 6, 14, 0.55);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.26s;
+  }
+  .app--schublade .schublade-schleier { opacity: 1; pointer-events: auto; }
+
+  .header__menue {
+    display: grid;
+    place-items: center;
+    width: 34px; height: 34px;
+    flex: none;
+    margin-right: 2px;
+    border-radius: 9px;
+    color: var(--tx-mid);
+  }
+  .header__menue:hover { background: var(--bg-hover); color: var(--tx-hi); }
 
   .thread {
     position: absolute;
@@ -1501,6 +1550,77 @@ button.msg__author:hover { color: var(--violet-soft); text-decoration: underline
   .header__actions .pill { display: none; }
   .msg { grid-template-columns: 34px minmax(0, 1fr); }
   .link-card__image { display: none; }
+}
+
+/* ── Telefon ────────────────────────────────────────────────────
+ *
+ * Bis hierher war das eine geschrumpfte Schreibtischansicht: zu breit für den
+ * Bildschirm, weshalb Safari herauszoomte und alles winzig und trotzdem
+ * abgeschnitten war. Jetzt eine eigene Ordnung.
+ */
+@media (max-width: 560px) {
+  :root {
+    --rail-w: 52px;
+    --header-h: 52px;
+    --sp-4: 12px;
+    --sp-5: 16px;
+  }
+
+  /* Nichts darf breiter sein als das Gerät. Eine einzige zu breite Zeile
+     zwingt den ganzen Bildschirm ins seitliche Scrollen. */
+  html, body, .rahmen, .app { max-width: 100vw; overflow-x: hidden; }
+  .app > *, .main, .stream, .msg, .composer-wrap { min-width: 0; }
+
+  /* Zehn Symbole passen auf ein kurzes Telefon nicht untereinander. Statt
+     welche zu verstecken darf die Leiste rollen — sonst wären einzelne
+     Bereiche schlicht nicht erreichbar. */
+  .rail {
+    padding: 6px 0;
+    gap: 2px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: none;
+  }
+  .rail::-webkit-scrollbar { display: none; }
+  .rail__logo { width: 32px; height: 32px; flex: none; }
+  .rail-btn { width: 36px; height: 36px; flex: none; }
+  .rail__spacer { flex: 0 0 4px; }
+
+  .header { padding: 0 8px; gap: 6px; }
+  .header h1 { font-size: 15px; }
+  .header__actions { gap: 2px; }
+  .header__actions .icon-btn { width: 34px; height: 34px; }
+  /* Von den Werkzeugen bleiben die drei, die man unterwegs wirklich braucht. */
+  .header__actions > *:nth-child(n + 4) { display: none; }
+
+  .msg { padding-left: 10px; padding-right: 10px; gap: 8px; }
+  .msg__body { font-size: 15px; }
+  .stream { padding-left: 0; padding-right: 0; }
+
+  .composer-wrap { padding: 0 8px 8px; }
+  /* 16 Pixel: darunter zoomt iOS beim Antippen von selbst hinein. */
+  .composer__input { font-size: 16px; }
+  /* Umgebrochen belegte die Werkzeugleiste drei Zeilen und drückte den
+     Verlauf zusammen. Eine Zeile, dafür etwas kleinere Symbole. */
+  .composer__bar { gap: 0; flex-wrap: nowrap; padding-left: 6px; padding-right: 6px; }
+  .composer__bar .icon-btn { width: 32px; height: 32px; flex: none; }
+  .composer__bar .muted { display: none; }
+
+  /* Fenster nehmen fast die ganze Fläche — auf 6 Zoll ist Rand verschenkter Platz. */
+  .scrim { padding: 8px; align-items: flex-start; }
+  .panel { width: 100% !important; max-height: 92dvh; }
+  .panel__head { padding: 12px 14px; }
+  .panel__body { padding: 12px 14px 16px; }
+  .grid-2 { grid-template-columns: 1fr; }
+
+  /* Das Aufgabenbrett läuft auf dem Telefon untereinander statt nebeneinander. */
+  .board { grid-auto-flow: row; grid-auto-columns: auto; }
+  .week { grid-template-columns: 1fr; min-height: 0; }
+  .week__day { min-height: 74px; }
+  .zahlen { grid-template-columns: repeat(3, 1fr); }
+
+  .thread { width: 100%; }
+  .tour__card { width: calc(100vw - 24px); }
 }
 
 /* Niedrige Fenster: weniger Luft, damit der Composer nicht die Liste frisst. */
@@ -1927,34 +2047,63 @@ button.msg__author:hover { color: var(--violet-soft); text-decoration: underline
 .task-log__text strong { color: var(--text); font-weight: 600; }
 .task-log__when { font-size: 10.5px; color: var(--text-dim); white-space: nowrap; }
 
-.extract-list { display: flex; flex-direction: column; gap: 6px; }
-
-.extract-row {
+/* Rückmeldung der Aufgabenerkennung, direkt unter ihrem Knopf. */
+.extract-pop {
+  position: fixed;
+  z-index: 90;
   display: flex;
-  align-items: center;
-  gap: 9px;
-  padding: 9px 11px;
-  border-radius: var(--r-sm);
-  background: var(--bg-sunken);
-  border: 1px solid transparent;
-  cursor: pointer;
-  transition: border-color 0.14s, background 0.14s;
+  flex-direction: column;
+  gap: 7px;
+  padding: 11px 12px;
+  border-radius: var(--r-lg);
+  background: var(--bg-elevated);
+  border: 1px solid var(--line-strong);
+  box-shadow: var(--shadow-lg);
+  backdrop-filter: blur(24px);
 }
 
-.extract-row--on {
-  border-color: color-mix(in oklab, var(--violet) 55%, transparent);
-  background: color-mix(in oklab, var(--violet) 8%, var(--bg-sunken));
-}
+.extract-pop__zeile { display: flex; align-items: center; gap: 8px; font-size: 12.5px; }
+.extract-pop__kopf strong { font-size: 13px; }
+.extract-pop__zeile .ok { color: var(--green); }
 
-.extract-row__title { flex: 1; min-width: 0; font-size: 12.5px; }
-.extract-row__who,
-.extract-row__due {
-  display: inline-flex;
-  align-items: center;
+.extract-pop__liste {
+  display: flex;
+  flex-direction: column;
   gap: 4px;
-  font-size: 10.5px;
+  margin: 0;
+  padding: 0 0 0 23px;
+  list-style: none;
+}
+
+.extract-pop__liste li {
+  position: relative;
+  font-size: 12px;
   color: var(--text-dim);
+  /* Lange Titel dürfen die Blase nicht in die Breite ziehen. */
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.extract-pop__liste li::before {
+  content: '';
+  position: absolute;
+  left: -11px;
+  top: 7px;
+  width: 4px; height: 4px;
+  border-radius: 50%;
+  background: var(--violet);
+}
+
+.extract-pop__hinweis { margin: 0; font-size: 11px; color: var(--text-dim); }
+
+.extract-pop .btn--sm { padding: 5px 9px; font-size: 11.5px; }
+
+.extract-pop__fuss {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 2px;
 }
 
 /* ── Kalender ──────────────────────────────────────────────── */

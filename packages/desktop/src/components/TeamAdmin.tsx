@@ -11,6 +11,7 @@ import {
 import { useStore } from '../state/store.js';
 import { api } from '../net/api.js';
 import { Avatar } from './Avatar.jsx';
+import { t } from '../i18n/index.js';
 import { relativeTime } from '../lib/format.js';
 
 const ROLLEN: { wert: MemberRole; label: string; hinweis: string }[] = [
@@ -149,7 +150,7 @@ export function TeamAdmin({ onClose }: { onClose: () => void }) {
           <div className="admin__detail">
             {!person && (
               <div className="empty" style={{ height: '100%' }}>
-                <p>Wähle links eine Person aus, um Rolle und Rechte zu ändern.</p>
+                <p>{t('team.pickPerson')}</p>
               </div>
             )}
 
@@ -226,7 +227,7 @@ export function TeamAdmin({ onClose }: { onClose: () => void }) {
                     </span>
                   </label>
                   {person.role === 'owner' && (
-                    <p className="field__hint">Der Owner darf alles. Das lässt sich nicht einschränken.</p>
+                    <p className="field__hint">{t('team.ownerAll')}</p>
                   )}
                 </div>
 
@@ -242,9 +243,9 @@ export function TeamAdmin({ onClose }: { onClose: () => void }) {
                         const gesperrt = !darfRechte || busy || (p.ownerOnly && self?.role !== 'owner');
                         // Ein grauer Schalter ohne Begründung wirkt wie ein Fehler.
                         const grund = !darfRechte
-                          ? 'Einzelne Rechte darf nur vergeben, wer selbst das Recht dazu hat.'
+                          ? t('team.needRight')
                           : p.ownerOnly && self?.role !== 'owner'
-                            ? 'Dieses Recht kann nur der Owner vergeben.'
+                            ? t('team.ownerOnly')
                             : undefined;
                         return (
                           <div className="row" key={p.key}>
@@ -349,13 +350,13 @@ function KontoAnlegen({ onClose, onFertig }: {
 
           <div className="field">
             <label className="field__label">Name</label>
-            <input className="input" value={name} autoFocus placeholder="Vor- und Nachname"
+            <input className="input" value={name} autoFocus placeholder={t('team.fullName')}
               onChange={(e) => setName(e.target.value)} />
           </div>
 
           <div className="field">
             <label className="field__label">Benutzername (optional)</label>
-            <input className="input" value={handle} placeholder="wird sonst aus dem Namen gebildet"
+            <input className="input" value={handle} placeholder={t('team.handleAuto')}
               onChange={(e) => setHandle(e.target.value.toLowerCase().replace(/[^a-z0-9._-]/g, ''))} />
           </div>
 

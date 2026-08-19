@@ -6,6 +6,7 @@
  *   node scripts/veroeffentlichen.mjs 1.2.0 --nur-mac
  *   node scripts/veroeffentlichen.mjs --nur-hochladen 1.2.0
  *   node scripts/veroeffentlichen.mjs 1.2.0 --mit-server   auch den Server
+ *   node scripts/veroeffentlichen.mjs 1.2.0 --notizen=AENDERUNGEN.txt
  *
  * Server und Zugang kommen aus der Umgebung:
  *   STELLIUM_SERVER    https://chat.meinefirma.de
@@ -31,11 +32,17 @@ const raus = (t) => { sag(`\n${F.rot}✗ ${t}${F.aus}\n`); process.exit(1); };
 
 const args = process.argv.slice(2);
 const nurHochladen = args.includes('--nur-hochladen');
+/** --nur=win32,linux beschränkt auf einzelne Ziele — für einen zweiten Anlauf. */
+const nurZiele = args.find((a) => a.startsWith('--nur='))?.slice('--nur='.length).split(',').filter(Boolean) ?? null;
 const nurMac = args.includes('--nur-mac');
 const mitServer = args.includes('--mit-server') || args.includes('--nur-server');
 const nurServer = args.includes('--nur-server');
 const version = args.find((a) => /^\d+\.\d+\.\d+$/.test(a));
-const notizen = args.find((a) => !a.startsWith('--') && a !== version) ?? '';
+const notizenDatei = args.find((a) => a.startsWith('--notizen='))?.slice('--notizen='.length);
+// Aus einer Datei, damit eine lange Änderungsliste nicht in die Befehlszeile muss.
+const notizen = notizenDatei
+  ? fs.readFileSync(path.resolve(wurzel, notizenDatei), 'utf8').trim()
+  : args.find((a) => !a.startsWith('--') && a !== version) ?? '';
 
 if (!version) raus('Welche Version? z.B.  node scripts/veroeffentlichen.mjs 1.2.0 "Umfragen werden übersetzt"');
 
@@ -68,7 +75,15 @@ if (!nurHochladen) {
   const ziele = nurMac ? ['dist:mac:universal'] : ['dist:mac:universal', 'dist:win', 'dist:linux'];
   for (const ziel of ziele) {
     sag(`  ${F.grau}${ziel} …${F.aus}`);
-    lauf('npm', ['run', ziel, '-w', '@stellium/desktop'], { stdio: 'inherit' });
+    /* Das DMG scheitert gelegentlich an "hdiutil detach" — der Mac hängt
+       dann noch an einem Abbild von vorhin. Beim zweiten Anlauf geht es
+       durch, deshalb einer statt eines Abbruchs. */
+    try {
+      lauf('npm', ['run', ziel, '-w', '@stellium/desktop'], { stdio: 'inherit' });
+    } catch {
+      sag(`  ${F.grau}${ziel} abgebrochen — zweiter Anlauf …${F.aus}`);
+      lauf('npm', ['run', ziel, '-w', '@stellium/desktop'], { stdio: 'inherit' });
+    }
   }
   ok('fertig');
 }
@@ -138,25 +153,45 @@ const hochzuladen = Object.entries(dateien)
   .filter(([, d]) => d)
   .map(([system, datei]) => [system, path.join(ordner, datei)]);
 if (mitServer) hochzuladen.push(['server', path.join(wurzel, 'downloads/stellium-server.tar.gz')]);
+if (nurZiele) {
+  for (let i = hochzuladen.length - 1; i >= 0; i--) {
+    if (!nurZiele.includes(hochzuladen[i][0])) hochzuladen.splice(i, 1);
+  }
+}
 
 for (const [system, pfad] of hochzuladen) {
   const datei = path.basename(pfad);
   const groesse = fs.statSync(pfad).size;
   sag(`  ${F.grau}${system} · ${(groesse / 1024 / 1024).toFixed(0)} MB …${F.aus}`);
 
-  const form = new FormData();
-  form.append('version', version);
-  if (text) form.append('notes', text);
-  form.append('file', new Blob([fs.readFileSync(pfad)]), datei);
+  /* Über eine Hausleitung bricht eine Übertragung von 170 MB schon mal ab.
+     Deshalb drei Versuche — und die Datei als Datenstrom statt am Stück im
+     Speicher, sonst schiebt Node den ganzen Puffer in einem Rutsch in den
+     Socket und scheitert daran (ERANGE). */
+  let release = null;
+  for (let versuch = 1; versuch <= 3; versuch++) {
+    try {
+      const form = new FormData();
+      form.append('version', version);
+      if (text) form.append('notes', text);
+      form.append('file', await fs.openAsBlob(pfad), datei);
 
-  const antwort = await fetch(`${server}/api/releases/${system}`, {
-    method: 'POST', headers: { authorization: `Bearer ${token}` }, body: form,
-  });
-  if (!antwort.ok) {
-    const fehler = await antwort.text();
-    raus(`${system}: ${fehler.slice(0, 200)}`);
+      const antwort = await fetch(`${server}/api/releases/${system}`, {
+        method: 'POST', headers: { authorization: `Bearer ${token}` }, body: form,
+      });
+      if (!antwort.ok) {
+        const fehler = await antwort.text();
+        raus(`${system}: ${fehler.slice(0, 200)}`);
+      }
+      ({ release } = await antwort.json());
+      break;
+    } catch (err) {
+      const grund = err?.cause?.code ?? err?.message ?? 'unbekannt';
+      if (versuch === 3) raus(`${system}: Übertragung dreimal abgebrochen (${grund}).`);
+      sag(`  ${F.grau}Versuch ${versuch} abgebrochen (${grund}) — neuer Anlauf …${F.aus}`);
+      await new Promise((f) => setTimeout(f, versuch * 4000));
+    }
   }
-  const { release } = await antwort.json();
   ok(`${system} · ${release.version} · ${release.sha256.slice(0, 12)}…`);
 }
 

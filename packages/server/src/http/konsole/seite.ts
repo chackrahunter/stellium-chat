@@ -219,6 +219,7 @@ export const KONSOLE_SEITE = String.raw`<!doctype html>
       </div>
       <div class="zeile" style="margin-top:10px"><span class="bez">Heute</span><span class="wert" id="z-heute">—</span></div>
       <div class="zeile"><span class="bez">Übersetzt</span><span class="wert" id="z-ueber">—</span></div>
+      <div class="zeile"><span class="bez">Verschlüsselt</span><span class="wert" id="z-krypto">—</span></div>
       <div class="zeile"><span class="bez">Weiteres</span><span class="wert" id="z-rest">—</span></div>
     </div>
 
@@ -326,6 +327,9 @@ async function laden() {
     $('z-messages').textContent = z.messages ?? '–';
     $('z-heute').textContent = (z.nachrichtenHeute ?? 0) + ' Nachrichten';
     $('z-ueber').textContent = (z.uebersetzungen ?? 0) + ' Übersetzungen';
+    const krypto = $('z-krypto');
+    krypto.textContent = z.verschluesselt ? 'ja, alle' : z.imKlartext ? z.imKlartext + ' im Klartext' : 'nein';
+    krypto.className = 'wert ' + (z.verschluesselt ? 'gruen' : 'gelb');
     $('z-rest').textContent = [
       z.tasks ? z.tasks + ' Aufgaben' : null,
       z.events ? z.events + ' Termine' : null,

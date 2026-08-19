@@ -6,6 +6,7 @@ import { db, reindexMessage, removeFromIndex } from '../db/index.js';
 import { newId } from '../util/id.js';
 import { dropMessageTranslations } from '../translation/index.js';
 import { getMessage, getUserByHandle, hydrateMessages } from './store.js';
+import { entschluesseln, verschluesseln } from '../crypto/nachrichten.js';
 
 export interface CreateMessageInput {
   channelId: string;
@@ -41,7 +42,7 @@ export function createMessage(input: CreateMessageInput): Message {
     db.run(
       `INSERT INTO messages (id, channel_id, user_id, parent_id, text, source_lang, system_kind, pinned, kind, forwarded_from, created_at)
        VALUES (?,?,?,?,?,?,?,0,?,?,?)`,
-      id, input.channelId, input.userId, input.parentId ?? null, text, sourceLang,
+      id, input.channelId, input.userId, input.parentId ?? null, verschluesseln(text), sourceLang,
       input.systemKind ?? null, input.kind ?? 'text', input.forwardedFrom ?? null, at,
     );
 
@@ -101,7 +102,7 @@ export function editMessage(messageId: string, userId: string, text: string, may
   db.transaction(() => {
     db.run(
       'UPDATE messages SET text = ?, source_lang = ?, edited_at = ? WHERE id = ?',
-      clean, detected === 'unknown' ? null : detected, Date.now(), messageId,
+      verschluesseln(clean), detected === 'unknown' ? null : detected, Date.now(), messageId,
     );
     db.run('DELETE FROM message_mentions WHERE message_id = ?', messageId);
     if (mayMention) {
@@ -211,7 +212,7 @@ export function scheduleMessage(input: {
   const id = newId('sc_');
   db.run(
     'INSERT INTO scheduled_messages (id, channel_id, user_id, parent_id, text, send_at, created_at) VALUES (?,?,?,?,?,?,?)',
-    id, input.channelId, input.userId, input.parentId ?? null, text, input.sendAt, Date.now(),
+    id, input.channelId, input.userId, input.parentId ?? null, verschluesseln(text), input.sendAt, Date.now(),
   );
   return id;
 }
@@ -225,7 +226,7 @@ export function dueScheduled(now: number) {
   return db.all<{ id: string; channel_id: string; user_id: string; parent_id: string | null; text: string }>(
     'SELECT id, channel_id, user_id, parent_id, text FROM scheduled_messages WHERE send_at <= ? ORDER BY send_at ASC LIMIT 50',
     now,
-  );
+  ).map((r) => ({ ...r, text: entschluesseln(r.text) }));
 }
 
 export function removeScheduled(id: string): void {

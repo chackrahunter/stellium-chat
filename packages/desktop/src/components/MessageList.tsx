@@ -3,9 +3,10 @@ import { ArrowDown, Sparkles } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
 import type { Message } from '@stellium/shared';
 import { useStore } from '../state/store.js';
+import { useT, t } from '../i18n/index.js';
 import { socket } from '../net/socket.js';
 import { MessageItem } from './MessageItem.jsx';
-import { dayLabel, sameDay } from '../lib/format.js';
+import { dayLabel, kanalThema, sameDay } from '../lib/format.js';
 
 interface Props {
   channelId: string;
@@ -140,7 +141,7 @@ export function MessageList({ channelId }: Props) {
             exit={{ opacity: 0, scale: 0.85 }}
             className="icon-btn"
             onClick={jumpDown}
-            title="Zum Ende springen"
+            title={t('chat.toBottom')}
             style={{
               position: 'absolute', right: 26, bottom: 130, zIndex: 6,
               width: 38, height: 38,
@@ -179,12 +180,12 @@ function ChannelIntro({ channelId }: { channelId: string }) {
         <Sparkles size={24} color="#fff" />
       </div>
       <h2 style={{ margin: '0 0 6px', fontSize: 23, fontWeight: 800, letterSpacing: '-.03em' }}>
-        {channel.kind === 'dm' ? title : `Willkommen in ${title}`}
+        {channel.kind === 'dm' ? title : t('chat.welcomeTo', { kanal: title })}
       </h2>
       <p className="muted" style={{ margin: 0, maxWidth: '62ch', fontSize: 14 }}>
         {channel.kind === 'dm'
-          ? 'Das ist der Anfang eurer direkten Unterhaltung. Alles hier bleibt zwischen euch beiden.'
-          : channel.topic || 'Hier beginnt der Kanal. Schreib die erste Nachricht — sie wird für alle automatisch in ihre Sprache übersetzt.'}
+          ? t('chat.dmStart')
+          : kanalThema(channel) || t('chat.channelStart')}
       </p>
     </div>
   );

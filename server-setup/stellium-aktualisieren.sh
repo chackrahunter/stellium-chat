@@ -58,6 +58,17 @@ mkdir -p "$(dirname "$SICHERUNG")"
 tar -C "$ZIEL" --exclude=node_modules -cf - . | (mkdir -p "$SICHERUNG" && tar -C "$SICHERUNG" -xf -)
 ok "liegt unter $SICHERUNG"
 
+# Auch die Datenbank, bevor eine Umstellung sie anfasst. Ein Update kann
+# Spalten ergänzen oder Inhalte umschreiben — dann will man einen Stand von
+# vorher haben, nicht nur den alten Quelltext.
+if [[ -x /usr/local/bin/stellium-sichern ]]; then
+  if sudo -u "$BENUTZER" /usr/local/bin/stellium-sichern 2>/dev/null; then
+    ok "Datenbank gesichert"
+  else
+    warn "Datenbank ließ sich nicht sichern — weiter mit dem Quelltextstand"
+  fi
+fi
+
 zurueck() {
   warn "Etwas ist schiefgegangen — ich lege den alten Stand zurück."
   # Erst heraus aus dem Verzeichnis: beim Bauen steht die Sitzung darin, und
@@ -112,6 +123,44 @@ done
   && install -m 755 "$ZIEL/server-setup/stellium-konsole.mjs" /usr/local/lib/stellium/konsole.mjs
 install -m 755 "$ZIEL/server-setup/stellium-aktualisieren.sh" /usr/local/bin/stellium-update
 ok "stellium, stellium-zugang, stellium-tunnel, stellium-update"
+
+# ── Serveransicht als Fenster ───────────────────────────────────
+# Wer vor dieser Fassung eingerichtet hat, bekam nur die Textkonsole. Das
+# Fenster kam später dazu — ohne diesen Schritt käme es nie an, weil das
+# Update bisher nur den Quelltext erneuert hat.
+schritt "Serveransicht"
+KPORT="$(grep -oP '(?<=^PORT=)\d+' /etc/stellium.env 2>/dev/null || echo 8787)"
+BROWSER=""
+for kandidat in chromium-browser chromium google-chrome firefox; do
+  command -v "$kandidat" >/dev/null 2>&1 && { BROWSER="$kandidat"; break; }
+done
+
+if [[ -d /etc/xdg/autostart && -n "$BROWSER" ]]; then
+  if [[ "$BROWSER" == firefox ]]; then
+    START="$BROWSER --new-window http://127.0.0.1:$KPORT/konsole"
+  else
+    START="$BROWSER --app=http://127.0.0.1:$KPORT/konsole --window-size=1240,860 --disable-features=TranslateUI"
+  fi
+  for ort in /etc/xdg/autostart /usr/share/applications; do
+    install -d "$ort"
+    cat > "$ort/stellium-konsole.desktop" <<DESKTOP
+[Desktop Entry]
+Type=Application
+Name=Stellium — Server
+Comment=Übersicht und Bedienung des Chat-Servers
+Exec=$START
+Icon=utilities-system-monitor
+Terminal=false
+X-GNOME-Autostart-Delay=12
+Categories=System;Monitor;
+DESKTOP
+  done
+  ok "öffnet sich beim Anmelden als eigenes Fenster ($BROWSER)"
+elif [[ -d /etc/xdg/autostart ]]; then
+  warn "kein Browser gefunden — die Ansicht gibt es unter http://127.0.0.1:$KPORT/konsole"
+else
+  info "kein Desktop — es bleibt bei der Textübersicht (stellium)"
+fi
 
 # ── Starten ─────────────────────────────────────────────────────
 schritt "Neu starten"

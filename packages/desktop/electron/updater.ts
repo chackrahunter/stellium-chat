@@ -117,7 +117,9 @@ export async function pruefen(manuell = false): Promise<Fern | null> {
     if (!antwort.ok) return null;
     const { update } = (await antwort.json()) as { update: Fern | null };
     if (!update) {
-      if (manuell) melden('update:none', { version: app.getVersion() });
+      // Auch ohne Knopfdruck melden: sonst zeigt die Ansicht weiter den Stand
+      // von vorhin an, obwohl längst nachgesehen wurde.
+      melden('update:none', { version: app.getVersion() });
       return null;
     }
     melden('update:found', update);

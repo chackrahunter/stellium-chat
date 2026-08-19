@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import { Mic, Send, Square, Trash2 } from 'lucide-react';
 import { useStore } from '../state/store.js';
+import { t } from '../i18n/index.js';
 import { api } from '../net/api.js';
 
 interface Props {
@@ -67,7 +68,7 @@ export function VoiceRecorder({ channelId, parentId, onDone }: Props) {
         setState('laeuft');
       } catch (err) {
         setError((err as Error).name === 'NotAllowedError'
-          ? 'Kein Zugriff auf das Mikrofon. Erlaube ihn in den Systemeinstellungen.'
+          ? t('voice.noMic')
           : `Aufnahme nicht möglich: ${(err as Error).message}`);
       }
     })();
@@ -157,8 +158,8 @@ export function VoiceRecorder({ channelId, parentId, onDone }: Props) {
           </button>
         </>
       )}
-      {state === 'sendet' && <span className="muted" style={{ fontSize: 12.5 }}>wird gesendet…</span>}
-      {state === 'anfrage' && <span className="muted" style={{ fontSize: 12.5 }}>Mikrofon wird angefragt…</span>}
+      {state === 'sendet' && <span className="muted" style={{ fontSize: 12.5 }}>{t('voice.sending')}</span>}
+      {state === 'anfrage' && <span className="muted" style={{ fontSize: 12.5 }}>{t('voice.asking')}</span>}
     </div>
   );
 }

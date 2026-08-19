@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { motion } from 'framer-motion';
 import {
   CheckCircle2, Hash, Loader2, Lock, Plus, Sparkles, Trash2, Users, X,
@@ -7,6 +8,7 @@ import { LANGUAGES, type GlossaryEntry } from '@stellium/shared';
 import { useStore } from '../state/store.js';
 import { api } from '../net/api.js';
 import { Avatar } from './Avatar.jsx';
+import { t } from '../i18n/index.js';
 import { kanalName, languageInfo, localTimeFor, relativeTime } from '../lib/format.js';
 
 /* ── Neuer Kanal ────────────────────────────────────────────── */
@@ -37,7 +39,7 @@ export function NewChannelDialog({ onClose }: { onClose: () => void }) {
           onChange={(e) => setName(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter') submit(); }}
         />
-        <p className="field__hint">Kleinbuchstaben und Bindestriche — Leerzeichen werden automatisch ersetzt.</p>
+        <p className="field__hint">{t('channel.nameHint')}</p>
       </div>
 
       <div className="field">
@@ -263,7 +265,7 @@ export function CatchupPanel({ onClose }: { onClose: () => void }) {
       {loading && (
         <div className="hstack gap-3" style={{ padding: 'var(--sp-5) 0' }}>
           <Loader2 size={20} className="spin" style={{ color: 'var(--violet-soft)' }} />
-          <span className="muted">Lese die Nachrichten…</span>
+          <span className="muted">{t('catchup.reading')}</span>
         </div>
       )}
 
@@ -343,7 +345,11 @@ export function Shell({ title, icon, onClose, width, subtitle, actions, children
     };
   }, [onClose]);
 
-  return (
+  // Am <body>, nicht dort wo es im Baum steht. Fenster über Fenstern — etwa
+  // die Einzelansicht einer Aufgabe über dem Brett — steckten sonst im
+  // äußeren fest: dessen backdrop-filter macht jede feste Positionierung
+  // darin zunichte, und sein overflow schnitt sie oben und unten ab.
+  return createPortal(
     <div className="scrim scrim--center" onClick={onClose}>
       <motion.div
         className="panel"
@@ -367,6 +373,7 @@ export function Shell({ title, icon, onClose, width, subtitle, actions, children
         </div>
         <div className="panel__body">{children}</div>
       </motion.div>
-    </div>
+    </div>,
+    document.body,
   );
 }

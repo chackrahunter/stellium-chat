@@ -114,6 +114,36 @@ Das Masterpasswort für den Schlüsseltresor liegt in `/etc/stellium.env`, lesba
 nur für root und den Dienst. Der Groq-Schlüssel liegt damit verschlüsselt in
 `/var/lib/stellium/secrets.enc` — kein Gerät im Team trägt ihn je ein.
 
+## Wie die Daten auf der Karte geschützt sind
+
+Die Verbindung zu verschlüsseln reicht nicht: die Datenbank liegt auf einer
+SD-Karte, und eine SD-Karte kann man mitnehmen. Deshalb steht in der Tabelle
+kein Klartext.
+
+Verschlüsselt gespeichert werden Nachrichten, ihre Übersetzungen, Entwürfe,
+geplante Nachrichten, Transkripte von Sprachnachrichten sowie Umfragen mit
+ihren Antwortmöglichkeiten. Dazu kommen — schon länger — E-Mail-Adressen und
+Benutzernamen. Verfahren ist AES-256-GCM; der Schlüssel wird aus dem
+Masterpasswort abgeleitet, ein eigener je Zweck.
+
+Gesucht wird trotzdem: im Volltextindex stehen statt der Wörter nur deren
+Fingerabdrücke. Eine Suchanfrage wird auf demselben Weg umgerechnet und findet
+damit dieselben Nachrichten, ohne dass im Index je ein lesbares Wort steht.
+Der Preis dafür ist die Präfixsuche — „proj“ findet „Projekt“ nicht mehr,
+ganze Wörter dagegen schon.
+
+**Ohne das Masterpasswort ist nichts davon lesbar.** Das gilt auch für dich:
+Eine Sicherung der Datenbank allein nützt nichts. Schreibe den Wert aus
+`/etc/stellium.env` weg, bevor du ihn brauchst:
+
+```bash
+sudo grep MASTER /etc/stellium.env
+```
+
+Beim Umstieg auf diese Version verschlüsselt der Server bestehende Nachrichten
+beim ersten Start selbst und baut den Suchindex neu auf. Bei einigen zehntausend
+Nachrichten dauert das ein paar Sekunden; danach steht es im Log.
+
 ## Unbeaufsichtigt einrichten
 
 Für eine Automatisierung lassen sich die beiden Fragen vorwegnehmen:

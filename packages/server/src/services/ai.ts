@@ -1,5 +1,6 @@
 import { languageInfo, type AiSummary, type SmartReply, type RewriteTone } from '@stellium/shared';
 import { db } from '../db/index.js';
+import { entschluesseln } from '../crypto/nachrichten.js';
 import { newId } from '../util/id.js';
 import { assistant } from '../translation/index.js';
 
@@ -17,7 +18,9 @@ function transcript(rows: TranscriptRow[]): string {
   return rows.map((r) => {
     const time = new Date(r.created_at).toISOString().slice(11, 16);
     const thread = r.parent_id ? ' (Antwort im Thread)' : '';
-    return `[${r.id}] ${time} ${r.display_name} (@${r.handle})${thread}: ${r.text}`;
+    // Einzige Stelle, an der hier Nachrichtentext aus der Datenbank gelesen
+    // wird — darum reicht es, ihn genau hier zu entschlüsseln.
+    return `[${r.id}] ${time} ${r.display_name} (@${r.handle})${thread}: ${entschluesseln(r.text)}`;
   }).join('\n');
 }
 
@@ -260,16 +263,22 @@ export async function askChannel(input: {
 /* ── Aufgaben aus einem Gespräch ziehen ───────────────────────── */
 
 /**
- * Liest den Kanalverlauf und schlägt vor, was daraus eine Aufgabe werden
- * sollte. Bewusst nur ein Vorschlag: angelegt wird erst, was jemand bestätigt.
+ * Liest den Kanalverlauf und zieht daraus die offenen Aufgaben.
+ *
+ * `sinceMessageId` begrenzt den Blick auf das, was seit dem letzten Durchgang
+ * dazugekommen ist. Ohne diese Grenze fände ein zweiter Klick dieselben
+ * Aufgaben noch einmal — nur anders formuliert, sodass auch ein Abgleich der
+ * Titel sie nicht als Dublette erkennt.
  */
-export async function extractTasks(input: { channelId: string; language: string }): Promise<{
+export async function extractTasks(input: {
+  channelId: string; language: string; sinceMessageId?: string | null;
+}): Promise<{
   title: string; assigneeId: string | null; dueAt: number | null;
 }[]> {
   const ai = assistant();
   if (!ai) throw new AiUnavailable();
 
-  const rows = fetchMessages(input.channelId, null, 120);
+  const rows = fetchMessages(input.channelId, input.sinceMessageId ?? null, 120);
   if (!rows.length) return [];
 
   const lang = languageInfo(input.language);
