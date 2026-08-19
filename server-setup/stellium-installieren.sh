@@ -384,7 +384,11 @@ export ELECTRON_SKIP_BINARY_DOWNLOAD=1
 export npm_config_electron_skip_binary_download=1
 
 BAULOG="/tmp/stellium-bau.log"
-if ! npm ci --omit=optional --no-audit --no-fund > "$BAULOG" 2>&1; then
+# Optionale Abhängigkeiten müssen mit. Rollup — das Werkzeug hinter dem Bau
+# der Oberfläche — liefert seine Maschinencode-Datei je Architektur genau als
+# solche aus. Ohne sie bricht "vite build" mit einem MODULE_NOT_FOUND ab, das
+# nach einem kaputten Paket aussieht und keines ist.
+if ! npm ci --no-audit --no-fund > "$BAULOG" 2>&1; then
   npm install --no-audit --no-fund >> "$BAULOG" 2>&1 || bau_fehlgeschlagen
 fi
 npm run build:server >> "$BAULOG" 2>&1 || bau_fehlgeschlagen
