@@ -549,6 +549,10 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
   app.post('/api/glossary', async (req, reply) => {
     const userId = requireUser(req);
+    /* Das Glossar steuert, wie Begriffe teamweit übersetzt werden — ein
+       Eintrag wirkt auf jede Nachricht. Das Recht dafür gab es längst, geprüft
+       hat es niemand. */
+    requirePermission(userId, 'glossary.manage');
     const body = req.body as { term?: string; translations?: Record<string, string> | null; caseSensitive?: boolean; note?: string };
     if (!body.term?.trim()) return reply.code(400).send({ error: 'Begriff fehlt' });
     const id = addGlossaryEntry({
@@ -562,7 +566,8 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   });
 
   app.delete('/api/glossary/:id', async (req) => {
-    requireUser(req);
+    const userId = requireUser(req);
+    requirePermission(userId, 'glossary.manage');
     removeGlossaryEntry((req.params as { id: string }).id);
     return { entries: listGlossary() };
   });

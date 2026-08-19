@@ -229,7 +229,12 @@ function rebuildUsersTable(): void {
           ui_language            TEXT,
           status_expires_at      INTEGER,
           notification_sound     TEXT NOT NULL DEFAULT 'ping',
-          translation_speed      TEXT NOT NULL DEFAULT 'balanced'
+          translation_speed      TEXT NOT NULL DEFAULT 'balanced',
+          -- Diese beiden fehlten. Die Spaltenliste für das INSERT kommt aus
+          -- PRAGMA table_info(users) und enthält sie — der Neuaufbau scheiterte
+          -- deshalb, und mit ihm der ganze Serverstart.
+          deleted_at             INTEGER,
+          kategorie              TEXT
         )
       `);
       db.exec(`INSERT INTO users_neu (${liste}) SELECT ${liste} FROM users`);
@@ -253,8 +258,12 @@ function encryptExistingUsers(): void {
   if (!spalten.some((c) => c.name === 'handle_bidx')) return;
   if (!encryptionActive()) return;   // ohne Masterpasswort bleibt alles wie es ist
 
+  /* Nicht am fehlenden Blind-Index festmachen: den schreibt createAccount
+     immer, auch ohne Masterpasswort (dann eben mit dem Ersatzschlüssel).
+     Konten aus dieser Zeit blieben sonst für immer im Klartext stehen. Das
+     fehlende Chiffrat-Präfix ist das ehrliche Merkmal. */
   const offen = db.all<{ id: string; handle: string; email: string }>(
-    'SELECT id, handle, email FROM users WHERE handle_bidx IS NULL',
+    "SELECT id, handle, email FROM users WHERE handle NOT LIKE 'v1:%'",
   );
   if (!offen.length) return;
 

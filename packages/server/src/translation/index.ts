@@ -681,7 +681,8 @@ export function cachedChannelView(channelId: string, targetLang: string): Channe
   );
   if (!row) return null;
   try {
-    const daten = JSON.parse(row.payload) as Omit<ChannelView, 'lang' | 'provider'>;
+    // entschluesseln reicht Klartext unverändert durch — Altbestand bleibt lesbar.
+    const daten = JSON.parse(entschluesseln(row.payload)) as Omit<ChannelView, 'lang' | 'provider'>;
     return { lang: target, ...daten, provider: row.provider };
   } catch { return null; }
 }
@@ -743,7 +744,9 @@ export async function translateChannel(
      ON CONFLICT(channel_id, lang) DO UPDATE SET
        payload = excluded.payload, source_hash = excluded.source_hash,
        provider = excluded.provider, created_at = excluded.created_at`,
-    channelId, target, JSON.stringify(daten), hash, provider.name, Date.now(),
+    // Thema und Zweck eines Kanals sind Inhalt, kein Beiwerk — sie gehören
+    // genauso verschlüsselt wie jede Nachricht.
+    channelId, target, verschluesseln(JSON.stringify(daten)), hash, provider.name, Date.now(),
   );
   return { lang: target, ...daten, provider: provider.name };
 }

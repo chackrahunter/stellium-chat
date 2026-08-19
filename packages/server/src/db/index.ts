@@ -73,8 +73,16 @@ export function initDb(): void {
   indexAufFingerabdruckeUmstellen();
 }
 
-/** Kennung des Indexformats — ändert sie sich, wird neu aufgebaut. */
-const INDEX_FORMAT = 'fingerabdruck-v1';
+/**
+ * Kennung des Indexformats — ändert sie sich, wird neu aufgebaut.
+ *
+ * Die Kennung hängt bewusst am Indexschlüssel: ohne Masterpasswort entstehen
+ * die Abdrücke mit einem festen Ersatzschlüssel. Kommt später ein Masterpasswort
+ * dazu (oder fällt es weg), passen die alten Abdrücke nicht mehr — der Index
+ * müsste neu gebaut werden. Eine feste Konstante hätte das verschwiegen, und
+ * die Suche hätte den Altbestand nie wieder gefunden.
+ */
+const INDEX_FORMAT = `fingerabdruck-v1:${suchWorte('stellium')}`;
 
 /**
  * Bis zur Verschlüsselung standen die Wörter selbst im Volltextindex. Sie

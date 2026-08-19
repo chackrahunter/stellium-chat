@@ -1,6 +1,6 @@
 import { languageInfo, type AiSummary, type SmartReply, type RewriteTone } from '@stellium/shared';
 import { db } from '../db/index.js';
-import { entschluesseln } from '../crypto/nachrichten.js';
+import { entschluesseln, verschluesseln } from '../crypto/nachrichten.js';
 import { newId } from '../util/id.js';
 import { assistant } from '../translation/index.js';
 
@@ -99,7 +99,7 @@ export async function catchUp(input: {
 
   db.run(
     'INSERT INTO ai_summaries (id, channel_id, scope, ref_id, language, payload, created_at) VALUES (?,?,?,?,?,?,?)',
-    newId('sum_'), input.channelId, 'catchup', input.sinceMessageId, input.language, JSON.stringify(summary), Date.now(),
+    newId('sum_'), input.channelId, 'catchup', input.sinceMessageId, input.language, verschluesseln(JSON.stringify(summary)), Date.now(),
   );
   return summary;
 }
