@@ -71,13 +71,15 @@ export function publish(input: {
   const daten = fs.readFileSync(input.tempPath);
   const sha256 = createHash('sha256').update(daten).digest('hex');
 
-  // Erst die neue Datei ablegen, dann die alte entfernen — bricht das
-  // Verschieben ab, bleibt die bisherige Version nutzbar.
+  // Erst die neue Datei ablegen, dann die Datenbank umschreiben und ganz zum
+  // Schluss die alte Datei entfernen — bricht etwas dazwischen ab, zeigt die
+  // Datenbank immer noch auf eine Datei, die es wirklich gibt. (Trägt die neue
+  // Datei denselben Namen wie die alte, wie beim Serverpaket, ersetzt das
+  // Umbenennen den Inhalt schon hier; dagegen hilft erst ein Zwischenname.)
   fs.renameSync(input.tempPath, ziel);
+  // Der bisherige Eintrag muss vor dem Schreiben gelesen werden, danach stünde
+  // hier schon die neue Zeile und der alte Pfad wäre verloren.
   const vorher = getRelease(input.platform);
-  if (vorher && vorher.path !== ziel && fs.existsSync(vorher.path)) {
-    fs.rmSync(vorher.path, { force: true });
-  }
 
   db.run(
     `INSERT INTO releases (platform, version, notes, file_name, path, size, sha256, published_by, published_at)
@@ -90,6 +92,12 @@ export function publish(input: {
     path.basename(input.fileName), ziel, daten.byteLength, sha256,
     input.publishedBy, Date.now(),
   );
+
+  if (vorher && vorher.path !== ziel && fs.existsSync(vorher.path)) {
+    // Nach dem Schreiben darf nichts mehr scheitern: die Veröffentlichung ist
+    // gültig. Bleibt die alte Datei liegen, kostet das nur Platz.
+    try { fs.rmSync(vorher.path, { force: true }); } catch { /* egal */ }
+  }
   return getRelease(input.platform)!;
 }
 

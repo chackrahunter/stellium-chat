@@ -135,7 +135,13 @@
     "npmRebuild": false,
     "nodeGypRebuild": false,
     "buildDependenciesFromSource": false,
-    "artifactName": "Stellium-${version}-${arch}.${ext}"
+    "artifactName": "Stellium-${version}-${arch}.${ext}",
+    "extraResources": [
+      {
+        "from": "build/icon.png",
+        "to": "icon.png"
+      }
+    ]
   },
   "description": "Stellium — Team-Chat mit Live-Übersetzung und KI",
   "author": {

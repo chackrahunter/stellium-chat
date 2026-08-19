@@ -83,6 +83,14 @@ if [[ -r "$GEMERKT" ]]; then
   . "$GEMERKT"
 fi
 
+# Die gemerkten Ports gleich unter eigenem Namen sichern. merken() greift später
+# darauf zurück, wenn es ohne Portangaben aufgerufen wird — sonst überschriebe
+# ein früher Abbruch, etwa beim Bauen, die einmal gewählten Ports mit 80/443.
+# Eigene Namen deshalb, weil STELLIUM_PORT_HTTP sonst auch aus der Umgebung
+# stammen könnte; als Eingabe ist die Variable nirgends vorgesehen.
+GEMERKT_PORT_HTTP="${STELLIUM_PORT_HTTP:-}"
+GEMERKT_PORT_HTTPS="${STELLIUM_PORT_HTTPS:-}"
+
 merken() {
   umask 077
   {
@@ -91,8 +99,8 @@ merken() {
     echo "STELLIUM_DOMAIN=${2:-}"
     echo "STELLIUM_MAIL=${3:-}"
     echo "STELLIUM_DUCK=${4:-}"
-    echo "STELLIUM_PORT_HTTP=${5:-80}"
-    echo "STELLIUM_PORT_HTTPS=${6:-443}"
+    echo "STELLIUM_PORT_HTTP=${5:-${GEMERKT_PORT_HTTP:-80}}"
+    echo "STELLIUM_PORT_HTTPS=${6:-${GEMERKT_PORT_HTTPS:-443}}"
   } > "$GEMERKT"
   chmod 600 "$GEMERKT"
 }
@@ -345,9 +353,23 @@ if [[ -n "$QUELLE" && "$QUELLE" != "$ZIEL" ]]; then
       -cf - . | tar -C "$ZIEL" -xf -
 elif [[ -d "$ZIEL/.git" ]]; then
   info "vorhandene Installation aktualisieren"
-  git -C "$ZIEL" fetch --quiet origin 2>/dev/null \
-    && git -C "$ZIEL" reset --hard --quiet origin/HEAD \
-    || warn "Konnte nicht aktualisieren — der bestehende Stand wird neu gebaut"
+  # Das Verzeichnis gehört seit der Erstinstallation dem Konto stellium, git
+  # läuft hier aber als root und verweigert seit 2.35.2 fremde Repositories.
+  # Auf der Kommandozeile zählt safe.directory als geschützte Einstellung und
+  # wird deshalb auch aus einem fremden Verzeichnis heraus anerkannt. Damit
+  # liest root allerdings wieder .git/config und .git/hooks aus einem
+  # Verzeichnis, das dem Dienstkonto gehört — genau die Schranke, die git dort
+  # zieht. Vertretbar ist das hier, weil der Installer dieses Verzeichnis selbst
+  # angelegt hat; ein sudo -u stellium scheitert dagegen, sobald /opt/stellium
+  # nach einer abgebrochenen Erstinstallation noch root gehört.
+  #
+  # Die Fehlermeldung wandert in die Warnung, statt nach /dev/null zu gehen:
+  # sonst sieht jede künftige echte Ursache aus wie ein Netzproblem.
+  if MELDUNG="$(git -c safe.directory="$ZIEL" -C "$ZIEL" fetch --quiet origin 2>&1 \
+      && git -c safe.directory="$ZIEL" -C "$ZIEL" reset --hard --quiet origin/HEAD 2>&1)"; then :
+  else
+    warn "Konnte nicht aktualisieren (${MELDUNG:-kein Grund genannt}) — der bestehende Stand wird neu gebaut"
+  fi
 elif [[ -n "$QUELLE" ]]; then
   info "aus der bestehenden Installation"
 else
@@ -634,8 +656,10 @@ NGINX
 # ── Ports wählen ────────────────────────────────────────────────
 #
 # 80 und 443 sind die Wunschports: nur dort steht die Adresse ohne Anhängsel.
-# Sind sie belegt oder kommt von außen nichts an, weicht die Einrichtung auf
-# die nächsten freien aus, statt an einem verschlossenen Router zu scheitern.
+# Sind sie belegt, weicht die Einrichtung auf die nächsten freien aus, statt an
+# einem besetzten Port zu scheitern. Ob von außen überhaupt etwas ankommt, kann
+# die Portsuche nicht wissen — das prüft von_aussen_erreichbar erst kurz vor dem
+# Zertifikat, wo es zum ersten Mal darauf ankommt.
 
 port_frei() {
   ! ss -ltn "sport = :$1" 2>/dev/null | grep -q LISTEN
@@ -649,14 +673,37 @@ waehle_port() {
   printf '%s' "$wunsch"
 }
 
+# Eine frühere Einrichtung kann die SSH-Weiche hinterlassen haben. Sie hängt an
+# der nginx-Konfiguration, die dieser Lauf gleich überschreibt, und belegt dabei
+# selbst Port 443. Bliebe sie liegen, scheiterte der reload weiter unten lautlos.
+if [[ -f /etc/nginx/modules-enabled/60-stellium-weiche.conf ]]; then
+  rm -f /etc/nginx/modules-enabled/60-stellium-weiche.conf
+  warn "Die SSH-Weiche wurde entfernt — richte sie nach der Einrichtung mit stellium-ssh-durch-https erneut ein"
+fi
+
+# Das eigene nginx läuft seit der Installation und hält Port 80 — beim zweiten
+# Lauf zusätzlich 443. Solange es lauscht, hält die Portsuche die eigene
+# Belegung für eine fremde und weicht ohne Not auf 8080/8443 aus.
+systemctl stop nginx >/dev/null 2>&1 || true
+
 PORT_HTTP="$(waehle_port 80 8080 8880 8008)"
 PORT_HTTPS="$(waehle_port 443 8443 9443 4443)"
+
+# Sofort wieder an: bricht die Einrichtung später ab — etwa am DuckDNS-Test —,
+# soll der Pi nicht mit angehaltenem nginx zurückbleiben. Die endgültige
+# Konfiguration schreibt und lädt jeder Zweig weiter unten ohnehin neu.
+systemctl start nginx >/dev/null 2>&1 || warn "nginx läuft gerade nicht — die Einrichtung setzt ihn gleich neu auf"
 
 if [[ "$PORT_HTTP" != "80" || "$PORT_HTTPS" != "443" ]]; then
   schritt "Ports"
   [[ "$PORT_HTTP"  != "80"  ]] && info "Port 80 ist belegt — nehme $PORT_HTTP"
   [[ "$PORT_HTTPS" != "443" ]] && info "Port 443 ist belegt — nehme $PORT_HTTPS"
 fi
+
+# Die Ports stehen jetzt fest und gehören sofort in die gemerkte Datei:
+# stellium-zugang und stellium-tunnel lesen sie von dort, und die Varianten ohne
+# TLS kommen an dem zweiten merken-Aufruf weiter unten nie vorbei.
+merken "$WAHL" "$DOMAIN" "$MAIL" "${DUCK_NAME:+$DUCK_NAME:$DUCK_TOKEN}" "$PORT_HTTP" "$PORT_HTTPS"
 
 ADRESSE=""
 
@@ -785,12 +832,17 @@ TXT
     chmod 755 /usr/local/bin/stellium-duckdns-txt
   fi
 
+  # certbot verlangt im nicht-interaktiven Betrieb entweder eine Kontaktadresse
+  # oder den ausdrücklichen Verzicht darauf. Beide Zweige unten brauchen das,
+  # deshalb steht die Entscheidung vor der Fallunterscheidung: stand sie nur im
+  # DuckDNS-Zweig, lief certbot bei eigener Domain ganz ohne Anmeldeangabe.
+  if [[ -n "$MAIL" ]]; then MAIL_ARG=(-m "$MAIL" --no-eff-email)
+  else MAIL_ARG=(--register-unsafely-without-email); fi
+
   if [[ -d "/etc/letsencrypt/live/$DOMAIN" ]]; then
     info "Zertifikat besteht bereits"
   elif [[ "$WAHL" == "2" ]]; then
     info "über einen DNS-Eintrag bei DuckDNS — dafür muss kein Port offen sein"
-    if [[ -n "$MAIL" ]]; then MAIL_ARG=(-m "$MAIL" --no-eff-email)
-    else MAIL_ARG=(--register-unsafely-without-email); fi
 
     certbot certonly --manual --preferred-challenges dns \
       --manual-auth-hook "/usr/local/bin/stellium-duckdns-txt setzen" \
@@ -798,6 +850,11 @@ TXT
       -d "$DOMAIN" --non-interactive --agree-tos "${MAIL_ARG[@]}" >/dev/null 2>&1 \
       || fehler "$(printf 'Let'"'"'s Encrypt hat kein Zertifikat ausgestellt.\n\nGenauer nachsehen:\n  sudo certbot certonly --manual --preferred-challenges dns \\\n    --manual-auth-hook "/usr/local/bin/stellium-duckdns-txt setzen" \\\n    --manual-cleanup-hook "/usr/local/bin/stellium-duckdns-txt loeschen" -d %s' "$DOMAIN")"
   else
+    # Let's Encrypt klopft gleich selbst von außen an Port 80. Kommt hier schon
+    # nichts an, liegt es am Router oder am DNS-Eintrag und nicht an certbot —
+    # dann steht wenigstens die Ursache auf dem Schirm statt nur der Fehlschlag.
+    von_aussen_erreichbar \
+      || warn "Von außen kommt auf Port $PORT_HTTP nichts an — das Zertifikat wird so vermutlich nicht ausgestellt. Im Router weiterleiten und den Installer erneut starten."
     certbot certonly --webroot -w /var/www/html -d "$DOMAIN" \
       --non-interactive --agree-tos "${MAIL_ARG[@]}" >/dev/null 2>&1 \
       || fehler "Let's Encrypt hat kein Zertifikat ausgestellt. Genauer:  certbot certonly --webroot -w /var/www/html -d $DOMAIN"
@@ -809,7 +866,10 @@ TXT
   # Jetzt die vollständige Konfiguration mit TLS.
   schreibe_mit_tls "$DOMAIN"
   pruefe_nginx
-  systemctl reload nginx
+  # Neustart statt reload: "nginx -t" öffnet keine Sockets und merkt deshalb
+  # nichts davon, wenn der HTTPS-Port schon jemand anderem gehört. Ein reload
+  # schluckt so einen Bindefehler still, ein restart läuft in die ERR-Falle.
+  systemctl restart nginx
   ok "nginx nimmt HTTPS entgegen und reicht nach innen weiter"
 
   # Verlängerung läuft automatisch; nginx muss danach neu laden.

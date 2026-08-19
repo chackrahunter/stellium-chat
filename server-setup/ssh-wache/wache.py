@@ -28,6 +28,77 @@ RUFEN = "/tmp/stellium-wache-zeigen"   # Datei als Klingel vom Desktop aus
 # von außen, nicht um die eigene Verbindung aus dem Nebenzimmer. Wer hier steht,
 # wird übergangen; die Liste lässt sich in der Datei daneben erweitern.
 EIGENE = {"aryan-pc", "aryan"}
+SPRACHDATEI = os.path.expanduser("~/.config/stellium-wache-sprache")
+
+TEXTE = {
+    "de": {
+        "laeuft": "Fernzugriff läuft",
+        "arbeitet": "{wer} arbeitet gerade über SSH",
+        "mehrere": "{n} Fernzugriffe laufen",
+        "protokoll": "Protokoll des Fernzugriffs",
+        "niemand": "Gerade ist niemand verbunden.",
+        "beendet": "Fernzugriff beendet",
+        "schliesst": "schließt in {n} s — später wieder über „Fernzugriff-Protokoll“ im Startmenü",
+        "geoeffnet": "Verbindung geöffnet",
+        "geschlossen": "Verbindung beendet",
+        "dateien": "Dateiübertragung",
+        "befehl": "Befehl",
+        "befehle": "Befehle",
+        "tag": "Tag",
+        "heute": "heute · laufend",
+        "nichts": "Am {tag} wurde nichts mitgeschrieben.",
+        "live": "— ab hier wieder live —",
+        "fuss": "Mitschrift auch im Journal:  journalctl -t stellium-ssh",
+        "seit": "seit",
+    },
+    "en": {
+        "laeuft": "Remote access active",
+        "arbeitet": "{wer} is working over SSH",
+        "mehrere": "{n} remote sessions active",
+        "protokoll": "Remote access log",
+        "niemand": "Nobody is connected right now.",
+        "beendet": "Remote access ended",
+        "schliesst": "closing in {n} s — reopen via “Remote access log” in the menu",
+        "geoeffnet": "Connection opened",
+        "geschlossen": "Connection closed",
+        "dateien": "File transfer",
+        "befehl": "command",
+        "befehle": "commands",
+        "tag": "Day",
+        "heute": "today · live",
+        "nichts": "Nothing was recorded on {tag}.",
+        "live": "— live again from here —",
+        "fuss": "Also in the journal:  journalctl -t stellium-ssh",
+        "seit": "since",
+    },
+}
+
+SPRACHE = "de"
+
+
+def T(schluessel, **werte):
+    text = TEXTE.get(SPRACHE, TEXTE["de"]).get(schluessel, schluessel)
+    return text.format(**werte) if werte else text
+
+
+def sprache_laden():
+    global SPRACHE
+    try:
+        with open(SPRACHDATEI) as f:
+            wahl = f.read().strip()
+        if wahl in TEXTE:
+            SPRACHE = wahl
+    except OSError:
+        pass
+
+
+def sprache_sichern():
+    try:
+        os.makedirs(os.path.dirname(SPRACHDATEI), exist_ok=True)
+        with open(SPRACHDATEI, "w") as f:
+            f.write(SPRACHE)
+    except OSError:
+        pass
 try:
     with open("/etc/stellium/ssh-wache-eigene", "r") as _f:
         EIGENE |= {z.strip() for z in _f if z.strip()}
@@ -240,13 +311,22 @@ class Fenster:
         self.punkt = self.kopf.create_oval(20, 26, 32, 38, fill=FARBEN["gut"], outline="")
         self.hof = self.kopf.create_oval(14, 20, 38, 44, fill="", outline=FARBEN["gut"], width=1)
         self.titel_id = self.kopf.create_text(
-            48, 26, text="Fernzugriff läuft", anchor="w", fill=FARBEN["tinte"], font=fett)
+            48, 26, text=T("laeuft"), anchor="w", fill=FARBEN["tinte"], font=fett)
         self.wer_id = self.kopf.create_text(
             48, 48, text="", anchor="w", fill=FARBEN["leise"], font=klein)
 
         # Knöpfe als Text auf der Leinwand — dann tragen sie den Verlauf mit.
         self.klappe_id = self.kopf.create_text(
             0, 32, text="▾", anchor="e", fill=FARBEN["leise"], font=fett)
+        # Ein Knopf, zwei Sprachen — die Wahl bleibt über Neustarts erhalten.
+        self.sprach_id = self.kopf.create_text(
+            0, 32, text="", anchor="e", fill=FARBEN["leise"],
+            font=tkfont.Font(family="DejaVu Sans", size=10, weight="bold"))
+        self.kopf.tag_bind(self.sprach_id, "<Button-1>", lambda _e: self.sprache_wechseln())
+        self.kopf.tag_bind(self.sprach_id, "<Enter>",
+                           lambda _e: self.kopf.itemconfig(self.sprach_id, fill=FARBEN["tinte"]))
+        self.kopf.tag_bind(self.sprach_id, "<Leave>",
+                           lambda _e: self.kopf.itemconfig(self.sprach_id, fill=FARBEN["leise"]))
         self.schliessen_id = self.kopf.create_text(
             0, 32, text="✕", anchor="e", fill=FARBEN["leise"], font=fett, state="hidden")
         for kennung, was in ((self.klappe_id, self.umschalten),
@@ -264,8 +344,9 @@ class Fenster:
         # ── Tagesauswahl ────────────────────────────────────────
         # Nur beim Nachlesen sinnvoll: wer gerade zusieht, will das Laufende.
         self.leiste = tk.Frame(self.wurzel, bg=FARBEN["grund"])
-        tk.Label(self.leiste, text="Tag", bg=FARBEN["grund"], fg=FARBEN["zeit"],
-                 font=klein).pack(side="left", padx=(16, 8))
+        self.tag_beschriftung = tk.Label(self.leiste, text=T("tag"), bg=FARBEN["grund"],
+                                         fg=FARBEN["zeit"], font=klein)
+        self.tag_beschriftung.pack(side="left", padx=(16, 8))
         self.tag_wahl = tk.StringVar(value="heute")
         self.tag_menue = tk.OptionMenu(self.leiste, self.tag_wahl, "heute")
         self.tag_menue.config(bg=FARBEN["karte"], fg=FARBEN["tinte"], relief="flat",
@@ -299,7 +380,7 @@ class Fenster:
 
         self.fuss = tk.Label(
             self.wurzel,
-            text="Mitschrift auch im Journal:  journalctl -t stellium-ssh",
+            text=T("fuss"),
             fg=FARBEN["zeit"], bg=FARBEN["grund"], anchor="w", font=klein,
         )
         self.fuss.pack(fill="x", padx=16, pady=(0, 10))
@@ -312,6 +393,7 @@ class Fenster:
         self.gezeigter_tag = "heute"
         self.tag_wahl.trace_add("write", lambda *_: self.tag_wechseln())
         self.wurzel.protocol("WM_DELETE_WINDOW", self.einklappen)
+        sprache_laden()
         self.atmen()
 
         self.warteschlange = queue.Queue()
@@ -333,6 +415,8 @@ class Fenster:
         self.kopf.tag_lower("verlauf")
         self.kopf.coords(self.klappe_id, breite - 18, 32)
         self.kopf.coords(self.schliessen_id, breite - 46, 32)
+        self.kopf.coords(self.sprach_id, breite - 74, 32)
+        self.kopf.itemconfig(self.sprach_id, text="EN" if SPRACHE == "de" else "DE")
 
     def tage_auffrischen(self):
         """Die Auswahl mit den Tagen füllen, an denen etwas geschah."""
@@ -342,7 +426,7 @@ class Fenster:
         menue = self.tag_menue["menu"]
         menue.delete(0, "end")
         for eintrag in eintraege:
-            beschriftung = "heute · laufend" if eintrag == "heute" else eintrag
+            beschriftung = T("heute") if eintrag == "heute" else eintrag
             menue.add_command(label=beschriftung,
                               command=lambda w=eintrag: self.tag_wahl.set(w))
 
@@ -358,14 +442,25 @@ class Fenster:
         self.offen = False
         if tag == "heute":
             # Das Laufende kommt von selbst wieder — die Warteschlange füllt sich.
-            self.zeigen("", f"— ab hier wieder live —")
+            self.zeigen("", T("live"))
             return
         eintraege = tag_lesen(tag)
         if not eintraege:
-            self.zeigen("", f"Am {tag} wurde nichts mitgeschrieben.")
+            self.zeigen("", T("nichts", tag=tag))
             return
         for uhr, text in eintraege:
             self.zeigen(uhr, text)
+
+    def sprache_wechseln(self):
+        global SPRACHE
+        SPRACHE = "en" if SPRACHE == "de" else "de"
+        sprache_sichern()
+        self.tag_beschriftung.config(text=T("tag"))
+        self.fuss.config(text=T("fuss"))
+        self.tage_auffrischen()
+        self.kopf_malen()
+        # Der Verlauf bleibt stehen, wie er ist — nachträglich übersetzen
+        # hieße, Vergangenes umzuschreiben. Neues kommt in der neuen Sprache.
 
     def setzen(self, titel=None, wer=None):
         if titel is not None:
@@ -483,8 +578,8 @@ class Fenster:
             self.zeigen_lassen()
             self.lebendig = True
             self.setzen(titel=(
-                f"{offen[0][0]} arbeitet gerade über SSH" if len(offen) == 1
-                else f"{len(offen)} Fernzugriffe laufen"
+                T("arbeitet", wer=offen[0][0]) if len(offen) == 1
+                else T("mehrere", n=len(offen))
             ), wer="   ·   ".join(
                 f"{wer} · {herkunft}" for wer, herkunft, _seit in offen
             ))
@@ -492,8 +587,7 @@ class Fenster:
         elif self.sichtbar:
             self.lebendig = False
             if self.manuell:
-                self.setzen(titel="Protokoll des Fernzugriffs",
-                            wer="Gerade ist niemand verbunden.")
+                self.setzen(titel=T("protokoll"), wer=T("niemand"))
                 if not self.leiste.winfo_ismapped():
                     self.tage_auffrischen()
                     self.leiste.pack(fill="x", pady=(6, 0), before=self.rahmen)
@@ -503,9 +597,7 @@ class Fenster:
                 if self.verstecken_um is None:
                     self.verstecken_um = time.monotonic() + NACHLAUF
                 rest = int(self.verstecken_um - time.monotonic())
-                self.setzen(titel="Fernzugriff beendet",
-                            wer=f"schließt in {max(rest, 0)} s — später wieder über "
-                                f"„Fernzugriff-Protokoll\u201c im Startmenü")
+                self.setzen(titel=T("beendet"), wer=T("schliesst", n=max(rest, 0)))
                 if rest <= 0:
                     self.verstecken_um = None
                     self.blende(0.0, danach=self._wegraeumen)
@@ -642,19 +734,19 @@ class Fenster:
             name = self.namen.get(adresse)
             if name:
                 wer = f"{name} · {adresse}"
-            self.schreiben([(zeit, "zeit"), ("┌ ", "strich"), ("Verbindung geöffnet", "beginn"),
+            self.schreiben([(zeit, "zeit"), ("┌ ", "strich"), (T("geoeffnet"), "beginn"),
                             (f"  ·  {wer}" if wer else "", "leise")])
             self.offen = True
             self.zaehler = 0
         elif text.startswith("SCHLIESST"):
             anzahl = getattr(self, "zaehler", 0)
-            hinweis = (f"  ·  {anzahl} Befehl" + ("e" if anzahl != 1 else "")) if anzahl else ""
-            self.schreiben([(zeit, "zeit"), ("└ ", "strich"), ("Verbindung beendet", "ende"),
+            hinweis = (f"  ·  {anzahl} {T('befehl') if anzahl == 1 else T('befehle')}") if anzahl else ""
+            self.schreiben([(zeit, "zeit"), ("└ ", "strich"), (T("geschlossen"), "ende"),
                             (hinweis, "leise")])
             self.offen = False
             self.schreiben([("", "leise")])
         elif text.startswith("DATEIEN"):
-            self.schreiben([(zeit, "zeit"), ("│ ", "strich"), ("Dateiübertragung", "datei"),
+            self.schreiben([(zeit, "zeit"), ("│ ", "strich"), (T("dateien"), "datei"),
                             (f"  ·  {text[7:].strip()}", "leise")])
         else:
             self.zaehler = getattr(self, "zaehler", 0) + 1

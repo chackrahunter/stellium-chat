@@ -751,15 +751,21 @@ export const useStore = create<StoreState>((set, get) => ({
   cancelReminder: (id) => socket.send({ t: 'reminder:cancel', reminderId: id }) as unknown as void,
 
   saveDraft: (() => {
-    let timer: number | null = null;
+    /* Ein Zeitgeber je Kanal und Thread. Mit einem gemeinsamen Zeitgeber löschte
+       der Wechsel in einen anderen Chat die anstehende Speicherung des vorigen:
+       der Entwurf war nach einem Neustart weg, und ein bereits gesendeter Text
+       stand wieder im Eingabefeld. */
+    const timers = new Map<string, number>();
     return (channelId: string, parentId: string | null, text: string) => {
       const key = `${channelId}:${parentId ?? ''}`;
       useStore.setState((s) => ({ drafts: { ...s.drafts, [key]: text } }));
       // Nicht bei jedem Tastendruck zum Server funken.
-      if (timer !== null) clearTimeout(timer);
-      timer = window.setTimeout(() => {
+      const laufend = timers.get(key);
+      if (laufend !== undefined) clearTimeout(laufend);
+      timers.set(key, window.setTimeout(() => {
+        timers.delete(key);
         socket.send({ t: 'draft:save', channelId, parentId: parentId ?? null, text });
-      }, 700);
+      }, 700));
     };
   })(),
 
@@ -1060,15 +1066,21 @@ socket.onEvent((ev: ServerEvent) => {
       });
       break;
 
-    case 'message:deleted':
+    case 'message:deleted': {
+      /* Der offene Thread zeigt dieselbe Nachricht aus einer zweiten Liste.
+         Ohne diesen Zweig stünde der zurückgenommene Text dort weiter, bis
+         jemand den Thread schließt und neu öffnet. */
+      const geloescht: Partial<Message> = { deletedAt: Date.now(), text: '', attachments: [], translation: null };
       useStore.setState((s) => ({
         messages: {
           ...s.messages,
           [ev.channelId]: (s.messages[ev.channelId] ?? []).map((m) =>
-            m.id === ev.messageId ? { ...m, deletedAt: Date.now(), text: '', attachments: [], translation: null } : m),
+            m.id === ev.messageId ? { ...m, ...geloescht } : m),
         },
+        threads: patchThreads(s.threads, ev.messageId, geloescht),
       }));
       break;
+    }
 
     case 'reaction:updated':
       useStore.setState((s) => {
@@ -1100,7 +1112,6 @@ socket.onEvent((ev: ServerEvent) => {
 
     case 'channel:upsert':
       useStore.setState((s) => ({ channels: { ...s.channels, [ev.channel.id]: ev.channel } }));
-      if (ev.channel.kind === 'dm') useStore.getState().openChannel(ev.channel.id);
       break;
 
     case 'channel:removed':
@@ -1169,11 +1180,17 @@ socket.onEvent((ev: ServerEvent) => {
           [ev.channelId]: (s.messages[ev.channelId] ?? []).map((m) =>
             m.id === ev.poll.messageId ? { ...m, poll: ev.poll } : m),
         },
+        // Umfragen liegen auch in Threads; sonst blieben dort die alten Stimmen stehen.
+        threads: patchThreads(s.threads, ev.poll.messageId, { poll: ev.poll }),
       }));
       break;
 
     case 'links':
-      useStore.setState((s) => ({ messages: patchEverywhere(s.messages, ev.messageId, { links: ev.links }) }));
+      useStore.setState((s) => ({
+        messages: patchEverywhere(s.messages, ev.messageId, { links: ev.links }),
+        // Auch hier: der offene Thread hält seine eigene Kopie der Nachricht.
+        threads: patchThreads(s.threads, ev.messageId, { links: ev.links }),
+      }));
       break;
 
     case 'voice:transcript':

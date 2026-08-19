@@ -6,7 +6,14 @@
  * die App nach einem Arbeitstag alles mit, was jemals geschrieben wurde.
  */
 import { chromium } from 'playwright';
-import { APP, LOGIN, PW, SERVER as S } from './zugang.mjs';
+import { probeserver } from './probeserver.mjs';
+
+/* Eigener Server statt der Entwicklungsdatenbank: die braucht persönliche
+   Zugangsdaten und ein Masterpasswort aus der Keychain — ein Prüflauf, der
+   davon abhängt, läuft auf keinem zweiten Rechner. */
+const APP = process.env.STELLIUM_APP ?? 'http://localhost:5173';
+const probe = await probeserver();
+const S = probe.S;
 
 const ergebnisse = [];
 const pruefe = async (n, f) => {
@@ -18,13 +25,12 @@ const muss = (b, m) => { if (!b) throw new Error(m); };
 const b = await chromium.launch({ headless: true, args: ['--js-flags=--expose-gc'] });
 const p = await (await b.newContext({ viewport: { width: 1280, height: 900 }, locale: 'de-DE' })).newPage();
 await p.goto(APP);
-await p.evaluate((s) => { localStorage.setItem('stellium.serverUrl', s); localStorage.setItem('stellium.tourGesehen', 'ja'); }, S);
+await p.evaluate(([s, t]) => {
+  localStorage.setItem('stellium.serverUrl', s);
+  localStorage.setItem('stellium.token', t);
+  localStorage.setItem('stellium.tourGesehen', 'ja');
+}, [S, probe.token]);
 await p.reload(); await p.waitForTimeout(1200);
-if (await p.locator('.auth').count()) {
-  await p.locator('.auth input').first().fill(LOGIN);
-  await p.locator('.auth input[type="password"]').first().fill(PW);
-  await p.locator('.auth button[type="submit"]').first().click();
-}
 await p.waitForSelector('.app', { timeout: 20000 });
 await p.waitForTimeout(2500);
 
@@ -50,8 +56,16 @@ await p.evaluate(() => {
   const store = window.__stelliumStore;
   const s = store.getState();
   const kanal = s.activeChannelId;
-  const vorlage = (s.messages[kanal] ?? [])[0];
-  if (!vorlage) throw new Error('keine Vorlage');
+  /* Eine Vorlage selbst bauen statt eine vorhandene zu kopieren: auf einem
+     frischen Server steht noch nichts im Kanal, und der Lauf soll nicht davon
+     abhängen, dass vorher jemand geschrieben hat. */
+  const vorlage = (s.messages[kanal] ?? [])[0] ?? {
+    id: 'vorlage', channelId: kanal, userId: s.self.id, parentId: null,
+    text: '', sourceLang: 'de', createdAt: Date.now(), editedAt: null, deletedAt: null,
+    systemKind: null, attachments: [], reactions: [], replyCount: 0, lastReplyAt: null,
+    threadParticipantIds: [], mentionUserIds: [], links: [], poll: null, voice: null,
+    pinned: false, saved: false, translation: null,
+  };
   for (let i = 0; i < 1200; i++) {
     store.setState((alt) => {
       const liste = alt.messages[kanal] ?? [];
@@ -118,6 +132,7 @@ await pruefe('Nicht besuchte Kanäle werden vergessen', async () => {
 });
 
 await b.close();
+await probe.stop();
 const schlecht = ergebnisse.filter((x) => !x).length;
 console.log(`\n${ergebnisse.length - schlecht}/${ergebnisse.length} bestanden`);
 process.exit(schlecht ? 1 : 0);

@@ -741,9 +741,17 @@ a:hover { text-decoration: underline; }
 }
 .avatar img { width: 100%; height: 100%; border-radius: inherit; object-fit: cover; }
 .avatar__presence {
-  position: absolute; right: -2px; bottom: -2px;
+  position: absolute; right: -3px; bottom: -3px;
   border-radius: 50%;
+  /* Kräftiger Rand: ohne ihn verschwimmt der Punkt mit dem Bild darunter. */
   border: 2.5px solid var(--bg-deep);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35);
+}
+/* Bitte nicht stören bekommt einen Querstrich — Farbe allein hilft niemandem,
+   der Rot und Grün nicht unterscheiden kann. */
+.presence--dnd::after {
+  content: ''; position: absolute; inset: 34% 18%;
+  background: var(--bg-deep); border-radius: 1px;
 }
 .presence--online { background: var(--mint); }
 .presence--away { background: var(--amber); }

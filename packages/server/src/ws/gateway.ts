@@ -68,6 +68,11 @@ export function broadcastAll(ev: ServerEvent): void {
  * eine bekannte Kennung, um an Nachrichten aus fremden Kanälen und
  * Direktchats zu kommen. Kennungen sind zufällig, aber sie wandern: durch
  * Weiterleitungen, Zitate, Protokolle.
+ *
+ * Die Arbeitsteilung mit darfNachrichtAendern() ist bewusst so: lesen und
+ * alles, was an der eigenen Person hängt — merken, anheften, abstimmen —
+ * verlangt Mitgliedschaft; einwirken auf den Nachrichtenkörper geht auch für
+ * stille Mitleser:innen offener Kanäle.
  */
 function darfNachrichtSehen(userId: string, messageId: string): boolean {
   const msg = database.get<{ channel_id: string }>(
@@ -75,6 +80,30 @@ function darfNachrichtSehen(userId: string, messageId: string): boolean {
   );
   if (!msg) return false;
   return store.memberIds(msg.channel_id).includes(userId);
+}
+
+/**
+ * Darf diese Person auf die Nachricht einwirken — reagieren, löschen?
+ *
+ * Wie darfNachrichtSehen(), nur zählen offene Kanäle mit: dort liest jede
+ * Person mit, ohne beigetreten zu sein, und Mitglied wird man erst mit dem
+ * ersten eigenen Beitrag. Eine strenge Mitgliedsprüfung sperrte hier also
+ * stille Mitleser:innen aus. In privaten Kanälen und Direktchats bleibt es
+ * bei der Mitgliedschaft — sonst genügte eine bekannte Kennung, um dort
+ * Nachrichten verschwinden zu lassen oder Reaktionen zu hinterlassen.
+ *
+ * Bekannte Einschränkung: der Rundruf danach geht an store.memberIds(), also
+ * gerade nicht an die stillen Mitleser:innen. Sie dürfen reagieren, sehen ihre
+ * eigene Reaktion aber erst, wenn sie den Kanal neu öffnen.
+ */
+function darfNachrichtAendern(userId: string, messageId: string): boolean {
+  const row = database.get<{ channel_id: string; kind: string }>(
+    `SELECT m.channel_id, c.kind FROM messages m
+     JOIN channels c ON c.id = m.channel_id
+     WHERE m.id = ?`, messageId,
+  );
+  if (!row) return false;
+  return row.kind === 'public' || store.isMember(row.channel_id, userId);
 }
 
 function broadcast(ev: ServerEvent, userIds?: Iterable<string>): void {
@@ -501,6 +530,11 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
       const { messages: list, hasMore } = store.channelHistory(ch.id, null, 50, userId);
       const missing = session.autoTranslate ? fillCachedTranslations(list, session.language) : [];
       send(session, { t: 'channel:history', channelId: ch.id, messages: list, hasMore });
+      /* channel:upsert geht an alle Mitglieder des Direktchats. Wer daraus
+         navigiert, reißt auch den Gegenüber aus seinem Kanal — springen darf
+         nur die Session, die den Chat gerade geöffnet hat. Erst nach dem
+         Verlauf, sonst zeigt die Ansicht kurz einen leeren Kanal. */
+      send(session, { t: 'channel:focus', channelId: ch.id });
       if (missing.length) translateInBackground(missing, session.language, userId, null);
       return;
     }
@@ -576,6 +610,11 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
     }
 
     case 'message:delete': {
+      // Ohne diese Prüfung genügte eine bekannte Kennung, um Nachrichten in
+      // fremden Kanälen und Direktchats verschwinden zu lassen.
+      if (!darfNachrichtAendern(userId, ev.messageId)) {
+        return fail(session, 'forbidden', 'Zu dieser Nachricht hast du keinen Zugang.');
+      }
       const scope = ev.scope ?? 'all';
       const eigene = store.getMessage(ev.messageId)?.userId === userId;
       // Für sich ausblenden darf jede:r immer — das ändert nichts für andere.
@@ -594,6 +633,10 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
 
     case 'message:react': {
       if (!darf(session, 'reaction.add')) return;
+      // Sonst ließe sich in fremden Kanälen reagieren — sichtbar für alle dort.
+      if (!darfNachrichtAendern(userId, ev.messageId)) {
+        return fail(session, 'forbidden', 'Zu dieser Nachricht hast du keinen Zugang.');
+      }
       const { channelId } = messages.toggleReaction(ev.messageId, userId, ev.emoji);
       const msg = store.getMessage(ev.messageId);
       if (msg) broadcast({ t: 'reaction:updated', messageId: msg.id, channelId, reactions: msg.reactions }, store.memberIds(channelId));

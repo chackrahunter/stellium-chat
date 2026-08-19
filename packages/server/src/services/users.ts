@@ -259,6 +259,14 @@ export function completeSetup(userId: string, input: {
 }): void {
   if (input.newPassword.length < 10) throw new Error('Das neue Passwort braucht mindestens 10 Zeichen.');
 
+  /* Dieser Weg setzt ein neues Passwort, ohne das bisherige zu kennen. Das ist
+     nur in der Einrichtungsphase vertretbar — nach dem Anlegen des Kontos und
+     nach einem Zurücksetzen. Ohne die Sperre bliebe er dauerhaft offen und
+     wäre ein Umweg um changeOwnPassword(): wer einmal an ein Token käme,
+     könnte das Passwort austauschen, ohne es je gekannt zu haben. Die Sperre
+     hängt weiter unten an der WHERE-Bedingung des UPDATE und nicht an einer
+     vorgeschalteten Abfrage — so kann zwischen Prüfen und Schreiben nichts
+     dazwischenkommen. */
   const felder: string[] = ['password_hash = ?', 'must_change_password = 0', 'password_set_at = ?'];
   const werte: any[] = [hashPassword(input.newPassword), Date.now()];
 
@@ -286,7 +294,14 @@ export function completeSetup(userId: string, input: {
   }
 
   felder.push('must_complete_profile = 0');
-  db.run(`UPDATE users SET ${felder.join(', ')} WHERE id = ?`, ...werte, userId);
+  const { changes } = db.run(
+    `UPDATE users SET ${felder.join(', ')}
+      WHERE id = ? AND (must_change_password = 1 OR must_complete_profile = 1)`,
+    ...werte, userId,
+  );
+  if (!changes) {
+    throw new Error('Die Ersteinrichtung ist bereits abgeschlossen. Das Passwort änderst du in den Einstellungen.');
+  }
 }
 
 /** Passwort selbst ändern — dafür braucht es das alte. */

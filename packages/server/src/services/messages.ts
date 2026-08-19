@@ -39,6 +39,18 @@ export function createMessage(input: CreateMessageInput): Message {
   const sourceLang = erkannt.lang === 'unknown' || erkannt.confidence < 0.35 ? null : erkannt.lang;
 
   db.transaction(() => {
+    // Die Wurzel muss im selben Kanal liegen. Sonst ließe sich eine Antwort in
+    // einen Thread schieben, zu dem die schreibende Person keinen Zugang hat:
+    // store.threadHistory() wählt allein über parent_id aus und liefert sie
+    // dort mit aus, während sie im eigenen Kanal gar nicht erst auftaucht.
+    // Die Prüfung steht vor dem INSERT, damit die Zugangsentscheidung nicht am
+    // Rückabwicklungspfad hängt.
+    if (input.parentId) {
+      const parent = db.get<{ channel_id: string }>('SELECT channel_id FROM messages WHERE id = ?', input.parentId);
+      if (!parent) throw new Error('Thread-Wurzel nicht gefunden');
+      if (parent.channel_id !== input.channelId) throw new Error('Thread-Wurzel gehört zu einem anderen Kanal');
+    }
+
     db.run(
       `INSERT INTO messages (id, channel_id, user_id, parent_id, text, source_lang, system_kind, pinned, kind, forwarded_from, created_at)
        VALUES (?,?,?,?,?,?,?,0,?,?,?)`,
@@ -68,12 +80,6 @@ export function createMessage(input: CreateMessageInput): Message {
 
     for (const attId of input.attachmentIds ?? []) {
       db.run('UPDATE attachments SET message_id = ? WHERE id = ? AND message_id IS NULL', id, attId);
-    }
-
-    // Wer im Thread antwortet, gilt als Teilnehmer der Wurzel-Nachricht.
-    if (input.parentId) {
-      const parent = db.get<{ channel_id: string }>('SELECT channel_id FROM messages WHERE id = ?', input.parentId);
-      if (!parent) throw new Error('Thread-Wurzel nicht gefunden');
     }
   });
 
@@ -208,6 +214,15 @@ export function scheduleMessage(input: {
   const text = input.text.trim();
   if (!text) throw new Error('Leere Nachricht');
   if (input.sendAt < Date.now() + 10_000) throw new Error('Sendezeitpunkt muss mindestens 10 Sekunden in der Zukunft liegen');
+
+  // Dieselbe Prüfung wie beim sofortigen Senden, nur früher: fiele sie erst
+  // beim Absetzen im Ticker auf, verschwände die geplante Nachricht dort
+  // kommentarlos — hier merkt es wenigstens die Person, die sie plant.
+  if (input.parentId) {
+    const parent = db.get<{ channel_id: string }>('SELECT channel_id FROM messages WHERE id = ?', input.parentId);
+    if (!parent) throw new Error('Thread-Wurzel nicht gefunden');
+    if (parent.channel_id !== input.channelId) throw new Error('Thread-Wurzel gehört zu einem anderen Kanal');
+  }
 
   const id = newId('sc_');
   db.run(

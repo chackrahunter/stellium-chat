@@ -110,7 +110,14 @@ fi
 schritt "Holen"
 ARBEIT="$(mktemp -d /tmp/stellium-selbstupdate-XXXX)"
 chmod 700 "$ARBEIT"
-trap 'rm -rf "$ARBEIT"' EXIT
+# Die Ankündigung gehört zum Aufräumen dazu: bricht zwischen ihr und dem
+# Einspielen etwas ab, stünde sonst bei allen eine Uhr für ein Update, das nie
+# kommt — bis wartung.ts sie nach der geschätzten Dauer von selbst ablaufen
+# lässt. bash ersetzt EXIT-Traps, statt sie zu stapeln, deshalb beides hier.
+# Die Reihenfolge ist Absicht: unter "set -e" bricht der Trap nach dem ersten
+# fehlgeschlagenen Befehl ab, und "rm -rf" auf /tmp kann scheitern, "rm -f" auf
+# eine fehlende Datei nie. Das Wichtigere steht deshalb vorn.
+trap 'rm -f /var/lib/stellium/wartung.json; rm -rf "$ARBEIT"' EXIT
 PAKET="$ARBEIT/stellium-server.tar.gz"
 
 # Platz prüfen, bevor geladen wird. Ein Update, das die Platte füllt, nimmt

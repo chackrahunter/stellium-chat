@@ -14,7 +14,10 @@ export function Avatar({ user, size = 38, showPresence = false, status }: Props)
   const name = user?.displayName ?? '?';
   const color = user?.avatarColor ?? '#7c5cff';
   const presence = status ?? user?.status ?? 'offline';
-  const dot = Math.max(9, Math.round(size * 0.29));
+  /* Der Punkt war zu klein, um die Farbe auf einen Blick zu erkennen —
+     besonders in der Mitgliederliste, wo die Bilder ohnehin klein sind.
+     Ein gutes Drittel des Bildes, mindestens zwölf Pixel. */
+  const dot = Math.max(12, Math.round(size * 0.36));
 
   return (
     <div
