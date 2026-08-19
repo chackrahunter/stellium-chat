@@ -7,6 +7,7 @@ import { newId } from '../util/id.js';
 import { dropMessageTranslations } from '../translation/index.js';
 import { getMessage, getUserByHandle, hydrateMessages } from './store.js';
 import { entschluesseln, verschluesseln } from '../crypto/nachrichten.js';
+import { huelleLesen } from '../crypto/dateien.js';
 
 export interface CreateMessageInput {
   channelId: string;
@@ -26,6 +27,64 @@ export interface CreateMessageInput {
   mayMentionEveryone?: boolean;
 }
 
+/**
+ * Anhänge in einem vertraulichen Kanal müssen verschlossen sein.
+ *
+ * Das ist die zweite Hälfte der Zusage, die für Nachrichtentexte längst
+ * gehalten wird. Bis hierher nahm der Kanal Anhänge weiter offen entgegen:
+ * der Text kam als `e1:…` an, das Bild darunter lag anhörbar und ansehbar auf
+ * der Platte. Wer ein Foto in einen vertraulichen Kanal legte, bekam damit
+ * eine Zusage, die für seinen Anhang nicht galt.
+ *
+ * Geprüft wird hier und nicht in der Ereignisleitung, weil hier die einzige
+ * Tür ist: senden, weiterleiten, geplant absenden, Sprachnachricht — alles
+ * geht durch createMessage(). Eine Prüfung weiter außen müsste an jeder dieser
+ * Stellen noch einmal stehen, und die nächste neue käme ohne sie.
+ *
+ * Zwei Richtungen, eine Regel: die Hülle des Anhangs muss zu dem Kanal passen,
+ * in dem er landet.
+ *
+ *   vertraulicher Kanal, offener Anhang    → abgewiesen (der eigentliche Fall)
+ *   vertraulicher Kanal, fremde Hülle      → abgewiesen; lesen könnte ihn dort
+ *                                            niemand, und liegen hätte ihn ein
+ *                                            Kreis, der nie gemeint war
+ *   offener Kanal, verschlossener Anhang   → abgewiesen; eine private Datei aus
+ *                                            der Ablage gehört nicht als
+ *                                            unöffenbarer Klumpen in einen Chat
+ */
+function anhaengePruefen(channelId: string, attachmentIds: string[] | undefined): void {
+  if (!attachmentIds?.length) return;
+  const vertraulich = Boolean(db.get<{ vertraulich: number }>(
+    'SELECT vertraulich FROM channels WHERE id = ?', channelId,
+  )?.vertraulich);
+
+  for (const attId of attachmentIds) {
+    const zeile = db.get<{ huelle: string | null }>(
+      'SELECT huelle FROM attachments WHERE id = ?', attId,
+    );
+    if (!zeile) continue;                     // gibt es nicht — fällt unten ohnehin weg
+    const huelle = huelleLesen(zeile.huelle);
+
+    if (!vertraulich) {
+      if (huelle) {
+        throw new Error(
+          'Ein verschlüsselter Anhang gehört in den Kanal, für den er verschlüsselt wurde.',
+        );
+      }
+      continue;
+    }
+    if (!huelle) {
+      throw new Error(
+        'Dieser Kanal ist vertraulich — ein Anhang muss verschlüsselt ankommen. '
+        + 'Diese App kann das noch nicht; bitte aktualisieren.',
+      );
+    }
+    if (huelle.art !== 'kanal' || huelle.channelId !== channelId) {
+      throw new Error('Dieser Anhang wurde für einen anderen Kreis verschlüsselt.');
+    }
+  }
+}
+
 export function createMessage(input: CreateMessageInput): Message {
   const text = input.text.trim();
   if (!text && !(input.attachmentIds?.length)) throw new Error('Leere Nachricht');
@@ -41,6 +100,10 @@ export function createMessage(input: CreateMessageInput): Message {
       ? 'Nachricht zu lang (max. 12.000 Zeichen)'
       : `Nachricht zu lang (max. ${grenze / 1000}.000 Zeichen)`);
   }
+
+  /* Vor dem Anlegen und nicht mittendrin: eine abgewiesene Nachricht soll gar
+     nicht erst entstehen, statt zurückgerollt zu werden. */
+  anhaengePruefen(input.channelId, input.attachmentIds);
 
   const id = newId('m_');
   const at = Date.now();

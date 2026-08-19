@@ -14,6 +14,7 @@ import { Avatar } from './Avatar.jsx';
 import { VoiceRecorder } from './VoiceRecorder.jsx';
 import { clsx, fileSize, languageInfo, restzeit } from '../lib/format.js';
 import { bildVerkleinern } from '../lib/bilder.js';
+import { dateiVerschluesseln, kanalHuelle } from '../lib/vertraulich.js';
 
 interface Props {
   channelId: string;
@@ -114,7 +115,14 @@ export function Composer({ channelId, parentId = null, placeholder, autoFocus }:
   };
 
   const targetLang = zielsprache();
-  const needsPreview = Boolean(self?.composeTargetPreview && targetLang && ai?.translation);
+  /* In einem vertraulichen Kanal fällt alles weg, was den Text zum Server
+     bringt: Vorschau, Umformulieren, Umfrage und Sprachnachricht. Die ersten
+     beiden schickten Klartext an ein fremdes Modell, die letzten beiden
+     schrieben ihn offen in einen Kanal, den jemand ausdrücklich geschlossen
+     hat. Der Server weist das ab — die Knöpfe gar nicht erst anzubieten ist
+     der ehrlichere Weg. */
+  const vertraulich = Boolean(channel?.vertraulich);
+  const needsPreview = Boolean(self?.composeTargetPreview && targetLang && ai?.translation && !vertraulich);
 
   useEffect(() => {
     // Vier Zeichen: "okay" soll man sich ansehen können, ein "o" nicht.
@@ -223,11 +231,37 @@ export function Composer({ channelId, parentId = null, placeholder, autoFocus }:
       /* Erst kleiner machen, dann hochladen. Bei einem Foto vom Telefon ist
          das der Unterschied zwischen vier Megabyte und vierhundert Kilobyte —
          daran hängt beim Hochladen mehr als an jedem Übertragungstrick. */
-      const { datei: file, vorher, nachher } = await bildVerkleinern(roh);
+      const { datei: verkleinert, vorher, nachher } = await bildVerkleinern(roh);
       if (nachher < vorher) {
         setAttachments((prev) => prev.map((a) => a.id === temp.id
-          ? { ...a, size: nachher, mime: file.type, gespart: vorher - nachher }
+          ? { ...a, size: nachher, mime: verkleinert.type, gespart: vorher - nachher }
           : a));
+      }
+
+      /* In einem vertraulichen Kanal geht die Datei nur verschlossen hinaus.
+         Der Schlüssel dafür gehört zum Kanal, nicht zum Inhalt — wer die
+         Nachrichten liest, liest auch die Bilder darin.
+
+         Verkleinern zuerst, verschlüsseln danach: umgekehrt bekäme der
+         Bildkodierer Chiffrat vorgesetzt und richtete nichts aus. Und der
+         Verlust ist keiner — was hinausgeht, ist ohnehin nur das, was der
+         Kanal sehen soll.
+
+         Name und Typ werden neutral. Sie stehen verschlossen im Umschlag der
+         Datei; auf dem Server soll "Kündigung Meier.pdf" nicht danebenstehen
+         und den Inhalt verraten, ohne dass jemand ihn öffnen müsste. */
+      let file = verkleinert;
+      if (vertraulich) {
+        try {
+          const zu = await dateiVerschluesseln(verkleinert, kanalHuelle(channelId));
+          file = new File([zu], 'verschlossen', { type: 'application/octet-stream' });
+        } catch (err) {
+          setAttachments((prev) => prev.filter((a) => a.id !== temp.id));
+          useStore.getState().toast({
+            kind: 'error', title: t('composer.uploadFailed'), body: (err as Error).message,
+          });
+          return;
+        }
       }
 
       /* Tempo über ein gleitendes Fenster: der Momentanwert springt zu stark,
@@ -244,8 +278,13 @@ export function Composer({ channelId, parentId = null, placeholder, autoFocus }:
           const tempo = sekunden > 0.25 ? (bytes - erste.bytes) / sekunden : undefined;
           const rest = tempo && tempo > 0 ? (file.size - bytes) / tempo : undefined;
           setAttachments((prev) => prev.map((a) => a.id === temp.id ? { ...a, progress: anteil, tempo, rest } : a));
-        });
-        setAttachments((prev) => prev.map((a) => a.id === temp.id ? { ...attachment, progress: 1 } : a));
+        }, { verschluesselt: vertraulich });
+        /* Der Name bleibt der ursprüngliche, nicht der neutrale vom Server:
+           die Vorschau im Eingabefeld gehört der schreibenden Person, und die
+           weiß ja, was sie angehängt hat. */
+        setAttachments((prev) => prev.map((a) => a.id === temp.id
+          ? { ...attachment, name: roh.name, mime: verkleinert.type || roh.type, progress: 1 }
+          : a));
       } catch (err) {
         setAttachments((prev) => prev.filter((a) => a.id !== temp.id));
         useStore.getState().toast({ kind: 'error', title: t('composer.uploadFailed'), body: (err as Error).message });
@@ -294,7 +333,7 @@ export function Composer({ channelId, parentId = null, placeholder, autoFocus }:
       const result = await useStore.getState().rewrite(text, tone);
       setText(result);
     } catch (err) {
-      useStore.getState().toast({ kind: 'error', title: 'Umformulieren fehlgeschlagen', body: (err as Error).message });
+      useStore.getState().toast({ kind: 'error', title: t('toast.rewriteFailed'), body: (err as Error).message });
     } finally {
       setRewriting(false);
       inputRef.current?.focus();
@@ -504,14 +543,16 @@ export function Composer({ channelId, parentId = null, placeholder, autoFocus }:
           >
             <Hash size={16} />
           </button>
-          <button
-            className="icon-btn icon-btn--sm"
-            onClick={() => setRecording(true)}
-            title={t('composer.voice')}
-          >
-            <Mic size={16} />
-          </button>
-          {!parentId && (
+          {!vertraulich && (
+            <button
+              className="icon-btn icon-btn--sm"
+              onClick={() => setRecording(true)}
+              title={t('composer.voice')}
+            >
+              <Mic size={16} />
+            </button>
+          )}
+          {!parentId && !vertraulich && (
             <button
               className="icon-btn icon-btn--sm"
               onClick={() => useStore.getState().setOverlay('poll')}
@@ -521,7 +562,7 @@ export function Composer({ channelId, parentId = null, placeholder, autoFocus }:
             </button>
           )}
 
-          {ai?.assistant && (
+          {ai?.assistant && !vertraulich && (
             <div style={{ position: 'relative' }}>
               <button
                 className="icon-btn icon-btn--sm"
@@ -654,7 +695,7 @@ export function Composer({ channelId, parentId = null, placeholder, autoFocus }:
               useStore.getState().schedule({ channelId, text: text.trim(), sendAt, parentId });
               setText('');
               setScheduleOpen(false);
-              useStore.getState().toast({ kind: 'ok', title: 'Geplant', body: t('composer.scheduleHint') });
+              useStore.getState().toast({ kind: 'ok', title: t('toast.scheduled'), body: t('composer.scheduleHint') });
             }}
           />
         )}
@@ -709,7 +750,7 @@ function handleSlashCommand(text: string, channelId: string): SlashResult {
     case 'shrug':
       return { handled: false, replaceWith: `¯\\_(ツ)_/¯${arg ? ` ${arg}` : ''}` };
     default:
-      store.toast({ kind: 'error', title: `Unbekannter Befehl /${cmd}`, body: 'Bekannt: /lang, /dnd, /weg, /aktiv, /summary, /glossar, /shrug' });
+      store.toast({ kind: 'error', title: t('slash.unknown', { befehl: cmd }), body: t('slash.known') });
       return { handled: true };
   }
 }
@@ -750,7 +791,7 @@ function ScheduleDialog({ onClose, onPick }: { onClose: () => void; onPick: (sen
             ))}
           </div>
           <div className="field" style={{ marginTop: 'var(--sp-4)' }}>
-            <label className="field__label">Eigener Zeitpunkt</label>
+            <label className="field__label">{t('schedule.ownTime')}</label>
             <input
               className="input"
               type="datetime-local"
@@ -766,7 +807,7 @@ function ScheduleDialog({ onClose, onPick }: { onClose: () => void; onPick: (sen
               if (Number.isFinite(ts) && ts > Date.now()) onPick(ts);
             }}
           >
-            Planen
+            {t('schedule.doIt')}
           </button>
         </div>
       </motion.div>

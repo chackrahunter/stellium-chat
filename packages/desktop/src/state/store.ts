@@ -8,10 +8,20 @@ import {
   type VoiceNote, type Task, type TaskEvent, type TaskStatus, type CalendarEvent,
   type StoredFile, type StorageUsage, type MeetingProtocol,
   type Idea, type IdeaComment, type IdeaStatus, type ReleaseInfo,
+  type Freigabe,
 } from '@stellium/shared';
 import { api, serverUrl, setToken, token } from '../net/api.js';
 import { socket, type ConnectionState } from '../net/socket.js';
 import { titelZaehler, zeigen } from '../lib/benachrichtigung.js';
+/* Die Schlüsselarbeit hängt sich beim Laden selbst an den Draht. Hier wird sie
+   zusätzlich benutzt: verschlüsselt wird auf dem Weg nach draußen, und zwar an
+   dieser einen Stelle. Jeder Weg, auf dem Text den Rechner verlässt, führt
+   durch sendMessage, editMessage oder schedule — wer eine neue Stelle baut,
+   muss sie hier vorbeiführen, sonst weist der Server sie ab. */
+import {
+  dateiVerschluesseln, istE2EChiffrat, kanalSchluesselWechseln,
+  kontoHuelle, nachrichtVerschluesseln,
+} from '../lib/vertraulich.js';
 
 export interface Toast {
   id: string;
@@ -23,7 +33,8 @@ export interface Toast {
 export type Overlay =
   | null | 'quick' | 'search' | 'settings' | 'newChannel' | 'glossary'
   | 'catchup' | 'schedule' | 'people' | 'poll' | 'reminders' | 'models' | 'team'
-  | 'channelSettings' | 'tour' | 'tasks' | 'calendar' | 'files' | 'taskExtract' | 'protocol' | 'ideas';
+  | 'channelSettings' | 'tour' | 'tasks' | 'calendar' | 'files' | 'taskExtract' | 'protocol' | 'ideas' | 'download'
+  | 'vorfall' | 'freigaben';
 
 interface PendingRequest<T> { resolve: (value: T) => void; reject: (err: Error) => void; timer: number }
 
@@ -109,6 +120,17 @@ interface StoreState {
   catchupLoading: boolean;
   lightbox: string | null;
   searchHits: SearchHit[];
+
+  /* Vertrauliche Kanäle */
+  freigaben: Freigabe[];
+  /**
+   * Zählt hoch, sobald ein Kanalschlüssel dazugekommen ist.
+   *
+   * Ohne dieses Signal bliebe eine Nachricht „nicht lesbar" stehen, bis jemand
+   * den Kanal neu öffnet — die Anzeige hat keine andere Möglichkeit zu
+   * erfahren, dass der Schlüssel inzwischen da ist.
+   */
+  vertraulichTakt: number;
   searching: boolean;
   /** Nachricht, die gerade weitergeleitet werden soll. */
   forwarding: Message | null;
@@ -168,6 +190,11 @@ interface StoreState {
   rewrite: (text: string, tone: RewriteTone, targetLang?: string | null) => Promise<string>;
   askChannel: (channelId: string, question: string) => Promise<{ answer: string; citedMessageIds: string[] }>;
   runSearch: (q: string, channelId?: string | null) => Promise<void>;
+
+  ladeFreigaben: (channelId?: string | null) => void;
+  freigabeZuruecknehmen: (freigabeId: string) => void;
+  /** Nach einem neuen Schlüssel: alles noch einmal entschlüsseln lassen. */
+  vertraulichNeuLesen: () => void;
 
   /* Umfragen */
   createPoll: (input: { channelId: string; question: string; options: string[]; multiple: boolean; anonymous: boolean; parentId?: string | null }) => void;
@@ -235,10 +262,10 @@ interface StoreState {
   respondEvent: (eventId: string, response: 'yes' | 'no' | 'maybe') => void;
   deleteEvent: (eventId: string) => void;
 
-  loadFiles: (filter?: { channelId?: string; folder?: string }) => void;
+  loadFiles: (filter?: { channelId?: string; folder?: string }) => Promise<void>;
   uploadFile: (
     file: File,
-    meta?: { folder?: string; channelId?: string | null; description?: string },
+    meta?: { folder?: string; channelId?: string | null; description?: string; privat?: boolean },
     onProgress?: (anteil: number, bytes: number) => void,
   ) => Promise<void>;
   updateFile: (fileId: string, patch: { name?: string; folder?: string; description?: string | null }) => void;
@@ -345,6 +372,23 @@ function vergessen(
   return neu;
 }
 
+/**
+ * Gehört die Nachricht in den Verlauf des Kanals?
+ *
+ * Antworten in einem Thread gehören dorthin nicht: sie stehen im
+ * Thread-Bereich, und an der Wurzel im Verlauf steht die Zahl der Antworten.
+ * Der Server sieht es genauso — `channelHistory` wählt ausdrücklich nur
+ * Nachrichten ohne `parent_id` aus.
+ *
+ * Ohne diese Frage stand eine Thread-Antwort zusätzlich als eigene neue
+ * Nachricht mitten im Verlauf. Auffällig daran war, dass sie beim Neuladen
+ * wieder verschwand: der Verlauf kommt dann vom Server, und der hat sie nie
+ * mitgeschickt. Der doppelte Eintrag entstand allein hier im Speicher.
+ */
+function imKanalverlauf(msg: Message): boolean {
+  return !msg.parentId;
+}
+
 function upsertMessage(list: Message[] | undefined, msg: Message): Message[] {
   const arr = list ? [...list] : [];
   const byId = arr.findIndex((m) => m.id === msg.id);
@@ -375,6 +419,55 @@ import {
  */
 function ts(key: TranslationKey, werte?: Record<string, string | number>): string {
   return translate(useStore.getState().self?.uiLanguage || spracheDesSystems(), key, werte);
+}
+
+/**
+ * Meldung des Servers in der eingestellten Sprache.
+ *
+ * Dieselbe Machart wie bei den HTTP-Fehlern in net/api.ts: kennt das
+ * Wörterbuch die Kennung, gilt der eigene Satz; sonst bleibt der Text des
+ * Servers stehen. So bleibt jede Meldung lesbar, auch wenn eine neuere
+ * Serverfassung eine Kennung schickt, die diese App noch nicht kennt.
+ */
+function serverText(code: string | undefined, ersatz: string, werte?: Record<string, string>): string {
+  if (!code) return ersatz;
+  const eigener = ts(code as TranslationKey, werte);
+  return eigener && eigener !== code ? eigener : ersatz;
+}
+
+/**
+ * Was in diesem Kanal nach draußen gehen darf.
+ *
+ * In einem gewöhnlichen Kanal der Text selbst, in einem vertraulichen das
+ * Chiffrat — und `null`, wenn sich nicht verschlüsseln lässt. Null heißt:
+ * nicht senden. Der Klartext still durchzureichen wäre die eine Möglichkeit,
+ * die es hier nicht geben darf; der Server wiese ihn ab, aber schon hier
+ * abzubrechen ist die ehrlichere Stelle.
+ */
+async function hinausText(channelId: string, text: string): Promise<string | null> {
+  const kanal = useStore.getState().channels[channelId];
+  if (!kanal?.vertraulich || !text) return text;
+  try {
+    return await nachrichtVerschluesseln(channelId, text);
+  } catch (fehler) {
+    useStore.getState().toast({
+      kind: 'error', title: ts('vertraulich.titel'), body: (fehler as Error).message,
+    });
+    return null;
+  }
+}
+
+/** In welchem Kanal liegt diese Nachricht? Aus dem, was geladen ist. */
+function kanalDerNachricht(messageId: string): string | null {
+  const s = useStore.getState();
+  for (const [channelId, liste] of Object.entries(s.messages)) {
+    if (liste.some((m) => m.id === messageId)) return channelId;
+  }
+  for (const liste of Object.values(s.threads)) {
+    const treffer = liste.find((m) => m.id === messageId);
+    if (treffer) return treffer.channelId;
+  }
+  return null;
 }
 
 export const useStore = create<StoreState>((set, get) => ({
@@ -430,6 +523,8 @@ export const useStore = create<StoreState>((set, get) => ({
   lightbox: null,
   searchHits: [],
   searching: false,
+  freigaben: [],
+  vertraulichTakt: 0,
   forwarding: null,
   remindingAbout: null,
   profileUserId: null,
@@ -548,34 +643,72 @@ export const useStore = create<StoreState>((set, get) => ({
     };
 
     set((s) => {
-      const next: Partial<StoreState> = { messages: { ...s.messages, [channelId]: gekuerzt(upsertMessage(s.messages[channelId], optimistic)) } };
+      const next: Partial<StoreState> = {};
+      if (imKanalverlauf(optimistic)) {
+        next.messages = { ...s.messages, [channelId]: gekuerzt(upsertMessage(s.messages[channelId], optimistic)) };
+      }
       if (parentId && s.threads[parentId]) {
         next.threads = { ...s.threads, [parentId]: upsertMessage(s.threads[parentId], optimistic) };
       }
       return next;
     });
 
-    const delivered = socket.send({
-      t: 'message:send', clientId, channelId, text,
-      parentId: parentId ?? null, attachmentIds,
-    });
-    if (!delivered) {
-      get().toast({ kind: 'info', title: ts('toast.offline'), body: ts('toast.offlineBody') });
-    }
+    /* Der optimistische Eintrag oben trägt den Klartext — er ist für dieses
+       Fenster und geht nirgendwohin. Nach draußen geht, was hier entsteht. */
+    void (async () => {
+      const hinaus = await hinausText(channelId, text);
+      if (hinaus === null) {
+        // Nicht verschlüsselbar: die Nachricht bleibt sichtbar stehen und ist
+        // als gescheitert markiert. Offen hinausschicken wäre das Gegenteil
+        // dessen, wofür jemand den Kanal vertraulich gestellt hat.
+        set((s) => ({
+          messages: {
+            ...s.messages,
+            [channelId]: (s.messages[channelId] ?? []).map(
+              (m) => (m.clientId === clientId ? { ...m, pending: false, failed: true } : m),
+            ),
+          },
+        }));
+        return;
+      }
+      const delivered = socket.send({
+        t: 'message:send', clientId, channelId, text: hinaus,
+        parentId: parentId ?? null, attachmentIds,
+      });
+      if (!delivered) {
+        get().toast({ kind: 'info', title: ts('toast.offline'), body: ts('toast.offlineBody') });
+      }
+    })();
   },
 
-  editMessage: (messageId, text) => socket.send({ t: 'message:edit', messageId, text }) as unknown as void,
+  editMessage: (messageId, text) => {
+    void (async () => {
+      /* Eine Bearbeitung darf eine verschlüsselte Nachricht nicht in eine
+         offene verwandeln — der Server weist das ohnehin ab. Der Kanal steht
+         nicht im Aufruf und wird hier nachgeschlagen. */
+      const channelId = kanalDerNachricht(messageId);
+      const hinaus = channelId ? await hinausText(channelId, text) : text;
+      if (hinaus === null) return;
+      socket.send({ t: 'message:edit', messageId, text: hinaus });
+    })();
+  },
   deleteMessage: (messageId, scope = 'all') =>
     socket.send({ t: 'message:delete', messageId, scope }) as unknown as void,
   react: (messageId, emoji) => socket.send({ t: 'message:react', messageId, emoji }) as unknown as void,
   pin: (messageId, pinned) => socket.send({ t: 'message:pin', messageId, pinned }) as unknown as void,
   save: (messageId, saved) => {
     socket.send({ t: 'message:save', messageId, saved });
-    get().toast({ kind: 'ok', title: saved ? 'Gemerkt' : ts('toast.unsaved') });
+    get().toast({ kind: 'ok', title: saved ? ts('common.saved') : ts('toast.unsaved') });
   },
 
   schedule: ({ channelId, text, sendAt, parentId }) => {
-    socket.send({ t: 'message:schedule', channelId, text, sendAt, parentId: parentId ?? null });
+    /* Schon beim Planen verschlüsseln, nicht erst beim Absenden: sonst läge
+       der Text bis dahin offen auf dem Server. */
+    void (async () => {
+      const hinaus = await hinausText(channelId, text);
+      if (hinaus === null) return;
+      socket.send({ t: 'message:schedule', channelId, text: hinaus, sendAt, parentId: parentId ?? null });
+    })();
     set({ overlay: null });
   },
   unschedule: (id) => socket.send({ t: 'message:unschedule', scheduledId: id }) as unknown as void,
@@ -693,7 +826,10 @@ export const useStore = create<StoreState>((set, get) => ({
   rewrite: async (text, tone, targetLang) => {
     const requestId = uid();
     const promise = awaitReply<string>(requestId, 40_000);
-    socket.send({ t: 'ai:rewrite', requestId, text, tone, targetLang: targetLang ?? null });
+    // Der offene Kanal, in dem gerade geschrieben wird — der Server braucht ihn,
+    // um einen Entwurf aus einem vertraulichen Kanal abweisen zu können.
+    socket.send({ t: 'ai:rewrite', requestId, text, tone, targetLang: targetLang ?? null,
+      channelId: get().activeChannelId ?? null });
     return promise;
   },
 
@@ -716,6 +852,11 @@ export const useStore = create<StoreState>((set, get) => ({
     }
   },
 
+  ladeFreigaben: (channelId) => socket.send({ t: 'vertraulich:freigaben', channelId: channelId ?? null }) as unknown as void,
+  freigabeZuruecknehmen: (freigabeId) =>
+    socket.send({ t: 'vertraulich:freigabe-zuruecknehmen', freigabeId }) as unknown as void,
+  vertraulichNeuLesen: () => set((s) => ({ vertraulichTakt: s.vertraulichTakt + 1 })),
+
   /* ── UI ─────────────────────────────────────────────────── */
 
   createPoll: ({ channelId, question, options, multiple, anonymous, parentId }) => {
@@ -731,6 +872,18 @@ export const useStore = create<StoreState>((set, get) => ({
 
   startForward: (message) => set({ forwarding: message }),
   forwardMessage: (messageId, toChannelId, comment) => {
+    /* Weiterleiten geht am Verschlüsseln vorbei: der Server baut den neuen Text
+       aus Kommentar und Original zusammen, ohne je einen Schlüssel zu haben.
+       Aus einem vertraulichen Kanal käme deshalb nur ein Block Zeichen heraus,
+       und in einen hinein liefe der Kommentar offen. Beides hier abfangen —
+       der Server prüft es an dieser Stelle (noch) nicht. */
+    const vonKanal = kanalDerNachricht(messageId);
+    const vertraulich = (vonKanal && get().channels[vonKanal]?.vertraulich)
+      || get().channels[toChannelId]?.vertraulich;
+    if (vertraulich) {
+      get().toast({ kind: 'error', title: ts('vertraulich.titel'), body: ts('fehler.vertraulich') });
+      return;
+    }
     socket.send({ t: 'message:forward', clientId: uid(), messageId, toChannelId, comment });
     set({ forwarding: null });
     get().toast({ kind: 'ok', title: ts('toast.forwarded') });
@@ -861,17 +1014,57 @@ export const useStore = create<StoreState>((set, get) => ({
 
   /* ── Dateiablage ──────────────────────────────────────── */
 
-  loadFiles: (filter) => socket.send({ t: 'file:list', ...filter }) as unknown as void,
+  /**
+   * Die Ablage laden.
+   *
+   * Über HTTP statt über die Leitung, seit es private Dateien gibt: nur dieser
+   * Weg weiß, wer fragt, und kann deshalb die eigenen privaten Dateien
+   * mitliefern und fremde weglassen.
+   */
+  loadFiles: async (filter) => {
+    try {
+      const { files, usage } = await api.libraryFiles(filter);
+      set({ files, storageUsage: usage });
+    } catch (err) {
+      get().toast({ kind: 'error', title: ts('toast.filesFailed'), body: (err as Error).message });
+    }
+  },
 
   uploadFile: async (file, meta, onProgress) => {
     const form = new FormData();
-    form.append('file', file);
+    /* Privat heißt: die Datei wird hier verschlüsselt und verlässt den Rechner
+       nur als Chiffrat. Der Schlüssel dafür entsteht aus dem eigenen
+       Schlüsselpaar und geht nirgends hin — auch nicht zum Server.
+
+       Verschlüsselt wird vor allem anderen: schlägt es fehl, geht gar nichts
+       hinaus. Andersherum wäre die Datei schon oben, bevor jemand merkt, dass
+       sie offen liegt. */
+    let hinauf = file;
+    if (meta?.privat) {
+      const roh = await dateiVerschluesseln(file, kontoHuelle());
+      /* Der Typ wird neutral, der Name bleibt stehen — und das ist eine
+         bewusste Grenze, keine Nachlässigkeit.
+
+         Der Inhalt ist zu, auch für den Host: das ist die Zusage. Der Name
+         steht weiter in der Liste, weil ein Verzeichnis, dessen Einträge
+         niemand benennen kann, kein Verzeichnis mehr ist, sondern ein Haufen —
+         man fände seine eigenen Dateien nicht wieder. Wer auch den Namen
+         verschließen will, legt die Datei in einen vertraulichen Kanal: dort
+         geht der ganze Umschlag zu, Name und Typ eingeschlossen.
+
+         Im Umschlag der Datei liegt der echte Name ohnehin verschlossen mit.
+         Eine Oberfläche, die die Liste später ganz blind führen will, findet
+         ihn dort — dafür muss hier nichts geändert werden. */
+      hinauf = new File([roh], file.name, { type: 'application/octet-stream' });
+      form.append('privat', '1');
+    }
+    form.append('file', hinauf);
     if (meta?.folder) form.append('folder', meta.folder);
     if (meta?.channelId) form.append('channelId', meta.channelId);
     if (meta?.description) form.append('description', meta.description);
     try {
-      await api.uploadToLibrary(form, (anteil) => onProgress?.(anteil, Math.round(anteil * file.size)));
-      get().loadFiles(meta?.channelId ? { channelId: meta.channelId } : undefined);
+      await api.uploadToLibrary(form, (anteil) => onProgress?.(anteil, Math.round(anteil * hinauf.size)));
+      void get().loadFiles(meta?.channelId ? { channelId: meta.channelId } : undefined);
     } catch (err) {
       get().toast({ kind: 'error', title: ts('toast.uploadFailed'), body: (err as Error).message });
     }
@@ -963,7 +1156,7 @@ socket.onState((connection, detail) => {
   /* Nur abmelden, wenn wirklich der Nachweis das Problem ist. Bei einem zu
      alten Protokoll ist das Token einwandfrei — wer hier abmeldet, schickt in
      eine Schleife: anmelden, dieselbe Fehlermeldung, wieder abmelden. */
-  if (connection === 'failed' && socket.failCode !== 'protocol_mismatch') {
+  if (connection === 'failed' && socket.failCode !== 'fehler.protokollVeraltet') {
     setToken(null);
     useStore.setState({ self: null });
   }
@@ -1026,17 +1219,18 @@ socket.onEvent((ev: ServerEvent) => {
     case 'message:new': {
       const msg: Message = ev.clientId ? { ...ev.message, clientId: ev.clientId } : ev.message;
       useStore.setState((s) => {
-        const next: Partial<StoreState> = {
-          messages: { ...s.messages, [msg.channelId]: gekuerzt(upsertMessage(s.messages[msg.channelId], msg)) },
-        };
+        const next: Partial<StoreState> = {};
+        if (imKanalverlauf(msg)) {
+          next.messages = { ...s.messages, [msg.channelId]: gekuerzt(upsertMessage(s.messages[msg.channelId], msg)) };
+        }
         if (msg.parentId && s.threads[msg.parentId]) {
           next.threads = { ...s.threads, [msg.parentId]: upsertMessage(s.threads[msg.parentId], msg) };
         }
-        // Thread-Zähler an der Wurzel hochziehen
+        // Thread-Zähler an der Wurzel hochziehen — die steht im Verlauf.
         if (msg.parentId) {
-          const list = next.messages![msg.channelId];
+          const list = next.messages?.[msg.channelId] ?? s.messages[msg.channelId] ?? [];
           next.messages = {
-            ...next.messages,
+            ...(next.messages ?? s.messages),
             [msg.channelId]: list.map((m) => m.id === msg.parentId
               ? { ...m, replyCount: m.replyCount + 1, lastReplyAt: msg.createdAt,
                   threadParticipantIds: m.threadParticipantIds.includes(msg.userId)
@@ -1053,9 +1247,12 @@ socket.onEvent((ev: ServerEvent) => {
 
     case 'message:updated':
       useStore.setState((s) => {
-        const next: Partial<StoreState> = {
-          messages: { ...s.messages, [ev.message.channelId]: gekuerzt(upsertMessage(s.messages[ev.message.channelId], ev.message)) },
-        };
+        /* Auch beim Bearbeiten gilt die Trennung: `upsertMessage` würde eine
+           geänderte Thread-Antwort sonst neu in den Verlauf einfügen — der
+           doppelte Eintrag käme über diesen zweiten Weg zurück. */
+        const next: Partial<StoreState> = imKanalverlauf(ev.message)
+          ? { messages: { ...s.messages, [ev.message.channelId]: gekuerzt(upsertMessage(s.messages[ev.message.channelId], ev.message)) } }
+          : {};
         if (ev.message.parentId && s.threads[ev.message.parentId]) {
           next.threads = { ...s.threads, [ev.message.parentId]: upsertMessage(s.threads[ev.message.parentId], ev.message) };
         }
@@ -1143,7 +1340,17 @@ socket.onEvent((ev: ServerEvent) => {
         return {
           users: {
             ...s.users,
-            [ev.userId]: { ...user, status: ev.status, statusEmoji: ev.statusEmoji, statusText: ev.statusText, lastSeenAt: ev.lastSeenAt },
+            // statusExpiresAt gehört mit fortgeschrieben: ohne das kennt die App
+            // nach einer Live-Änderung das Ende nicht mehr, und „Endet 14:30"
+            // verschwindet bis zum nächsten Laden.
+            [ev.userId]: {
+              ...user,
+              status: ev.status,
+              statusEmoji: ev.statusEmoji,
+              statusText: ev.statusText,
+              statusExpiresAt: ev.statusExpiresAt,
+              lastSeenAt: ev.lastSeenAt,
+            },
           },
         };
       });
@@ -1217,12 +1424,12 @@ socket.onEvent((ev: ServerEvent) => {
       const preview = ev.message?.translation?.text ?? ev.message?.text ?? '';
       store.toast({
         kind: 'info',
-        title: ev.reminder.note || 'Erinnerung',
-        body: preview ? preview.slice(0, 140) : `in ${channel?.name ? `#${channel.name}` : ts('toast.aChannel')}`,
+        title: ev.reminder.note || ts('reminder.one'),
+        body: preview ? preview.slice(0, 140) : ts('toast.reminderIn', { ort: channel?.name ? `#${channel.name}` : ts('toast.aChannel') }),
       });
       void window.stellium?.notify({
-        title: ev.reminder.note || 'Stellium — Erinnerung',
-        body: preview.slice(0, 160) || 'Du wolltest hier noch einmal hinschauen.',
+        title: ev.reminder.note || ts('toast.reminderTitle'),
+        body: preview.slice(0, 160) || ts('toast.reminderLook'),
         channelId: ev.reminder.channelId,
       });
       break;
@@ -1340,11 +1547,21 @@ socket.onEvent((ev: ServerEvent) => {
       break;
 
     case 'file:upsert':
-      useStore.setState((s) => ({
-        files: [ev.file, ...s.files.filter((f) => f.id !== ev.file.id)]
-          .sort((a, b) => b.createdAt - a.createdAt),
-        storageUsage: ev.usage ?? s.storageUsage,
-      }));
+      useStore.setState((s) => {
+        /* Eine fremde private Datei gehört nicht in diese Liste. Der Server
+           schickt sie beim Hochladen gar nicht erst herum; bei einer Umbenennung
+           tut er es noch, weil dieser Weg über die Ereignisleitung alle Mitglieder
+           erreicht. Öffnen könnte sie hier ohnehin niemand — anzeigen soll die
+           Ablage sie deshalb auch nicht. */
+        if (ev.file.privat && ev.file.uploadedBy !== s.self?.id) {
+          return { storageUsage: ev.usage ?? s.storageUsage };
+        }
+        return {
+          files: [ev.file, ...s.files.filter((f) => f.id !== ev.file.id)]
+            .sort((a, b) => b.createdAt - a.createdAt),
+          storageUsage: ev.usage ?? s.storageUsage,
+        };
+      });
       break;
 
     case 'file:removed':
@@ -1365,10 +1582,47 @@ socket.onEvent((ev: ServerEvent) => {
       useStore.setState((s) => ({ aiThinking: { ...s.aiThinking, [ev.channelId]: ev.active } }));
       break;
 
-    case 'error':
-      if (ev.requestId) settle(ev.requestId, null, new Error(ev.message));
-      else store.toast({ kind: 'error', title: ts('toast.serverError'), body: ev.message });
+    /* ── Vertrauliche Kanäle ────────────────────────────────
+       Die Schlüsselarbeit selbst erledigt lib/vertraulich.ts an seinem eigenen
+       Draht. Hier steht nur, was den Zustand angeht: die Anzeige anstoßen,
+       Freigaben führen und den Schlüsselwechsel auslösen — der braucht die
+       Mitgliederliste und die kennt nur der Zustand. */
+
+    case 'vertraulich:paket':
+      useStore.setState((s) => ({ vertraulichTakt: s.vertraulichTakt + 1 }));
       break;
+
+    case 'vertraulich:wechsel-noetig': {
+      const kanal = useStore.getState().channels[ev.channelId];
+      const ich = useStore.getState().self?.id;
+      if (!kanal || !ich) break;
+      /* Der Server fragt alle, die lesen können. Wechselten sie alle, gäbe es
+         für ein einziges Ereignis so viele neue Fassungen wie Mitglieder.
+         Deshalb macht es genau eine:r — abgemacht ohne Absprache über die
+         kleinste Kennung, die alle Beteiligten gleich berechnen. */
+      const zustaendig = [...kanal.memberIds].sort()[0];
+      if (zustaendig === ich) void kanalSchluesselWechseln(ev.channelId, kanal.memberIds);
+      break;
+    }
+
+    case 'vertraulich:freigaben':
+      useStore.setState({ freigaben: ev.freigaben });
+      break;
+
+    case 'vertraulich:freigabe':
+      useStore.setState((s) => ({
+        freigaben: s.freigaben.some((f) => f.id === ev.freigabe.id)
+          ? s.freigaben.map((f) => (f.id === ev.freigabe.id ? ev.freigabe : f))
+          : [ev.freigabe, ...s.freigaben],
+      }));
+      break;
+
+    case 'error': {
+      const text = serverText(ev.code, ev.message, ev.werte);
+      if (ev.requestId) settle(ev.requestId, null, new Error(text));
+      else store.toast({ kind: 'error', title: ts('toast.serverError'), body: text });
+      break;
+    }
   }
 });
 
@@ -1388,6 +1642,14 @@ function notifyIfNeeded(msg: Message): void {
   if (!self || msg.userId === self.id || msg.systemKind) return;
   if (self.notifyOn === 'none') return;
 
+  /* „Bitte nicht stören" heißt: gar nichts — auch keine Erwähnung. Anders als
+     die Ruhezeiten, die dauerhaft gelten und deshalb eine Ausnahme brauchen,
+     wird dieser Zustand bewusst gewählt und läuft von selbst wieder ab.
+     Der Status muss aus der Nutzerliste kommen: `self` wird von
+     presence-Ereignissen nicht fortgeschrieben und stünde auf dem Stand der
+     Anmeldung. */
+  if ((s.users[self.id]?.status ?? self.status) === 'dnd') return;
+
   const channel = s.channels[msg.channelId];
   const isDm = channel?.kind === 'dm';
   const isMention = msg.mentionUserIds.includes(self.id);
@@ -1403,8 +1665,13 @@ function notifyIfNeeded(msg: Message): void {
   const author = s.users[msg.userId];
   const title = isDm ? (author?.displayName ?? ts('toast.newMessage')) : `#${channel?.name ?? 'Kanal'}`;
   const prefix = isDm ? '' : `${author?.displayName ?? ''}: `;
-  // Übersetzung bevorzugen, damit die Vorschau in der eigenen Sprache steht.
-  const body = `${prefix}${msg.translation?.text ?? msg.text}`.slice(0, 180);
+  /* Übersetzung bevorzugen, damit die Vorschau in der eigenen Sprache steht.
+     Aus einem vertraulichen Kanal geht nichts vom Inhalt in die
+     Benachrichtigung: entschlüsselt wird beim Anzeigen, und eine Vorschau auf
+     dem Sperrbildschirm ist genau das, was dort niemand erwartet. */
+  const body = istE2EChiffrat(msg.text)
+    ? `${prefix}${ts('vertraulich.titel')}`
+    : `${prefix}${msg.translation?.text ?? msg.text}`.slice(0, 180);
 
   // In der App über Electron, im Browser über die Web-Benachrichtigung —
   // die Entscheidung darüber, OB benachrichtigt wird, steht oben und gilt für

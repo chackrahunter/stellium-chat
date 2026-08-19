@@ -9,6 +9,7 @@ import { useStore } from '../state/store.js';
 import { useT } from '../i18n/index.js';
 import { Avatar } from './Avatar.jsx';
 import { languageInfo } from '../lib/format.js';
+import { VertraulichAbschnitt } from './Vertraulich.jsx';
 
 /** Alles, was man an einem Kanal einstellen kann — an einem Ort. */
 export function ChannelSettings({ channelId, onClose }: { channelId: string; onClose: () => void }) {
@@ -134,8 +135,14 @@ export function ChannelSettings({ channelId, onClose }: { channelId: string; onC
             </>
           )}
 
-          {/* ── KI ── */}
-          {ai?.assistant && (darfVerwalten || istDm) && (
+          {/* ── Vertraulichkeit ── */}
+          <VertraulichAbschnitt channelId={channelId} />
+
+          {/* ── KI ──
+              In einem vertraulichen Kanal ist der Assistent abgeschaltet: der
+              Server sieht dort nur Chiffrat. Die Umschaltung stehen zu lassen
+              hieße, einen Schalter anzubieten, der nichts bewirkt. */}
+          {ai?.assistant && !channel.vertraulich && (darfVerwalten || istDm) && (
             <>
               <div className="ai-section__title" style={{ marginTop: 'var(--sp-5)' }}>
                 <Bot size={12} style={{ verticalAlign: -2, marginRight: 6 }} />{t('ai.modeLabel')}

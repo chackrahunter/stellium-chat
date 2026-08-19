@@ -54,7 +54,7 @@ export function ChannelHeader({ channelId }: { channelId: string }) {
             ? <Avatar user={peer} size={28} showPresence />
             : channel.kind === 'private' ? <Lock size={17} className="muted" /> : <Hash size={17} className="muted" />}
         <h1>
-          {ki ? KI_NAME : channel.kind === 'dm' ? peer?.displayName ?? 'Direktnachricht' : kanalName(channel)}
+          {ki ? KI_NAME : channel.kind === 'dm' ? peer?.displayName ?? t('chat.directMessage') : kanalName(channel)}
         </h1>
         {ki && (
           <span className="header__topic">
@@ -62,9 +62,18 @@ export function ChannelHeader({ channelId }: { channelId: string }) {
           </span>
         )}
         {peer && peerTime?.time && (
-          <span className="header__topic" title={`Ortszeit von ${peer.displayName}`}>
+          <span className="header__topic" title={t('profile.localTimeOf', { name: peer.displayName })}>
             {peerTime.offHours ? '🌙' : '🕒'} {peerTime.time}
             {peer.title ? ` · ${peer.title}` : ''}
+          </span>
+        )}
+        {channel.vertraulich && (
+          <span
+            className="msg__tag"
+            style={{ color: 'var(--violet-soft)' }}
+            title={t('vertraulich.hinweis')}
+          >
+            <Lock size={10} style={{ verticalAlign: -1 }} /> {t('vertraulich.abzeichen')}
           </span>
         )}
         {channel.readOnly && (
@@ -76,7 +85,11 @@ export function ChannelHeader({ channelId }: { channelId: string }) {
       </div>
 
       <div className="header__actions no-drag">
-        {channel.kind !== 'dm' && !kiPrivat && (
+        {/* Übersetzung, Zusammenfassung, Antwortvorschläge, Protokoll und
+            Aufgabenerkennung lesen alle den Nachrichtentext. In einem
+            vertraulichen Kanal hat der Server keinen — sie fallen deshalb
+            weg, genau wie es beim Einschalten angekündigt war. */}
+        {channel.kind !== 'dm' && !kiPrivat && !channel.vertraulich && (
           <div style={{ position: 'relative' }}>
             <button
               className="pill"
@@ -100,7 +113,7 @@ export function ChannelHeader({ channelId }: { channelId: string }) {
                 <button
                   className="result" style={{ padding: '6px 9px' }}
                   onClick={() => { updateChannel(channelId, { primaryLanguage: null }); setLangOpen(false); }}
-                >🌐 Automatisch</button>
+                >🌐 {t('channel.autoDetect')}</button>
                 {LANGUAGES.map((l) => (
                   <button
                     key={l.code}
@@ -125,14 +138,14 @@ export function ChannelHeader({ channelId }: { channelId: string }) {
           {languageInfo(self?.language).flag} {self?.language.toUpperCase()}
         </button>
 
-        {ai?.assistant && (
+        {ai?.assistant && !channel.vertraulich && (
           <button className="pill pill--accent" data-tour="catchup" onClick={() => runCatchup(channelId)} title={t('header.summarize')}>
             <Sparkles size={13} />
             {t('header.missed')}
           </button>
         )}
 
-        {ai?.assistant && (
+        {ai?.assistant && !channel.vertraulich && (
           <button
             className="icon-btn"
             data-tour="smart"
@@ -146,13 +159,13 @@ export function ChannelHeader({ channelId }: { channelId: string }) {
           </button>
         )}
 
-        {ai?.assistant && !kiPrivat && (
+        {ai?.assistant && !kiPrivat && !channel.vertraulich && (
           <button className="icon-btn" onClick={() => setOverlay('protocol')} title={t('header.protocol')}>
             <ClipboardList size={17} />
           </button>
         )}
 
-        {ai?.assistant && (
+        {ai?.assistant && !channel.vertraulich && (
           <>
             <button
               ref={extractRef}

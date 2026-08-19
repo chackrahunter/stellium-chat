@@ -140,6 +140,21 @@ export function aktuelleFassung(channelId: string): number {
  * vertraulich — die App der betroffenen Person merkt beim Öffnen, dass ihr
  * die Fassung fehlt, und fragt danach. Das Gegenteil wäre schlimmer: ein Kanal
  * bliebe offen, weil ein einziges Konto die neue App noch nicht gestartet hat.
+ *
+ * WAS MIT DEM BISHERIGEN INHALT PASSIERT: nichts. Nachrichten aus der Zeit
+ * davor bleiben im Klartext, und Anhänge und Dateien aus dieser Zeit bleiben
+ * unverschlüsselt — dieselbe Entscheidung, aus demselben Grund und mit
+ * derselben Systemnachricht im Verlauf, die die Umstellung sichtbar macht.
+ *
+ * Der Grund ist nicht Bequemlichkeit. Der Server kann nichts nachträglich
+ * verschließen: er hat den Kanalschlüssel nicht, und das ist der ganze Zweck
+ * der Sache. Es bliebe also nur, jedes Mitglied jede alte Datei noch einmal
+ * herunterladen, verschlüsseln und hochladen zu lassen — und selbst danach
+ * wäre nichts gewonnen, was zählt: diese Bytes lagen bereits offen auf dem
+ * Server, in jeder Sicherung und in jedem Zwischenspeicher, der sie je gesehen
+ * hat. Sie hinterher zuzusperren sähe nach Schutz aus, wo keiner war. Ehrlich
+ * ist der sichtbare Schnitt: ab hier ist zu, davor war offen, und beides steht
+ * im Verlauf. Die Oberfläche kennzeichnet die alten Anhänge entsprechend.
  */
 export function einschalten(input: {
   channelId: string; userId: string;
