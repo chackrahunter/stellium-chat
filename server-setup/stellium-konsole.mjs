@@ -174,6 +174,17 @@ async function gesundheit() {
 }
 
 /** Wie viel Platz die Dateiablage belegt — und was ihr noch bleibt. */
+/** Einen Wert aus den Einstellungen des Dienstes lesen. */
+function env(name) {
+  for (const datei of ['/etc/stellium.env', `${ZIEL}/packages/server/.env`, `${ZIEL}/.env`]) {
+    try {
+      const treffer = fs.readFileSync(datei, 'utf8').match(new RegExp(`^${name}=(.*)$`, 'm'));
+      if (treffer) return treffer[1].trim().replace(/^["']|["']$/g, '');
+    } catch { /* gibt es nicht — nächste probieren */ }
+  }
+  return null;
+}
+
 function ablage() {
   const ordner = [`${DATEN}/uploads`, `${DATEN}/storage`];
   let belegt = 0;
@@ -190,15 +201,21 @@ function ablage() {
   };
   for (const o of ordner) zaehlen(o);
 
-  // Der freie Platz ist der der Platte, auf der die Ablage liegt — nicht der
-  // von "/", falls die Daten auf einem eigenen Datenträger liegen.
+  /* Gemeint ist das Kontingent der Chat-App, nicht die Systemplatte: die
+     Ablage darf nur bis zu einer festgelegten Größe wachsen, und genau die
+     Grenze interessiert. Reicht die Platte darunter nicht mehr aus, gilt
+     natürlich der kleinere der beiden Werte. */
+  const kontingent = Number(env('STORAGE_QUOTA_GB') ?? 100) * 1024 ** 3;
+  const RESERVE = 15 * 1024 ** 3;   // wie im Server: so viel bleibt der Platte
   const pl = platte(DATEN);
-  return {
-    belegt,
-    dateien,
-    frei: pl ? pl.gesamt - pl.belegt : null,
-    gesamt: pl ? pl.gesamt : null,
-  };
+  const plattenrest = pl ? pl.gesamt - pl.belegt : null;
+  // Dieselbe Grenze wie in packages/server/src/services/files.ts, sonst zeigte
+  // die Konsole mehr Platz an, als die App tatsächlich vergibt.
+  const grenze = plattenrest === null
+    ? kontingent
+    : Math.min(kontingent, Math.max(0, plattenrest + belegt - RESERVE));
+
+  return { belegt, dateien, frei: Math.max(0, grenze - belegt), gesamt: grenze, plattenrest };
 }
 
 function zahlen() {
@@ -471,8 +488,8 @@ async function zeichnen() {
 
   const abl = ablage();
   if (abl.dateien) {
-    feld('Dateiablage', `${groesse(abl.belegt)} in ${abl.dateien} Dateien`
-      + (abl.frei !== null ? `  ·  ${groesse(abl.frei)} frei` : ''));
+    feld('Dateiablage', `${groesse(abl.belegt)} von ${groesse(abl.gesamt)}`
+      + `  ·  ${abl.dateien} Dateien  ·  ${groesse(abl.frei)} frei`);
   }
 
   /* ── Weg nach außen ──────────────────────────────────────── */

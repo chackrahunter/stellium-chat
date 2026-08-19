@@ -12,7 +12,10 @@ import { config } from '../config.js';
  * eine Nachricht daran hängt.
  */
 
-const KONTINGENT = Number(process.env.STORAGE_QUOTA_GB ?? 20) * 1024 ** 3;
+/* Wie viel die Dateiablage insgesamt fassen darf. Der Pi hat über 100 GB
+   frei — 20 GB waren eine vorsichtige Anfangsgröße, die niemand mehr braucht.
+   Über STORAGE_QUOTA_GB lässt sich das jederzeit anders setzen. */
+const KONTINGENT = Number(process.env.STORAGE_QUOTA_GB ?? 100) * 1024 ** 3;
 
 function toFile(r: any): StoredFile {
   return {
@@ -48,12 +51,40 @@ export function getFile(id: string): (StoredFile & { path: string }) | null {
   return r ? { ...toFile(r), path: r.path } : null;
 }
 
+/* Was auf der Platte frei bleiben muss, egal was das Kontingent sagt. Läuft
+   der Datenträger voll, kann SQLite nicht mehr schreiben, das Update nicht mehr
+   entpacken und die nächtliche Sicherung nicht mehr anlegen — dann steht alles,
+   nicht nur die Dateiablage. */
+const RESERVE = 15 * 1024 ** 3;
+
+/**
+ * Wie viel die Ablage wirklich fassen darf.
+ *
+ * Das eingestellte Kontingent ist eine Obergrenze, keine Zusage: liegt die
+ * Ablage auf einem Datenträger, der weniger hergibt, gilt der kleinere Wert.
+ * Auf dem Raspberry Pi steht das Kontingent auf 100 GB, die Karte hat aber nur
+ * gut 100 GB frei — ohne diese Rechnung könnte die Ablage das System ersticken.
+ */
+function platzGrenze(belegt: number): number {
+  try {
+    const fs_ = fs.statfsSync(config.storageDir);
+    const frei = fs_.bavail * fs_.bsize;
+    // Was heute schon belegt ist, zählt zum Verfügbaren dazu — sonst schrumpfte
+    // die Grenze mit jedem Upload doppelt.
+    const moeglich = Math.max(0, frei + belegt - RESERVE);
+    return Math.min(KONTINGENT, moeglich);
+  } catch {
+    return KONTINGENT;         // ohne Auskunft bleibt es beim Kontingent
+  }
+}
+
 export function usage(): StorageUsage {
   const r = db.get<{ n: number; s: number | null }>('SELECT COUNT(*) n, SUM(size) s FROM files');
   const anhaenge = db.get<{ s: number | null }>('SELECT SUM(size) s FROM attachments');
+  const used = (r?.s ?? 0) + (anhaenge?.s ?? 0);
   return {
-    used: (r?.s ?? 0) + (anhaenge?.s ?? 0),
-    quota: KONTINGENT,
+    used,
+    quota: platzGrenze(used),
     fileCount: r?.n ?? 0,
   };
 }

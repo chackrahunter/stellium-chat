@@ -1,4 +1,5 @@
 import { app, BrowserWindow, Menu, Notification, shell, ipcMain, nativeTheme, Tray, nativeImage } from 'electron';
+import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
@@ -173,6 +174,22 @@ function trayIcon(): Electron.NativeImage {
   return resized;
 }
 
+/**
+ * Das Programmsymbol für Meldungen.
+ *
+ * Windows und die meisten Linux-Desktops zeigen sonst einen namenlosen grauen
+ * Kasten. Im Paket liegt das Symbol neben den Programmdateien, in der
+ * Entwicklung im Quellordner — beide Wege werden probiert.
+ */
+function symbolPfad(): string | undefined {
+  const kandidaten = [
+    path.join(process.resourcesPath ?? '', 'icon.png'),
+    path.join(here, '../build/icon.png'),
+    path.join(here, '../../build/icon.png'),
+  ];
+  return kandidaten.find((p) => { try { return fs.existsSync(p); } catch { return false; } });
+}
+
 function createTray(): void {
   try {
     tray = new Tray(trayIcon());
@@ -215,7 +232,15 @@ ipcMain.handle('app:info', () => ({
 
 ipcMain.handle('notify', (_e, payload: { title: string; body: string; silent?: boolean; channelId?: string }) => {
   if (!Notification.isSupported()) return false;
-  const n = new Notification({ title: payload.title, body: payload.body, silent: payload.silent });
+  /* Das Symbol macht unter Windows und Linux den Unterschied zwischen einer
+     erkennbaren Meldung und einem namenlosen grauen Kasten. Unter macOS nimmt
+     das System ohnehin das Programmsymbol. */
+  const n = new Notification({
+    title: payload.title,
+    body: payload.body,
+    silent: payload.silent,
+    icon: process.platform === 'darwin' ? undefined : symbolPfad(),
+  });
   n.on('click', () => {
     mainWindow?.show();
     mainWindow?.focus();
@@ -253,6 +278,11 @@ ipcMain.handle('shell:open', (_e, url: string) => {
 });
 
 /* ── Lifecycle ────────────────────────────────────────────────── */
+
+/* Ohne diese Kennung zeigt Windows überhaupt keine Meldungen an — es ordnet
+   sie keinem Programm zu und verwirft sie stillschweigend. Muss vor der ersten
+   Benachrichtigung stehen und dieselbe sein wie im Installationspaket. */
+if (process.platform === 'win32') app.setAppUserModelId('com.stellium.chat');
 
 void app.whenReady().then(() => {
   nativeTheme.themeSource = 'dark';
