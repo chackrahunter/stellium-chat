@@ -239,19 +239,31 @@ function zertifikat() {
      eines da war — die Konsole läuft nun einmal nicht als root. */
   try {
     const conf = fs.readFileSync('/etc/nginx/sites-available/stellium', 'utf8');
-    const port = (conf.match(/listen\s+(?:[\d.]+:|\[::\]:)?(\d+)[^;]*\bssl\b/) ?? [])[1];
     const name = (conf.match(/server_name\s+([^;\s]+)/) ?? [])[1];
-    if (!port) return null;
-    const roh = ruf('bash', ['-c',
-      `echo | openssl s_client -connect 127.0.0.1:${port}`
-      + `${name ? ` -servername ${name}` : ''} 2>/dev/null | openssl x509 -noout -enddate -subject 2>/dev/null`]);
-    const ende = (roh.match(/notAfter=(.+)/) ?? [])[1];
-    if (!ende) return null;
-    const cn = (roh.match(/CN\s*=\s*([^,\n]+)/) ?? [])[1];
-    return {
-      name: (cn ?? name ?? 'Zertifikat').trim(),
-      tage: Math.round((new Date(ende) - Date.now()) / 86400000),
-    };
+    /* Wohin nginx wirklich lauscht, steht in der Zeile selbst — auf einer
+       festen Adresse ist unter 127.0.0.1 nichts zu holen. Deshalb wird jede
+       ssl-Zeile ausprobiert, bis eine antwortet. */
+    const stellen = [...conf.matchAll(/listen\s+([^;]*?\bssl\b[^;]*);/g)].map((m) => {
+      const teil = m[1].trim().split(/\s+/)[0];
+      const treffer = teil.match(/^(?:\[([^\]]+)\]|([\d.]+)):(\d+)$/);
+      if (treffer) return { wirt: treffer[1] ?? treffer[2], port: treffer[3] };
+      return { wirt: '127.0.0.1', port: teil.replace(/\D/g, '') };
+    }).filter((a) => a.port);
+
+    for (const { wirt, port } of stellen) {
+      const roh = ruf('bash', ['-c',
+        `echo | openssl s_client -connect ${wirt}:${port}`
+        + `${name ? ` -servername ${name}` : ''} 2>/dev/null | openssl x509 -noout -enddate -subject 2>/dev/null`],
+      6000);
+      const ende = (roh.match(/notAfter=(.+)/) ?? [])[1];
+      if (!ende) continue;
+      const cn = (roh.match(/CN\s*=\s*([^,\n]+)/) ?? [])[1];
+      return {
+        name: (cn ?? name ?? 'Zertifikat').trim(),
+        tage: Math.round((new Date(ende) - Date.now()) / 86400000),
+      };
+    }
+    return null;
   } catch { /* keines vorhanden */ }
   return null;
 }
