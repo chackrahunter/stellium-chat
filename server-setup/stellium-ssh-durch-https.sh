@@ -114,9 +114,20 @@ zurueck() {
 # die nur von hier erreichbar sein soll, stünde plötzlich allen offen.
 sed -i "s/^  listen $PORT ssl;/  listen 127.0.0.1:$INTERN ssl proxy_protocol;/" "$NGINX_DATEI"
 sed -i "/^  listen \[::\]:$PORT ssl;/d" "$NGINX_DATEI"
-grep -q 'set_real_ip_from' "$NGINX_DATEI" || sed -i "/^  http2 on;/a\\
+# Der Anker ist die Zeile mit dem Zertifikat, nicht die mit http2: "http2 on;"
+# steht nur in der Konfiguration, die ein nginx ab 1.25.1 bekommt — auf
+# Bookworm fehlt sie, und das sed liefe still ins Leere. Genau das wäre hier
+# gefährlich: ohne set_real_ip_from käme jede Anfrage scheinbar von 127.0.0.1,
+# und die Serveransicht stünde allen offen, ohne dass jemand etwas merkt.
+# "^  ssl_certificate " trifft genau einmal (ssl_certificate_key und
+# ssl_trusted_certificate haben andere Namen) und nur im HTTPS-Block.
+grep -q 'set_real_ip_from' "$NGINX_DATEI" || sed -i "/^  ssl_certificate /a\\
   set_real_ip_from 127.0.0.1;\\
   real_ip_header proxy_protocol;" "$NGINX_DATEI"
+# Und danach nachsehen, ob es wirklich drinsteht. Ein sed, das nichts findet,
+# meldet keinen Fehler — dieser Griff macht aus dem stillen Nichtstun einen
+# sichtbaren Abbruch mit Rückfall.
+grep -q 'set_real_ip_from' "$NGINX_DATEI" || zurueck
 
 # Die Weiche selbst. Sie steht in einer eigenen Datei, weil der stream-Teil
 # nicht in den http-Teil gehört.

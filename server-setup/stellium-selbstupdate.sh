@@ -86,27 +86,6 @@ info "Neu verfügbar: ${FETT}$NEU${AUS}  ${GRAU}(hier: $HIER)${AUS}"
 
 [[ "$NUR_PRUEFEN" == "pruefen" ]] && exit 0
 
-# ── Ankündigen ──────────────────────────────────────────────────
-#
-# Erst Bescheid geben, dann warten, dann machen. Mitten im Gespräch
-# kommentarlos zu verschwinden wäre unhöflich; eine Viertelstunde reicht, um
-# einen Satz zu Ende zu schreiben.
-VORLAUF="${STELLIUM_UPDATE_VORLAUF:-900}"        # Sekunden
-DAUER="${STELLIUM_UPDATE_DAUER:-240}"            # geschätzte Auszeit
-
-if [[ "$VORLAUF" -gt 0 ]]; then
-  schritt "Ankündigen"
-  START=$(( ($(date +%s) + VORLAUF) * 1000 ))
-  jq -n --arg v "$NEU" --arg n "$NOTIZ" --argjson s "$START" --argjson d "$(( DAUER * 1000 ))" \
-    '{version:$v, notes:(if $n == "" then null else $n end), startetUm:$s, dauertEtwa:$d}' \
-    > /var/lib/stellium/wartung.json
-  chown stellium:stellium /var/lib/stellium/wartung.json 2>/dev/null || true
-  ok "Alle sehen jetzt eine Uhr: in $(( VORLAUF / 60 )) Minuten geht es los"
-
-  info "warte"
-  sleep "$VORLAUF"
-fi
-
 schritt "Holen"
 ARBEIT="$(mktemp -d /tmp/stellium-selbstupdate-XXXX)"
 chmod 700 "$ARBEIT"
@@ -117,12 +96,19 @@ chmod 700 "$ARBEIT"
 # Die Reihenfolge ist Absicht: unter "set -e" bricht der Trap nach dem ersten
 # fehlgeschlagenen Befehl ab, und "rm -rf" auf /tmp kann scheitern, "rm -f" auf
 # eine fehlende Datei nie. Das Wichtigere steht deshalb vorn.
-trap 'rm -f /var/lib/stellium/wartung.json; rm -rf "$ARBEIT"' EXIT
+#
+# INT und TERM gehören dazu, seit die Ankündigung hinter dem Auspacken steht:
+# das Arbeitsverzeichnis lebt jetzt die ganze Wartezeit über. Wird der Pi in
+# diesen fünfzehn Minuten neu gestartet, läuft ein EXIT-Trap allein nicht und
+# das Verzeichnis bliebe in /tmp liegen.
+trap 'rm -f /var/lib/stellium/wartung.json; rm -rf "$ARBEIT"' EXIT INT TERM
 PAKET="$ARBEIT/stellium-server.tar.gz"
 
 # Platz prüfen, bevor geladen wird. Ein Update, das die Platte füllt, nimmt
-# nicht nur sich selbst mit, sondern auch die Datenbank.
-FREI_KB="$(df -Pk /var/lib/stellium 2>/dev/null | awk 'NR==2 {print $4}')"
+# nicht nur sich selbst mit, sondern auch die Datenbank. Gemessen wird das
+# Dateisystem des Arbeitsverzeichnisses — dorthin wird geladen und ausgepackt,
+# und auf manchen Systemen liegt /tmp auf einer eigenen Partition.
+FREI_KB="$(df -Pk "$ARBEIT" 2>/dev/null | awk 'NR==2 {print $4}')"
 if [[ -n "${FREI_KB:-}" ]] && (( FREI_KB < 500000 )); then
   fehler "Zu wenig Platz: $((FREI_KB / 1024)) MB frei, mindestens 500 MB nötig."
 fi
@@ -161,6 +147,50 @@ if [[ -z "$QUELLE" ]]; then
   fehler "Im Paket fehlt das Aktualisierungsskript."
 fi
 ok "bereit"
+
+# ── Trägt das Paket die Nummer, die angekündigt war? ────────────
+#
+# Die Versionsnummer steht an zwei voneinander unabhängigen Stellen: in der
+# Release-Zeile des Servers und in packages/desktop/package.json im Paket.
+# Gehen sie auseinander, liest der Pi nach dem Einspielen wieder die alte
+# Nummer, hält den Stand für neu und baut ihn alle 30 Minuten erneut — mit
+# Wartungsbanner und Neustart, bis jemand von Hand eingreift.
+PAKETWURZEL="$(cd "$(dirname "$QUELLE")/.." && pwd)"
+PAKET_VERSION="$(node -p "require('$PAKETWURZEL/packages/desktop/package.json').version" 2>/dev/null || echo '?')"
+[[ "$PAKET_VERSION" == "$NEU" ]] || fehler "$(cat <<ABWEICHUNG
+Das Paket trägt Version $PAKET_VERSION, angekündigt war $NEU. Es wird verworfen.
+
+So bleibt es, bis die beiden zusammenpassen — der Timer lädt sonst alle 30
+Minuten dasselbe widersprüchliche Paket. Auf dem Mac neu veröffentlichen, mit
+gesetzter Versionsnummer:
+
+    ${GRAU}npm version $NEU --workspace @stellium/desktop --no-git-tag-version${AUS}
+    ${GRAU}node scripts/veroeffentlichen.mjs${AUS}
+ABWEICHUNG
+)"
+
+# ── Ankündigen ──────────────────────────────────────────────────
+#
+# Erst Bescheid geben, dann warten, dann machen. Mitten im Gespräch
+# kommentarlos zu verschwinden wäre unhöflich; eine Viertelstunde reicht, um
+# einen Satz zu Ende zu schreiben. Angekündigt wird erst, wenn das Paket
+# geladen, geprüft, ausgepackt und für stimmig befunden ist — sonst sieht das
+# ganze Haus eine Uhr für ein Update, das gar nicht stattfinden kann.
+VORLAUF="${STELLIUM_UPDATE_VORLAUF:-900}"        # Sekunden
+DAUER="${STELLIUM_UPDATE_DAUER:-240}"            # geschätzte Auszeit
+
+if [[ "$VORLAUF" -gt 0 ]]; then
+  schritt "Ankündigen"
+  START=$(( ($(date +%s) + VORLAUF) * 1000 ))
+  jq -n --arg v "$NEU" --arg n "$NOTIZ" --argjson s "$START" --argjson d "$(( DAUER * 1000 ))" \
+    '{version:$v, notes:(if $n == "" then null else $n end), startetUm:$s, dauertEtwa:$d}' \
+    > /var/lib/stellium/wartung.json
+  chown stellium:stellium /var/lib/stellium/wartung.json 2>/dev/null || true
+  ok "Alle sehen jetzt eine Uhr: in $(( VORLAUF / 60 )) Minuten geht es los"
+
+  info "warte"
+  sleep "$VORLAUF"
+fi
 
 schritt "Einspielen"
 # Von hier an übernimmt das mitgelieferte Skript — samt Sicherung und

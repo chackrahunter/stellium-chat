@@ -1,11 +1,20 @@
 #!/usr/bin/env python3
 """
-Ein Fenster, das zeigt, wenn jemand über SSH auf diesem Pi arbeitet.
+Zeigt, wenn jemand über SSH auf diesem Pi arbeitet.
 
-Es erscheint, sobald eine Sitzung aufgeht, listet mit, welche Befehle laufen,
-und verschwindet, wenn die letzte Sitzung endet. Gedacht als Mitleser, nicht
-als Schloss: wer hier steht, soll sehen können, was aus der Ferne geschieht.
+Gedacht als Mitleser, nicht als Schloss: wer hier steht, soll sehen können,
+was aus der Ferne geschieht.
 
+Die Datei enthält zwei Dinge, die aufeinander aufbauen:
+
+  `Mitschrift`  — der Bereich mit Kopf, Tagesauswahl und Verlauf. Er steckt
+                  dauerhaft unten in der Stellium-Konsole (die ihn von hier
+                  importiert) und ebenso in dem Fenster darunter.
+  `Fenster`     — die eigenständige Fassung zum Nachlesen. Sie geht nur auf,
+                  wenn man sie über „Fernzugriff-Protokoll" im Startmenü
+                  aufruft — nicht mehr von selbst bei jeder Verbindung.
+
+Direkt gestartet kommt die eigenständige Fassung.
 Läuft auf dem Desktop des Pi, ohne Zusatzpakete außer python3-tk.
 """
 import os
@@ -21,8 +30,7 @@ from tkinter import font as tkfont
 LOG = "/var/log/stellium-ssh.log"
 TAKT = 2.0            # wie oft nach Sitzungen gesehen wird
 ZEILEN = 400          # so viele Zeilen bleiben im Fenster
-NACHLAUF = 60.0       # so lange bleibt das Fenster nach der letzten Sitzung
-RUFEN = "/tmp/stellium-wache-zeigen"   # Datei als Klingel vom Desktop aus
+RUFEN = "/tmp/stellium-wache-zeigen"   # Datei als Klingel vom Startmenü aus
 
 # Eigene Geräte sollen das Fenster nicht auslösen — es geht um den Fernzugriff
 # von außen, nicht um die eigene Verbindung aus dem Nebenzimmer. Wer hier steht,
@@ -37,8 +45,6 @@ TEXTE = {
         "mehrere": "{n} Fernzugriffe laufen",
         "protokoll": "Protokoll des Fernzugriffs",
         "niemand": "Gerade ist niemand verbunden.",
-        "beendet": "Fernzugriff beendet",
-        "schliesst": "schließt in {n} s — später wieder über „Fernzugriff-Protokoll“ im Startmenü",
         "geoeffnet": "Verbindung geöffnet",
         "geschlossen": "Verbindung beendet",
         "dateien": "Dateiübertragung",
@@ -57,8 +63,6 @@ TEXTE = {
         "mehrere": "{n} remote sessions active",
         "protokoll": "Remote access log",
         "niemand": "Nobody is connected right now.",
-        "beendet": "Remote access ended",
-        "schliesst": "closing in {n} s — reopen via “Remote access log” in the menu",
         "geoeffnet": "Connection opened",
         "geschlossen": "Connection closed",
         "dateien": "File transfer",
@@ -99,6 +103,22 @@ def sprache_sichern():
             f.write(SPRACHE)
     except OSError:
         pass
+
+
+def sprache_setzen(wahl):
+    """Die Sprache von außen vorgeben.
+
+    Steckt die Mitschrift als Bereich in der Stellium-Konsole, dann gibt es
+    dort nur noch einen Sprachknopf — und der muss beides umschalten können.
+    Gemerkt wird die Wahl trotzdem hier, damit die eigenständige Fassung
+    später in derselben Sprache aufgeht.
+    """
+    global SPRACHE
+    if wahl in TEXTE and wahl != SPRACHE:
+        SPRACHE = wahl
+        sprache_sichern()
+
+
 try:
     with open("/etc/stellium/ssh-wache-eigene", "r") as _f:
         EIGENE |= {z.strip() for z in _f if z.strip()}
@@ -167,8 +187,22 @@ def schluesselnamen():
     return namen
 
 
-def herkunft_namen():
+# Die Zuordnung Adresse → Name zu holen kostet spürbar Zeit: einmal das
+# Journal durchsehen und für jede Schlüsseldatei ssh-keygen starten. Alle zwei
+# Sekunden ist das Verschwendung, denn sie ändert sich nur, wenn ein Schlüssel
+# dazukommt. Seit die Mitschrift auch dauerhaft in der Konsole läuft, fiele das
+# auf dem Pi ins Gewicht — deshalb wird das Ergebnis eine halbe Minute gehalten.
+NAMEN_HALTBAR = 30.0
+_namen_stand = (0.0, {})
+
+
+def herkunft_namen(frisch=False):
     """Welche Adresse hat sich zuletzt mit welchem Schlüssel angemeldet?"""
+    global _namen_stand
+    alter, gehalten = _namen_stand
+    if not frisch and gehalten and time.monotonic() - alter < NAMEN_HALTBAR:
+        return gehalten
+
     namen = schluesselnamen()
     zuordnung = {}
     try:
@@ -176,6 +210,7 @@ def herkunft_namen():
             ["journalctl", "-u", "ssh", "-n", "300", "--no-pager", "-o", "cat"],
             capture_output=True, text=True, timeout=6).stdout
     except Exception:
+        _namen_stand = (time.monotonic(), zuordnung)
         return zuordnung
     for zeile in roh.splitlines():
         if "Accepted publickey for" not in zeile:
@@ -188,6 +223,7 @@ def herkunft_namen():
         abdruck = next((t for t in teile if t.startswith("SHA256:")), None)
         if abdruck and abdruck in namen:
             zuordnung[adresse] = namen[abdruck]
+    _namen_stand = (time.monotonic(), zuordnung)
     return zuordnung
 
 
@@ -279,30 +315,39 @@ def mischen(von, nach, anteil):
     return "#%02x%02x%02x" % tuple(int(x + (y - x) * anteil) for x, y in zip(a, b))
 
 
-class Fenster:
-    def __init__(self):
-        self.wurzel = tk.Tk()
-        self.wurzel.title("Stellium — Fernzugriff")
-        self.wurzel.configure(bg=FARBEN["grund"])
-        self.wurzel.attributes("-topmost", True)
-        # Ohne Fensterleiste gibt es auch kein Kreuz. Das ist der Sinn der Sache:
-        # wer aus der Ferne arbeitet, soll sich nicht wegklicken lassen. Verschieben
-        # und Einklappen bleiben möglich — nur Schließen nicht.
-        self.wurzel.overrideredirect(True)
-        self.wurzel.geometry(f"{BREIT}x{HOCH}+40+40")
-        self.wurzel.withdraw()          # erst zeigen, wenn jemand da ist
-        self.sichtbar = False
-        try:
-            self.wurzel.attributes("-alpha", 0.0)
-        except tk.TclError:
-            pass                        # ohne Compositor eben ohne Blende
+class Mitschrift(tk.Frame):
+    """Der Bereich, der zeigt, was über SSH auf diesem Pi geschieht.
+
+    Er lebt an zwei Orten: in seinem eigenen Fenster (die Klasse `Fenster`
+    weiter unten) und als fester Bereich in der Stellium-Konsole. Damit beides
+    dieselbe Mitschrift zeigt und gleich aussieht, wohnt hier alles, was mit
+    Anzeigen zu tun hat — Kopf, Tagesauswahl, Verlauf. Das Fenster drumherum
+    kümmert sich nur noch ums Auftauchen, Verschieben und Wegräumen.
+
+    `sprachknopf` — das EN/DE oben rechts. In der Konsole nicht: die hat schon
+                    einen eigenen und schaltet beide zusammen um.
+    `klappen`     — was der Knopf ▾ tun soll, oder None für keinen Knopf.
+    `schliessen`  — was der Knopf ✕ tun soll, oder None für keinen Knopf.
+    `dauerhaft`   — der Bereich verschwindet nie. Dann steht die Tagesauswahl
+                    immer bereit, denn es gibt nichts mehr, was sie verstecken
+                    könnte, und wer hinsieht, will nachlesen können.
+    `melden`      — wird nach jedem Nachsehen mit der Liste der laufenden
+                    Sitzungen gerufen; daran hängt das Fenster sein Auf- und
+                    Zumachen.
+    """
+
+    def __init__(self, eltern, sprachknopf=True, klappen=None, schliessen=None,
+                 dauerhaft=False, melden=None):
+        super().__init__(eltern, bg=FARBEN["grund"])
+        self.dauerhaft = dauerhaft
+        self.melden = melden
 
         eng = tkfont.Font(family="DejaVu Sans Mono", size=10)
         fett = tkfont.Font(family="DejaVu Sans", size=14, weight="bold")
         klein = tkfont.Font(family="DejaVu Sans", size=9)
 
         # ── Kopf: Farbverlauf statt flacher Fläche ──────────────
-        self.kopf = tk.Canvas(self.wurzel, height=KOPFHOCH, bd=0, highlightthickness=0,
+        self.kopf = tk.Canvas(self, height=KOPFHOCH, bd=0, highlightthickness=0,
                               bg=FARBEN["grund"])
         self.kopf.pack(fill="x")
         self.kopf.bind("<Configure>", self.kopf_malen)
@@ -316,52 +361,65 @@ class Fenster:
             48, 48, text="", anchor="w", fill=FARBEN["leise"], font=klein)
 
         # Knöpfe als Text auf der Leinwand — dann tragen sie den Verlauf mit.
-        self.klappe_id = self.kopf.create_text(
-            0, 32, text="▾", anchor="e", fill=FARBEN["leise"], font=fett)
-        # Ein Knopf, zwei Sprachen — die Wahl bleibt über Neustarts erhalten.
-        self.sprach_id = self.kopf.create_text(
-            0, 32, text="", anchor="e", fill=FARBEN["leise"],
-            font=tkfont.Font(family="DejaVu Sans", size=10, weight="bold"))
-        self.kopf.tag_bind(self.sprach_id, "<Button-1>", lambda _e: self.sprache_wechseln())
-        self.kopf.tag_bind(self.sprach_id, "<Enter>",
-                           lambda _e: self.kopf.itemconfig(self.sprach_id, fill=FARBEN["tinte"]))
-        self.kopf.tag_bind(self.sprach_id, "<Leave>",
-                           lambda _e: self.kopf.itemconfig(self.sprach_id, fill=FARBEN["leise"]))
-        self.schliessen_id = self.kopf.create_text(
-            0, 32, text="✕", anchor="e", fill=FARBEN["leise"], font=fett, state="hidden")
-        for kennung, was in ((self.klappe_id, self.umschalten),
-                             (self.schliessen_id, self.verstecken)):
-            self.kopf.tag_bind(kennung, "<Button-1>", lambda _e, f=was: f())
-            self.kopf.tag_bind(kennung, "<Enter>",
-                               lambda _e, k=kennung: self.kopf.itemconfig(k, fill=FARBEN["tinte"]))
-            self.kopf.tag_bind(kennung, "<Leave>",
-                               lambda _e, k=kennung: self.kopf.itemconfig(k, fill=FARBEN["leise"]))
-
-        # Verschieben: was keine Fensterleiste hat, muss man am Kopf anfassen können.
-        self.kopf.bind("<Button-1>", self.griff_setzen)
-        self.kopf.bind("<B1-Motion>", self.griff_ziehen)
+        # Es gibt sie nur, wo sie etwas bewirken: als Bereich in der Konsole
+        # lässt sich nichts einklappen und nichts wegräumen.
+        self.klappe_id = self.schliessen_id = self.sprach_id = None
+        if klappen:
+            self.klappe_id = self.kopf.create_text(
+                0, 32, text="▾", anchor="e", fill=FARBEN["leise"], font=fett)
+        if sprachknopf:
+            # Ein Knopf, zwei Sprachen — die Wahl bleibt über Neustarts erhalten.
+            self.sprach_id = self.kopf.create_text(
+                0, 32, text="", anchor="e", fill=FARBEN["leise"],
+                font=tkfont.Font(family="DejaVu Sans", size=10, weight="bold"))
+            self.knopf_beleben(self.sprach_id, self.sprache_wechseln)
+        if schliessen:
+            self.schliessen_id = self.kopf.create_text(
+                0, 32, text="✕", anchor="e", fill=FARBEN["leise"], font=fett, state="hidden")
+        for kennung, was in ((self.klappe_id, klappen), (self.schliessen_id, schliessen)):
+            if kennung is not None:
+                self.knopf_beleben(kennung, was)
 
         # ── Tagesauswahl ────────────────────────────────────────
         # Nur beim Nachlesen sinnvoll: wer gerade zusieht, will das Laufende.
-        self.leiste = tk.Frame(self.wurzel, bg=FARBEN["grund"])
+        self.leiste = tk.Frame(self, bg=FARBEN["grund"])
         self.tag_beschriftung = tk.Label(self.leiste, text=T("tag"), bg=FARBEN["grund"],
                                          fg=FARBEN["zeit"], font=klein)
         self.tag_beschriftung.pack(side="left", padx=(16, 8))
+        # Zwei Größen für dieselbe Sache: `tag_wahl` hält den Tag, mit dem
+        # gearbeitet wird ("heute" oder ein Datum), `tag_zeigt` das, was auf
+        # dem Knopf steht. Sonst stünde dort das nackte Wort „heute" — auch im
+        # Englischen und ohne den Zusatz „laufend".
         self.tag_wahl = tk.StringVar(value="heute")
+        self.tag_zeigt = tk.StringVar(value=T("heute"))
         self.tag_menue = tk.OptionMenu(self.leiste, self.tag_wahl, "heute")
         self.tag_menue.config(bg=FARBEN["karte"], fg=FARBEN["tinte"], relief="flat",
                               highlightthickness=0, bd=0, activebackground=FARBEN["linie"],
-                              activeforeground=FARBEN["tinte"], font=klein, cursor="hand2")
+                              activeforeground=FARBEN["tinte"], font=klein, cursor="hand2",
+                              textvariable=self.tag_zeigt)
         self.tag_menue["menu"].config(bg=FARBEN["karte"], fg=FARBEN["tinte"],
                                       activebackground=FARBEN["rand"], bd=0)
         self.tag_menue.pack(side="left")
 
-        # ── Mitschrift ──────────────────────────────────────────
-        self.rahmen = tk.Frame(self.wurzel, bg=FARBEN["linie"], bd=0)
-        self.rahmen.pack(fill="both", expand=True, padx=14, pady=(4, 10))
+        # ── Fußzeile ────────────────────────────────────────────
+        # Sie wird vor der Mitschrift gepackt und von unten her — sonst nimmt
+        # sich der Verlauf in einem knappen Streifen den ganzen Platz und
+        # Fußzeile und Tagesauswahl fallen unsichtbar hinten heraus.
+        self.fuss = tk.Label(
+            self, text=T("fuss"),
+            fg=FARBEN["zeit"], bg=FARBEN["grund"], anchor="w", font=klein,
+        )
+        self.fuss.pack(side="bottom", fill="x", padx=16, pady=(0, 10))
 
+        # ── Mitschrift ──────────────────────────────────────────
+        self.rahmen = tk.Frame(self, bg=FARBEN["linie"], bd=0)
+        self.rahmen.pack(side="top", fill="both", expand=True, padx=14, pady=(4, 10))
+
+        # Die Höhe in Zeilen ist nur ein Wunsch — sie soll klein bleiben: was
+        # übrig ist, holt sich der Verlauf ohnehin über `expand`. Stünde hier
+        # eine große Zahl, verdrängte sie in der Konsole alles andere.
         self.text = tk.Text(
-            self.rahmen, bg=FARBEN["tief"], fg=FARBEN["tinte"], font=eng,
+            self.rahmen, bg=FARBEN["tief"], fg=FARBEN["tinte"], font=eng, height=6,
             insertbackground=FARBEN["tinte"], relief="flat", padx=12, pady=10,
             wrap="word", state="disabled", spacing1=2, spacing3=1,
             selectbackground=FARBEN["rand"],
@@ -378,33 +436,41 @@ class Fenster:
         # Frisch Eingetroffenes leuchtet kurz auf und beruhigt sich dann.
         self.text.tag_config("frisch", foreground="#ffffff")
 
-        self.fuss = tk.Label(
-            self.wurzel,
-            text=T("fuss"),
-            fg=FARBEN["zeit"], bg=FARBEN["grund"], anchor="w", font=klein,
-        )
-        self.fuss.pack(fill="x", padx=16, pady=(0, 10))
-
         self.namen = herkunft_namen()
-        self.manuell = False
-        self.verstecken_um = None
-        self.eingeklappt = False
+        self.lebendig = True
+        self.offen = False
+        self.zaehler = 0
         self.takt = 0.0
         self.gezeigter_tag = "heute"
         self.tag_wahl.trace_add("write", lambda *_: self.tag_wechseln())
-        self.wurzel.protocol("WM_DELETE_WINDOW", self.einklappen)
-        sprache_laden()
+        if dauerhaft:
+            self.tagesauswahl(True)
         self.atmen()
 
         self.warteschlange = queue.Queue()
         threading.Thread(target=self.mitlesen, daemon=True).start()
-        self.nachsehen()
-        self.abarbeiten()
+        # Erst nachsehen, wenn die Schleife läuft: `melden` greift auf das
+        # Fenster zu, und das ist noch mitten im Aufbauen.
+        self.after(100, self.nachsehen)
+        self.after(300, self.abarbeiten)
+
+    def knopf_beleben(self, kennung, was):
+        """Einem Zeichen auf der Leinwand Klick und Aufleuchten beibringen."""
+        self.kopf.tag_bind(kennung, "<Button-1>", lambda _e: was())
+        self.kopf.tag_bind(kennung, "<Enter>",
+                           lambda _e: self.kopf.itemconfig(kennung, fill=FARBEN["tinte"]))
+        self.kopf.tag_bind(kennung, "<Leave>",
+                           lambda _e: self.kopf.itemconfig(kennung, fill=FARBEN["leise"]))
 
     # ── Aussehen und Bewegung ───────────────────────────────────
-    def kopf_malen(self, _ereignis=None):
-        """Farbverlauf und Knopfplätze neu setzen, wenn sich die Breite ändert."""
-        breite = max(self.kopf.winfo_width(), 1)
+    def kopf_malen(self, ereignis=None):
+        """Farbverlauf und Knopfplätze neu setzen, wenn sich die Breite ändert.
+
+        Die Breite kommt aus dem Ereignis, wenn es eines gibt: `winfo_width`
+        hinkt beim Wachsen manchmal hinterher, und dann endete der Verlauf
+        mitten im Kopf, wo vorher der Rand war.
+        """
+        breite = max(getattr(ereignis, "width", 0) or self.kopf.winfo_width(), 1)
         self.kopf.delete("verlauf")
         for y in range(KOPFHOCH):
             self.kopf.create_line(
@@ -413,10 +479,13 @@ class Fenster:
         # Ein violetter Faden ganz oben — das Erkennungszeichen von Stellium.
         self.kopf.create_line(0, 0, breite, 0, fill=FARBEN["rand"], width=2, tags="verlauf")
         self.kopf.tag_lower("verlauf")
-        self.kopf.coords(self.klappe_id, breite - 18, 32)
-        self.kopf.coords(self.schliessen_id, breite - 46, 32)
-        self.kopf.coords(self.sprach_id, breite - 74, 32)
-        self.kopf.itemconfig(self.sprach_id, text="EN" if SPRACHE == "de" else "DE")
+        if self.klappe_id is not None:
+            self.kopf.coords(self.klappe_id, breite - 18, 32)
+        if self.schliessen_id is not None:
+            self.kopf.coords(self.schliessen_id, breite - 46, 32)
+        if self.sprach_id is not None:
+            self.kopf.coords(self.sprach_id, breite - 74, 32)
+            self.kopf.itemconfig(self.sprach_id, text="EN" if SPRACHE == "de" else "DE")
 
     def tage_auffrischen(self):
         """Die Auswahl mit den Tagen füllen, an denen etwas geschah."""
@@ -430,9 +499,36 @@ class Fenster:
             menue.add_command(label=beschriftung,
                               command=lambda w=eintrag: self.tag_wahl.set(w))
 
+    def tagesauswahl(self, zeigen):
+        """Die Auswahl der Tage ein- oder ausblenden."""
+        if zeigen and not self.leiste.winfo_ismapped():
+            self.tage_auffrischen()
+            self.leiste.pack(fill="x", pady=(6, 0), before=self.rahmen)
+        elif not zeigen and self.leiste.winfo_ismapped():
+            self.leiste.pack_forget()
+            self.tag_wahl.set("heute")
+
+    def koerper(self, zeigen):
+        """Alles unter dem Kopf zeigen oder wegnehmen — fürs Einklappen."""
+        if zeigen:
+            # Erst die Fußzeile von unten, dann der Verlauf: in dieser
+            # Reihenfolge bleibt für beide Platz.
+            self.fuss.pack(side="bottom", fill="x", padx=16, pady=(0, 10))
+            self.rahmen.pack(side="top", fill="both", expand=True, padx=14, pady=(4, 10))
+        else:
+            self.rahmen.pack_forget()
+            self.fuss.pack_forget()
+            self.leiste.pack_forget()
+
+    def schliessknopf(self, zeigen):
+        """Das ✕ nur anbieten, wenn es etwas wegzuräumen gibt."""
+        if self.schliessen_id is not None:
+            self.kopf.itemconfig(self.schliessen_id, state="normal" if zeigen else "hidden")
+
     def tag_wechseln(self):
         """Einen anderen Tag anzeigen — oder zurück ins Laufende."""
         tag = self.tag_wahl.get()
+        self.tag_zeigt.set(T("heute") if tag == "heute" else tag)
         if tag == self.gezeigter_tag:
             return
         self.gezeigter_tag = tag
@@ -452,15 +548,25 @@ class Fenster:
             self.zeigen(uhr, text)
 
     def sprache_wechseln(self):
+        """Am eigenen Knopf zwischen Deutsch und Englisch umschalten."""
         global SPRACHE
         SPRACHE = "en" if SPRACHE == "de" else "de"
         sprache_sichern()
+        self.sprache_anwenden()
+
+    def sprache_anwenden(self):
+        """Die Beschriftungen in der eingestellten Sprache setzen.
+
+        Der Verlauf bleibt stehen, wie er ist — nachträglich übersetzen hieße,
+        Vergangenes umzuschreiben. Neues kommt in der neuen Sprache.
+        """
         self.tag_beschriftung.config(text=T("tag"))
         self.fuss.config(text=T("fuss"))
-        self.tage_auffrischen()
+        if self.gezeigter_tag == "heute":
+            self.tag_zeigt.set(T("heute"))
+        if self.leiste.winfo_ismapped():
+            self.tage_auffrischen()
         self.kopf_malen()
-        # Der Verlauf bleibt stehen, wie er ist — nachträglich übersetzen
-        # hieße, Vergangenes umzuschreiben. Neues kommt in der neuen Sprache.
 
     def setzen(self, titel=None, wer=None):
         if titel is not None:
@@ -476,7 +582,7 @@ class Fenster:
         """
         self.takt += 0.08
         welle = (math.sin(self.takt) + 1) / 2
-        if getattr(self, "lebendig", True):
+        if self.lebendig:
             farbe = mischen("#116b4e", FARBEN["gut"], welle)
             hof = mischen(FARBEN["tief"], FARBEN["gut"], welle * 0.55)
             gross = 1.0 + welle * 0.8
@@ -488,141 +594,30 @@ class Fenster:
         self.kopf.coords(self.punkt, mitte_x - r, mitte_y - r, mitte_x + r, mitte_y + r)
         gr = r * (1.6 + gross * 0.5)
         self.kopf.coords(self.hof, mitte_x - gr, mitte_y - gr, mitte_x + gr, mitte_y + gr)
-        self.wurzel.after(60, self.atmen)
-
-    def blende(self, nach, schritt=0.12, danach=None):
-        """Weich auf- oder abblenden statt hart erscheinen."""
-        try:
-            jetzt = float(self.wurzel.attributes("-alpha"))
-        except (tk.TclError, ValueError):
-            if danach:
-                danach()
-            return
-        if abs(jetzt - nach) < 0.01:
-            self.wurzel.attributes("-alpha", nach)
-            if danach:
-                danach()
-            return
-        weiter = jetzt + schritt if nach > jetzt else jetzt - schritt
-        self.wurzel.attributes("-alpha", max(0.0, min(1.0, weiter)))
-        self.wurzel.after(16, lambda: self.blende(nach, schritt, danach))
-
-    def hoehe_ziehen(self, ziel, schritt=0):
-        """Ein- und Ausklappen als Bewegung, nicht als Sprung."""
-        jetzt = self.wurzel.winfo_height()
-        if abs(jetzt - ziel) < 8 or schritt > 40:
-            self.wurzel.geometry(f"{BREIT}x{ziel}+{self.wurzel.winfo_x()}+{self.wurzel.winfo_y()}")
-            return
-        # Je näher am Ziel, desto kleiner die Schritte — das wirkt weich.
-        weiter = int(jetzt + (ziel - jetzt) * 0.28)
-        self.wurzel.geometry(f"{BREIT}x{weiter}+{self.wurzel.winfo_x()}+{self.wurzel.winfo_y()}")
-        self.wurzel.after(16, lambda: self.hoehe_ziehen(ziel, schritt + 1))
-
-    # ── Verschieben ─────────────────────────────────────────────
-    def griff_setzen(self, ereignis):
-        self._griff = (ereignis.x_root, ereignis.y_root,
-                       self.wurzel.winfo_x(), self.wurzel.winfo_y())
-
-    def griff_ziehen(self, ereignis):
-        if not getattr(self, "_griff", None):
-            return
-        zx, zy, fx, fy = self._griff
-        self.wurzel.geometry(f"+{fx + ereignis.x_root - zx}+{fy + ereignis.y_root - zy}")
-
-    # ── Ein- und ausklappen ─────────────────────────────────────
-    def einklappen(self):
-        if self.eingeklappt:
-            return
-        self.eingeklappt = True
-        self.rahmen.pack_forget()
-        self.fuss.pack_forget()
-        self.leiste.pack_forget()
-        self.kopf.itemconfig(self.klappe_id, text="▴")
-        self.hoehe_ziehen(KOPFHOCH)
-
-    def ausklappen(self):
-        if not self.eingeklappt:
-            return
-        self.namen = herkunft_namen()
-        self.manuell = False
-        self.verstecken_um = None
-        self.eingeklappt = False
-        self.rahmen.pack(fill="both", expand=True, padx=14, pady=(4, 10))
-        self.fuss.pack(fill="x", padx=16, pady=(0, 10))
-        self.kopf.itemconfig(self.klappe_id, text="▾")
-        self.hoehe_ziehen(HOCH)
-
-    def umschalten(self):
-        self.ausklappen() if self.eingeklappt else self.einklappen()
+        self.after(60, self.atmen)
 
     # ── Sitzungen beobachten ────────────────────────────────────
     def nachsehen(self):
+        """Wer ist gerade da? Der Kopf sagt es, das Fenster hört mit."""
         offen = sitzungen()
-
-        # Klingel vom Desktop: dann zeigen, auch wenn niemand verbunden ist.
-        if os.path.exists(RUFEN):
-            try:
-                os.remove(RUFEN)
-            except OSError:
-                pass
-            self.manuell = True
-            self.verstecken_um = None
-            self.zeigen_lassen()
-
         if offen:
-            self.manuell = False
-            self.verstecken_um = None
-            if self.leiste.winfo_ismapped():
-                self.leiste.pack_forget()
-                self.tag_wahl.set("heute")
-            self.zeigen_lassen()
             self.lebendig = True
-            self.setzen(titel=(
-                T("arbeitet", wer=offen[0][0]) if len(offen) == 1
-                else T("mehrere", n=len(offen))
-            ), wer="   ·   ".join(
-                f"{wer} · {herkunft}" for wer, herkunft, _seit in offen
-            ))
             self.namen = herkunft_namen()
-        elif self.sichtbar:
+            self.setzen(titel=(T("arbeitet", wer=offen[0][0]) if len(offen) == 1
+                               else T("mehrere", n=len(offen))),
+                        wer="   ·   ".join(f"{wer} · {herkunft}"
+                                           for wer, herkunft, _seit in offen))
+            # Wer zusieht, während jemand arbeitet, will das Laufende sehen —
+            # die Tagesauswahl tritt so lange zurück. Im festen Bereich der
+            # Konsole bleibt sie stehen: dort ist Platz genug für beides.
+            if not self.dauerhaft:
+                self.tagesauswahl(False)
+        else:
             self.lebendig = False
-            if self.manuell:
-                self.setzen(titel=T("protokoll"), wer=T("niemand"))
-                if not self.leiste.winfo_ismapped():
-                    self.tage_auffrischen()
-                    self.leiste.pack(fill="x", pady=(6, 0), before=self.rahmen)
-            else:
-                # Noch eine Minute stehen lassen: die letzten Zeilen will man
-                # meist noch lesen, wenn die Verbindung eben erst endete.
-                if self.verstecken_um is None:
-                    self.verstecken_um = time.monotonic() + NACHLAUF
-                rest = int(self.verstecken_um - time.monotonic())
-                self.setzen(titel=T("beendet"), wer=T("schliesst", n=max(rest, 0)))
-                if rest <= 0:
-                    self.verstecken_um = None
-                    self.blende(0.0, danach=self._wegraeumen)
-
-        self.kopf.itemconfig(self.schliessen_id,
-                             state="normal" if (self.sichtbar and not offen) else "hidden")
-        self.wurzel.after(int(TAKT * 1000), self.nachsehen)
-
-    def zeigen_lassen(self):
-        if not self.sichtbar:
-            self.wurzel.deiconify()
-            self.wurzel.lift()
-            self.sichtbar = True
-            self.kopf_malen()
-            self.blende(1.0)
-
-    def verstecken(self):
-        """Nur wegräumen, nicht beenden — der Wächter bleibt wach."""
-        self.blende(0.0, danach=self._wegraeumen)
-
-    def _wegraeumen(self):
-        self.wurzel.withdraw()
-        self.sichtbar = False
-        self.manuell = False
-        self.verstecken_um = None
+            self.setzen(titel=T("protokoll"), wer=T("niemand"))
+        if self.melden:
+            self.melden(offen)
+        self.after(int(TAKT * 1000), self.nachsehen)
 
     # ── Mitschrift lesen ────────────────────────────────────────
     def mitlesen(self):
@@ -695,7 +690,7 @@ class Fenster:
             # Wer in einem alten Tag liest, soll nicht von Neuem überschrieben werden.
             if self.gezeigter_tag == "heute":
                 self.zeigen(uhr, text)
-        self.wurzel.after(300, self.abarbeiten)
+        self.after(300, self.abarbeiten)
 
     def schreiben(self, stuecke):
         """Eine Zeile aus mehreren gefärbten Stücken setzen."""
@@ -706,7 +701,7 @@ class Fenster:
         self.text.insert("end", "\n")
         # Kurz aufleuchten lassen, damit das Auge das Neue findet.
         self.text.tag_add("frisch", anfang, "end-1c")
-        self.wurzel.after(700, lambda a=anfang: self._abklingen(a))
+        self.after(700, lambda a=anfang: self._abklingen(a))
         # Nicht endlos wachsen lassen.
         if int(self.text.index("end-1c").split(".")[0]) > ZEILEN:
             self.text.delete("1.0", "2.0")
@@ -739,7 +734,7 @@ class Fenster:
             self.offen = True
             self.zaehler = 0
         elif text.startswith("SCHLIESST"):
-            anzahl = getattr(self, "zaehler", 0)
+            anzahl = self.zaehler
             hinweis = (f"  ·  {anzahl} {T('befehl') if anzahl == 1 else T('befehle')}") if anzahl else ""
             self.schreiben([(zeit, "zeit"), ("└ ", "strich"), (T("geschlossen"), "ende"),
                             (hinweis, "leise")])
@@ -749,11 +744,11 @@ class Fenster:
             self.schreiben([(zeit, "zeit"), ("│ ", "strich"), (T("dateien"), "datei"),
                             (f"  ·  {text[7:].strip()}", "leise")])
         else:
-            self.zaehler = getattr(self, "zaehler", 0) + 1
+            self.zaehler += 1
             zeilen = [z for z in text.splitlines() if z.strip()]
             if not zeilen:
                 return
-            balken = "│ " if getattr(self, "offen", False) else "  "
+            balken = "│ " if self.offen else "  "
             self.schreiben([(zeit, "zeit"), (balken, "strich"), (zeilen[0].strip(), "befehl")])
             # Mehrzeiliges eingerückt darunter, damit es zusammenhängend bleibt.
             for weiter in zeilen[1:]:
@@ -761,5 +756,139 @@ class Fenster:
                                 ("  " + weiter.strip(), "leise")])
 
 
+class Fenster:
+    """Das eigene Fenster um die Mitschrift herum — zum Nachlesen.
+
+    Es geht nicht mehr von selbst auf. Früher sprang es hoch, sobald jemand
+    über SSH arbeitete; seit die Mitschrift dauerhaft unten in der Konsole
+    steht, sieht man dort ohnehin, was geschieht, und ein Fenster, das sich bei
+    jeder Verbindung vordrängt, stört nur. Geöffnet wird es von Hand über
+    „Fernzugriff-Protokoll" im Startmenü.
+
+    Alles Inhaltliche macht die `Mitschrift` darin — hier geht es nur ums
+    Verschieben, Einklappen und Schließen.
+    """
+
+    def __init__(self):
+        self.wurzel = tk.Tk(className="stellium-fernzugriff")
+        self.wurzel.title("Stellium — Fernzugriff")
+        self.wurzel.configure(bg=FARBEN["grund"])
+        self.wurzel.attributes("-topmost", True)
+        # Ohne Fensterleiste: das Fenster bringt seine Knöpfe im Kopf mit und
+        # lässt sich dort auch anfassen und verschieben.
+        self.wurzel.overrideredirect(True)
+        self.wurzel.geometry(f"{BREIT}x{HOCH}+40+40")
+        try:
+            self.wurzel.attributes("-alpha", 0.0)
+        except tk.TclError:
+            pass                        # ohne Compositor eben ohne Blende
+
+        self.eingeklappt = False
+        sprache_laden()
+
+        # `dauerhaft`: wer das Fenster von Hand öffnet, will nachlesen — dann
+        # steht die Tagesauswahl von Anfang an bereit.
+        self.mitschrift = Mitschrift(self.wurzel, sprachknopf=True,
+                                     klappen=self.umschalten,
+                                     schliessen=self.schliessen,
+                                     dauerhaft=True,
+                                     melden=self.melden)
+        self.mitschrift.pack(fill="both", expand=True)
+        self.mitschrift.schliessknopf(True)
+        # Verschieben: was keine Fensterleiste hat, muss man am Kopf anfassen können.
+        self.mitschrift.kopf.bind("<Button-1>", self.griff_setzen)
+        self.mitschrift.kopf.bind("<B1-Motion>", self.griff_ziehen)
+        self.wurzel.protocol("WM_DELETE_WINDOW", self.schliessen)
+        self.blende(1.0)
+
+    # ── Auf- und abblenden ──────────────────────────────────────
+    def blende(self, nach, schritt=0.12, danach=None):
+        """Weich auf- oder abblenden statt hart erscheinen."""
+        try:
+            jetzt = float(self.wurzel.attributes("-alpha"))
+        except (tk.TclError, ValueError):
+            if danach:
+                danach()
+            return
+        if abs(jetzt - nach) < 0.01:
+            self.wurzel.attributes("-alpha", nach)
+            if danach:
+                danach()
+            return
+        weiter = jetzt + schritt if nach > jetzt else jetzt - schritt
+        self.wurzel.attributes("-alpha", max(0.0, min(1.0, weiter)))
+        self.wurzel.after(16, lambda: self.blende(nach, schritt, danach))
+
+    def hoehe_ziehen(self, ziel, schritt=0):
+        """Ein- und Ausklappen als Bewegung, nicht als Sprung."""
+        jetzt = self.wurzel.winfo_height()
+        if abs(jetzt - ziel) < 8 or schritt > 40:
+            self.wurzel.geometry(f"{BREIT}x{ziel}+{self.wurzel.winfo_x()}+{self.wurzel.winfo_y()}")
+            return
+        # Je näher am Ziel, desto kleiner die Schritte — das wirkt weich.
+        weiter = int(jetzt + (ziel - jetzt) * 0.28)
+        self.wurzel.geometry(f"{BREIT}x{weiter}+{self.wurzel.winfo_x()}+{self.wurzel.winfo_y()}")
+        self.wurzel.after(16, lambda: self.hoehe_ziehen(ziel, schritt + 1))
+
+    # ── Verschieben ─────────────────────────────────────────────
+    def griff_setzen(self, ereignis):
+        self._griff = (ereignis.x_root, ereignis.y_root,
+                       self.wurzel.winfo_x(), self.wurzel.winfo_y())
+
+    def griff_ziehen(self, ereignis):
+        if not getattr(self, "_griff", None):
+            return
+        zx, zy, fx, fy = self._griff
+        self.wurzel.geometry(f"+{fx + ereignis.x_root - zx}+{fy + ereignis.y_root - zy}")
+
+    # ── Ein- und ausklappen ─────────────────────────────────────
+    def einklappen(self):
+        if self.eingeklappt:
+            return
+        self.eingeklappt = True
+        self.mitschrift.koerper(False)
+        self.mitschrift.kopf.itemconfig(self.mitschrift.klappe_id, text="▴")
+        self.hoehe_ziehen(KOPFHOCH)
+
+    def ausklappen(self):
+        if not self.eingeklappt:
+            return
+        self.eingeklappt = False
+        self.mitschrift.namen = herkunft_namen(frisch=True)
+        self.mitschrift.koerper(True)
+        self.mitschrift.tagesauswahl(True)
+        self.mitschrift.kopf.itemconfig(self.mitschrift.klappe_id, text="▾")
+        self.hoehe_ziehen(HOCH)
+
+    def umschalten(self):
+        self.ausklappen() if self.eingeklappt else self.einklappen()
+
+    # ── Was die Mitschrift beobachtet hat ───────────────────────
+    def melden(self, _offen):
+        """Nach jedem Nachsehen — hier bleibt nur die Klingel zu prüfen.
+
+        Wird „Fernzugriff-Protokoll" noch einmal aufgerufen, während das
+        Fenster schon läuft, legt der Aufruf eine Datei ab. Dann kommt dieses
+        Fenster wieder nach vorn, statt dass ein zweites aufgeht.
+        """
+        if os.path.exists(RUFEN):
+            try:
+                os.remove(RUFEN)
+            except OSError:
+                pass
+            self.ausklappen()
+            self.wurzel.lift()
+            self.blende(1.0)
+
+    def schliessen(self):
+        """Zumachen heißt zumachen — nachlesen kann man jederzeit wieder."""
+        self.blende(0.0, danach=self.wurzel.destroy)
+
+
 if __name__ == "__main__":
+    # Eine Klingel, die noch vom Aufruf herumliegt, gehört nicht uns.
+    try:
+        os.remove(RUFEN)
+    except OSError:
+        pass
     Fenster().wurzel.mainloop()

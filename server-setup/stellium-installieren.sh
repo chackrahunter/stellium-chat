@@ -589,6 +589,18 @@ rm -f /etc/nginx/sites-enabled/default
 pruefe_nginx() {
   local ausgabe
   if ! ausgabe="$(nginx -t 2>&1)"; then
+    # Die eben geschriebene Site ist schon verlinkt. Bliebe sie liegen, käme
+    # nginx nach dem nächsten Neustart des Pi gar nicht mehr hoch — der Server
+    # wäre dann weder über HTTPS noch über HTTP erreichbar.
+    #
+    # Mit einem Namen als Angabe gibt es einen Stand, auf den sich zurückgehen
+    # lässt: die Fassung ohne TLS lief vorhin schon. Ohne Namen bleibt nur, die
+    # abgelehnte Site wieder auszuhängen.
+    if [[ -n "${1:-}" ]] && schreibe_nur_http "$1" && nginx -t >/dev/null 2>&1; then
+      systemctl reload nginx >/dev/null 2>&1 || true
+    else
+      rm -f /etc/nginx/sites-enabled/stellium
+    fi
     fehler "$(printf 'nginx lehnt die Konfiguration ab:\n\n%s' "$ausgabe")"
   fi
 }
@@ -615,6 +627,13 @@ schreibe_mit_tls() {
   # Nur wenn HTTPS woanders läuft, gehört der Port in die Weiterleitung.
   local SUFFIX=""
   [[ "$PORT_HTTPS" != "443" ]] && SUFFIX=":$PORT_HTTPS"
+  # "http2 on;" gibt es erst ab nginx 1.25.1. Bookworm liefert 1.22.1 und lehnt
+  # die Zeile rundheraus ab, deshalb darf sie nur hinein, wenn dieses nginx sie
+  # auch kennt. Ohne sie läuft HTTPS über HTTP/1.1 — vollständig, nur ohne
+  # Multiplexing.
+  local NGINX_VERSION HTTP2=""
+  NGINX_VERSION="$(nginx -v 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)"
+  [[ -n "$NGINX_VERSION" ]] && dpkg --compare-versions "$NGINX_VERSION" ge 1.25.1 2>/dev/null && HTTP2="  http2 on;"
   cat > /etc/nginx/sites-available/stellium <<NGINX
 # Alles Unverschlüsselte geht nach oben — außer der Prüfung von Let's Encrypt,
 # die muss über Port 80 laufen.
@@ -630,7 +649,7 @@ server {
 server {
   listen $PORT_HTTPS ssl;
   listen [::]:$PORT_HTTPS ssl;
-  http2 on;
+$HTTP2
   server_name $NAME;
 
   ssl_certificate     /etc/letsencrypt/live/$NAME/fullchain.pem;
@@ -865,7 +884,10 @@ TXT
 
   # Jetzt die vollständige Konfiguration mit TLS.
   schreibe_mit_tls "$DOMAIN"
-  pruefe_nginx
+  # Mit dem Namen als Angabe: lehnt nginx die TLS-Fassung ab, kommt hier die
+  # Fassung ohne TLS zurück, die vorhin schon lief. Der Server ist dann
+  # wenigstens über Port 80 erreichbar statt gar nicht.
+  pruefe_nginx "$DOMAIN"
   # Neustart statt reload: "nginx -t" öffnet keine Sockets und merkt deshalb
   # nichts davon, wenn der HTTPS-Port schon jemand anderem gehört. Ein reload
   # schluckt so einen Bindefehler still, ein restart läuft in die ERR-Falle.
@@ -1001,18 +1023,14 @@ if [[ -d /etc/xdg/autostart && -n "$BROWSER" ]]; then
     START="$BROWSER --app=http://127.0.0.1:$PORT/konsole --window-size=1240,860 --disable-features=TranslateUI"
   fi
 
-  cat > /etc/xdg/autostart/stellium-konsole.desktop <<DESKTOP
-[Desktop Entry]
-Type=Application
-Name=Stellium — Server
-Comment=Übersicht und Bedienung des Chat-Servers
-Exec=$START
-Icon=utilities-system-monitor
-Terminal=false
-X-GNOME-Autostart-Delay=12
-DESKTOP
+  # Bewusst KEIN Eintrag in /etc/xdg/autostart: die grafische Konsole ist
+  # inzwischen der Schreibtischhintergrund selbst (siehe konsole-gui/). Ein
+  # zusätzliches Browserfenster bei jeder Anmeldung legte sich genau darüber
+  # und verdeckte das, was es zeigen sollte. Wer die Ansicht im Browser will,
+  # findet sie weiterhin im Startmenü.
+  rm -f /etc/xdg/autostart/stellium-konsole.desktop
 
-  # Auch im Startmenü, damit man es nach dem Schließen wiederfindet.
+  # Im Startmenü, damit man sie bei Bedarf von Hand öffnen kann.
   install -d /usr/share/applications
   cat > /usr/share/applications/stellium-konsole.desktop <<DESKTOP
 [Desktop Entry]
@@ -1046,19 +1064,91 @@ schritt "Nächtliche Sicherung"
 
 cat > /usr/local/bin/stellium-sichern <<'SICHERUNG'
 #!/usr/bin/env bash
-# Kopie der Datenbank, ohne den Dienst anzuhalten.
+# Kopie der Datenbank, ohne den Dienst anzuhalten — und ein Spiegel des
+# Blockspeichers, ohne den die Datenbank die halbe Wahrheit wäre.
 set -Eeuo pipefail
-ZIEL="/var/lib/stellium/sicherungen"
+# Überschreibbar, damit sich der Lauf an einer Kopie erproben lässt, ohne den
+# echten Datenbestand anzufassen.
+DATEN="${STELLIUM_DATA:-/var/lib/stellium}"
+ZIEL="$DATEN/sicherungen"
+BLOECKE="$DATEN/storage/bloecke"
+SPIEGEL="$ZIEL/bloecke"
 mkdir -p "$ZIEL"
 STAND="$(date +%Y%m%d-%H%M)"
 # .backup statt cp: eine laufende Datenbank lässt sich nicht einfach kopieren.
-sqlite3 /var/lib/stellium/stellium.db ".backup '$ZIEL/stellium-$STAND.db'" 2>/dev/null \
-  || cp /var/lib/stellium/stellium.db "$ZIEL/stellium-$STAND.db"
+sqlite3 "$DATEN/stellium.db" ".backup '$ZIEL/stellium-$STAND.db'" 2>/dev/null \
+  || cp "$DATEN/stellium.db" "$ZIEL/stellium-$STAND.db"
 gzip -f "$ZIEL/stellium-$STAND.db"
 
 # Der Tresor gehört dazu: ohne ihn fehlt nach einer Wiederherstellung der
 # Groq-Schlüssel. Er ist selbst verschlüsselt und darf hier liegen.
-[[ -f /var/lib/stellium/secrets.enc ]] && cp -f /var/lib/stellium/secrets.enc "$ZIEL/secrets.enc"
+[[ -f "$DATEN/secrets.enc" ]] && cp -f "$DATEN/secrets.enc" "$ZIEL/secrets.enc"
+
+# Drei Stände genügen — der älteste weicht, sobald ein vierter entsteht.
+# Bewusst vor dem Blockspeicher: der räumt gleich danach anhand genau dieser
+# Stände auf und soll dabei die endgültige Liste vor sich haben.
+ls -1t "$ZIEL"/stellium-*.db.gz 2>/dev/null | tail -n +4 | xargs -r rm -f
+
+# ── Blockspeicher ───────────────────────────────────────────────
+#
+# In der Datenbank steht zu jeder Datei nur die Liste ihrer Blöcke. Die Bytes
+# selbst liegen unter storage/bloecke/. Ohne sie ist ein zurückgespielter
+# Datenbankstand wertlos: die Listen zeigen ins Leere, und jede hochgeladene
+# Datei ist weg.
+#
+# Ein tägliches Vollpaket verbietet sich — der Speicher darf viele Gigabyte
+# groß werden. Es ist aber auch gar nicht nötig, und zwar aus einem Grund, der
+# in diesem Speicher steckt: **jeder Block heißt so, wie sein Inhalt lautet**
+# (SHA-256). Ein Block wird einmal geschrieben und danach nie wieder
+# angefasst — er kann nur noch entstehen oder verschwinden. Was gestern
+# gesichert wurde, ist heute Byte für Byte dasselbe.
+#
+# Deshalb Hardlinks: der Spiegel bekommt für jeden neuen Block einen zweiten
+# Namen auf dieselben Bytes. Das kostet einen Verzeichniseintrag und sonst
+# nichts, und der Lauf dauert so lange, wie es NEUE Blöcke gibt — nicht so
+# lange, wie der Speicher groß ist.
+#
+# Wogegen das schützt: der Server gibt Blöcke frei, sobald keine Datei sie mehr
+# braucht. Ein aufgehobener Datenbankstand von vorgestern zählt sie aber
+# vielleicht noch auf. Der Hardlink hält die Bytes am Leben, auch wenn der
+# Server seinen eigenen Namen dafür gelöscht hat — genau die Lücke, um die es
+# hier geht.
+#
+# Wogegen es NICHT schützt: gegen den Ausfall der Platte. Dagegen hilft nur,
+# sicherungen/ regelmäßig vom Pi herunterzuholen — für die Datenbankstände
+# gilt dasselbe, die liegen auch hier.
+if [[ -d "$BLOECKE" ]]; then
+  mkdir -p "$SPIEGEL"
+  # -l Hardlink statt Kopie, -n vorhandene nicht anfassen, -a Aufbau und
+  # Zeitstempel mitnehmen. Liegen Spiegel und Speicher wider Erwarten auf
+  # verschiedenen Dateisystemen, gehen Hardlinks nicht — dann eben doch
+  # kopieren, langsam ist besser als gar nicht.
+  cp -aln "$BLOECKE/." "$SPIEGEL/" 2>/dev/null \
+    || cp -an "$BLOECKE/." "$SPIEGEL/" 2>/dev/null || true
+
+  # Aufräumen: ein gespiegelter Block darf erst weg, wenn ihn weder der
+  # laufende Speicher noch einer der aufgehobenen Datenbankstände noch nennt.
+  # Über das Alter der Datei ließe sich das nicht entscheiden — ein Hardlink
+  # teilt sich den Zeitstempel mit dem Original und verrät nichts darüber,
+  # wann gespiegelt wurde. Die Datenbankstände dagegen sagen es genau.
+  ARBEIT="$(mktemp -d)"
+  trap 'rm -rf "$ARBEIT"' EXIT
+  {
+    find "$BLOECKE" -type f -printf '%f\n' 2>/dev/null || true
+    for GESICHERT in "$ZIEL"/stellium-*.db.gz; do
+      [[ -e "$GESICHERT" ]] || continue
+      gunzip -c "$GESICHERT" > "$ARBEIT/stand.db" 2>/dev/null || continue
+      sqlite3 "$ARBEIT/stand.db" 'SELECT summe FROM bloecke' 2>/dev/null || true
+    done
+  } | sort -u > "$ARBEIT/behalten"
+
+  find "$SPIEGEL" -type f -printf '%f\n' 2>/dev/null | sort -u > "$ARBEIT/gespiegelt"
+  comm -23 "$ARBEIT/gespiegelt" "$ARBEIT/behalten" | while read -r SUMME; do
+    [[ ${#SUMME} -ge 4 ]] || continue
+    rm -f "$SPIEGEL/${SUMME:0:2}/${SUMME:2:2}/$SUMME"
+  done
+  find "$SPIEGEL" -mindepth 1 -type d -empty -delete 2>/dev/null || true
+fi
 
 # Der Hinweis, ohne den eine Sicherung wertlos wäre.
 cat > "$ZIEL/LIESMICH.txt" <<'HINWEIS'
@@ -1078,10 +1168,20 @@ Wiederherstellen:
     gunzip -c stellium-JJJJMMTT-HHMM.db.gz > /var/lib/stellium/stellium.db
     sudo chown stellium:stellium /var/lib/stellium/stellium.db
     sudo systemctl start stellium
-HINWEIS
 
-# Drei Stände genügen — der älteste weicht, sobald ein vierter entsteht.
-ls -1t "$ZIEL"/stellium-*.db.gz 2>/dev/null | tail -n +4 | xargs -r rm -f
+Hochgeladene Dateien liegen NICHT in der Datenbank, sondern im Ordner
+bloecke/ daneben. In der Datenbank steht nur, aus welchen Blöcken eine
+Datei besteht. Wer einen alten Datenbankstand zurückspielt, muss die
+fehlenden Blöcke mit zurückholen — sonst zeigen die Listen ins Leere:
+
+    sudo systemctl stop stellium
+    sudo -u stellium cp -aln bloecke/. /var/lib/stellium/storage/bloecke/
+    sudo systemctl start stellium
+
+Das -n ist wichtig: vorhandene Blöcke bleiben, wie sie sind. Sie können
+gar nicht falsch sein — der Name eines Blocks ist die Prüfsumme seines
+Inhalts.
+HINWEIS
 SICHERUNG
 chmod 755 /usr/local/bin/stellium-sichern
 
@@ -1115,7 +1215,7 @@ TIMER
 systemctl daemon-reload
 systemctl enable --quiet stellium-sicherung.timer
 systemctl start stellium-sicherung.timer
-ok "Jede Nacht um 3:30, vierzehn Stände werden aufgehoben"
+ok "Jede Nacht um 23:00, drei Stände samt Blockspeicher werden aufgehoben"
 
 # ── Fertig ──────────────────────────────────────────────────────
 sleep 2

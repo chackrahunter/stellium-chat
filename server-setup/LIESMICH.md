@@ -93,9 +93,11 @@ muss also erreichbar sein, bevor es ein Zertifikat gibt.
 | **nginx** | nimmt HTTPS entgegen, reicht nach innen weiter, hält die WebSocket-Verbindung offen |
 | **Firewall** | nur SSH, 80 und 443 — sonst nichts |
 | **fail2ban** | sperrt aus, wer Passwörter durchprobiert |
-| **Aktualisierungen** | Sicherheitspakete kommen automatisch, Neustart nachts um vier falls nötig |
-| **Sicherung** | jede Nacht um 3:30, vierzehn Stände unter `/var/lib/stellium/sicherungen` |
+| **Aktualisierungen** | Sicherheitspakete des Systems kommen automatisch, ohne Neustart von selbst |
+| **Abhängigkeiten** | jede Nacht um 4:30 — gefahrlose Stände kommen herein, größere Sprünge werden gemeldet (`server-setup/abhaengigkeiten/`) |
+| **Sicherung** | jede Nacht um 23:00, drei Stände samt Blockspeicher unter `/var/lib/stellium/sicherungen` |
 | **Portwahl** | 80 und 443, sonst automatisch 8080 und 8443 |
+| **Fernzugang** | der Pi schreibt alle zehn Minuten auf, wo er erreichbar ist (`server-setup/fernzugang/`) |
 | **Statuskonsole** | öffnet sich beim Anmelden von selbst |
 | **Browser-Zugang** | die Oberfläche läuft auch ohne App, direkt im Browser |
 

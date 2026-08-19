@@ -6,12 +6,28 @@ Zeigt denselben Stand wie `stellium-konsole` im Terminal — nur eben zum
 Anschauen statt zum Lesen. Die Zahlen kommen aus genau derselben Quelle
 (`stellium-konsole json`), damit beide Anzeigen nie auseinanderlaufen.
 
+Zwei Betriebsarten:
+
+  ohne Zusatz     ein gewöhnliches Fenster, das man öffnet und schließt.
+  --hintergrund   der lebende Schreibtischgrund: randlos, ganz hinten, auf
+                  allen Arbeitsflächen, ohne Eintrag in der Fensterleiste.
+                  Wie das genau geht, steht bei `hintergrund_einrichten`.
+
+Unten sitzt der Fernzugriff: derselbe Bereich, den auch das eigenständige
+Wächterfenster zeigt (ssh-wache/wache.py) — hier fest eingebaut, statt
+aufzuspringen.
+
 Braucht nichts außer python3-tk.
 """
+import glob
+import importlib.util
 import json
 import math
 import os
+import re
+import shlex
 import subprocess
+import sys
 import threading
 import time
 import tkinter as tk
@@ -20,6 +36,49 @@ from tkinter import font as tkfont
 KONSOLE = ["/usr/bin/node", "/opt/stellium/server-setup/stellium-konsole.mjs", "json"]
 TAKT = 2.0
 SPRACHDATEI = os.path.expanduser("~/.config/stellium-konsole-sprache")
+
+# Aufruf mit „--hintergrund" macht aus dem Fenster den Schreibtischgrund.
+HINTERGRUND = "--hintergrund" in sys.argv[1:]
+
+# Woran der Fenstermanager seine Regel festmacht: der Klassenname des Fensters
+# (bei labwc <windowRule identifier="…">). Nur im Hintergrundbetrieb heißt das
+# Fenster so — eine von Hand geöffnete Konsole soll ein gewöhnliches Fenster
+# bleiben und nicht ebenfalls nach ganz hinten rutschen.
+FENSTERKLASSE = "stellium-hintergrund" if HINTERGRUND else "stellium-konsole"
+
+# Wo die Mitschrift des Fernzugriffs zu finden ist. Sie bleibt ein eigenes
+# Programm; hier wird nur ihr Anzeigeteil geholt und als Bereich eingesetzt,
+# damit beide Fassungen dasselbe zeigen und niemand zwei pflegen muss.
+WACHE_ORTE = (
+    "/usr/local/lib/stellium/ssh-wache.py",                  # so liegt sie auf dem Pi
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "ssh-wache.py"),
+    os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                 os.pardir, "ssh-wache", "wache.py"),        # so liegt sie im Quelltext
+)
+
+
+def wache_holen():
+    """Den Anzeigeteil der SSH-Wache nachladen, wenn es ihn gibt.
+
+    Bewusst über den Dateipfad statt über `import`: die Datei heißt auf dem Pi
+    anders als im Quelltext und liegt in keinem Modulpfad. Findet sie sich
+    nicht oder lässt sie sich nicht laden, läuft die Konsole ohne diesen
+    Bereich weiter — sie ist nicht darauf angewiesen.
+    """
+    for ort in WACHE_ORTE:
+        if not os.path.isfile(ort):
+            continue
+        try:
+            angabe = importlib.util.spec_from_file_location("stellium_wache", ort)
+            teil = importlib.util.module_from_spec(angabe)
+            angabe.loader.exec_module(teil)
+            return teil
+        except Exception:                              # noqa: BLE001
+            return None                                # lieber ohne als halb
+    return None
+
+
+WACHE = wache_holen()
 
 TEXTE = {
     "de": {
@@ -33,6 +92,8 @@ TEXTE = {
         "temperatur": "Temperatur", "kerne": "Kerne", "frei": "frei",
         "laeuft_auto": "läuft · startet automatisch", "laeuft": "läuft",
         "aus": "AUS", "an": "an", "uebersetzung_aus": "aus",
+        "stumm": "antwortet nicht", "ohne_modell": "kein Modell geladen",
+        "seit": "seit", "nie_erreicht": "noch nie erreicht",
         "kein_zert": "keines — Verbindung offen", "noch_keine": "noch keine",
         "stand": "Stand", "staende": "Stände", "tage": "noch {n} Tage",
         "eigenes_netz": "im eigenen Netz", "offen": "unverschlüsselt",
@@ -46,6 +107,20 @@ TEXTE = {
         "fuss": "Aktualisiert sich alle zwei Sekunden  ·  im Terminal:  stellium-konsole",
         "verbinde": "verbinde …", "keine_verbindung": "Keine Verbindung zur Konsole: {f}",
         "tage_kurz": "Tage", "std": "Std", "min": "Min",
+        # ── Ablage: die Leiste mit den Plätzen
+        "ablage_titel": "Schnellzugriff",
+        "ablage_hinweis": "Klicken zum Ablegen  ·  Umschalt und Klick zum Ändern",
+        "was_ablegen": "Was soll hier liegen?",
+        "art_anwendung": "Anwendung", "art_ordner": "Ordner", "art_datei": "Datei",
+        "abbrechen": "Abbrechen", "ablegen": "Ablegen", "oeffnen": "Öffnen",
+        "entfernen": "Entfernen", "austauschen": "Austauschen",
+        "eintrag_aendern": "Diesen Platz ändern",
+        "hoeher": "⟵  eine Ebene höher",
+        "nichts_hier": "Hier ist nichts.",
+        "fehlt": "nicht mehr da",
+        "fehlt_lang": "„{name}“ gibt es nicht mehr. Entfernen oder austauschen?",
+        "geht_nicht": "Ließ sich nicht öffnen.",
+        "ordner_hier": "diesen Ordner nehmen",
     },
     "en": {
         "verbinden": "Connect", "chat": "Chat server", "aussen": "Public access",
@@ -58,6 +133,8 @@ TEXTE = {
         "temperatur": "Temperature", "kerne": "cores", "frei": "free",
         "laeuft_auto": "running · starts automatically", "laeuft": "running",
         "aus": "OFF", "an": "on", "uebersetzung_aus": "off",
+        "stumm": "not responding", "ohne_modell": "no model loaded",
+        "seit": "since", "nie_erreicht": "never reached",
         "kein_zert": "none — connection is open", "noch_keine": "none yet",
         "stand": "backup", "staende": "backups", "tage": "{n} days left",
         "eigenes_netz": "on this network", "offen": "unencrypted",
@@ -71,6 +148,20 @@ TEXTE = {
         "fuss": "Refreshes every two seconds  ·  in the terminal:  stellium-konsole",
         "verbinde": "connecting …", "keine_verbindung": "No connection to the console: {f}",
         "tage_kurz": "days", "std": "h", "min": "min",
+        # ── Ablage: die Leiste mit den Plätzen
+        "ablage_titel": "Quick access",
+        "ablage_hinweis": "Click to place  ·  shift-click to change",
+        "was_ablegen": "What goes here?",
+        "art_anwendung": "Application", "art_ordner": "Folder", "art_datei": "File",
+        "abbrechen": "Cancel", "ablegen": "Place", "oeffnen": "Open",
+        "entfernen": "Remove", "austauschen": "Replace",
+        "eintrag_aendern": "Change this slot",
+        "hoeher": "⟵  one level up",
+        "nichts_hier": "Nothing here.",
+        "fehlt": "gone",
+        "fehlt_lang": "“{name}” is no longer there. Remove or replace?",
+        "geht_nicht": "Could not open it.",
+        "ordner_hier": "take this folder",
     },
 }
 
@@ -126,6 +217,15 @@ F = {
 
 BREIT, HOCH, KOPFHOCH = 1020, 720, 84
 
+# Notmaß für den Hintergrundbetrieb ohne Fensterregel: so hoch ist die Leiste
+# am oberen Rand ungefähr. Mit Regel rechnet labwc das selbst und genauer.
+RAND_OBEN = 40
+
+# Der Fernzugriff unten bekommt gut ein Viertel der Höhe, aber nie weniger als
+# nötig, um Kopf, Tagesauswahl und ein paar Zeilen Verlauf zu zeigen — und nie
+# so viel, dass er den Karten darüber die Luft nimmt.
+BAND_MIN, BAND_MAX = 210, 340
+
 
 def mischen(von, nach, anteil):
     a = [int(von[i:i + 2], 16) for i in (1, 3, 5)]
@@ -143,6 +243,158 @@ def groesse(bytes_):
     return ""
 
 
+# ── Ablage: Anwendungen, Ordner und Dateien griffbereit ─────────
+# Was dort liegt, steht in einer kleinen Datei neben der Spracheinstellung —
+# so ist es nach dem Neustart noch da.
+ABLAGEDATEI = os.path.expanduser("~/.config/stellium-konsole-ablage.json")
+ANWENDUNGSORTE = ("/usr/share/applications", "/usr/local/share/applications",
+                  os.path.expanduser("~/.local/share/applications"))
+SYMBOLORTE = ("/usr/share/icons", "/usr/local/share/icons",
+              os.path.expanduser("~/.local/share/icons"))
+# Von groß nach klein gesucht: lieber ein Symbol herunterrechnen als ein
+# kleines aufblasen — Tk kann nur ganzzahlig verkleinern, nicht schärfen.
+SYMBOLGROESSEN = ("64x64", "48x48", "96x96", "128x128", "32x32", "256x256", "24x24")
+
+
+def ablage_laden():
+    """Die abgelegten Einträge holen — und Unsinn in der Datei überstehen."""
+    try:
+        with open(ABLAGEDATEI) as f:
+            daten = json.load(f)
+        eintraege = daten.get("eintraege")
+    except (OSError, ValueError, AttributeError):
+        return []
+    if not isinstance(eintraege, list):
+        return []
+    return [e for e in eintraege if isinstance(e, dict) and e.get("pfad")]
+
+
+def ablage_sichern(eintraege):
+    try:
+        os.makedirs(os.path.dirname(ABLAGEDATEI), exist_ok=True)
+        with open(ABLAGEDATEI, "w") as f:
+            json.dump({"eintraege": eintraege}, f, ensure_ascii=False, indent=1)
+    except OSError:
+        pass
+
+
+def desktop_lesen(pfad):
+    """Die Angaben aus einer .desktop-Datei holen.
+
+    Gelesen wird nur der Abschnitt [Desktop Entry]; alles danach sind
+    Zusatzaktionen, die hier nichts zu suchen haben.
+    """
+    angaben = {}
+    drin = False
+    try:
+        with open(pfad, encoding="utf-8", errors="replace") as f:
+            for zeile in f:
+                zeile = zeile.strip()
+                if zeile.startswith("["):
+                    drin = zeile == "[Desktop Entry]"
+                    continue
+                if drin and "=" in zeile and not zeile.startswith("#"):
+                    schluessel, wert = zeile.split("=", 1)
+                    angaben.setdefault(schluessel.strip(), wert.strip())
+    except OSError:
+        return {}
+    return angaben
+
+
+def desktop_name(angaben, ersatz=""):
+    """Der Name in der eingestellten Sprache, wenn die Datei einen anbietet."""
+    return (angaben.get(f"Name[{SPRACHE}]") or angaben.get("Name") or ersatz)
+
+
+def anwendungen_finden():
+    """Alle Anwendungen, die auch im Startmenü stehen — Name, Datei, Symbol."""
+    gefunden = {}
+    for ort in ANWENDUNGSORTE:
+        for pfad in sorted(glob.glob(os.path.join(ort, "*.desktop"))):
+            angaben = desktop_lesen(pfad)
+            if angaben.get("Type", "Application") != "Application":
+                continue
+            if angaben.get("NoDisplay", "").lower() == "true":
+                continue
+            name = desktop_name(angaben)
+            if not name:
+                continue
+            # Spätere Orte überschreiben frühere: was im Heimordner liegt,
+            # gilt vor dem, was das System mitbringt.
+            gefunden[os.path.basename(pfad)] = (name, pfad, angaben.get("Icon", ""))
+    return sorted(gefunden.values(), key=lambda e: e[0].lower())
+
+
+def symboldatei(name):
+    """Zu einem Symbolnamen die passende Bilddatei suchen.
+
+    Tk liest PNG und GIF, kein SVG und kein XPM — deshalb wird auch nur danach
+    gesucht. Findet sich nichts, malt die Ablage selbst ein Zeichen.
+    """
+    if not name:
+        return None
+    if os.path.isabs(name):
+        return name if os.path.isfile(name) and name.endswith((".png", ".gif")) else None
+    for groesse in SYMBOLGROESSEN:
+        for ort in SYMBOLORTE:
+            treffer = glob.glob(os.path.join(ort, "*", groesse, "*", name + ".png"))
+            if treffer:
+                return treffer[0]
+    for ort in ("/usr/share/pixmaps", "/usr/share/icons"):
+        treffer = glob.glob(os.path.join(ort, name + ".png"))
+        if treffer:
+            return treffer[0]
+    return None
+
+
+def eintrag_da(eintrag):
+    """Gibt es noch, was da abgelegt wurde?"""
+    return bool(eintrag.get("pfad")) and os.path.exists(eintrag["pfad"])
+
+
+def eintrag_oeffnen(eintrag):
+    """Das Abgelegte starten. Gibt zurück, ob es geklappt hat."""
+    pfad = eintrag.get("pfad", "")
+    try:
+        if eintrag.get("art") == "anwendung":
+            angaben = desktop_lesen(pfad)
+            # Die Platzhalter in Exec stehen für Dateien, die wir nicht
+            # mitgeben — sie müssen raus, sonst startet nichts oder das
+            # Programm bekommt "%U" als Dateinamen untergeschoben.
+            befehl = re.sub(r"%[a-zA-Z]", "", angaben.get("Exec", "")).strip()
+            if not befehl:
+                return False
+            teile = shlex.split(befehl)
+            if angaben.get("Terminal", "").lower() == "true":
+                teile = ["x-terminal-emulator", "-e"] + teile
+            subprocess.Popen(teile, start_new_session=True)
+        else:
+            # Ordner und Dateien überlässt man am besten dem System: es weiß,
+            # welcher Dateimanager und welches Programm zuständig sind.
+            subprocess.Popen(["xdg-open", pfad], start_new_session=True)
+        return True
+    except Exception:                                   # noqa: BLE001
+        return False
+
+
+def prozent(anteil):
+    """Ein Anteil als Prozentzahl — kleine Werte mit einer Stelle hinter dem Komma.
+
+    109 MB auf einer 50-GB-Platte sind 0,2 %. Auf null gerundet sähe die
+    Anzeige aus, als wäre sie kaputt — eine Stelle mehr sagt genau das, was
+    los ist.
+    """
+    wert = (anteil or 0.0) * 100
+    if 0 < wert < 0.05:
+        # Noch feiner aufzuschlüsseln bringt nichts — „fast nichts" ist die
+        # Aussage, und die steht so am kürzesten da.
+        return "<0,1%" if SPRACHE == "de" else "<0.1%"
+    if 0 < wert < 9.5:
+        text = f"{wert:.1f}"
+        return (text.replace(".", ",") if SPRACHE == "de" else text) + "%"
+    return f"{round(wert)}%"
+
+
 def dauer(sekunden):
     tage, rest = divmod(int(sekunden), 86400)
     stunden, rest = divmod(rest, 3600)
@@ -152,6 +404,25 @@ def dauer(sekunden):
     if stunden:
         return f"{stunden} {T('std')}, {minuten} {T('min')}"
     return f"{minuten} {T('min')}"
+
+
+def seit_wann(zeitpunkt):
+    """Wie lange ist das her — knapp, in Worten.
+
+    Nur der grobe Abstand: bei einem stummen Modell will man wissen, ob es
+    seit Minuten oder seit Stunden schweigt. Die genaue Uhrzeit hilft dabei
+    nicht, und sie stünde in einer Zeile, in der ohnehin wenig Platz ist.
+    """
+    if not zeitpunkt:
+        return None
+    sekunden = max(0, int(time.time() - zeitpunkt / 1000))
+    if sekunden < 90:
+        return f"{sekunden}s"
+    if sekunden < 5400:
+        return f"{sekunden // 60} min"
+    if sekunden < 172800:
+        return f"{sekunden // 3600} h"
+    return f"{sekunden // 86400} d"
 
 
 class Tacho(tk.Canvas):
@@ -179,9 +450,20 @@ class Tacho(tk.Canvas):
         self.laufen()
 
     def setzen(self, anteil, zahl=None, unten=""):
-        self.ziel = max(0.0, min(1.0, anteil or 0.0))
-        self.zahl_text = zahl if zahl is not None else f"{round(self.ziel * 100)}%"
+        ziel = max(0.0, min(1.0, anteil or 0.0))
+        text = zahl if zahl is not None else prozent(ziel)
+        neu = (text != self.zahl_text or unten != self.unten)
+        self.ziel = ziel
+        self.zahl_text = text
         self.unten = unten
+        if abs(self.anteil - self.ziel) <= 0.003:
+            # Zu wenig für die weiche Annäherung. Ohne diesen Sprung bliebe ein
+            # winziger Wert — 0,2 % der Platte etwa — für immer bei null
+            # stehen, und der Bogen sähe aus, als rechne er gar nicht.
+            self.anteil = self.ziel
+            neu = True
+        if neu:
+            self.malen()
 
     def laufen(self):
         if abs(self.anteil - self.ziel) > 0.003:
@@ -207,6 +489,10 @@ class Tacho(tk.Canvas):
                         width=self.DICKE, outline=F["linie"])
 
         weite = self.WEITE * self.anteil
+        if 0 < self.anteil < 0.011:
+            # Ein sehr kleiner Anteil bekommt trotzdem einen sichtbaren Anfang:
+            # unter zweieinhalb Grad bliebe vom Bogen nichts übrig.
+            weite = math.copysign(2.5, self.WEITE)
         if abs(weite) > 0.6:
             self.create_arc(*kasten, start=self.ANFANG, extent=weite, style="arc",
                             width=self.DICKE, outline=self.farbe())
@@ -297,6 +583,474 @@ class Karte(tk.Frame):
             t.malen()
 
 
+class Ablage:
+    """Die Leiste mit Plätzen für Anwendungen, Ordner und Dateien.
+
+    Sie wird nicht aus Widgets gebaut, sondern direkt auf die Leinwand
+    gezeichnet — dorthin, wo unter der linken Spalte Platz frei bleibt. Das
+    hält sie leicht und beweglich: Sie teilt sich bei jeder Größenänderung neu
+    auf, und wie viele Plätze nebeneinander passen, ergibt sich aus der
+    Fläche statt aus einer festen Zahl.
+
+    Die Einträge stehen als Liste in einer Datei. Sie füllen die Plätze von
+    links oben nach rechts unten; wird die Fläche kleiner, rücken sie
+    zusammen, statt verlorenzugehen.
+    """
+
+    BREIT_MIN = 108        # schmaler wird ein Platz nicht
+    HOCH_MIN = 58          # darunter passt kein Symbol mit Namen mehr
+    HOCH_MAX = 96
+    LUECKE = 10
+    REIHEN = 2
+
+    def __init__(self, konsole):
+        self.k = konsole
+        self.buehne = konsole.buehne
+        self.eintraege = ablage_laden()
+        self.bilder = {}                # Tk hält Bilder nur, solange man sie festhält
+        self.flaeche = None             # (x, y, breite, hoehe)
+        self.stand = None               # woraus das letzte Bild entstand
+        self.plaetze = []               # (index, x, y, breite, hoehe)
+        self.warm = {}                  # Platz → wohin die Helligkeit will
+        self.helligkeit = {}            # Platz → wo sie gerade steht
+        self.laufen()
+
+    # ── Platz einteilen ─────────────────────────────────────────
+    def setzen(self, x, y, breite, hoehe):
+        """Sagen, wo Platz ist. Gezeichnet wird nur, wenn sich etwas ändert."""
+        self.flaeche = (x, y, breite, hoehe)
+        self.pruefen()
+
+    def pruefen(self):
+        if self.flaeche is None:
+            return
+        x, y, breite, hoehe = self.flaeche
+        stand = (x, y, breite, hoehe, len(self.eintraege), SPRACHE,
+                 tuple(e.get("pfad", "") for e in self.eintraege))
+        if stand == self.stand:
+            return
+        self.stand = stand
+        self.zeichnen()
+
+    def zeichnen(self):
+        self.buehne.delete("ablage")
+        self.plaetze = []
+        self.warm = {}
+        self.helligkeit = {}
+        if self.flaeche is None:
+            return
+        x, y, breite, hoehe = self.flaeche
+        klein = tkfont.Font(family="DejaVu Sans", size=8)
+        kopf = tkfont.Font(family="DejaVu Sans", size=9, weight="bold")
+
+        # Überschrift und Hinweis kosten Höhe — nur wenn sie übrig ist.
+        kopfhoch = 0
+        if hoehe >= 2 * self.HOCH_MIN + self.LUECKE + 22:
+            self.buehne.create_text(x, y, text=T("ablage_titel"), anchor="nw",
+                                    fill=F["zeit"], font=kopf, tags="ablage")
+            self.buehne.create_text(x + breite, y + 1, text=T("ablage_hinweis"), anchor="ne",
+                                    fill=F["linie_stark"], font=klein, tags="ablage")
+            kopfhoch = 22
+        y += kopfhoch
+        hoehe -= kopfhoch
+
+        reihen = self.REIHEN
+        kachel_h = (hoehe - self.LUECKE * (reihen - 1)) / reihen
+        if kachel_h < self.HOCH_MIN:
+            reihen = 1
+            kachel_h = hoehe
+        if kachel_h < self.HOCH_MIN:
+            return                      # zu wenig Luft — dann lieber gar nichts
+        kachel_h = min(kachel_h, self.HOCH_MAX)
+
+        spalten = max(1, int((breite + self.LUECKE) // (self.BREIT_MIN + self.LUECKE)))
+        kachel_b = (breite - self.LUECKE * (spalten - 1)) / spalten
+
+        for stelle in range(spalten * reihen):
+            spalte, reihe = stelle % spalten, stelle // spalten
+            kx = x + spalte * (kachel_b + self.LUECKE)
+            ky = y + reihe * (kachel_h + self.LUECKE)
+            self.platz_malen(stelle, kx, ky, kachel_b, kachel_h)
+            self.plaetze.append((stelle, kx, ky, kachel_b, kachel_h))
+
+    def platz_malen(self, stelle, x, y, breite, hoehe):
+        """Einen einzelnen Platz zeichnen — leer oder belegt."""
+        marke = f"platz{stelle}"
+        eintrag = self.eintraege[stelle] if stelle < len(self.eintraege) else None
+        da = eintrag is None or eintrag_da(eintrag)
+
+        if eintrag is None:
+            # Ein leerer Platz soll einladen, nicht wie ein Loch wirken:
+            # gestrichelter Rand, ein leises Plus, sonst nichts.
+            self.buehne.create_rectangle(x, y, x + breite, y + hoehe, fill=F["tief"],
+                                         outline=F["linie"], dash=(3, 4),
+                                         tags=("ablage", marke, marke + "rand"))
+            self.buehne.create_text(x + breite / 2, y + hoehe / 2, text="+",
+                                    fill=F["linie_stark"],
+                                    font=tkfont.Font(family="DejaVu Sans", size=15),
+                                    tags=("ablage", marke, marke + "text"))
+        else:
+            rand = F["schlecht"] if not da else F["linie"]
+            self.buehne.create_rectangle(x, y, x + breite, y + hoehe, fill=F["karte"],
+                                         outline=rand,
+                                         tags=("ablage", marke, marke + "rand"))
+            self.symbol_malen(eintrag, stelle, x + breite / 2, y + hoehe / 2 - 9, da)
+            name = eintrag.get("name") or os.path.basename(eintrag.get("pfad", ""))
+            schrift = tkfont.Font(family="DejaVu Sans", size=8)
+            self.buehne.create_text(x + breite / 2, y + hoehe - 13,
+                                    text=self.kuerzen(name, schrift, breite - 12),
+                                    fill=F["schlecht"] if not da else F["leise"],
+                                    font=schrift, tags=("ablage", marke))
+            if not da:
+                self.buehne.create_text(x + breite / 2, y + hoehe - 3, text=T("fehlt"),
+                                        fill=F["schlecht"], font=tkfont.Font(
+                                            family="DejaVu Sans", size=7),
+                                        tags=("ablage", marke))
+
+        self.buehne.tag_bind(marke, "<Button-1>", lambda _e, s=stelle: self.klick(s))
+        self.buehne.tag_bind(marke, "<Shift-Button-1>", lambda _e, s=stelle: self.aendern(s))
+        self.buehne.tag_bind(marke, "<Enter>", lambda _e, s=stelle: self.warm.__setitem__(s, 1))
+        self.buehne.tag_bind(marke, "<Leave>", lambda _e, s=stelle: self.warm.__setitem__(s, 0))
+        self.warm[stelle] = 0.0
+        self.helligkeit[stelle] = 0.0
+
+    def symbol_malen(self, eintrag, stelle, mx, my, da=True):
+        """Das Zeichen eines Eintrags setzen — Bild, wenn es eines gibt."""
+        marke = f"platz{stelle}"
+        if da and eintrag.get("art") == "anwendung":
+            bild = self.bild_holen(eintrag.get("symbol", ""))
+            if bild is not None:
+                self.buehne.create_image(mx, my, image=bild, tags=("ablage", marke))
+                return
+        # Ohne Bilddatei ein gezeichnetes Zeichen: ein Ordner, ein Blatt oder
+        # ein Fenster. Das braucht keine Schriftart und sieht überall gleich aus.
+        farbe = F["schlecht"] if not da else {
+            "ordner": F["warn"], "datei": F["blau"]}.get(eintrag.get("art"), F["rand_weich"])
+        b, h = 15, 11
+        if eintrag.get("art") == "ordner":
+            self.buehne.create_polygon(
+                mx - b, my + h, mx - b, my - h + 3, mx - 2, my - h + 3, mx + 1, my - h + 6,
+                mx + b, my - h + 6, mx + b, my + h,
+                fill="", outline=farbe, width=2, tags=("ablage", marke))
+        elif eintrag.get("art") == "datei":
+            self.buehne.create_polygon(
+                mx - 9, my + h, mx - 9, my - h, mx + 3, my - h, mx + 9, my - h + 6,
+                mx + 9, my + h,
+                fill="", outline=farbe, width=2, tags=("ablage", marke))
+        else:
+            self.buehne.create_rectangle(mx - b + 3, my - h, mx + b - 3, my + h,
+                                         outline=farbe, width=2, tags=("ablage", marke))
+
+    def bild_holen(self, name):
+        """Ein Symbolbild laden und auf Kachelmaß bringen — einmal je Name."""
+        if name in self.bilder:
+            return self.bilder[name]
+        self.bilder[name] = None
+        datei = symboldatei(name)
+        if datei:
+            try:
+                bild = tk.PhotoImage(file=datei)
+                # Tk kann nur ganzzahlig verkleinern; 32 Pixel sind das Maß,
+                # das in einer Kachel neben dem Namen noch Luft lässt.
+                faktor = max(1, round(bild.width() / 32))
+                self.bilder[name] = bild.subsample(faktor) if faktor > 1 else bild
+            except tk.TclError:
+                self.bilder[name] = None
+        return self.bilder[name]
+
+    @staticmethod
+    def kuerzen(text, schrift, breite):
+        """Zu lange Namen abschneiden, aber sichtbar — mit Auslassung."""
+        if schrift.measure(text) <= breite:
+            return text
+        while text and schrift.measure(text + "…") > breite:
+            text = text[:-1]
+        return text + "…"
+
+    # ── Leben ───────────────────────────────────────────────────
+    def laufen(self):
+        """Das Aufleuchten unter dem Zeiger — weich, wie die Bogenanzeigen."""
+        for stelle, ziel in list(self.warm.items()):
+            jetzt = self.helligkeit.get(stelle, 0.0)
+            if abs(jetzt - ziel) < 0.02:
+                continue
+            jetzt += (ziel - jetzt) * 0.30
+            self.helligkeit[stelle] = jetzt
+            belegt = stelle < len(self.eintraege)
+            ruhe = F["linie"]
+            self.buehne.itemconfig(f"platz{stelle}rand",
+                                   outline=mischen(ruhe, F["rand_weich"], jetzt),
+                                   fill=mischen(F["karte"] if belegt else F["tief"],
+                                                F["erhoben"], jetzt))
+            if not belegt:
+                self.buehne.itemconfig(f"platz{stelle}text",
+                                       fill=mischen(F["linie_stark"], F["rand_weich"], jetzt))
+        self.k.wurzel.after(40, self.laufen)
+
+    # ── Klicken ─────────────────────────────────────────────────
+    def klick(self, stelle):
+        """Belegter Platz: öffnen. Leerer Platz: etwas aussuchen."""
+        if stelle >= len(self.eintraege):
+            self.aussuchen(stelle)
+            return
+        eintrag = self.eintraege[stelle]
+        if not eintrag_da(eintrag):
+            # Ins Leere klicken lassen wäre gemein — lieber gleich anbieten,
+            # den Platz in Ordnung zu bringen.
+            self.aendern(stelle)
+            return
+        if not eintrag_oeffnen(eintrag):
+            self.aendern(stelle)
+
+    def aendern(self, stelle):
+        if stelle >= len(self.eintraege):
+            self.aussuchen(stelle)
+            return
+        eintrag = self.eintraege[stelle]
+        Eintragsfenster(self.k.wurzel, eintrag,
+                        entfernen=lambda s=stelle: self.entfernen(s),
+                        austauschen=lambda s=stelle: self.aussuchen(s, tauschen=True),
+                        fehlt=not eintrag_da(eintrag))
+
+    def aussuchen(self, stelle, tauschen=False):
+        art = self.eintraege[stelle]["art"] if tauschen and stelle < len(self.eintraege) \
+            else "anwendung"
+        Waehler(self.k.wurzel,
+                fertig=lambda e, s=stelle, t=tauschen: self.ablegen(s, e, t),
+                art=art if art in ("anwendung", "ordner", "datei") else "anwendung")
+
+    def ablegen(self, stelle, eintrag, tauschen=False):
+        if stelle < len(self.eintraege):
+            self.eintraege[stelle] = eintrag    # austauschen
+        else:
+            self.eintraege.append(eintrag)      # der erste freie Platz ist der nächste
+        ablage_sichern(self.eintraege)
+        self.stand = None
+        self.pruefen()
+
+    def entfernen(self, stelle):
+        if stelle < len(self.eintraege):
+            del self.eintraege[stelle]
+            ablage_sichern(self.eintraege)
+            self.stand = None
+            self.pruefen()
+
+
+class Kleinfenster(tk.Toplevel):
+    """Grundgerüst für die kleinen Fenster der Ablage.
+
+    Sie tragen dieselben Farben wie die Konsole, stehen in der Mitte des
+    Schirms und nehmen die Eingabe an sich, solange sie offen sind — ein
+    Klick daneben soll nicht aus Versehen etwas starten.
+
+    Die eigene Fensterklasse ist wichtiger, als sie aussieht: die Regel, die
+    den Hintergrund ganz nach hinten schiebt, greift alles mit der Klasse des
+    Hauptfensters. Diese Fenster tragen eine eigene und bleiben deshalb
+    gewöhnliche Fenster — vorne, sichtbar, mit Rahmen.
+    """
+
+    def __init__(self, eltern, titel, breite, hoehe):
+        super().__init__(eltern, bg=F["tief"], class_="stellium-fenster")
+        self.title(f"Stellium — {titel}")
+        self.configure(highlightbackground=F["rand"], highlightthickness=1)
+        self.transient(eltern)
+        self.resizable(False, False)
+        x = (self.winfo_screenwidth() - breite) // 2
+        y = (self.winfo_screenheight() - hoehe) // 2
+        self.geometry(f"{breite}x{hoehe}+{max(x, 0)}+{max(y, 0)}")
+        self.attributes("-topmost", True)
+
+        self.kopfzeile = tk.Label(self, text=titel, bg=F["tief"], fg=F["tinte"],
+                                  anchor="w", padx=18, pady=12,
+                                  font=tkfont.Font(family="DejaVu Sans", size=12,
+                                                   weight="bold"))
+        self.kopfzeile.pack(fill="x")
+        tk.Frame(self, bg=F["rand"], height=1).pack(fill="x", padx=18)
+
+        self.bind("<Escape>", lambda _e: self.destroy())
+        self.protocol("WM_DELETE_WINDOW", self.destroy)
+        self.after(50, self._greifen)
+
+    def _greifen(self):
+        # Erst wenn das Fenster wirklich auf dem Schirm ist, lässt sich die
+        # Eingabe an sich ziehen — vorher antwortet X mit „noch nicht sichtbar".
+        try:
+            self.grab_set()
+            self.focus_force()
+        except tk.TclError:
+            self.after(50, self._greifen)
+
+    def knopf(self, eltern, text, ruf, betont=False):
+        """Ein Knopf im Stil der Konsole — flach, mit ruhiger Rückmeldung."""
+        k = tk.Label(eltern, text=text, bg=F["rand"] if betont else F["erhoben"],
+                     fg="#ffffff" if betont else F["leise"], padx=16, pady=7,
+                     cursor="hand2", font=tkfont.Font(family="DejaVu Sans", size=10))
+        ruhe, wach = (F["rand"], F["rand_weich"]) if betont else (F["erhoben"], F["linie_stark"])
+        k.bind("<Button-1>", lambda _e: ruf())
+        k.bind("<Enter>", lambda _e: k.config(bg=wach, fg=F["tinte"] if not betont else "#ffffff"))
+        k.bind("<Leave>", lambda _e: k.config(bg=ruhe, fg=F["leise"] if not betont else "#ffffff"))
+        return k
+
+
+class Waehler(Kleinfenster):
+    """Das Fenster, in dem man aussucht, was auf einen Platz gelegt wird.
+
+    Drei Arten, ein Fenster: Anwendungen kommen aus den .desktop-Dateien,
+    Ordner und Dateien aus dem Dateibaum. Der Weg ist derselbe, nur die Liste
+    darunter wechselt — das erspart drei Fenster, die fast gleich aussehen.
+    """
+
+    def __init__(self, eltern, fertig, art="anwendung"):
+        super().__init__(eltern, T("was_ablegen"), 620, 520)
+        self.fertig = fertig
+        self.art = art
+        self.ordner = os.path.expanduser("~")
+        self.zeilen = []                       # was in der Liste steht
+
+        klein = tkfont.Font(family="DejaVu Sans", size=10)
+        # ── Die drei Arten als Reiter
+        self.reiter = {}
+        leiste = tk.Frame(self, bg=F["tief"])
+        leiste.pack(fill="x", padx=18, pady=(14, 8))
+        for schluessel, marke in (("anwendung", "art_anwendung"),
+                                  ("ordner", "art_ordner"), ("datei", "art_datei")):
+            r = tk.Label(leiste, text=T(marke), bg=F["erhoben"], fg=F["leise"],
+                         padx=18, pady=6, cursor="hand2", font=klein)
+            r.pack(side="left", padx=(0, 8))
+            r.bind("<Button-1>", lambda _e, s=schluessel: self.art_waehlen(s))
+            self.reiter[schluessel] = r
+
+        self.pfadzeile = tk.Label(self, text="", bg=F["tief"], fg=F["zeit"], anchor="w",
+                                  font=tkfont.Font(family="DejaVu Sans Mono", size=9))
+        self.pfadzeile.pack(fill="x", padx=20, pady=(0, 6))
+
+        kasten = tk.Frame(self, bg=F["linie"])
+        kasten.pack(fill="both", expand=True, padx=18)
+        self.liste = tk.Listbox(kasten, bg=F["karte"], fg=F["tinte"], bd=0,
+                                highlightthickness=0, activestyle="none",
+                                selectbackground=F["rand"], selectforeground="#ffffff",
+                                font=klein)
+        self.liste.pack(side="left", fill="both", expand=True, padx=1, pady=1)
+        rolle = tk.Scrollbar(kasten, command=self.liste.yview, bd=0,
+                             highlightthickness=0, troughcolor=F["karte"], bg=F["erhoben"])
+        rolle.pack(side="right", fill="y", padx=(0, 1), pady=1)
+        self.liste.config(yscrollcommand=rolle.set)
+        self.liste.bind("<Double-Button-1>", lambda _e: self.eintreten())
+        self.liste.bind("<Return>", lambda _e: self.eintreten())
+
+        fuss = tk.Frame(self, bg=F["tief"])
+        fuss.pack(fill="x", padx=18, pady=14)
+        self.knopf(fuss, T("ablegen"), self.nehmen, betont=True).pack(side="right")
+        self.knopf(fuss, T("abbrechen"), self.destroy).pack(side="right", padx=(0, 10))
+
+        self.art_waehlen(art)
+
+    # ── Liste füllen ────────────────────────────────────────────
+    def art_waehlen(self, art):
+        self.art = art
+        for schluessel, r in self.reiter.items():
+            gewaehlt = schluessel == art
+            r.config(bg=F["rand"] if gewaehlt else F["erhoben"],
+                     fg="#ffffff" if gewaehlt else F["leise"])
+        self.fuellen()
+
+    def fuellen(self):
+        self.liste.delete(0, "end")
+        self.zeilen = []
+        if self.art == "anwendung":
+            self.pfadzeile.config(text="")
+            for name, pfad, symbol in anwendungen_finden():
+                self.zeilen.append({"art": "anwendung", "name": name,
+                                    "pfad": pfad, "symbol": symbol})
+                self.liste.insert("end", "   " + name)
+            return
+
+        self.pfadzeile.config(text=self.ordner)
+        eltern = os.path.dirname(self.ordner.rstrip("/")) or "/"
+        if eltern != self.ordner:
+            self.zeilen.append({"art": "hoeher", "pfad": eltern})
+            self.liste.insert("end", "   " + T("hoeher"))
+        try:
+            namen = sorted(os.listdir(self.ordner), key=str.lower)
+        except OSError:
+            namen = []
+        for name in namen:
+            if name.startswith("."):
+                continue                       # Verstecktes bleibt versteckt
+            voll = os.path.join(self.ordner, name)
+            if os.path.isdir(voll):
+                self.zeilen.append({"art": "ordner", "name": name, "pfad": voll})
+                self.liste.insert("end", "   ▸  " + name)
+            elif self.art == "datei":
+                self.zeilen.append({"art": "datei", "name": name, "pfad": voll})
+                self.liste.insert("end", "   ·  " + name)
+        if len(self.zeilen) <= 1:
+            self.liste.insert("end", "   " + T("nichts_hier"))
+
+    def gewaehlt(self):
+        wahl = self.liste.curselection()
+        if not wahl or wahl[0] >= len(self.zeilen):
+            return None
+        return self.zeilen[wahl[0]]
+
+    def eintreten(self):
+        """Doppelklick: in einen Ordner hinein — oder gleich übernehmen."""
+        zeile = self.gewaehlt()
+        if not zeile:
+            return
+        if zeile["art"] in ("hoeher", "ordner") and self.art != "anwendung":
+            if zeile["art"] == "hoeher" or self.art == "datei":
+                self.ordner = zeile["pfad"]
+                self.fuellen()
+                return
+        self.nehmen()
+
+    def nehmen(self):
+        zeile = self.gewaehlt()
+        if self.art == "ordner" and (zeile is None or zeile["art"] == "hoeher"):
+            # Nichts ausgesucht heißt: der Ordner, in dem man gerade steht.
+            zeile = {"art": "ordner", "name": os.path.basename(self.ordner.rstrip("/")) or "/",
+                     "pfad": self.ordner}
+        if zeile is None or zeile["art"] == "hoeher":
+            return
+        if self.art == "datei" and zeile["art"] != "datei":
+            self.ordner = zeile["pfad"]         # ein Ordner: erst hineingehen
+            self.fuellen()
+            return
+        eintrag = {"art": zeile["art"], "name": zeile.get("name", ""),
+                   "pfad": zeile["pfad"], "symbol": zeile.get("symbol", "")}
+        self.destroy()
+        self.fertig(eintrag)
+
+
+class Eintragsfenster(Kleinfenster):
+    """Das kleine Fenster hinter Umschalt und Klick: entfernen oder tauschen."""
+
+    def __init__(self, eltern, eintrag, entfernen, austauschen, fehlt=False):
+        super().__init__(eltern, T("eintrag_aendern"), 460, 230)
+        klein = tkfont.Font(family="DejaVu Sans", size=10)
+
+        tk.Label(self, text=eintrag.get("name") or eintrag.get("pfad", ""),
+                 bg=F["tief"], fg=F["tinte"], anchor="w", padx=20,
+                 font=tkfont.Font(family="DejaVu Sans", size=11, weight="bold")
+                 ).pack(fill="x", pady=(16, 2))
+        tk.Label(self, text=eintrag.get("pfad", ""), bg=F["tief"], fg=F["zeit"], anchor="w",
+                 padx=20, wraplength=410, justify="left",
+                 font=tkfont.Font(family="DejaVu Sans Mono", size=9)).pack(fill="x")
+        if fehlt:
+            tk.Label(self, text=T("fehlt_lang", name=eintrag.get("name", "")),
+                     bg=F["tief"], fg=F["schlecht"], anchor="w", padx=20,
+                     wraplength=410, justify="left", font=klein).pack(fill="x", pady=(10, 0))
+
+        fuss = tk.Frame(self, bg=F["tief"])
+        fuss.pack(side="bottom", fill="x", padx=18, pady=16)
+        self.knopf(fuss, T("austauschen"),
+                   lambda: (self.destroy(), austauschen()), betont=True).pack(side="right")
+        self.knopf(fuss, T("entfernen"),
+                   lambda: (self.destroy(), entfernen())).pack(side="right", padx=(0, 10))
+        self.knopf(fuss, T("abbrechen"), self.destroy).pack(side="left")
+
+
 def aurora(leinwand, breite, hoehe):
     """Der weiche Farbschimmer aus der App, mit den Mitteln von Tk.
 
@@ -315,8 +1069,16 @@ def aurora(leinwand, breite, hoehe):
     for mx, my, r, farbe, staerke in blasen:
         for i in range(ringe, 0, -1):
             anteil = i / ringe
-            ton = mischen(F["grund"], farbe, staerke * (1 - anteil) ** 2)
             gr = r * anteil
+            # Die Mitten der Blasen liegen absichtlich außerhalb des Bildes.
+            # Von den kleinen, hellen Ringen dort ragt sonst nur eine Spitze
+            # herein — und die sieht aus wie ein Keil, der da nicht hingehört.
+            # Deshalb kommen nur Ringe aufs Bild, die auch ein Stück weit
+            # hereinreichen; der Verlauf endet dadurch weich statt spitz.
+            if (my + gr < hoehe * 0.12 or my - gr > hoehe * 0.88
+                    or mx + gr < breite * 0.12 or mx - gr > breite * 0.88):
+                continue
+            ton = mischen(F["grund"], farbe, staerke * (1 - anteil) ** 2)
             leinwand.create_oval(mx - gr, my - gr, mx + gr, my + gr,
                                  fill=ton, outline="", tags="aurora")
     leinwand.tag_lower("aurora")
@@ -324,24 +1086,55 @@ def aurora(leinwand, breite, hoehe):
 
 class Konsole:
     def __init__(self):
-        self.wurzel = tk.Tk()
-        self.wurzel.title("Stellium — Konsole")
+        self.wurzel = tk.Tk(className=FENSTERKLASSE)
+        self.wurzel.title("Stellium Hintergrund" if HINTERGRUND else "Stellium — Konsole")
         self.wurzel.configure(bg=F["grund"])
-        self.wurzel.geometry(f"{BREIT}x{HOCH}")
-        # Zwei Tachos (je 132) plus Ränder brauchen 340 je Spalte; darunter
-        # klappen die Spalten untereinander, deshalb genügt eine Spaltenbreite.
-        self.wurzel.minsize(380, 560)
+        if HINTERGRUND:
+            self.hintergrund_einrichten()
+        else:
+            self.wurzel.geometry(f"{BREIT}x{HOCH}")
+            # Zwei Tachos (je 132) plus Ränder brauchen 340 je Spalte; darunter
+            # klappen die Spalten untereinander, deshalb genügt eine Spaltenbreite.
+            self.wurzel.minsize(380, 560)
         self.takt = 0.0
         self.stand = None
+        # Zuerst die Sprache, dann die Beschriftungen: sonst stünden die
+        # Überschriften der Karten in der Sprache von vorgestern, weil sie nur
+        # beim Anlegen gesetzt werden.
+        sprache_laden()
 
         gross = tkfont.Font(family="DejaVu Sans", size=17, weight="bold")
         klein = tkfont.Font(family="DejaVu Sans", size=9)
 
-        # Eine Leinwand trägt alles: darauf liegen der Aurora-Schimmer und der
-        # Kopf, und darüber schweben die Karten — genau wie in der App.
+        # ── Fernzugriff ─────────────────────────────────────────
+        # Als Bereich statt als eigenes Fenster: was aus der Ferne geschieht,
+        # gehört zum Zustand des Servers wie die Zahlen darüber. Er bleibt auch
+        # dann stehen, wenn niemand verbunden ist — dann zeigt er das
+        # Protokoll und lässt einen darin zurückblättern.
+        #
+        # Er hängt direkt im Fenster, nicht auf der Leinwand: als eingebettetes
+        # Leinwandfenster blieb die Tagesauswahl unsichtbar — Tk richtet sie
+        # dort zwar ein, malt sie aber nicht. Unten angeschlagen ist er
+        # außerdem einfacher zu bemessen.
+        self.fern = None
+        if WACHE is not None:
+            WACHE.sprache_setzen(SPRACHE)
+            self.fern = WACHE.Mitschrift(self.wurzel, sprachknopf=False, dauerhaft=True)
+            # Derselbe feine Rahmen wie bei den Karten darüber. Die Höhe gibt
+            # gleich `band_richten` vor, deshalb kein Mitwachsen mit dem Inhalt.
+            self.fern.config(highlightbackground=F["linie"], highlightthickness=1)
+            self.fern.pack_propagate(False)
+            # Vor der Leinwand angemeldet, sonst nähme sich diese als
+            # mitwachsendes Feld den ganzen Platz und für den Fernzugriff
+            # bliebe nichts übrig.
+            self.fern.pack(side="bottom", fill="x", padx=16, pady=(0, 14))
+
+        # Eine Leinwand trägt den Rest: darauf liegen der Aurora-Schimmer und
+        # der Kopf, und darüber schweben die Karten — genau wie in der App.
         self.buehne = tk.Canvas(self.wurzel, bd=0, highlightthickness=0, bg=F["grund"])
-        self.buehne.pack(fill="both", expand=True)
+        self.buehne.pack(side="top", fill="both", expand=True)
         self.buehne.bind("<Configure>", self.buehne_richten)
+        self.wurzel.bind("<Configure>", self.band_richten)
         self.kopf = self.buehne          # Kopf-Elemente liegen auf derselben Leinwand
 
         self.stern = self.buehne.create_text(26, 36, text="✦", fill=F["rand"], font=gross)
@@ -384,26 +1177,45 @@ class Konsole:
         self.fuss_id = self.buehne.create_text(20, 0, text=T("fuss"), anchor="w",
                                                fill=F["zeit"], font=klein)
 
+        # Die Ablage füllt, was unter der linken Spalte frei bleibt.
+        self.ablage = Ablage(self)
 
+        self.band_stand = None
+        self.band_richten()
         threading.Thread(target=self.holen, daemon=True).start()
-        sprache_laden()
         self.drehen()
         self.auffrischen()
 
-    # ── Kopf ────────────────────────────────────────────────────
-    def sprache_wechseln(self):
-        global SPRACHE
-        SPRACHE = "en" if SPRACHE == "de" else "de"
-        sprache_sichern()
-        for karte in (self.k_verbinden, self.k_chat, self.k_aussen,
-                      self.k_leistung, self.k_teile):
-            karte.sprache_anwenden()
-        self.buehne.itemconfig(self.fuss_id, text=T("fuss"))
-        self.adressen_stand = None      # Adressen mit neuen Hinweisen neu setzen
-        self.buehne_richten()
-        if self.stand:
-            self.zeichnen(self.stand)
+    # ── Hintergrundbetrieb ──────────────────────────────────────
+    def hintergrund_einrichten(self):
+        """Aus dem Fenster den lebenden Schreibtischgrund machen.
 
+        Das Meiste davon kann ein Programm gar nicht selbst: wie tief ein
+        Fenster liegt, entscheidet der Fenstermanager. Unter labwc — das auf
+        dem Pi läuft — steht die Regel dafür in /etc/xdg/labwc/rc.xml und wird
+        von `einrichten.sh` eingetragen. Sie nimmt dem Fenster den Rahmen,
+        hält es ganz unten, zeigt es auf allen Arbeitsflächen, lässt es aus
+        Fensterleiste und Umschalter heraus und legt es über die ganze
+        nutzbare Fläche — also alles außer der Leiste am oberen Rand.
+
+        Ganz nach hinten heißt hier: hinter alle gewöhnlichen Fenster. Noch
+        weiter zurück — unter das Hintergrundbild und die Schreibtischsymbole
+        — käme nur ein Wayland-eigenes Programm mit wlr-layer-shell; Tk läuft
+        über XWayland und kann das nicht. Das Fenster liegt also *über* dem
+        Hintergrundbild und würde Symbole verdecken; deshalb schaltet
+        `einrichten.sh` die Schreibtischsymbole ab. Erreichbar bleibt alles
+        über das Startmenü.
+
+        Hier bleibt nur, für den Fall vorzusorgen, dass die Regel fehlt: dann
+        stellt sich das Fenster wenigstens selbst hin — über die ganze Breite
+        und unterhalb der Leiste am oberen Rand.
+        """
+        breit = self.wurzel.winfo_screenwidth()
+        hoch = max(self.wurzel.winfo_screenheight() - RAND_OBEN, 480)
+        self.wurzel.geometry(f"{breit}x{hoch}+0+{RAND_OBEN}")
+        self.wurzel.minsize(380, 400)
+
+    # ── Kopf ────────────────────────────────────────────────────
     def buehne_richten(self, _e=None):
         """Alles neu einpassen, wenn sich die Fenstergröße ändert."""
         breite = max(self.buehne.winfo_width(), 1)
@@ -436,6 +1248,54 @@ class Konsole:
 
         self.buehne.coords(self.fuss_id, 20, hoehe - 16)
         self.buehne.tag_raise(self.fuss_id)
+        self.ablage_richten(rand, spalte, luecke)
+        self.band_richten()
+
+    def ablage_richten(self, rand=16, spalte=None, luecke=16):
+        """Der Ablage sagen, wie viel unter der linken Spalte frei ist.
+
+        Die Karten wachsen, sobald Zahlen eintreffen — deshalb wird das immer
+        wieder nachgerechnet. Die Ablage selbst zeichnet nur neu, wenn sich
+        wirklich etwas geändert hat.
+        """
+        if getattr(self, "ablage", None) is None:
+            return
+        hoehe = max(self.buehne.winfo_height(), 1)
+        if spalte is None:
+            kasten = self.buehne.bbox(self.spalte_links)
+            spalte = (kasten[2] - kasten[0]) if kasten else 0
+        kasten = self.buehne.bbox(self.spalte_links)
+        oben = (kasten[3] if kasten else KOPFHOCH) + luecke
+        frei = hoehe - 26 - oben              # 26 Pixel bleiben für die Fußzeile
+        if frei < Ablage.HOCH_MIN or spalte < Ablage.BREIT_MIN:
+            self.ablage.setzen(0, 0, 0, 0)
+        else:
+            self.ablage.setzen(rand, oben, spalte, frei)
+
+    def band_richten(self, ereignis=None):
+        """Dem Fernzugriff unten seine Höhe geben.
+
+        Er hängt am unteren Rand des Fensters und nimmt gut ein Viertel der
+        Höhe. In einem kleinen Fenster tritt er ganz zurück: dort brauchen die
+        Karten jeden Pixel, und ein auf drei Zeilen zusammengedrückter Verlauf
+        nützt niemandem.
+        """
+        if self.fern is None:
+            return
+        if ereignis is not None and ereignis.widget is not self.wurzel:
+            return                      # Kindfenster ändern sich dauernd
+        hoehe = max(self.wurzel.winfo_height(), 1)
+        platz = 0 if hoehe < 620 else max(BAND_MIN, min(BAND_MAX, int(hoehe * 0.26)))
+        if platz == self.band_stand:
+            return
+        self.band_stand = platz
+        if not platz:
+            self.fern.pack_forget()
+            return
+        self.fern.config(height=platz)
+        if not self.fern.winfo_ismapped():
+            self.fern.pack(side="bottom", fill="x", padx=16, pady=(0, 14),
+                           before=self.buehne)
 
     def sprache_wechseln(self):
         """Zwischen Deutsch und Englisch umschalten — und die Wahl merken."""
@@ -447,6 +1307,13 @@ class Konsole:
             karte.sprache_anwenden()
         self.buehne.itemconfig(self.fuss_id, text=T("fuss"))
         self.adressen_stand = None      # Hinweise an den Adressen neu setzen
+        # Der Fernzugriff hat unten keinen eigenen Knopf mehr — dieser hier
+        # schaltet für beide um, und die Wache merkt sich die Wahl auch für
+        # ihre eigenständige Fassung.
+        if self.fern is not None:
+            WACHE.sprache_setzen(SPRACHE)
+            self.fern.sprache_anwenden()
+        self.ablage.stand = None        # Überschrift und Hinweise neu setzen
         self.buehne_richten()
         if self.stand and "fehler" not in self.stand:
             self.zeichnen(self.stand)
@@ -474,6 +1341,10 @@ class Konsole:
             self.zeichnen(d)
         elif d:
             self.kopf.itemconfig(self.unterzeile, text=T("keine_verbindung", f=d["fehler"][:70]))
+        # Die Karten sind eben vielleicht gewachsen — dann rücken Ablage und
+        # Fernzugriff darunter nach.
+        self.ablage_richten()
+        self.band_richten()
         self.wurzel.after(600, self.auffrischen)
 
     def zeichnen(self, d):
@@ -527,10 +1398,24 @@ class Konsole:
                          else F["warn"] if chat.get("an") else F["schlecht"])
         ki = d.get("ki")
         if ki:
-            an = ki.get("provider") and ki["provider"] != "demo"
-            self.k_chat.feld("uebersetzung", f"{T('an')} · {ki['provider']}" if an
-                             else T("uebersetzung_aus"),
-                             F["gut"] if an else F["warn"])
+            # „an" hing früher allein am gewählten Anbieter — bei einem lokalen
+            # Modell also immer, auch wenn dort niemand antwortete. Der Server
+            # liefert jetzt einen tatsächlich gemessenen Zustand; steht der zur
+            # Verfügung, entscheidet er. Eine Anzeige, die grün leuchtet, ohne
+            # nachgesehen zu haben, ist schlimmer als gar keine.
+            zustand = ki.get("lokalerZustand")
+            if zustand == "antwortet-nicht":
+                text = T("stumm")
+                seit = seit_wann(ki.get("lokalErfolgAm"))
+                text += "  ·  " + (T("seit") + " " + seit if seit else T("nie_erreicht"))
+                self.k_chat.feld("uebersetzung", text, F["schlecht"])
+            elif zustand == "kein-modell":
+                self.k_chat.feld("uebersetzung", T("ohne_modell"), F["schlecht"])
+            else:
+                an = bool(ki.get("translation")) and ki.get("provider") != "demo"
+                self.k_chat.feld("uebersetzung", f"{T('an')} · {ki['provider']}" if an
+                                 else T("uebersetzung_aus"),
+                                 F["gut"] if an else F["warn"])
             if ki.get("model"):
                 self.k_chat.feld("modell", ki["model"])
         verbunden = d.get("verbunden") or {}

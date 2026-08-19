@@ -387,8 +387,16 @@ async function daten() {
     }
   } catch { /* noch keine */ }
 
+  /* Was der nächtliche Lauf über die Abhängigkeiten herausgefunden hat. Die
+     Datei entsteht dort; fehlt sie, hat noch kein Lauf stattgefunden. */
+  let abhaengigkeiten = null;
+  try {
+    abhaengigkeiten = JSON.parse(fs.readFileSync(`${DATEN}/abhaengigkeiten.json`, 'utf8'));
+  } catch { /* noch kein Lauf */ }
+
   return {
     zeit: Date.now(),
+    abhaengigkeiten,
     version: version(),
     modell: modell(),
     adressen: adressen(),
@@ -467,7 +475,13 @@ async function zeichnen() {
     if (an && g.ai.model) feld('Modell', g.ai.model);
     if (an && g.ai.fastModel) feld('Schnellmodell', g.ai.fastModel);
     if (g.ai.modelsAvailable) feld('Modelle', `${g.ai.modelsAvailable} verfügbar${g.ai.modelSource === 'auto' ? ', automatisch gewählt' : ''}`);
-    if (g.ai.transcription) feld('Sprachnachricht', 'Umschrift möglich', F.gruen);
+    /* Nicht nur "möglich", sondern wo. Solange hier nur "Umschrift möglich"
+       stand, konnte daneben "Übersetzung an · ollama" stehen und die Aufnahme
+       trotzdem an Groq gehen — genau das ist eine Weile unbemerkt passiert. */
+    feld('Sprachnachricht', g.ai.transcription
+      ? `Umschrift ${g.ai.transcriptionLokal ? 'auf diesem Rechner' : 'bei Groq'} · ${g.ai.transcriptionModel}`
+      : 'keine Umschrift — Sprachnachrichten bleiben ohne Text',
+    g.ai.transcription ? (g.ai.transcriptionLokal ? F.gruen : F.gelb) : F.gelb);
   } else if (chat) {
     feld('Übersetzung', 'Server antwortet noch nicht', F.gelb);
   }

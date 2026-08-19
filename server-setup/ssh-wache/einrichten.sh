@@ -1,8 +1,13 @@
 #!/usr/bin/env bash
-# Richtet das Fenster ein, das auf dem Pi zeigt, wenn jemand über SSH arbeitet.
+# Richtet ein, was auf dem Pi zeigt, wenn jemand über SSH arbeitet.
 #
 # Drei Teile: die Mitschrift (was geschieht), der Weg in eine eigene Logdatei
-# (rsyslog), und das Fenster selbst (startet mit dem Desktop).
+# (rsyslog), und das Fenster zum Nachlesen.
+#
+# Das Fenster geht nicht mehr von selbst auf. Die laufende Mitschrift steht
+# dauerhaft unten in der Stellium-Konsole, die den Schreibtisch füllt — dort
+# sieht man ohne Zutun, was geschieht. Aufgerufen wird das Fenster nur noch
+# von Hand über „Fernzugriff-Protokoll" im Startmenü, um alte Tage nachzulesen.
 set -euo pipefail
 
 [ "$(id -u)" -eq 0 ] || { echo "Bitte mit sudo starten."; exit 1; }
@@ -81,32 +86,18 @@ Terminal=false
 Categories=System;Monitor;
 ENDE
 
-# Auch als Verknüpfung auf dem Schreibtisch — dort sucht man zuerst.
+# Kein Eintrag mehr auf dem Schreibtisch und kein Start mit dem Desktop: die
+# Konsole füllt den Schreibtisch und zeigt die Mitschrift schon unten an. Ein
+# Wächter, der bei jeder Verbindung ein Fenster hochschiebt, wäre doppelt.
+rm -f /etc/xdg/autostart/stellium-ssh-wache.desktop
 for heim in /home/*; do
-  [ -d "$heim/Desktop" ] || continue
-  install -m 755 /usr/share/applications/stellium-fernzugriff.desktop "$heim/Desktop/"
-  chown "$(basename "$heim")":"$(basename "$heim")" "$heim/Desktop/stellium-fernzugriff.desktop" 2>/dev/null || true
+  rm -f "$heim/Desktop/stellium-fernzugriff.desktop" \
+        "$heim/.config/autostart/stellium-ssh-wache.desktop" 2>/dev/null || true
 done
 
-echo "→ Fenster startet mit dem Desktop"
-cat > /etc/xdg/autostart/stellium-ssh-wache.desktop <<ENDE
-[Desktop Entry]
-Type=Application
-Name=Stellium — Fernzugriff
-Comment=Zeigt an, wenn jemand über SSH auf diesem Pi arbeitet
-Exec=/usr/local/bin/stellium-ssh-wache
-Icon=utilities-terminal
-Terminal=false
-X-GNOME-Autostart-enabled=true
-ENDE
-
-# Wenn schon ein Desktop läuft, gleich starten — sonst erst beim nächsten Mal.
-NUTZER="$(who 2>/dev/null | awk '$0 ~ /\(:0/ {print $1; exit}')"
-[ -z "$NUTZER" ] && NUTZER="$(logname 2>/dev/null || echo '')"
-if [ -n "$NUTZER" ] && ! pgrep -f ssh-wache.py >/dev/null; then
-  su - "$NUTZER" -c "DISPLAY=:0 nohup /usr/local/bin/stellium-ssh-wache >/dev/null 2>&1 &" || true
-fi
-
 echo
-echo "Fertig. Das Fenster erscheint, sobald sich jemand über SSH verbindet."
+echo "Fertig."
+echo "  · Mitgeschrieben wird ab sofort jede SSH-Sitzung."
+echo "  · Zu sehen ist das laufend unten in der Stellium-Konsole."
+echo "  · Zum Nachlesen: „Fernzugriff-Protokoll“ im Startmenü."
 echo "Mitschrift: $LOG"

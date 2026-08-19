@@ -114,6 +114,20 @@ sudo apt-get install -y fail2ban
 sudo systemctl enable --now fail2ban
 ```
 
+## Wenn der Port plötzlich nicht mehr stimmt
+
+Die Weiterleitung im Router wird erbeten, nicht fest eingetragen — nach einem
+Neustart des Routers kann sie auf einer anderen Portnummer landen. Dagegen
+schreibt der Pi laufend auf, wo er gerade zu erreichen ist, und ein Skript
+trägt das auf dem Mac ein:
+
+```bash
+bash server-setup/fernzugang/mac-ssh-config.sh
+```
+
+Alles Weitere dazu — auch der Rückweg über Tailscale, wenn gar nichts mehr
+geht — steht in [`fernzugang/LIESMICH.md`](fernzugang/LIESMICH.md).
+
 ## Was ich damit tun kann
 
 Mit `ssh stellium` komme ich an:
