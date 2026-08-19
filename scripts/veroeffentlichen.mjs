@@ -59,6 +59,21 @@ const lauf = (befehl, argumente, optionen = {}) =>
 
 /* ── Bauen ───────────────────────────────────────────────────── */
 
+if (nurHochladen) {
+  /* Beim reinen Hochladen wird die Fassung nicht gesetzt — dann muss sie schon
+     stimmen. Sonst entsteht ein Paket, dessen Inhalt eine andere Nummer trägt
+     als die Ankündigung: der Server hält sich danach für aktuell, obwohl er es
+     nicht ist, und das Selbstupdate verwirft das Paket zu Recht. Lieber hier
+     abbrechen als draußen ein widersprüchliches Paket. */
+  const paketDatei = path.join(wurzel, 'packages/desktop/package.json');
+  const drin = JSON.parse(fs.readFileSync(paketDatei, 'utf8')).version;
+  if (drin !== version) {
+    fehler(`Das Paket trägt Fassung ${drin}, hochgeladen werden soll ${version}.\n`
+      + '  Entweder ohne --nur-hochladen laufen lassen (setzt die Nummer selbst)\n'
+      + `  oder packages/desktop/package.json vorher auf ${version} stellen.`);
+  }
+}
+
 if (!nurHochladen) {
   schritt(`Version ${version} setzen`);
   const paketDatei = path.join(wurzel, 'packages/desktop/package.json');

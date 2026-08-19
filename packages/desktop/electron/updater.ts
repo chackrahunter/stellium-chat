@@ -509,7 +509,10 @@ export async function installieren(): Promise<boolean> {
     melden('update:error', {
       message: `Der Austausch ist fehlgeschlagen (${(err as Error).message}). Die Datei wird geöffnet.`,
     });
-    await shell.openPath(bereit.datei);
+    // Nur der Prüfsummen-Zweig oben setzt `bereit` auf null, und der kehrt
+    // sofort zurück — hier ist die Datei also da. Die Abfrage steht für den
+    // Übersetzer, der das nicht mitverfolgen kann.
+    if (bereit) await shell.openPath(bereit.datei);
     return true;
   }
 }
