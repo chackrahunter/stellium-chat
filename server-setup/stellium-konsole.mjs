@@ -349,6 +349,13 @@ function ueberschrift(text, farbe = F.violett) {
  * beiden Anzeigen irgendwann auseinander und niemand weiß, welche stimmt.
  */
 async function daten() {
+  /* Zwei Messungen kurz hintereinander: der Vergleichswert entsteht erst im
+     Lauf. Für die grafische Anzeige startet jedes Mal ein eigener Prozess —
+     ohne das hier bekäme sie immer nur den Minutendurchschnitt zu sehen, und
+     der bewegt sich kaum. */
+  cpuAuslastung();
+  await new Promise((r) => setTimeout(r, 250));
+
   const g = await gesundheit();
   const pl = platte('/');
   const sw = swap();

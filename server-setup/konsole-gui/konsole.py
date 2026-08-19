@@ -18,7 +18,7 @@ import tkinter as tk
 from tkinter import font as tkfont
 
 KONSOLE = ["/usr/bin/node", "/opt/stellium/server-setup/stellium-konsole.mjs", "json"]
-TAKT = 4.0
+TAKT = 2.0
 SPRACHDATEI = os.path.expanduser("~/.config/stellium-konsole-sprache")
 
 TEXTE = {
@@ -41,7 +41,7 @@ TEXTE = {
         "konten": "Konten", "kanaele": "Kanäle", "nachrichten": "Nachrichten",
         "ablage": "Dateiablage", "dateien": "Dateien", "belegt": "belegt",
         "empfangen": "empfangen", "gesendet": "gesendet",
-        "fuss": "Aktualisiert sich alle vier Sekunden  ·  im Terminal:  stellium-konsole",
+        "fuss": "Aktualisiert sich alle zwei Sekunden  ·  im Terminal:  stellium-konsole",
         "verbinde": "verbinde …", "keine_verbindung": "Keine Verbindung zur Konsole: {f}",
         "tage_kurz": "Tage", "std": "Std", "min": "Min",
     },
@@ -64,7 +64,7 @@ TEXTE = {
         "konten": "accounts", "kanaele": "channels", "nachrichten": "messages",
         "ablage": "File storage", "dateien": "files", "belegt": "used",
         "empfangen": "received", "gesendet": "sent",
-        "fuss": "Refreshes every four seconds  ·  in the terminal:  stellium-konsole",
+        "fuss": "Refreshes every two seconds  ·  in the terminal:  stellium-konsole",
         "verbinde": "connecting …", "keine_verbindung": "No connection to the console: {f}",
         "tage_kurz": "days", "std": "h", "min": "min",
     },
@@ -254,10 +254,14 @@ class Karte(tk.Frame):
             links.pack(side="left")
             if roh is None:
                 self.beschriftungen[name] = links
+            # Umbrechen statt abschneiden: lange Werte wie "8 Konten · 16 Kanäle
+            # · 132 Nachrichten" passten sonst nicht in die Spalte.
             rechts = tk.Label(reihe, text="", bg=F["karte"], fg=F["tinte"], anchor="w",
-                              justify="left",
+                              justify="left", wraplength=1,
                               font=tkfont.Font(family="DejaVu Sans Mono", size=10))
             rechts.pack(side="left", fill="x", expand=True)
+            reihe.bind("<Configure>",
+                       lambda e, w=rechts: w.config(wraplength=max(e.width - 130, 120)))
             self.zeilen[name] = rechts
         self.zeilen[name].config(text=wert, fg=farbe or F["tinte"])
 
@@ -375,8 +379,7 @@ class Konsole:
 
         self.fuss_id = self.buehne.create_text(20, 0, text=T("fuss"), anchor="w",
                                                fill=F["zeit"], font=klein)
-        # Damit sprache_wechseln() beide Wege gleich behandeln kann.
-        self.fuss = type("Fuss", (), {"config": lambda _s, text: self.buehne.itemconfig(self.fuss_id, text=text)})()
+
 
         threading.Thread(target=self.holen, daemon=True).start()
         sprache_laden()
@@ -391,7 +394,7 @@ class Konsole:
         for karte in (self.k_verbinden, self.k_chat, self.k_aussen,
                       self.k_leistung, self.k_teile):
             karte.sprache_anwenden()
-        self.fuss.config(text=T("fuss"))
+        self.buehne.itemconfig(self.fuss_id, text=T("fuss"))
         self.adressen_stand = None      # Adressen mit neuen Hinweisen neu setzen
         self.buehne_richten()
         if self.stand:
@@ -438,7 +441,7 @@ class Konsole:
         for karte in (self.k_verbinden, self.k_chat, self.k_aussen,
                       self.k_leistung, self.k_teile):
             karte.sprache_anwenden()
-        self.fuss.config(text=T("fuss"))
+        self.buehne.itemconfig(self.fuss_id, text=T("fuss"))
         self.adressen_stand = None      # Hinweise an den Adressen neu setzen
         self.buehne_richten()
         if self.stand and "fehler" not in self.stand:
