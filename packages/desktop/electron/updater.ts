@@ -63,6 +63,13 @@ let letzteNotizen: string | null = null;
 const FRIST_MS = 5 * 60 * 1000;
 let frist: NodeJS.Timeout | null = null;
 let installiertBeimBeenden = false;
+/* Läuft gerade ein Austausch? Ohne diese Sperre startet app.quit() über
+   'before-quit' einen zweiten Lauf, und zwei Skripte räumen gleichzeitig im
+   selben App-Ordner auf. */
+let installiertGerade = false;
+/* Eine Version, deren Austausch stumm gescheitert ist. Die wird nicht wieder
+   von selbst eingespielt — sonst dreht sich das Laden endlos im Kreis. */
+let gescheitert: string | null = null;
 
 function fristStarten(sekunden = FRIST_MS / 1000): void {
   if (frist) clearTimeout(frist);
@@ -84,6 +91,21 @@ export function beimBeendenInstallieren(): boolean {
 
 export function updaterInit(win: BrowserWindow): void {
   fenster = win;
+
+  /* Nach einem Update läuft entweder die neue Fassung — oder der Austausch ist
+     stumm gescheitert und es läuft weiter die alte. Letzteres würde sonst
+     niemand merken: die App lädt dieselbe Datei erneut, startet neu, scheitert
+     erneut. Einmal ist ein Missgeschick, in einer Schleife ist es ein Fehler. */
+  try {
+    const datei = path.join(app.getPath('userData'), 'letztes-update.json');
+    const vermerk = JSON.parse(fs.readFileSync(datei, 'utf8')) as Vermerk;
+    if (vermerk.version && vermerk.version !== app.getVersion()) {
+      gescheitert = vermerk.version;
+      // Den Vermerk wegräumen, sonst begrüßt der Willkommensgruß eine Fassung,
+      // die gar nicht läuft.
+      fs.rmSync(datei, { force: true });
+    }
+  } catch { /* kein Vermerk — dann gab es auch kein Update */ }
 }
 
 /** Der Renderer meldet sich, sobald jemand angemeldet ist. */
@@ -404,6 +426,13 @@ async function installiereLinux(datei: string): Promise<void> {
   const appimage = process.env.APPIMAGE;
   if (!appimage) throw new Error('Kein AppImage — bitte das Paket von Hand installieren.');
 
+  /* Für Linux gibt es serverseitig nur einen Platz, und dort kann auch ein .deb
+     liegen. Über ein laufendes AppImage kopiert, wäre die App unwiderruflich
+     hin — ein Debian-Paket startet nicht. Lieber von Hand installieren. */
+  if (!/\.appimage$/i.test(datei)) {
+    throw new Error('Die geladene Datei ist kein AppImage — bitte von Hand installieren.');
+  }
+
   const skript = path.join(os.tmpdir(), `stellium-update-${Date.now()}.sh`);
   fs.writeFileSync(skript, `#!/bin/bash
 # Von Stellium erzeugt. Ersetzt das AppImage, sobald es beendet ist.
@@ -425,12 +454,30 @@ rm -f "$0"
  * Austausch gar nicht mehr startet.
  */
 export async function installieren(): Promise<boolean> {
+  if (installiertGerade) return true;
   if (!bereit || !fs.existsSync(bereit.datei)) return false;
+  installiertGerade = true;
+  // Sonst startet das app.quit() weiter unten über 'before-quit' einen zweiten Lauf.
+  installiertBeimBeenden = false;
   if (frist) { clearTimeout(frist); frist = null; }
 
-  vermerken(bereit.version, letzteNotizen);
-
   try {
+    /* Zwischen Laden und Einspielen liegt oft eine Stunde, in der die Datei
+       offen im Benutzerordner liegt. Vor dem Ausführen also noch einmal
+       nachrechnen, ob es wirklich dieselbe Datei ist. */
+    if (erwarteteSumme) {
+      const jetzt = await summeVonDatei(bereit.datei);
+      if (jetzt !== erwarteteSumme) {
+        fs.rmSync(bereit.datei, { force: true });
+        bereit = null;
+        installiertGerade = false;
+        melden('update:error', {
+          message: 'Die geladene Datei hat sich verändert und wurde verworfen. Stellium lädt sie neu.',
+        });
+        return false;
+      }
+    }
+    vermerken(bereit.version, letzteNotizen);
     if (process.platform === 'darwin') await installiereMac(bereit.datei);
     else if (process.platform === 'win32') await installiereWindows(bereit.datei);
     else await installiereLinux(bereit.datei);
@@ -440,6 +487,7 @@ export async function installieren(): Promise<boolean> {
     setTimeout(() => app.quit(), 900);
     return true;
   } catch (err) {
+    installiertGerade = false;
     melden('update:error', {
       message: `Der Austausch ist fehlgeschlagen (${(err as Error).message}). Die Datei wird geöffnet.`,
     });

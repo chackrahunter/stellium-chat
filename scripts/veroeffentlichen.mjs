@@ -101,10 +101,35 @@ if (mitServer) {
 
   // Dasselbe Paket, das auch von Hand eingespielt wird — ohne node_modules,
   // fertige Pakete und Daten.
+  // Was .gitignore verschweigt, darf erst recht nicht in ein Paket, das jeder
+  // Server herunterlädt: .env trägt Groq-Schlüssel und Masterpasswort,
+  // .stellium-test ein echtes Konto. Bewusst ohne Stern — .env.example soll
+  // mitkommen, sie ist ja die Vorlage.
   lauf('bash', ['-c',
     `tar -C ${JSON.stringify(wurzel)} --exclude=node_modules --exclude=.git `
     + '--exclude=release --exclude=downloads --exclude=data --exclude=dist-electron '
+    + '--exclude=.env --exclude=.env.local --exclude=.stellium-test '
+    + '--exclude=.stellium-veroeffentlichen --exclude=*.pem --exclude=*.key '
     + `--exclude=.DS_Store --exclude=screenshots -cf - . | tar -C ${JSON.stringify(ziel)} -xf -`]);
+
+  /* Vertrauen ist gut, Nachsehen ist besser: bevor das Paket rausgeht, wird
+     geprüft, dass wirklich nichts Geheimes drinliegt. Lieber ein Abbruch als
+     ein Schlüssel auf fremden Rechnern. */
+  const verboten = ['.env', '.env.local', '.stellium-test', '.stellium-veroeffentlichen'];
+  const gefunden = [];
+  const durchsehen = (ordner) => {
+    for (const eintrag of fs.readdirSync(ordner, { withFileTypes: true })) {
+      const voll = path.join(ordner, eintrag.name);
+      if (eintrag.isDirectory()) durchsehen(voll);
+      else if (verboten.includes(eintrag.name) || /\.(pem|key|p12)$/.test(eintrag.name)) {
+        gefunden.push(path.relative(ziel, voll));
+      }
+    }
+  };
+  durchsehen(ziel);
+  if (gefunden.length) {
+    throw new Error(`Im Serverpaket liegen Geheimnisse: ${gefunden.join(', ')}`);
+  }
 
   const paket = path.join(wurzel, 'downloads/stellium-server.tar.gz');
   fs.mkdirSync(path.dirname(paket), { recursive: true });

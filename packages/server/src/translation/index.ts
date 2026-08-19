@@ -11,7 +11,7 @@ import {
 } from '../services/settings.js';
 import { db, reindexMessage } from '../db/index.js';
 import { newId, sha1 } from '../util/id.js';
-import { entschluesseln, verschluesseln } from '../crypto/nachrichten.js';
+import { abdruck, entschluesseln, verschluesseln } from '../crypto/nachrichten.js';
 import { DeepLProvider } from './providers/deepl.js';
 import { DemoProvider } from './providers/demo.js';
 import { LibreProvider } from './providers/libre.js';
@@ -279,8 +279,9 @@ const memory = new Lru<{ text: string; provider: string; model: string | null; c
  * Der Provider gehört in den Schlüssel: sonst liefert der Cache nach einem
  * Wechsel von demo auf groq weiter die alten, nicht übersetzten Ergebnisse.
  */
+/* Der Schlüsselwert darf den Text nicht preisgeben — siehe abdruck(). */
 const tmKey = (src: string, tgt: string, text: string) =>
-  sha1(`${provider.name}|${src}|${tgt}|${text}`);
+  abdruck(`${provider.name}|${src}|${tgt}|${text}`);
 
 /* ── Kernfunktion ─────────────────────────────────────────────── */
 
@@ -335,9 +336,12 @@ export async function translate(opts: TranslateOptions): Promise<TranslateOutcom
     );
     if (row) {
       db.run('UPDATE translation_memory SET hits = hits + 1 WHERE key = ?', key);
-      const entry = { text: row.target_text, provider: row.provider, model: provider.model, confidence: 0.9 };
+      const entry = {
+        text: entschluesseln(row.target_text), provider: row.provider,
+        model: provider.model, confidence: 0.9,
+      };
       memory.set(key, entry);
-      return { ...base, ...entry, text: unmaskText(row.target_text, tokens), cached: true };
+      return { ...base, ...entry, text: unmaskText(entry.text, tokens), cached: true };
     }
   }
 
@@ -374,7 +378,12 @@ export async function translate(opts: TranslateOptions): Promise<TranslateOutcom
     `INSERT INTO translation_memory (key, source_lang, target_lang, source_text, target_text, provider, hits, created_at)
      VALUES (?,?,?,?,?,?,1,?)
      ON CONFLICT(key) DO UPDATE SET hits = hits + 1`,
-    key, finalSource, target, masked, out, provider.name, Date.now(),
+    /* Auch hier verschlüsselt.
+       Dieser Zwischenspeicher lag als einziger Ort noch im Klartext: Quelle
+       und Übersetzung jeder je übersetzten Nachricht, sauber nebeneinander.
+       Wer die Datenbankdatei hat, hätte damit ganze Gespräche lesen können,
+       obwohl die Nachrichtentabelle selbst verschlüsselt ist. */
+    key, finalSource, target, verschluesseln(masked), verschluesseln(out), provider.name, Date.now(),
   );
 
   return { ...base, ...entry, sourceLang: finalSource, text: unmaskText(out, tokens) };

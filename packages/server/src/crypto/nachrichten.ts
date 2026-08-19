@@ -126,3 +126,16 @@ function fingerabdruck(wort: string): string {
   const key = k ? k.index : Buffer.from('stellium/kein-schluessel');
   return crypto.createHmac('sha256', key).update(wort).digest('hex').slice(0, 16);
 }
+
+/**
+ * Ein Schlüsselwert für Zwischenspeicher, der den Klartext nicht verrät.
+ *
+ * sha1 über eine kurze Wendung ("Guten Morgen") ist in Sekunden durchprobiert.
+ * Mit dem Hausschlüssel als Grundlage geht das nicht — und zum Nachschlagen
+ * taugt der Wert genauso.
+ */
+export function abdruck(text: string): string {
+  const k = schluessel();
+  const key = k ? k.index : Buffer.from('stellium/kein-schluessel');
+  return crypto.createHmac('sha256', key).update(text).digest('hex').slice(0, 40);
+}

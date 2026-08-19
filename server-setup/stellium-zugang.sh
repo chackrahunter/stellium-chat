@@ -32,6 +32,19 @@ PORT_HTTP="${STELLIUM_PORT_HTTP:-80}"
 PORT_HTTPS="${STELLIUM_PORT_HTTPS:-443}"
 DOMAIN="${STELLIUM_DOMAIN:-}"
 
+# Der SSH-Port kommt dazu, sobald er eingerichtet ist. Ohne Einrichtung wird
+# er auch nicht freigegeben — ein offener Port ohne Dienst dahinter nützt
+# niemandem und ist nur eine weitere Tür.
+PORT_SSH=""
+if systemctl is-active --quiet ssh 2>/dev/null || systemctl is-active --quiet sshd 2>/dev/null; then
+  PORT_SSH="$(sshd -T 2>/dev/null | awk '/^port /{print $2; exit}')"
+  # Nur mit Schlüsselzwang nach draußen. Ein Port mit Passwort-Anmeldung
+  # wäre binnen Stunden im Visier jedes Scanners.
+  if [[ -n "$PORT_SSH" ]] && ! sshd -T 2>/dev/null | grep -qi '^passwordauthentication no'; then
+    PORT_SSH=""
+  fi
+fi
+
 lokale_ip() {
   local ip=""
   ip="$(hostname -I 2>/dev/null | awk '{print $1}')" || true
@@ -87,7 +100,7 @@ schritt "Router um die Freigabe bitten"
 GELUNGEN=0
 
 if command -v upnpc >/dev/null; then
-  for PORT in "$PORT_HTTP" "$PORT_HTTPS"; do
+  for PORT in "$PORT_HTTP" "$PORT_HTTPS" ${PORT_SSH:+$PORT_SSH}; do
     if upnpc -e "Stellium" -a "$IP" "$PORT" "$PORT" TCP 86400 >/dev/null 2>&1 \
        || upnpc -e "Stellium" -a "$IP" "$PORT" "$PORT" TCP >/dev/null 2>&1; then
       ok "Port $PORT über UPnP freigegeben"
@@ -99,7 +112,7 @@ if command -v upnpc >/dev/null; then
 fi
 
 if [[ $GELUNGEN -eq 0 ]] && command -v natpmpc >/dev/null; then
-  for PORT in "$PORT_HTTP" "$PORT_HTTPS"; do
+  for PORT in "$PORT_HTTP" "$PORT_HTTPS" ${PORT_SSH:+$PORT_SSH}; do
     if natpmpc -a "$PORT" "$PORT" tcp 86400 >/dev/null 2>&1; then
       ok "Port $PORT über NAT-PMP freigegeben"
       GELUNGEN=1

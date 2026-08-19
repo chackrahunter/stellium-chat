@@ -106,10 +106,14 @@ function bestehendeTexteVerschluesseln(): void {
     { tabelle: 'poll_options', schluessel: 'id' },
   ];
 
-  /* Umfragen tragen ihren Text in anders benannten Spalten. */
+  /* Umfragen und der Übersetzungsspeicher tragen ihren Text in anders
+     benannten Spalten. Der Zwischenspeicher lag am längsten offen: dort stehen
+     Quelle und Übersetzung jeder je übersetzten Nachricht nebeneinander. */
   const sonderfaelle: { tabelle: string; spalte: string; schluessel: string }[] = [
     { tabelle: 'polls', spalte: 'question', schluessel: 'id' },
     { tabelle: 'poll_translations', spalte: 'payload', schluessel: 'rowid' },
+    { tabelle: 'translation_memory', spalte: 'source_text', schluessel: 'key' },
+    { tabelle: 'translation_memory', spalte: 'target_text', schluessel: 'key' },
   ];
 
   let gesamt = 0;
@@ -146,6 +150,19 @@ function bestehendeTexteVerschluesseln(): void {
       gesamt += offen.length;
     }
   }
+
+  /* Die Schlüsselwerte des Zwischenspeichers entstehen jetzt anders (HMAC
+     statt sha1). Alte Einträge fänden sich nie wieder und lägen nur herum —
+     sie werden verworfen, die Übersetzungen entstehen bei Bedarf neu. */
+  try {
+    const alt = db.get<{ n: number }>(
+      "SELECT COUNT(*) AS n FROM translation_memory WHERE length(key) = 40 AND key GLOB '[0-9a-f]*'",
+    )?.n ?? 0;
+    if (alt > 0 && verschluesselungAktiv()) {
+      const weg = db.run("DELETE FROM translation_memory WHERE length(key) <> 40");
+      if (weg.changes) console.log(`[db] ${weg.changes} Einträge im Übersetzungsspeicher verworfen (neuer Schlüsselwert).`);
+    }
+  } catch { /* Tabelle fehlt */ }
 
   if (gesamt) {
     console.log(`[db] ${gesamt} gespeicherte Texte nachträglich verschlüsselt.`);

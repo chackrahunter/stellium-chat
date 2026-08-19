@@ -53,6 +53,79 @@ fi
 echo "  SSH lauscht auf Port $INNEN."
 command -v ufw >/dev/null && ufw allow "$INNEN"/tcp >/dev/null 2>&1 || true
 
+echo "→ Zugang absichern"
+# Ein Port, der im Netz steht, wird binnen Minuten durchprobiert. Also: nur
+# Schlüssel, kein root, wenige Versuche — und ein Wächter, der Dauergäste
+# aussperrt. Passwörter werden erst abgeschaltet, wenn wirklich ein Schlüssel
+# hinterlegt ist; sich selbst auszusperren wäre der schlechtere Tausch.
+KONTO="${SUDO_USER:-$(logname 2>/dev/null || echo root)}"
+HEIM="$(getent passwd "$KONTO" | cut -d: -f6)"
+SCHLUESSEL=0
+if [ -s "$HEIM/.ssh/authorized_keys" ] && grep -q '^ssh-' "$HEIM/.ssh/authorized_keys"; then
+  SCHLUESSEL=1
+  chmod 700 "$HEIM/.ssh"; chmod 600 "$HEIM/.ssh/authorized_keys"
+  chown -R "$KONTO":"$KONTO" "$HEIM/.ssh"
+fi
+
+SICHERUNG="$(mktemp)"
+cp -a /etc/ssh/sshd_config "$SICHERUNG"
+grep -q '^Include /etc/ssh/sshd_config.d/' /etc/ssh/sshd_config \
+  || sed -i '1i Include /etc/ssh/sshd_config.d/*.conf' /etc/ssh/sshd_config
+install -d -m 755 /etc/ssh/sshd_config.d
+{
+  echo "# Von Stellium gesetzt — Zugang von außen, also streng."
+  echo "PermitRootLogin no"
+  echo "PubkeyAuthentication yes"
+  if [ "$SCHLUESSEL" -eq 1 ]; then
+    echo "PasswordAuthentication no"
+    echo "KbdInteractiveAuthentication no"
+    echo "ChallengeResponseAuthentication no"
+  fi
+  echo "PermitEmptyPasswords no"
+  echo "MaxAuthTries 3"
+  echo "MaxSessions 6"
+  echo "LoginGraceTime 20"
+  echo "X11Forwarding no"
+  echo "AllowAgentForwarding no"
+  echo "AllowTcpForwarding no"
+  echo "ClientAliveInterval 120"
+  echo "ClientAliveCountMax 2"
+  echo "AllowUsers $KONTO"
+} > /etc/ssh/sshd_config.d/30-stellium-sicher.conf
+
+if sshd -t 2>/dev/null; then
+  systemctl reload ssh 2>/dev/null || systemctl reload sshd 2>/dev/null || true
+  if [ "$SCHLUESSEL" -eq 1 ]; then
+    echo "  nur Schlüssel, kein root, drei Versuche."
+  else
+    echo "  WARNUNG: kein Schlüssel hinterlegt — Passwortanmeldung bleibt an."
+  fi
+else
+  echo "  FEHLER in den SSH-Einstellungen — zurückgenommen."
+  rm -f /etc/ssh/sshd_config.d/30-stellium-sicher.conf
+  cp -a "$SICHERUNG" /etc/ssh/sshd_config
+fi
+rm -f "$SICHERUNG"
+
+# fail2ban sperrt aus, wer es zu oft falsch versucht.
+if ! command -v fail2ban-server >/dev/null; then
+  apt-get install -y fail2ban >/dev/null 2>&1 || true
+fi
+if command -v fail2ban-server >/dev/null; then
+  cat > /etc/fail2ban/jail.d/stellium-ssh.conf <<ENDE
+[sshd]
+enabled  = true
+port     = $INNEN
+backend  = systemd
+maxretry = 4
+findtime = 10m
+bantime  = 2h
+ENDE
+  systemctl enable --now fail2ban >/dev/null 2>&1 || true
+  systemctl restart fail2ban >/dev/null 2>&1 || true
+  echo "  fail2ban wacht: vier Fehlversuche, dann zwei Stunden Pause."
+fi
+
 echo "→ alte Zuordnungen aufräumen"
 for p in 2222 2223 2224; do natpmpc -a "$p" "$p" tcp 0 >/dev/null 2>&1 || true; done
 natpmpc -a "$AUSSEN" "$INNEN" tcp 0 >/dev/null 2>&1 || true

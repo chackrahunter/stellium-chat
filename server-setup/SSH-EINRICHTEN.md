@@ -59,41 +59,39 @@ Ab jetzt reicht:
 ssh stellium
 ```
 
-## 4. Von außen erreichbar — ohne Port 22 zu öffnen
+## 4. Von außen erreichbar — ohne Zusatzsoftware
 
-Port 22 ins Internet zu stellen ist eine schlechte Idee: solche Ports werden
-rund um die Uhr durchprobiert. Zwei bessere Wege, beide ohne Portfreigabe.
-
-### Weg A: über den Tunnel, den es schon gibt (empfohlen)
-
-Auf dem Pi läuft `cloudflared` bereits für den Chat. Derselbe Tunnel kann SSH
-mittragen:
+Auf dem Pi erledigt ein Skript alles, was dort nötig ist:
 
 ```bash
-sudo cloudflared tunnel route dns stellium ssh.deine-domain.de
+sudo bash /opt/stellium/server-setup/stellium-ssh.sh 'ssh-ed25519 AAAA... dein-kommentar'
 ```
 
-Auf dem Mac in `~/.ssh/config`:
+Es trägt den Schlüssel ein, schaltet Passwort-Anmeldung ab, verbietet root,
+verlegt SSH auf Port 2222 und stellt fail2ban davor. Die laufende Sitzung
+bleibt dabei bestehen — **prüfe die neue Verbindung in einem zweiten Fenster,
+bevor du das erste schließt.**
 
-```
-Host stellium-fern
-  HostName ssh.deine-domain.de
-  User aryan
-  IdentityFile ~/.ssh/stellium
-  ProxyCommand cloudflared access ssh --hostname %h
-```
+Danach fehlt nur noch eine Zeile im Router, dieselbe Stelle, an der schon
+9443 steht:
 
-### Weg B: WireGuard zwischen Mac und Pi
+| | |
+|---|---|
+| extern | TCP 2222 |
+| intern | die lokale Adresse des Pi, Port 2222 |
 
-Ein kleines eigenes Netz nur für euch beide. Auf dem Pi:
+Vom Mac aus dann:
 
 ```bash
-curl -L https://install.pivpn.io | bash
+ssh -p 2222 aryan@deine-adresse.duckdns.org
 ```
 
-Nach der Einrichtung eine Konfiguration für den Mac erzeugen und dort
-importieren. Danach ist der Pi unter seiner internen Adresse erreichbar, als
-säße er im selben Raum.
+### Warum Port 2222 und nicht 22
+
+Port 22 wird im Internet rund um die Uhr durchprobiert — ein frisch geöffneter
+Port sammelt binnen Minuten die ersten Versuche ein. Ein anderer Port hält das
+Grundrauschen fern. Der eigentliche Schutz sind aber die Schlüssel: ohne
+Passwort-Anmeldung nützt Durchprobieren gar nichts.
 
 ## 5. Absichern
 

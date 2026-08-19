@@ -71,18 +71,64 @@ if [[ -x /usr/local/bin/stellium-sichern ]]; then
 fi
 
 zurueck() {
+  # Ohne diese Zeile löst ein Fehler im Rückfall den Rückfall erneut aus.
+  trap - ERR INT TERM
   warn "Etwas ist schiefgegangen — ich lege den alten Stand zurück."
   # Erst heraus aus dem Verzeichnis: beim Bauen steht die Sitzung darin, und
   # nach dem Löschen wüsste die Shell nicht mehr, wo sie ist.
   cd / || true
-  rm -rf "$ZIEL"
   mkdir -p "$ZIEL"
+  # node_modules stehen lassen! Die Sicherung enthält sie nicht, und der
+  # Dienst startet mit blankem node — ohne fastify käme er nie wieder hoch.
+  find "$ZIEL" -mindepth 1 -maxdepth 1 ! -name node_modules -exec rm -rf {} + 2>/dev/null || true
   tar -C "$SICHERUNG" -cf - . | tar -C "$ZIEL" -xf -
+  einstellungen_zurueck
+  # Ein abgebrochenes "npm ci" kann die Abhängigkeiten halb abgeräumt haben.
+  if [[ ! -d "$ZIEL/node_modules/fastify" ]]; then
+    warn "Abhängigkeiten fehlen — ich lege sie für den alten Stand neu an"
+    ( cd "$ZIEL" && sudo -u "$BENUTZER" npm ci --no-audit --no-fund ) \
+      >>"${BAULOG:-/tmp/stellium-bau.log}" 2>&1 \
+      || ( cd "$ZIEL" && sudo -u "$BENUTZER" npm install --no-audit --no-fund ) \
+      >>"${BAULOG:-/tmp/stellium-bau.log}" 2>&1 || true
+  fi
   chown -R "$BENUTZER:$BENUTZER" "$ZIEL"
   systemctl restart stellium || true
-  fehler "Der alte Stand läuft wieder. Nichts ist verloren."
+  sleep 3
+  if systemctl is-active --quiet stellium; then
+    fehler "Der alte Stand läuft wieder. Nichts ist verloren."
+  else
+    fehler "Der alte Stand ist zurückgelegt, der Dienst startet aber nicht. Log: journalctl -u stellium -n 50"
+  fi
 }
+
+# ── Einstellungen überleben jedes Update ────────────────────────
+# .env trägt Schlüssel und Masterpasswort und liegt bewusst nicht im Paket.
+# Das Einspielen räumt das Verzeichnis aber leer — also vorher beiseitelegen.
+EIGENES="$(mktemp -d)"
+einstellungen_retten() {
+  local d
+  for d in .env packages/server/.env; do
+    if [[ -f "$ZIEL/$d" ]]; then
+      mkdir -p "$EIGENES/$(dirname "$d")"
+      cp -a "$ZIEL/$d" "$EIGENES/$d"
+    fi
+  done
+}
+einstellungen_zurueck() {
+  local d
+  for d in .env packages/server/.env; do
+    if [[ -f "$EIGENES/$d" && ! -f "$ZIEL/$d" ]]; then
+      mkdir -p "$ZIEL/$(dirname "$d")"
+      cp -a "$EIGENES/$d" "$ZIEL/$d"
+      chown "$BENUTZER:$BENUTZER" "$ZIEL/$d"
+      chmod 600 "$ZIEL/$d"
+    fi
+  done
+}
+einstellungen_retten
 trap zurueck ERR
+# Ein Abbruch von Hand darf nicht mitten im Austausch enden.
+trap 'zurueck' INT TERM
 
 # ── Neuen Stand einspielen ──────────────────────────────────────
 schritt "Neuen Stand einspielen"
@@ -92,6 +138,7 @@ tar -C "$QUELLE" \
     --exclude=node_modules --exclude=.git --exclude=release \
     --exclude=downloads --exclude=data --exclude=dist \
     -cf - . | tar -C "$ZIEL" -xf -
+einstellungen_zurueck
 chown -R "$BENUTZER:$BENUTZER" "$ZIEL"
 ok "Quelltext ersetzt"
 
