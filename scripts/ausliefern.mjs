@@ -79,8 +79,27 @@ let notizen = notizenDatei
   ? fs.readFileSync(path.resolve(wurzel, notizenDatei), 'utf8').trim()
   : (freierText ?? '').trim();
 
+/**
+ * Ohne Angabe die Änderungsliste aus den Commits seit der letzten Fassung
+ * bilden. Damit genügt ein Aufruf ohne Argumente — der Betreff jedes Commits
+ * ist ohnehin als ein Satz geschrieben, der erklärt, was sich geändert hat.
+ */
 if (!notizen) {
-  raus('Was ist neu? Als Text mitgeben oder --notizen=DATEI.txt verwenden.\n'
+  try {
+    const letzterStand = lauf('git', ['describe', '--tags', '--abbrev=0']).trim();
+    const roh = lauf('git', ['log', `${letzterStand}..HEAD`, '--format=%s']).trim();
+    notizen = roh
+      .split('\n')
+      .map((z) => z.trim())
+      .filter((z) => z && !/^(Merge|WIP|fixup!)/i.test(z))
+      .join('\n');
+    if (notizen) info(`Änderungsliste aus ${notizen.split('\n').length} Commits seit ${letzterStand}`);
+  } catch { /* kein Tag, kein Git — dann bleibt es leer */ }
+}
+
+if (!notizen) {
+  raus('Was ist neu? Als Text mitgeben, --notizen=DATEI.txt verwenden —\n'
+    + '  oder committen, dann entsteht die Liste aus den Commit-Betreffen.\n'
     + '  Ohne Änderungsliste sieht niemand, warum er aktualisieren soll.');
 }
 
@@ -120,7 +139,10 @@ sag(`\n${F.blau}${F.fett}✦  Stellium ausliefern${F.aus}`);
 sag(`   ${F.grau}${jetzige} → ${F.aus}${F.fett}${naechste}${F.aus}${probe ? `  ${F.gelb}(Probe — nichts wird gesendet)${F.aus}` : ''}`);
 sag(`   ${F.grau}${notizen.split('\n').length} Punkte in der Änderungsliste${F.aus}`);
 
-const daten = probe ? null : zugang();
+/* Auch bei einer Probe nachsehen, woher der Zugang käme: sonst merkt man
+   erst beim echten Ausliefern, dass er nicht hinterlegt ist. Benutzt wird er
+   dabei nicht. */
+const daten = zugang();
 if (!probe && !daten && !ohneServer) {
   raus('Kein Zugang zum Stellium-Server gefunden.\n\n'
     + '  Einmal im Schlüsselbund ablegen (Passwort wird nicht angezeigt):\n'
@@ -128,6 +150,7 @@ if (!probe && !daten && !ohneServer) {
     + '  Danach läuft dieses Skript ohne weitere Eingabe.');
 }
 if (daten) info(`Zugang als ${daten.login} (${daten.quelle})`);
+else if (probe) warn('Kein Zugang hinterlegt — beim echten Ausliefern wäre hier Schluss.');
 
 /* ── Prüfen ──────────────────────────────────────────────────── */
 
