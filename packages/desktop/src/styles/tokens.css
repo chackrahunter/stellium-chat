@@ -8,7 +8,7 @@
      damit bleibt der Dateiname gleich, und ein Browser, der eine kaputte
      Antwort unter diesem Namen abgelegt hat, fragt nie wieder nach. Diese
      Zeile ändert den Namen und bricht den Bann. */
-  --stand-oberflaeche: '2026-08-19-mobil';
+  --stand-oberflaeche: '2026-08-19-gummiband';
 
   /* Was Dynamic Island, Kameraloch und Home-Leiste verdecken. Auf Geräten ohne
      solche Ränder sind die Werte null — die Regeln kosten dort also nichts,
@@ -88,6 +88,17 @@
   --aurora-3: rgba(244, 114, 182, 0.17);
   --star-alpha: 0.85;
 
+  /* Der Grund für die Ränder, die nicht die Seite malt, sondern der Browser.
+     Für diese Flächen — hinter der Wischleiste, unter der Symbolleiste von
+     Safari, beim Gummiband am Rand — kann ein Browser nur EINE Farbe nehmen:
+     die Hintergrundfarbe der Seite. Einen Verlauf kann er dort nicht malen.
+     Steht dort --bg-void, ist der Rand nacktes Schwarz, während die Seite
+     daneben den violett-türkisen Schimmer zeigt; die Kante dazwischen ist
+     messerscharf, weil sie die Grenze der Seite ist.
+     Deshalb hier nicht der nackte Grund, sondern die Farbe, die der Schimmer
+     an der Unterkante wirklich hat — gemessen am Bildpunkt: rgb(23, 39, 54). */
+  --grund-rand: #172736;
+
   color-scheme: dark;
 }
 
@@ -119,6 +130,10 @@
   --aurora-2: rgba(34, 211, 238, 0.16);
   --aurora-3: rgba(244, 114, 182, 0.14);
   --star-alpha: 0.30;
+
+  /* Im hellen Thema ist der Grund ohnehin hell — hier fällt ein vom Browser
+     gefüllter Rand nicht auf, deshalb bleibt es beim Grundton. */
+  --grund-rand: #eef1f8;
 
   color-scheme: light;
 }

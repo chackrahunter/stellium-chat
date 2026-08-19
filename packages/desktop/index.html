@@ -5,9 +5,21 @@
     <!-- viewport-fit=cover: sonst bleibt unter der Dynamic Island und über der
          Home-Leiste ein schwarzer Balken statt Inhalt. Das Freihalten
          übernimmt das Stylesheet über env(safe-area-inset-*). -->
+    <!-- interactive-widget=resizes-content: geht die Tastatur auf, soll das
+         Fenster selbst kleiner werden. Ohne diese Angabe bleibt die Fensterhöhe
+         stehen, 100dvh am .rahmen bleibt also gross, und iOS verschiebt
+         stattdessen die ganze Seite nach oben, um das Schreibfeld freizulegen —
+         danach steht der Composer mal hier, mal dort. Mit der Angabe schrumpft
+         100dvh, die Nachrichtenliste wird kürzer und das Schreibfeld sitzt von
+         selbst über der Tastatur. Achtung: die Wirkung mit echter Tastatur ist
+         hier NICHT geprüft — ein Prüflauf ohne Gerät hat keine. Maschinen, die
+         die Angabe nicht kennen, überlesen sie folgenlos. -->
     <meta name="viewport"
-          content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no" />
-    <meta name="theme-color" content="#05060f" />
+          content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no, interactive-widget=resizes-content" />
+    <!-- Dieselbe Farbe wie der Seitenrand (--grund-rand). iOS tönt damit die
+         Leisten um die Seite; steht hier ein anderer Wert, entsteht genau der
+         dunkle Streifen unter dem Schreibfeld, den wir lange gejagt haben. -->
+    <meta name="theme-color" content="#172736" />
     <meta name="color-scheme" content="dark light" />
 
     <!-- Zum Startbildschirm hinzufügen: Android liest das Manifest, iOS die

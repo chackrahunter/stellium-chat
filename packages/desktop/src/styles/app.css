@@ -15,17 +15,44 @@ html, body, #root { height: 100%; margin: 0; }
    über der Adressleiste von Safari, unter der Wischleiste, beim Gummiband-
    Effekt am Rand —, zeigte sich dort der nackte Grund, und das sah aus wie ein
    schwarzer Balken. Liegt der Verlauf auf der Seite, kann kein Streifen mehr
-   anders aussehen als der Rest, egal wodurch er entsteht. */
+   anders aussehen als der Rest, egal wodurch er entsteht.
+
+   Die letzte Zeile ist der Kern des Streifens unter dem Eingabefeld.
+   Gemessen wurde: .cosmos reicht 34 Punkte ÜBER den unteren Rand hinaus
+   (Kasten -59 bis 908 bei einem Fenster von 874), .rahmen ist auf den Punkt
+   so hoch wie das Fenster, und die unterste Bildpunktzeile der Seite ist
+   rgb(23, 39, 54) — nirgends nackt schwarz. Ein fast schwarzer Streifen kann
+   also gar nicht von der Seite kommen. Er kommt von der Fläche, die der
+   Browser selbst füllt: hinter der Wischleiste. Und dafür nimmt ein Browser
+   ausschließlich die flache Hintergrundfarbe der Seite — Verläufe zählen dort
+   nicht. Genau diese flache Farbe war --bg-void (#05060f), also fast schwarz.
+   Jetzt steht dort der Ton, den der Schimmer an der Unterkante wirklich hat.
+   Auf die Seite selbst wirkt sich das nicht aus: .cosmos deckt sie vollständig
+   ab und bringt seinen eigenen Grund mit. */
 html {
   background:
     radial-gradient(1200px 700px at 78% -8%, var(--aurora-1), transparent 62%),
     radial-gradient(900px 620px at 10% 108%, var(--aurora-2), transparent 60%),
     radial-gradient(760px 520px at 96% 82%, var(--aurora-3), transparent 62%),
-    var(--bg-void);
+    var(--grund-rand);
   /* Bewusst OHNE background-attachment: fixed — das ist auf iOS seit Jahren
      fehlerhaft und lässt den Verlauf genau dort weg, wo er gebraucht wird:
      im Bereich hinter der Wischleiste. */
   min-height: 100%;
+
+  /* Das Nachfedern am Rand abstellen — der Grund dafür, dass sich die Seite
+     unten anfassen und ein Stück herunterziehen ließ und danach zurücksprang.
+     Wichtig ist das Zurückspringen: ein Dokument, das wirklich zu hoch ist,
+     bliebe weggezogen stehen. Gemessen wurde genau das — html und body haben
+     null Überschuss (scrollHeight gleich clientHeight, in WebKit wie in
+     Chromium mit echten env()-Rändern), und scrollTop lässt sich nicht setzen.
+     Es gibt also nichts zu scrollen. Was der Finger bewegt hat, war allein
+     das elastische Nachspannen, das iOS über jede Seite legt — auch über eine
+     Web-App vom Startbildschirm, auch bei overflow: hidden.
+     Nur „none" hält es an: „contain" verhindert lediglich, dass ein innerer
+     Bereich seine Bewegung nach außen weiterreicht (das tut .stream bereits),
+     nicht aber das Nachfedern des Fensters selbst. */
+  overscroll-behavior: none;
 }
 
 body {
@@ -39,6 +66,10 @@ body {
      war. Der Sternenhimmel liegt als eigene Fläche darüber. */
   background: transparent;
   overflow: hidden;
+  /* Dieselbe Bremse noch einmal hier. Welches der beiden Elemente ein Browser
+     für das Fenster heranzieht, ist zwischen den Maschinen nicht einheitlich —
+     doppelt gesetzt greift sie überall. */
+  overscroll-behavior: none;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }
@@ -519,6 +550,22 @@ a:hover { text-decoration: underline; }
 .translated__meta:hover { color: var(--tx-mid); }
 .translated__meta .spark { color: var(--violet-soft); }
 
+/* Kein Knopf, sondern eine Feststellung: hier ist nichts übersetzt worden.
+   Deshalb kein Zeigefinger, keine Aufhellung beim Überfahren — sonst sucht
+   man den Klick, den es nicht gibt. */
+/* Ein Bildanhang samt Vermerk darunter. Der Vermerk sagt, dass diese Datei
+   aus der Zeit vor der Vertraulichkeit stammt und deshalb offen liegt — er
+   steht unter dem Bild und nicht darauf, damit er auffällt, ohne zu verdecken. */
+.att-bild { display: inline-flex; flex-direction: column; gap: 3px; }
+.att-offen-marke {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 10.5px;
+}
+
+.translated__meta--roh { cursor: default; }
+.translated__meta--roh:hover { color: var(--tx-lo); }
+.translated__meta--roh svg { color: var(--amber); opacity: 0.8; }
+
 .tr-pending {
   display: inline-flex; align-items: center; gap: 6px;
   font-size: 11.5px; color: var(--tx-lo);
@@ -809,7 +856,15 @@ a:hover { text-decoration: underline; }
 .presence--online { background: var(--mint); }
 .presence--away { background: var(--amber); }
 .presence--dnd { background: var(--rose); }
-.presence--offline { background: var(--tx-lo); }
+/* Der Punkt liegt zur Hälfte auf dem Bild und zur Hälfte daneben. Die
+   Textfarbe ist durchscheinend, also nahm er über dem Avatar dessen Farbe an
+   und daneben das Dunkel des Fensters — ein zerbrochener Halbmond statt eines
+   Punktes. Erst der undurchsichtige Grund, dann die Farbe darüber. Solange der
+   Punkt winzig war, sah man es kaum; in seiner jetzigen Größe sofort. */
+.presence--offline {
+  background-color: var(--bg-deep);
+  background-image: linear-gradient(var(--tx-lo), var(--tx-lo));
+}
 
 /* ── Thread-Panel ───────────────────────────────────────────── */
 
@@ -979,8 +1034,30 @@ a:hover { text-decoration: underline; }
 .row__title { font-size: 14px; font-weight: 600; }
 .row__sub { font-size: 12.5px; color: var(--tx-lo); }
 
-.tabs { display: flex; gap: 2px; padding: var(--sp-2) var(--sp-5) 0; border-bottom: 1px solid var(--line); }
+/* Eine Reiterleiste ist so breit wie ihre Reiter — sie darf nicht kürzen,
+   sondern muss rollen. Die acht Reiter der Einstellungen sind zusammen etwa
+   1042 px breit; auf einem Telefon ist der Kasten 357 px. Ohne overflow-x
+   waren die hinteren fünf schlicht nicht erreichbar.
+   flex: none gehört dazu: sonst quetscht der Flex-Kasten die Reiter auf
+   Wortbreite zusammen, statt überzulaufen — dann rollt zwar nichts mehr,
+   die Beschriftungen brechen aber um und werden unleserlich. */
+.tabs {
+  display: flex; gap: 2px;
+  padding: var(--sp-2) var(--sp-5) 0;
+  border-bottom: 1px solid var(--line);
+  /* .panel ist ein Spaltenkasten mit max-height: die Leiste würde sonst
+     zusammengedrückt, wenn der Inhalt darunter lang ist. Bisher fiel das nicht
+     auf, weil sie einfach überstand; mit overflow-x wird daraus ein
+     Abschneiden der Beschriftungen. */
+  flex: none;
+  overflow-x: auto;
+  /* Die Rollleiste würde die Reiter überdecken und den Kasten höher machen. */
+  scrollbar-width: none;
+}
+.tabs::-webkit-scrollbar { display: none; }
 .tab {
+  flex: none;
+  white-space: nowrap;
   padding: 9px 14px;
   border-bottom: 2px solid transparent;
   color: var(--tx-lo);
@@ -1777,7 +1854,11 @@ button.msg__author:hover { color: var(--violet-soft); text-decoration: underline
   .zahlen { grid-template-columns: repeat(3, 1fr); }
 
   .thread { width: 100%; }
-  .tour__card { width: calc(100vw - 24px); }
+  /* Die Breite der Tour-Karte steht bewusst NICHT hier. Sie muss mit der
+     Rechnung in Tour.tsx übereinstimmen (min(340, Fenster - 32)), sonst setzt
+     die Karte an einer Stelle an, die es auf dem Schirm nicht gibt. Die frühere
+     Zeile „width: calc(100vw - 24px)“ widersprach dem; sie wurde von der Regel
+     weiter unten ohnehin überstimmt und war damit nur eine Falle. */
 }
 
 /* Niedrige Fenster: weniger Luft, damit der Composer nicht die Liste frisst. */
@@ -1896,6 +1977,20 @@ button.msg__author:hover { color: var(--violet-soft); text-decoration: underline
      aber auch nicht versehentlich anklickbar machen — deshalb fängt nur die
      Karte selbst Zeiger ab. */
   pointer-events: none;
+
+  /* Stärke der Abdunklung — an einer Stelle, weil beide Varianten gleich
+     dunkel sein müssen: sonst springt die Helligkeit beim Schritt von der
+     Begrüßung (ganze Fläche) zum ersten Ziel (Aussparung).
+
+     Gemessen wurde: die Oberfläche selbst ist dunkel — ihre Flächen liegen bei
+     einer Helligkeit von 16 bis 31 von 255, heller Text bei 241. Mit den
+     früheren 0.72 blieben davon 8 bis 14 übrig und aus dem Text wurden 37.
+     Das ist vom schwarzen Grund nicht mehr zu unterscheiden: die Einführung
+     zeigte auf eine schwarze Fläche statt auf die Oberfläche, die sie erklärt.
+     Bei 0.45 steht derselbe Text bei 73 und Seitenleiste, Kanalliste und
+     Eingabefeld sind klar zu sehen. Das Ziel bleibt trotzdem hervorgehoben,
+     denn es wird gar nicht abgedunkelt und trägt zusätzlich den Ring. */
+  --tour-schleier: rgb(4 6 14 / 0.45);
 }
 
 /* Aussparung: der Ring liegt auf dem Ziel, die Verdunklung entsteht durch
@@ -1903,7 +1998,7 @@ button.msg__author:hover { color: var(--violet-soft); text-decoration: underline
 .tour__cut {
   position: absolute;
   border-radius: 13px;
-  box-shadow: 0 0 0 9999px rgb(4 6 14 / 0.72);
+  box-shadow: 0 0 0 9999px var(--tour-schleier);
   pointer-events: none;
 }
 
@@ -1911,8 +2006,10 @@ button.msg__author:hover { color: var(--violet-soft); text-decoration: underline
   inset: 0;
   border-radius: 0;
   box-shadow: none;
-  background: rgb(4 6 14 / 0.72);
-  backdrop-filter: blur(3px);
+  background: var(--tour-schleier);
+  /* Weniger Unschärfe als früher: sie zieht helle Stellen breit und nahm der
+     Oberfläche gerade die Umrisse, an denen man sie wiedererkennt. */
+  backdrop-filter: blur(2px);
 }
 
 .tour__ring {
@@ -1931,7 +2028,8 @@ button.msg__author:hover { color: var(--violet-soft); text-decoration: underline
 
 .tour__card {
   position: absolute;
-  width: 340px;
+  /* Muss mit KARTE_BREIT in Tour.tsx übereinstimmen. */
+  width: 380px;
   padding: 18px 18px 14px;
   border-radius: var(--r-lg);
   background: var(--bg-elevated);
@@ -1979,22 +2077,60 @@ button.msg__author:hover { color: var(--violet-soft); text-decoration: underline
   color: var(--text-dim);
 }
 
-.tour__dots { display: flex; gap: 5px; margin-bottom: 12px; }
+/* Punkte und Zählung in einer Zeile. Bei sechzehn Schritten auf einer schmalen
+   Karte wird es eng — dann darf die Zählung umbrechen statt hinauszuragen. */
+.tour__dots {
+  display: flex; align-items: center; flex-wrap: wrap;
+  gap: 5px; margin-bottom: 12px;
+}
 
 .tour__dot {
   width: 6px; height: 6px;
   border-radius: 99px;
   background: var(--line-strong);
+  flex: none;
   transition: width 0.22s cubic-bezier(0.16, 1, 0.3, 1), background 0.22s;
 }
 
 .tour__dot--on { width: 18px; background: var(--violet); }
 
-.tour__foot { display: flex; align-items: center; gap: 7px; }
+/* Die Knöpfe stehen rechts, „Überspringen“ schiebt sich mit einem
+   selbsttätigen Rand nach links. Reicht die Breite trotzdem nicht — lange
+   Sprachen wie Deutsch oder Russisch auf einem schmalen Telefon —, rutschen
+   sie in eine zweite Zeile, statt über die abgerundete Kante hinauszuragen. */
+.tour__foot {
+  display: flex; align-items: center; justify-content: flex-end;
+  flex-wrap: wrap; gap: 7px; row-gap: 8px;
+}
+/* Etwas knapper als die Knöpfe im übrigen Programm: drei Beschriftungen
+   nebeneinander sind hier der enge Fall, und flache Fenster zählen jeden
+   Punkt Höhe. */
+.tour__foot .btn { height: 34px; padding: 0 12px; font-size: 13px; gap: 6px; }
+.tour__foot .btn--ghost { margin-inline-end: auto; padding-inline: 10px; }
 .tour__count { margin-inline-start: auto; font-size: 11px; color: var(--text-dim); white-space: nowrap; }
 
 @media (max-width: 720px) {
-  .tour__card { width: min(340px, calc(100vw - 32px)); }
+  /* Muss mit KARTE_BREIT in Tour.tsx übereinstimmen. */
+  .tour__card { width: min(380px, calc(100vw - 32px)); }
+}
+
+/* Sehr flache Fenster. Hier entscheidet jeder Punkt Höhe darüber, ob die Karte
+   noch neben den Scheinwerfer passt oder auf ihm landet — und auf ihm landen
+   heißt: sie deckt zu, was sie gerade erklärt.
+
+   Gemessen bei 1440×380 auf dem Schritt zum Eingabefeld: über dem Licht sind
+   239 Punkte frei, die Karte war 252 hoch. Diese dreizehn Punkte zu viel
+   ließen jede Richtung durchfallen, und der Notausgang in die freieste Ecke
+   ergab 913 Punkte² Überdeckung. Mit weniger Luft misst die Karte 215 und
+   steht sauber über dem Eingabefeld. Die Höhe wird in Tour.tsx aus dem
+   Element selbst gelesen, die Platzsuche rechnet also von allein mit dem
+   kleineren Maß. */
+@media (max-height: 480px) {
+  .tour__card { padding: 12px 14px 10px; }
+  .tour__icon { width: 30px; height: 30px; margin-bottom: 6px; }
+  .tour__title { font-size: 15px; margin-bottom: 4px; }
+  .tour__text { margin-bottom: 9px; }
+  .tour__dots { margin-bottom: 8px; }
 }
 
 /* ── Kontextmenü ─────────────────────────────────────────────── */
