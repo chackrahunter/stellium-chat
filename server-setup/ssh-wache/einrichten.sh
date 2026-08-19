@@ -19,6 +19,7 @@ echo "→ Dateien"
 install -d -m 755 "$ZIEL"
 install -m 755 "$HIER/wache.py"      "$ZIEL/ssh-wache.py"
 install -m 755 "$HIER/starter.sh"    /usr/local/bin/stellium-ssh-wache
+install -m 755 "$HIER/protokoll-oeffnen.sh" /usr/local/bin/stellium-fernzugriff-protokoll
 install -m 755 "$HIER/mitschrift.sh" /usr/local/bin/stellium-ssh-mitschrift
 install -m 644 "$HIER/jeder-befehl.sh" /etc/profile.d/stellium-ssh.sh
 
@@ -66,6 +67,19 @@ if ! sshd -t 2>/dev/null; then
 fi
 rm -f "$SICHERUNG"
 systemctl reload ssh 2>/dev/null || systemctl reload sshd
+
+echo "→ Eintrag im Startmenü"
+# Damit man auch später nachlesen kann, was aus der Ferne geschah.
+cat > /usr/share/applications/stellium-fernzugriff.desktop <<ENDE
+[Desktop Entry]
+Type=Application
+Name=Fernzugriff-Protokoll
+Comment=Zeigt, was über SSH auf diesem Pi geschehen ist
+Exec=/usr/local/bin/stellium-fernzugriff-protokoll
+Icon=utilities-system-monitor
+Terminal=false
+Categories=System;Monitor;
+ENDE
 
 echo "→ Fenster startet mit dem Desktop"
 cat > /etc/xdg/autostart/stellium-ssh-wache.desktop <<ENDE

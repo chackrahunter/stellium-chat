@@ -20,6 +20,18 @@ from tkinter import font as tkfont
 LOG = "/var/log/stellium-ssh.log"
 TAKT = 2.0            # wie oft nach Sitzungen gesehen wird
 ZEILEN = 400          # so viele Zeilen bleiben im Fenster
+NACHLAUF = 60.0       # so lange bleibt das Fenster nach der letzten Sitzung
+RUFEN = "/tmp/stellium-wache-zeigen"   # Datei als Klingel vom Desktop aus
+
+# Eigene Geräte sollen das Fenster nicht auslösen — es geht um den Fernzugriff
+# von außen, nicht um die eigene Verbindung aus dem Nebenzimmer. Wer hier steht,
+# wird übergangen; die Liste lässt sich in der Datei daneben erweitern.
+EIGENE = {"aryan-pc", "aryan"}
+try:
+    with open("/etc/stellium/ssh-wache-eigene", "r") as _f:
+        EIGENE |= {z.strip() for z in _f if z.strip()}
+except OSError:
+    pass
 
 FARBEN = {
     "grund": "#0b0d16",
@@ -122,6 +134,8 @@ def sitzungen():
         if not lebt(teile[-2]):
             continue          # Karteileiche einer abgebrochenen Sitzung
         wer = benannt.get(herkunft, teile[0])
+        if wer in EIGENE:
+            continue
         aus.append((wer, herkunft, " ".join(teile[2:4])))
     return aus
 
@@ -166,6 +180,15 @@ class Fenster:
         )
         self.klappe.pack(side="right")
 
+        # Solange jemand verbunden ist, gibt es kein Wegklicken. Erst wenn
+        # niemand mehr da ist, darf man das Fenster beiseiteräumen.
+        self.schliessen = tk.Button(
+            kopf, text="✕", command=self.verstecken, relief="flat",
+            bg=FARBEN["grund"], fg=FARBEN["leise"], activebackground=FARBEN["grund"],
+            activeforeground=FARBEN["tinte"], bd=0, highlightthickness=0,
+            font=fett, cursor="hand2", padx=8,
+        )
+
         # Verschieben: was keine Fensterleiste hat, muss man am Kopf anfassen können.
         for teil in (kopf, self.titel, self.punkt):
             teil.bind("<Button-1>", self.griff_setzen)
@@ -183,10 +206,11 @@ class Fenster:
         self.text = tk.Text(
             self.rahmen, bg="#070912", fg=FARBEN["tinte"], font=eng,
             insertbackground=FARBEN["tinte"], relief="flat", padx=10, pady=8,
-            wrap="none", state="disabled", spacing1=1,
+            wrap="word", state="disabled", spacing1=1,
         )
         self.text.pack(fill="both", expand=True, padx=1, pady=1)
-        self.text.tag_config("befehl", foreground=FARBEN["tinte"])
+        # Umbrochene Fortsetzungen rücken ein, damit die Spalte stehen bleibt.
+        self.text.tag_config("befehl", foreground=FARBEN["tinte"], lmargin2=96)
         self.text.tag_config("beginn", foreground=FARBEN["gut"])
         self.text.tag_config("ende", foreground=FARBEN["warn"])
         self.text.tag_config("zeit", foreground=FARBEN["zeit"])
@@ -201,6 +225,9 @@ class Fenster:
         )
         self.fuss.pack(fill="x", padx=14, pady=(0, 10))
 
+        self.namen = herkunft_namen()
+        self.manuell = False
+        self.verstecken_um = None
         self.eingeklappt = False
         self.wurzel.protocol("WM_DELETE_WINDOW", self.einklappen)
 
@@ -234,6 +261,9 @@ class Fenster:
     def ausklappen(self):
         if not self.eingeklappt:
             return
+        self.namen = herkunft_namen()
+        self.manuell = False
+        self.verstecken_um = None
         self.eingeklappt = False
         self.wer.pack(fill="x", padx=14)
         self.rahmen.pack(fill="both", expand=True, padx=14, pady=12)
@@ -247,15 +277,22 @@ class Fenster:
     # ── Sitzungen beobachten ────────────────────────────────────
     def nachsehen(self):
         offen = sitzungen()
-        if offen and not self.sichtbar:
-            self.wurzel.deiconify()
-            self.wurzel.lift()
-            self.sichtbar = True
-        elif not offen and self.sichtbar:
-            self.wurzel.withdraw()
-            self.sichtbar = False
+
+        # Klingel vom Desktop: dann zeigen, auch wenn niemand verbunden ist.
+        if os.path.exists(RUFEN):
+            try:
+                os.remove(RUFEN)
+            except OSError:
+                pass
+            self.manuell = True
+            self.verstecken_um = None
+            self.zeigen_lassen()
 
         if offen:
+            self.manuell = False
+            self.verstecken_um = None
+            self.zeigen_lassen()
+            self.punkt.config(fg=FARBEN["gut"])
             self.titel.config(text=(
                 f"{offen[0][0]} arbeitet gerade über SSH" if len(offen) == 1
                 else f"{len(offen)} Fernzugriffe laufen"
@@ -263,7 +300,42 @@ class Fenster:
             self.wer.config(text="\n".join(
                 f"{wer} · {herkunft} · seit {seit}" for wer, herkunft, seit in offen
             ))
+            self.namen = herkunft_namen()
+        elif self.sichtbar:
+            self.punkt.config(fg=FARBEN["leise"])
+            if self.manuell:
+                self.titel.config(text="Protokoll des Fernzugriffs")
+                self.wer.config(text="Gerade ist niemand verbunden.")
+            else:
+                # Noch eine Minute stehen lassen: die letzten Zeilen will man
+                # meist noch lesen, wenn die Verbindung eben erst endete.
+                if self.verstecken_um is None:
+                    self.verstecken_um = time.monotonic() + NACHLAUF
+                rest = int(self.verstecken_um - time.monotonic())
+                self.titel.config(text="Fernzugriff beendet")
+                self.wer.config(text=f"Fenster schließt in {max(rest, 0)} s — "
+                                     f"später wieder über „Fernzugriff-Protokoll\u201c.")
+                if rest <= 0:
+                    self.wurzel.withdraw()
+                    self.sichtbar = False
+                    self.verstecken_um = None
+
+        self.schliessen.pack(side="right") if (self.sichtbar and not offen) \
+            else self.schliessen.pack_forget()
         self.wurzel.after(int(TAKT * 1000), self.nachsehen)
+
+    def zeigen_lassen(self):
+        if not self.sichtbar:
+            self.wurzel.deiconify()
+            self.wurzel.lift()
+            self.sichtbar = True
+
+    def verstecken(self):
+        """Nur wegräumen, nicht beenden — der Wächter bleibt wach."""
+        self.wurzel.withdraw()
+        self.sichtbar = False
+        self.manuell = False
+        self.verstecken_um = None
 
     # ── Mitschrift lesen ────────────────────────────────────────
     def mitlesen(self):
@@ -358,6 +430,11 @@ class Fenster:
         zeit = (uhr + "  ") if uhr else ""
         if text.startswith("ÖFFNET"):
             wer = text[6:].strip()
+            # "aryan von 1.2.3.4" sagt wenig — der Schlüssel weiß, wer es ist.
+            adresse = wer.split(" von ")[-1].split()[0] if " von " in wer else ""
+            name = self.namen.get(adresse)
+            if name:
+                wer = f"{name} · {adresse}"
             self.schreiben([(zeit, "zeit"), ("┌ ", "strich"), ("Verbindung geöffnet", "beginn"),
                             (f"  ·  {wer}" if wer else "", "leise")])
             self.offen = True
