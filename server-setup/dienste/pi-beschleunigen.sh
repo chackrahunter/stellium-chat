@@ -13,10 +13,16 @@ set -euo pipefail
 [ "$(id -u)" -eq 0 ] || { echo "Bitte mit sudo starten."; exit 1; }
 
 # Nur Dienste, die auf diesem Gerät nachweislich brachliegen: kein Drucker,
-# kein Modem, kein NFS. caddy lauscht allein auf seiner Verwaltungsschnittstelle
-# — die Webseite macht nginx. LibreTranslate belegt gut 120 MB, obwohl die
+# kein Modem, kein NFS. LibreTranslate belegt gut 120 MB, obwohl die
 # Übersetzung längst über das lokale Modell läuft.
-UNNOETIG=(cups cups-browsed ModemManager nfs-blkmap caddy libretranslate)
+#
+# caddy stand hier einmal mit der Begründung, es lausche allein auf seiner
+# Verwaltungsschnittstelle. Das gilt nicht mehr: darauf läuft die Webseite
+# eines Kollegen — Port 8080, nach außen über Tailscale Funnel. Dieser Lauf
+# hat sie nur deshalb noch nie abgeräumt, weil caddy beim bisher einzigen
+# Durchgang nicht lief. Wer den Dienst hier wieder einträgt, nimmt die Seite
+# eines anderen vom Netz, ohne es zu merken. Siehe ../FREMDE-DIENSTE.md.
+UNNOETIG=(cups cups-browsed ModemManager nfs-blkmap libretranslate)
 
 if [ "${1:-}" = "zurueck" ]; then
   for d in "${UNNOETIG[@]}"; do systemctl enable --now "$d" >/dev/null 2>&1 || true; done
