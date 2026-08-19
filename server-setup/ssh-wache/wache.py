@@ -128,7 +128,10 @@ class Fenster:
         self.wurzel.title("Stellium — Fernzugriff")
         self.wurzel.configure(bg=FARBEN["grund"])
         self.wurzel.attributes("-topmost", True)
-        self.wurzel.overrideredirect(False)
+        # Ohne Fensterleiste gibt es auch kein Kreuz. Das ist der Sinn der Sache:
+        # wer aus der Ferne arbeitet, soll sich nicht wegklicken lassen. Verschieben
+        # und Einklappen bleiben möglich — nur Schließen nicht.
+        self.wurzel.overrideredirect(True)
         self.wurzel.geometry("720x420+40+40")
         self.wurzel.withdraw()          # erst zeigen, wenn jemand da ist
         self.sichtbar = False
@@ -158,6 +161,11 @@ class Fenster:
             font=fett, cursor="hand2", padx=8,
         )
         self.klappe.pack(side="right")
+
+        # Verschieben: was keine Fensterleiste hat, muss man am Kopf anfassen können.
+        for teil in (kopf, self.titel, self.punkt):
+            teil.bind("<Button-1>", self.griff_setzen)
+            teil.bind("<B1-Motion>", self.griff_ziehen)
 
         self.wer = tk.Label(
             self.wurzel, text="", fg=FARBEN["leise"], bg=FARBEN["grund"],
@@ -193,6 +201,17 @@ class Fenster:
         self.nachsehen()
         self.abarbeiten()
 
+    # ── Verschieben ─────────────────────────────────────────────
+    def griff_setzen(self, ereignis):
+        self._griff = (ereignis.x_root, ereignis.y_root,
+                       self.wurzel.winfo_x(), self.wurzel.winfo_y())
+
+    def griff_ziehen(self, ereignis):
+        if not getattr(self, "_griff", None):
+            return
+        zx, zy, fx, fy = self._griff
+        self.wurzel.geometry(f"+{fx + ereignis.x_root - zx}+{fy + ereignis.y_root - zy}")
+
     # ── Ein- und ausklappen ─────────────────────────────────────
     def einklappen(self):
         if self.eingeklappt:
@@ -202,7 +221,7 @@ class Fenster:
         self.fuss.pack_forget()
         self.wer.pack_forget()
         self.klappe.config(text="▴")
-        self.wurzel.geometry("420x74")
+        self.wurzel.geometry(f"420x74+{self.wurzel.winfo_x()}+{self.wurzel.winfo_y()}")
 
     def ausklappen(self):
         if not self.eingeklappt:
@@ -212,7 +231,7 @@ class Fenster:
         self.rahmen.pack(fill="both", expand=True, padx=14, pady=12)
         self.fuss.pack(fill="x", padx=14, pady=(0, 10))
         self.klappe.config(text="▾")
-        self.wurzel.geometry("720x420")
+        self.wurzel.geometry(f"720x420+{self.wurzel.winfo_x()}+{self.wurzel.winfo_y()}")
 
     def umschalten(self):
         self.ausklappen() if self.eingeklappt else self.einklappen()
