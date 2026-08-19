@@ -50,6 +50,19 @@ export function setToken(value: string | null): void {
  * Solche Abrufe können keine Kopfzeilen mitschicken, deshalb geht der
  * Nachweis hier ausnahmsweise mit in die Adresse.
  */
+/**
+ * Den Text zu einer Fehlerkennung finden.
+ *
+ * Fehlt die Kennung im Wörterbuch, kommt der Text des Servers zurück. So
+ * bleibt jede Meldung lesbar, auch wenn eine neue Serverfassung eine Kennung
+ * schickt, die eine ältere App noch nicht kennt.
+ */
+function uebersetzterFehler(code: string | undefined, ersatz: string): string {
+  if (!code) return ersatz;
+  const uebersetzt = txt(code as Parameters<typeof txt>[0]);
+  return uebersetzt && uebersetzt !== code ? uebersetzt : ersatz;
+}
+
 export function dateiUrl(pfad: string): string {
   const t = token();
   const basis = `${serverUrl()}${pfad}`;
@@ -73,8 +86,19 @@ export function fileUrl(relative: string): string {
   return relative.startsWith('http') ? relative : dateiUrl(relative);
 }
 
+/**
+ * Ein Fehler vom Server.
+ *
+ * Der Server antwortet auf Deutsch — er weiß nicht, welche Sprache am anderen
+ * Ende eingestellt ist, und soll es auch nicht wissen müssen. Deshalb schickt
+ * er zusätzlich eine Kennung wie 'fehler.loginFalsch'. Kennt die Oberfläche
+ * sie, zeigt sie ihren eigenen Text; kennt sie sie nicht, bleibt der deutsche
+ * Satz stehen — besser als eine leere Meldung.
+ */
 class ApiError extends Error {
-  constructor(message: string, readonly status: number) { super(message); }
+  constructor(message: string, readonly status: number, readonly code?: string) {
+    super(message);
+  }
 }
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
@@ -97,8 +121,13 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 
   if (!res.ok) {
     let message = txt('api.error', { status: res.status });
-    try { message = ((await res.json()) as { error?: string }).error ?? message; } catch { /* kein JSON */ }
-    throw new ApiError(message, res.status);
+    let code: string | undefined;
+    try {
+      const rumpf = (await res.json()) as { error?: string; code?: string };
+      message = rumpf.error ?? message;
+      code = rumpf.code;
+    } catch { /* kein JSON */ }
+    throw new ApiError(uebersetzterFehler(code, message), res.status, code);
   }
   return res.status === 204 ? (undefined as T) : ((await res.json()) as T);
 }

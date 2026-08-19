@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { pipeline } from 'node:stream/promises';
-import type { FastifyInstance, FastifyRequest } from 'fastify';
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { normalizeLang, LANGUAGES } from '@stellium/shared';
 import { signToken, verifyPassword, verifyToken } from '../auth.js';
 import * as users from '../services/users.js';
@@ -239,7 +239,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const userId = requireUser(req);
     const self = store.getSelf(userId);
     if (self?.role !== 'owner' && self?.role !== 'admin') {
-      return reply.code(403).send({ error: 'Dafür fehlt dir das Recht.' });
+      return fehler(reply, 403, 'fehler.keinRecht', 'Dafür fehlt dir das Recht.');
     }
     const body = req.body as { baseUrl?: string };
     const adresse = (body.baseUrl || '').trim() || config.ai.ollama.baseUrl;
@@ -272,21 +272,19 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
    * eine verständliche Antwort zu geben.
    */
   app.post('/api/auth/register', async (_req, reply) =>
-    reply.code(403).send({
-      error: 'Konten legt die Team-Leitung an. Frage nach einem Einmal-Passwort.',
-    }));
+    fehler(reply, 403, 'fehler.keineSelbstanmeldung',
+      'Konten legt die Team-Leitung an. Frage nach einem Einmal-Passwort.'));
 
   app.post('/api/auth/login', async (req, reply) => {
     const { login, password } = req.body as { login?: string; password?: string };
-    if (!login || !password) return reply.code(400).send({ error: 'Zugangsdaten fehlen' });
+    if (!login || !password) return fehler(reply, 400, 'fehler.zugangsdatenFehlen', 'Zugangsdaten fehlen');
 
     // Wer es zu oft falsch versucht, wartet. scrypt macht jeden Versuch
     // ohnehin teuer, aber eine Bremse gehört an die Tür, nicht ins Schloss.
     const herkunft = `${req.ip}|${login.toLowerCase()}`;
     if (zuVieleVersuche(herkunft)) {
-      return reply.code(429).send({
-        error: 'Zu viele Versuche. Bitte eine Minute warten.',
-      });
+      return fehler(reply, 429, 'fehler.zuVieleVersuche',
+        'Zu viele Versuche. Bitte eine Minute warten.');
     }
 
     const row = users.findByLogin(login);
@@ -298,11 +296,12 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
     if (!row || !gueltig) {
       versuchGezaehlt(herkunft);
-      return reply.code(401).send({ error: 'Benutzername oder Passwort stimmt nicht' });
+      return fehler(reply, 401, 'fehler.loginFalsch', 'Benutzername oder Passwort stimmt nicht');
     }
     versucheZuruecksetzen(herkunft);
     if (row.disabled) {
-      return reply.code(403).send({ error: 'Dieses Konto ist gesperrt. Wende dich an die Team-Leitung.' });
+      return fehler(reply, 403, 'fehler.kontoGesperrt',
+        'Dieses Konto ist gesperrt. Wende dich an die Team-Leitung.');
     }
     return { token: signToken(row.id), user: store.getSelf(row.id) };
   });
@@ -456,7 +455,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   app.post('/api/admin/users/:id/kategorie', async (req, reply) => {
     const userId = requireUser(req);
     if (!may(userId, 'user.manage')) {
-      return reply.code(403).send({ error: 'Dafür fehlt dir das Recht.' });
+      return fehler(reply, 403, 'fehler.keinRecht', 'Dafür fehlt dir das Recht.');
     }
     const { id } = req.params as { id: string };
     const body = req.body as { kategorie?: string | null };
@@ -510,7 +509,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
   app.get('/api/me', async (req, reply) => {
     const userId = bearer(req);
-    if (!userId) return reply.code(401).send({ error: 'Nicht angemeldet' });
+    if (!userId) return fehler(reply, 401, 'fehler.nichtAngemeldet', 'Nicht angemeldet');
     const self = store.getSelf(userId);
     if (!self) return reply.code(401).send({ error: 'Konto existiert nicht mehr' });
     return { user: self, ai: aiCapabilities() };
@@ -574,12 +573,23 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     return { entries: listGlossary() };
   });
 
+  /**
+   * Eine Fehlerantwort mit Kennung.
+   *
+   * Der Text bleibt deutsch — er ist der Rückfall für Clients, die die Kennung
+   * noch nicht kennen. Die Oberfläche sucht zuerst nach der Kennung und zeigt
+   * ihren eigenen Satz in der eingestellten Sprache. So muss der Server nicht
+   * wissen, welche Sprache am anderen Ende läuft.
+   */
+  const fehler = (reply: FastifyReply, status: number, code: string, text: string) =>
+    reply.code(status).send({ error: text, code });
+
   /* ── Dateien ───────────────────────────────────────────────── */
 
   app.post('/api/uploads', async (req, reply) => {
     const userId = requireUser(req);
     const file = await req.file({ limits: { fileSize: config.maxUploadBytes } });
-    if (!file) return reply.code(400).send({ error: 'Keine Datei im Request' });
+    if (!file) return fehler(reply, 400, 'fehler.keineDatei', 'Keine Datei im Request');
 
     const id = newId('at_');
     const safeName = path.basename(file.filename || 'datei').replace(/[^\p{L}\p{N}._ -]/gu, '_').slice(0, 120);
@@ -789,7 +799,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(403).send({ error: 'Dir fehlt das Recht, Dateien abzulegen.' });
     }
     const file = await req.file({ limits: { fileSize: config.maxUploadBytes } });
-    if (!file) return reply.code(400).send({ error: 'Keine Datei im Request' });
+    if (!file) return fehler(reply, 400, 'fehler.keineDatei', 'Keine Datei im Request');
 
     // Die Zusatzfelder kommen als Textteile im selben Formular.
     const felder = file.fields as Record<string, { value?: string } | undefined>;
@@ -866,7 +876,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
     const { platform } = req.params as { platform: string };
     const datei = await req.file({ limits: { fileSize: 600 * 1024 * 1024 } });
-    if (!datei) return reply.code(400).send({ error: 'Keine Datei im Request' });
+    if (!datei) return fehler(reply, 400, 'fehler.keineDatei', 'Keine Datei im Request');
 
     const felder = datei.fields as Record<string, { value?: string } | undefined>;
     const version = typeof felder?.version?.value === 'string' ? felder.version.value.trim() : '';
@@ -962,12 +972,12 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const userId = requireLeser(req);
     const { id } = req.params as { id: string };
     const datei = files.getFile(id);
-    if (!datei) return reply.code(404).send({ error: 'Datei nicht gefunden' });
+    if (!datei) return fehler(reply, 404, 'fehler.dateiNichtGefunden', 'Datei nicht gefunden');
 
     // Hängt die Datei an einem Kanal, gilt dessen Mitgliederkreis. Sonst
     // käme jeder mit der Kennung an Anhänge aus fremden Kanälen.
     if (datei.channelId && !store.memberIds(datei.channelId).includes(userId)) {
-      return reply.code(404).send({ error: 'Datei nicht gefunden' });
+      return fehler(reply, 404, 'fehler.dateiNichtGefunden', 'Datei nicht gefunden');
     }
 
     const inline = /^(image|video|audio)\//.test(datei.mime) || datei.mime === 'application/pdf';
@@ -977,7 +987,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const strom = ablage.oeffnen({
       id: datei.id, art: 'file', pfad: datei.path, encoding: datei.encoding,
     });
-    if (!strom) return reply.code(404).send({ error: 'Datei nicht gefunden' });
+    if (!strom) return fehler(reply, 404, 'fehler.dateiNichtGefunden', 'Datei nicht gefunden');
     return reply.send(strom);
   });
 
@@ -991,7 +1001,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
    */
   app.get('/files/:id', async (req, reply) => {
     const leser = bearerOderAdresse(req);
-    if (!leser) return reply.code(401).send({ error: 'Nicht angemeldet' });
+    if (!leser) return fehler(reply, 401, 'fehler.nichtAngemeldet', 'Nicht angemeldet');
 
     const { id } = req.params as { id: string };
     const row = db.get<{
@@ -1000,7 +1010,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     }>(
       'SELECT path, mime, name, message_id, uploader_id, encoding FROM attachments WHERE id = ?', id,
     );
-    if (!row) return reply.code(404).send({ error: 'Datei nicht gefunden' });
+    if (!row) return fehler(reply, 404, 'fehler.dateiNichtGefunden', 'Datei nicht gefunden');
 
     if (row.message_id) {
       const msg = db.get<{ channel_id: string }>(
@@ -1009,11 +1019,11 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       // Gleiche Antwort wie bei „gibt es nicht": sonst verrät schon der
       // Unterschied, dass diese Datei existiert.
       if (!msg || !store.memberIds(msg.channel_id).includes(leser)) {
-        return reply.code(404).send({ error: 'Datei nicht gefunden' });
+        return fehler(reply, 404, 'fehler.dateiNichtGefunden', 'Datei nicht gefunden');
       }
     } else if (row.uploader_id !== leser) {
       // Noch an keiner Nachricht: gehört bis dahin dem, der sie hochgeladen hat.
-      return reply.code(404).send({ error: 'Datei nicht gefunden' });
+      return fehler(reply, 404, 'fehler.dateiNichtGefunden', 'Datei nicht gefunden');
     }
 
     const inline = /^(image|video|audio)\//.test(row.mime) || row.mime === 'application/pdf';
@@ -1022,7 +1032,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     reply.header('cache-control', 'private, max-age=31536000, immutable');
 
     const strom = ablage.oeffnen({ id, art: 'attachment', pfad: row.path, encoding: row.encoding });
-    if (!strom) return reply.code(404).send({ error: 'Datei nicht gefunden' });
+    if (!strom) return fehler(reply, 404, 'fehler.dateiNichtGefunden', 'Datei nicht gefunden');
     return reply.send(strom);
   });
 }
