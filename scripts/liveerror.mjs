@@ -1,0 +1,13 @@
+import { webkit } from 'playwright';
+const b = await webkit.launch({ headless: true });
+const p = await (await b.newContext({ viewport: { width: 402, height: 874 } })).newPage();
+const fehler = [];
+p.on('console', (m) => { if (m.type() === 'error') fehler.push(`console: ${m.text().slice(0, 200)}`); });
+p.on('pageerror', (e) => fehler.push(`pageerror: ${e.message.slice(0, 200)}`));
+p.on('requestfailed', (r) => fehler.push(`nicht geladen: ${r.url().slice(-60)} (${r.failure()?.errorText})`));
+await p.goto('https://stellium-chat.duckdns.org/', { waitUntil: 'networkidle', timeout: 45000 });
+await p.waitForTimeout(3000);
+console.log('Inhalt:', (await p.evaluate(() => document.body.innerText.trim().slice(0, 120))) || '(leer)');
+console.log('Wurzel gefüllt:', await p.evaluate(() => (document.getElementById('root')?.childElementCount ?? 0) > 0));
+console.log('Fehler:'); for (const f of fehler.slice(0, 6)) console.log('  ' + f);
+await b.close();
