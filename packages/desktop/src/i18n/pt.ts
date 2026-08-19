@@ -87,6 +87,8 @@ export const pt = {
   'msg.showOriginal': 'Mostrar original',
   'msg.showTranslation': 'Mostrar tradução',
   'msg.translatedFrom': 'Traduzido de {language}',
+  'msg.writtenIn': 'Escrito em {language}',
+  'msg.originalIn': 'Original · {language}',
   'msg.original': 'Original',
   'msg.translating': 'traduzindo…',
   'msg.lowConfidence': 'Tradução incerta — pergunte se houver dúvida',

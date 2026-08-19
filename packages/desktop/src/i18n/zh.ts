@@ -87,6 +87,8 @@ export const zh = {
   'msg.showOriginal': '显示原文',
   'msg.showTranslation': '显示翻译',
   'msg.translatedFrom': '翻译自 {language}',
+  'msg.writtenIn': '以{language}撰写',
+  'msg.originalIn': '原文 · {language}',
   'msg.original': '原文',
   'msg.translating': '翻译中…',
   'msg.lowConfidence': '翻译不确定 — 如有疑问请询问',

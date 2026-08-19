@@ -87,6 +87,8 @@ export const hi = {
   'msg.showOriginal': 'मूल दिखाएँ',
   'msg.showTranslation': 'अनुवाद दिखाएँ',
   'msg.translatedFrom': 'अनुवादित किया गया {language} से',
+  'msg.writtenIn': '{language} में लिखा गया',
+  'msg.originalIn': 'मूल · {language}',
   'msg.original': 'मूल',
   'msg.translating': 'अनुवाद हो रहा है…',
   'msg.lowConfidence': 'अनुवाद अनिश्चित — संदेह होने पर पूछें',

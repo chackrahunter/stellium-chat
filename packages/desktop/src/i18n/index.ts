@@ -6,7 +6,7 @@
  * ohne dass sich die beiden Module gegenseitig laden.
  */
 import { useStore } from '../state/store.js';
-import { spracheDesSystems, translate, type TranslationKey } from './kern.js';
+import { spracheDesSystems, sprachName, translate, type TranslationKey } from './kern.js';
 
 export {
   coverage, spracheDesSystems, translate, UI_LANGUAGES,
@@ -23,6 +23,16 @@ export {
 export function useT(): (key: TranslationKey, werte?: Record<string, string | number>) => string {
   const sprache = useStore((s) => s.self?.uiLanguage || spracheDesSystems());
   return (key, werte) => translate(sprache, key, werte);
+}
+
+/**
+ * Der Name einer Sprache in der gerade eingestellten Oberflächensprache.
+ *
+ * Ohne Angabe der Zielsprache nimmt die Fassung aus kern.ts die Systemsprache;
+ * hier kommt die tatsächlich eingestellte dazu.
+ */
+export function spracheName(code: string): string {
+  return sprachName(code, currentUiLanguage());
 }
 
 /** Aktuelle Oberflächensprache, auch außerhalb von Komponenten. */

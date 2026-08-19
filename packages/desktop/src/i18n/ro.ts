@@ -87,6 +87,8 @@ export const ro = {
   'msg.showOriginal': 'Arată originalul',
   'msg.showTranslation': 'Afișează traducerea',
   'msg.translatedFrom': 'Tradus din {language}',
+  'msg.writtenIn': 'Scris în {language}',
+  'msg.originalIn': 'Original · {language}',
   'msg.original': 'Original',
   'msg.translating': 'se traduce…',
   'msg.lowConfidence': 'Traducere incertă — întreabă dacă e neclar',

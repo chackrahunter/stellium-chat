@@ -99,3 +99,33 @@ export function dokumentSpracheSetzen(sprache: string): void {
   document.documentElement.lang = kurz;
   document.documentElement.dir = istVonRechts(kurz) ? 'rtl' : 'ltr';
 }
+
+/**
+ * Der Name einer Sprache — in der Sprache der Oberfläche.
+ *
+ * Bisher stand überall der Eigenname: in englischer Oberfläche las man
+ * „Translated from Deutsch" statt „from German". Eine Tabelle mit 22 × 22
+ * Einträgen wäre der falsche Weg — die Namen kennt das System längst. Nur wenn
+ * es sie nicht kennt, bleibt der Eigenname als Rückfall.
+ */
+const namenSpeicher = new Map<string, string>();
+
+export function sprachName(code: string, inSprache?: string): string {
+  const ziel = inSprache || spracheDesSystems();
+  const schluessel = `${ziel}|${code}`;
+  const gemerkt = namenSpeicher.get(schluessel);
+  if (gemerkt) return gemerkt;
+
+  let name = '';
+  try {
+    name = new Intl.DisplayNames([ziel], { type: 'language' }).of(code) ?? '';
+  } catch { /* die Umgebung kennt Intl.DisplayNames nicht */ }
+
+  const info = LANGUAGES.find((l) => l.code === code);
+  // Großschreibung: manche Sprachen liefern Kleinbuchstaben, im Fließtext
+  // sieht das nach einem Fehler aus.
+  if (name) name = name.charAt(0).toLocaleUpperCase(ziel) + name.slice(1);
+  const fertig = name || info?.native || code;
+  namenSpeicher.set(schluessel, fertig);
+  return fertig;
+}

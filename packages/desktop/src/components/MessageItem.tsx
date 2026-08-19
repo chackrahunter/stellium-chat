@@ -9,7 +9,7 @@ import {
   withinDeleteWindow, withinEditWindow, type Message,
 } from '@stellium/shared';
 import { useStore } from '../state/store.js';
-import { useT } from '../i18n/index.js';
+import { spracheName, useT } from '../i18n/index.js';
 import { fileUrl } from '../net/api.js';
 import { Avatar } from './Avatar.jsx';
 import { Markdown } from './Markdown.jsx';
@@ -140,7 +140,7 @@ export const MessageItem = memo(function MessageItem({ message, grouped, inThrea
             {message.editedAt && <span className="msg__tag">{t('msg.edited')}</span>}
             {message.pinned && <Pin size={12} className="muted" />}
             {message.sourceLang && (
-              <span className="msg__tag" title={`Geschrieben auf ${languageInfo(message.sourceLang).native}`}>
+              <span className="msg__tag" title={t('msg.writtenIn', { language: spracheName(message.sourceLang ?? '') })}>
                 {languageInfo(message.sourceLang).flag} {message.sourceLang.toUpperCase()}
               </span>
             )}
@@ -197,7 +197,9 @@ export const MessageItem = memo(function MessageItem({ message, grouped, inThrea
                   {showOriginal
                     ? t('msg.original')
                     : t('msg.translatedFrom', {
-                      language: languageInfo(message.sourceLang).native,
+                      // Der Name der Sprache gehört in die Sprache der
+                      // Oberfläche: "Translated from German", nicht "Deutsch".
+                      language: spracheName(message.sourceLang ?? ''),
                     })}
                 </button>
 
@@ -235,7 +237,9 @@ export const MessageItem = memo(function MessageItem({ message, grouped, inThrea
         {message.kind === 'voice' && hasTranslation && (
           <button className="translated__meta" onClick={() => toggleOriginal(message.id)}>
             <Languages size={11} className="spark" />
-            {showOriginal ? t('msg.showTranslationTitle') : `Original · ${languageInfo(message.sourceLang).native}`}
+            {showOriginal
+              ? t('msg.showTranslationTitle')
+              : t('msg.originalIn', { language: spracheName(message.sourceLang ?? '') })}
           </button>
         )}
 

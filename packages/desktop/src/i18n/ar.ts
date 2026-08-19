@@ -87,6 +87,8 @@ export const ar = {
   'msg.showOriginal': 'عرض الأصل',
   'msg.showTranslation': 'عرض الترجمة',
   'msg.translatedFrom': 'مترجم من {language}',
+  'msg.writtenIn': 'مكتوب بـ {language}',
+  'msg.originalIn': 'الأصل · {language}',
   'msg.original': 'الأصل',
   'msg.translating': 'جارٍ الترجمة…',
   'msg.lowConfidence': 'الترجمة غير مؤكدة — استفسر إذا شككت',

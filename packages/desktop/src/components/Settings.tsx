@@ -6,7 +6,7 @@ import { useStore } from '../state/store.js';
 import { api, serverUrl, setServerUrl } from '../net/api.js';
 import { Avatar } from './Avatar.jsx';
 import { languageInfo } from '../lib/format.js';
-import { coverage, UI_LANGUAGES, useT, t } from '../i18n/index.js';
+import { coverage, spracheName, UI_LANGUAGES, useT, t } from '../i18n/index.js';
 import { erlaubnisHolen, erlaubnisStand, zeigen, type Erlaubnis } from '../lib/benachrichtigung.js';
 import { tourZuruecksetzen } from './Tour.jsx';
 import { UpdatePanel } from './UpdatePanel.jsx';
@@ -84,7 +84,7 @@ export function Settings({ onClose }: { onClose: () => void }) {
                   ))}
                 </select>
                 <p className="field__hint">
-                  {t('settings.myLanguageHint', { language: languageInfo(self.language).native })}
+                  {t('settings.myLanguageHint', { language: spracheName(self.language) })}
                 </p>
               </div>
 

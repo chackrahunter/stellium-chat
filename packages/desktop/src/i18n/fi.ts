@@ -87,6 +87,8 @@ export const fi = {
   'msg.showOriginal': 'Näytä alkuperäinen',
   'msg.showTranslation': 'Näytä käännös',
   'msg.translatedFrom': 'Käännetty kielestä {language}',
+  'msg.writtenIn': 'Kirjoitettu kielellä {language}',
+  'msg.originalIn': 'Alkuperäinen · {language}',
   'msg.original': 'Alkuperäinen',
   'msg.translating': 'käännetään…',
   'msg.lowConfidence': 'Käännös epävarma — kysy tarvittaessa',

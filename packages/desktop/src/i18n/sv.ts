@@ -87,6 +87,8 @@ export const sv = {
   'msg.showOriginal': 'Visa original',
   'msg.showTranslation': 'Visa översättning',
   'msg.translatedFrom': 'Översatt från {language}',
+  'msg.writtenIn': 'Skrivet på {language}',
+  'msg.originalIn': 'Original · {language}',
   'msg.original': 'Original',
   'msg.translating': 'översätter…',
   'msg.lowConfidence': 'Översättningen osäker — fråga vid tvivel',

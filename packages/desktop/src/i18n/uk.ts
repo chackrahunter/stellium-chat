@@ -87,6 +87,8 @@ export const uk = {
   'msg.showOriginal': 'Показати оригінал',
   'msg.showTranslation': 'Показати переклад',
   'msg.translatedFrom': 'Перекладено з {language}',
+  'msg.writtenIn': 'Написано {language}',
+  'msg.originalIn': 'Оригінал · {language}',
   'msg.original': 'Оригінал',
   'msg.translating': 'перекладаю…',
   'msg.lowConfidence': 'Переклад невпевнений — уточнюйте',

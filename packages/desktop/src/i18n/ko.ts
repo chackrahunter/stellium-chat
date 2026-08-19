@@ -87,6 +87,8 @@ export const ko = {
   'msg.showOriginal': '원본 보기',
   'msg.showTranslation': '번역 보기',
   'msg.translatedFrom': '번역 출처 {language}',
+  'msg.writtenIn': '{language}로 작성됨',
+  'msg.originalIn': '원문 · {language}',
   'msg.original': '원본',
   'msg.translating': '번역 중…',
   'msg.lowConfidence': '번역이 불확실합니다 — 의심될 경우 확인하세요',

@@ -87,6 +87,8 @@ export const tr = {
   'msg.showOriginal': 'Orijinali göster',
   'msg.showTranslation': 'Çeviriyi göster',
   'msg.translatedFrom': '{language} dilinden çevrildi',
+  'msg.writtenIn': '{language} dilinde yazıldı',
+  'msg.originalIn': 'Orijinal · {language}',
   'msg.original': 'Orijinal',
   'msg.translating': 'çevriliyor…',
   'msg.lowConfidence': 'Çeviri belirsiz — şüphe duyarsanız sorun',

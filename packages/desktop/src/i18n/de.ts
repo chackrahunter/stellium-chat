@@ -90,6 +90,8 @@ export const de = {
   'msg.showOriginal': 'Original anzeigen',
   'msg.showTranslation': 'Übersetzung anzeigen',
   'msg.translatedFrom': 'Übersetzt aus {language}',
+  'msg.writtenIn': 'Geschrieben auf {language}',
+  'msg.originalIn': 'Original · {language}',
   'msg.original': 'Original',
   'msg.translating': 'übersetze…',
   'msg.lowConfidence': 'Übersetzung unsicher — im Zweifel nachfragen',

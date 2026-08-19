@@ -7,7 +7,7 @@ import {
 import type { Attachment, RewriteTone } from '@stellium/shared';
 import { normalizeLang } from '@stellium/shared';
 import { useStore } from '../state/store.js';
-import { useT, t } from '../i18n/index.js';
+import { spracheName, useT, t } from '../i18n/index.js';
 import { api } from '../net/api.js';
 import { EmojiPicker } from './EmojiPicker.jsx';
 import { Avatar } from './Avatar.jsx';
@@ -624,7 +624,7 @@ export function Composer({ channelId, parentId = null, placeholder, autoFocus }:
           >
             <div className="composer__preview-head">
               <Languages size={11} />
-              {t('composer.previewHead', { language: languageInfo(targetLang!).native })}
+              {t('composer.previewHead', { language: spracheName(targetLang!) })}
             </div>
             {preview}
           </motion.div>
@@ -668,7 +668,7 @@ function handleSlashCommand(text: string, channelId: string): SlashResult {
     case 'sprache':
       if (arg) {
         store.updatePrefs({ language: normalizeLang(arg) });
-        store.toast({ kind: 'ok', title: t('composer.languageChanged'), body: t('composer.languageSet', { sprache: languageInfo(arg).native }) });
+        store.toast({ kind: 'ok', title: t('composer.languageChanged'), body: t('composer.languageSet', { sprache: spracheName(arg) }) });
       }
       return { handled: true };
     case 'dnd':

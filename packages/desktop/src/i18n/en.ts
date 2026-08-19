@@ -88,6 +88,8 @@ export const en: Partial<Dictionary> = {
   'msg.showOriginal': 'Show original',
   'msg.showTranslation': 'Show translation',
   'msg.translatedFrom': 'Translated from {language}',
+  'msg.writtenIn': 'Written in {language}',
+  'msg.originalIn': 'Original · {language}',
   'msg.original': 'Original',
   'msg.translating': 'translating…',
   'msg.lowConfidence': 'Translation uncertain — ask if in doubt',

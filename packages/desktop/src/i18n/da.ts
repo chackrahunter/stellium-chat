@@ -87,6 +87,8 @@ export const da = {
   'msg.showOriginal': 'Vis original',
   'msg.showTranslation': 'Vis oversættelse',
   'msg.translatedFrom': 'Oversat fra {language}',
+  'msg.writtenIn': 'Skrevet på {language}',
+  'msg.originalIn': 'Original · {language}',
   'msg.original': 'Original',
   'msg.translating': 'oversætter…',
   'msg.lowConfidence': 'Usikker oversættelse — spørg ved tvivl',

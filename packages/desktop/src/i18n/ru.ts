@@ -87,6 +87,8 @@ export const ru = {
   'msg.showOriginal': 'Показать оригинал',
   'msg.showTranslation': 'Показать перевод',
   'msg.translatedFrom': 'Переведено из {language}',
+  'msg.writtenIn': 'Написано на {language}',
+  'msg.originalIn': 'Оригинал · {language}',
   'msg.original': 'Оригинал',
   'msg.translating': 'перевожу…',
   'msg.lowConfidence': 'Перевод не уверен — при сомнении уточните',

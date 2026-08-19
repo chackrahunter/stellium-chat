@@ -87,6 +87,8 @@ export const ja = {
   'msg.showOriginal': '元のテキストを表示',
   'msg.showTranslation': '翻訳を表示',
   'msg.translatedFrom': '{language}から翻訳',
+  'msg.writtenIn': '{language}で書かれています',
+  'msg.originalIn': '原文 · {language}',
   'msg.original': 'オリジナル',
   'msg.translating': '翻訳中…',
   'msg.lowConfidence': '翻訳が不確かです — 疑問があれば確認してください',

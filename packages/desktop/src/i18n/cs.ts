@@ -87,6 +87,8 @@ export const cs = {
   'msg.showOriginal': 'Zobrazit originál',
   'msg.showTranslation': 'Zobrazit překlad',
   'msg.translatedFrom': 'Přeloženo z {language}',
+  'msg.writtenIn': 'Napsáno v jazyce {language}',
+  'msg.originalIn': 'Originál · {language}',
   'msg.original': 'Originál',
   'msg.translating': 'překládám…',
   'msg.lowConfidence': 'Překlad nejistý — v případě pochybností se zeptejte',

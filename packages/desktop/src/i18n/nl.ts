@@ -87,6 +87,8 @@ export const nl = {
   'msg.showOriginal': 'Origineel tonen',
   'msg.showTranslation': 'Vertaling weergeven',
   'msg.translatedFrom': 'Vertaald uit {language}',
+  'msg.writtenIn': 'Geschreven in het {language}',
+  'msg.originalIn': 'Origineel · {language}',
   'msg.original': 'Origineel',
   'msg.translating': 'vertalen…',
   'msg.lowConfidence': 'Vertaling onzeker — bij twijfel vragen',
