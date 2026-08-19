@@ -1020,8 +1020,8 @@ Wiederherstellen:
     sudo systemctl start stellium
 HINWEIS
 
-# Vierzehn Stände reichen; ältere weg.
-ls -1t "$ZIEL"/stellium-*.db.gz 2>/dev/null | tail -n +15 | xargs -r rm -f
+# Drei Stände genügen — der älteste weicht, sobald ein vierter entsteht.
+ls -1t "$ZIEL"/stellium-*.db.gz 2>/dev/null | tail -n +4 | xargs -r rm -f
 SICHERUNG
 chmod 755 /usr/local/bin/stellium-sichern
 apt-get install -y -qq sqlite3 >/dev/null
@@ -1039,7 +1039,7 @@ cat > /etc/systemd/system/stellium-sicherung.timer <<'TIMER'
 [Unit]
 Description=Stellium jede Nacht sichern
 [Timer]
-OnCalendar=*-*-* 03:30:00
+OnCalendar=*-*-* 23:00:00
 Persistent=true
 [Install]
 WantedBy=timers.target

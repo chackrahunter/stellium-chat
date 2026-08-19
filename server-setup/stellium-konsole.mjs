@@ -328,7 +328,7 @@ async function daten() {
   const feuer = ruf('ufw', ['status']);
   let sicherung = null;
   try {
-    const staende = fs.readdirSync(`${DATEN}/sicherungen`).filter((d) => d.endsWith('.db')).sort();
+    const staende = fs.readdirSync(`${DATEN}/sicherungen`).filter((d) => /\.db(\.gz)?$/.test(d)).sort();
     if (staende.length) {
       const letzte = `${DATEN}/sicherungen/${staende[staende.length - 1]}`;
       sicherung = { anzahl: staende.length, wann: fs.statSync(letzte).mtime.toISOString() };
