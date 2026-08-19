@@ -31,8 +31,15 @@ const FENSTER_ANFANG = 80;
 const FENSTER_SCHRITT = 80;
 
 export function MessageList({ channelId }: Props) {
-  const alle = useStore((s) => s.messages[channelId]) ?? EMPTY;
+  const imSpeicher = useStore((s) => s.messages[channelId]) ?? EMPTY;
   const [fenster, setFenster] = useState(FENSTER_ANFANG);
+  /* Antworten in einem Thread gehören in den Thread-Bereich, nicht hierher.
+     Der Speicher hält sie schon nicht mehr in dieser Liste — dieser Filter ist
+     der zweite Riegel: in den Verlauf schreiben mehrere Ereignisse hinein, und
+     ein einziges übersehenes davon reichte, damit eine Antwort wieder doppelt
+     erschiene. Was der Server im Kanalverlauf ausschließt, schließt die
+     Anzeige auch aus. */
+  const alle = useMemo(() => imSpeicher.filter((m) => !m.parentId), [imSpeicher]);
   const messages = useMemo(
     () => (alle.length > fenster ? alle.slice(-fenster) : alle),
     [alle, fenster],
