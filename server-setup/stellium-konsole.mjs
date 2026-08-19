@@ -14,6 +14,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 
 const EINMAL = process.argv.includes('einmal');
+const ALS_JSON = process.argv.includes('json');
 const PORT = Number(process.env.STELLIUM_PORT ?? 8787);
 const DATEN = process.env.STELLIUM_DATA ?? '/var/lib/stellium';
 const ZIEL = '/opt/stellium';
@@ -194,7 +195,8 @@ function adressen() {
   const liste = [];
   try {
     const conf = fs.readFileSync('/etc/nginx/sites-available/stellium', 'utf8');
-    const tls = /listen\s+443/.test(conf);
+    // Auch 'listen 192.168.1.66:443 ssl;' oder 'listen 9443 ssl;' zählen.
+    const tls = /listen[^;]*\bssl\b/.test(conf);
     const namen = [...conf.matchAll(/server_name\s+([^;]+);/g)]
       .flatMap((m) => m[1].trim().split(/\s+/))
       .filter((n) => n !== '_' && n !== 'localhost');
@@ -218,6 +220,8 @@ function adressen() {
 }
 
 function zertifikat() {
+  // Erst der direkte Weg — der klappt nur als root, denn /etc/letsencrypt/live
+  // gehört root allein.
   try {
     for (const name of fs.readdirSync('/etc/letsencrypt/live', { withFileTypes: true })) {
       if (!name.isDirectory()) continue;
@@ -228,6 +232,26 @@ function zertifikat() {
         tage: Math.round((new Date(ende.split('=')[1]) - Date.now()) / 86400000),
       };
     }
+  } catch { /* kein Zugriff oder keines vorhanden — unten weiter */ }
+
+  /* Ohne Root wird nachgefragt statt nachgelesen: nginx zeigt sein Zertifikat
+     jedem, der anklopft. Vorher stand hier deshalb „kein Zertifikat", obwohl
+     eines da war — die Konsole läuft nun einmal nicht als root. */
+  try {
+    const conf = fs.readFileSync('/etc/nginx/sites-available/stellium', 'utf8');
+    const port = (conf.match(/listen\s+(?:[\d.]+:|\[::\]:)?(\d+)[^;]*\bssl\b/) ?? [])[1];
+    const name = (conf.match(/server_name\s+([^;\s]+)/) ?? [])[1];
+    if (!port) return null;
+    const roh = ruf('bash', ['-c',
+      `echo | openssl s_client -connect 127.0.0.1:${port}`
+      + `${name ? ` -servername ${name}` : ''} 2>/dev/null | openssl x509 -noout -enddate -subject 2>/dev/null`]);
+    const ende = (roh.match(/notAfter=(.+)/) ?? [])[1];
+    if (!ende) return null;
+    const cn = (roh.match(/CN\s*=\s*([^,\n]+)/) ?? [])[1];
+    return {
+      name: (cn ?? name ?? 'Zertifikat').trim(),
+      tage: Math.round((new Date(ende) - Date.now()) / 86400000),
+    };
   } catch { /* keines vorhanden */ }
   return null;
 }
@@ -276,6 +300,62 @@ const messwert = (name, anteil, rechts) =>
 function ueberschrift(text, farbe = F.violett) {
   schreib();
   schreib(`  ${farbe}${F.fett}${text}${F.aus}  ${F.grau}${'─'.repeat(Math.max(0, BREITE - text.length - 6))}${F.aus}`);
+}
+
+/**
+ * Dieselben Angaben, nur als Daten statt als Bild.
+ *
+ * Die grafische Oberfläche soll nichts doppelt ermitteln — sonst driften die
+ * beiden Anzeigen irgendwann auseinander und niemand weiß, welche stimmt.
+ */
+async function daten() {
+  const g = await gesundheit();
+  const pl = platte('/');
+  const sw = swap();
+  const n = netz();
+  const feuer = ruf('ufw', ['status']);
+  let sicherung = null;
+  try {
+    const staende = fs.readdirSync(`${DATEN}/sicherungen`).filter((d) => d.endsWith('.db')).sort();
+    if (staende.length) {
+      const letzte = `${DATEN}/sicherungen/${staende[staende.length - 1]}`;
+      sicherung = { anzahl: staende.length, wann: fs.statSync(letzte).mtime.toISOString() };
+    }
+  } catch { /* noch keine */ }
+
+  return {
+    zeit: Date.now(),
+    version: version(),
+    modell: modell(),
+    adressen: adressen(),
+    dienste: {
+      chat: { an: dienstAktiv('stellium'), auto: dienstAn('stellium') },
+      web: { an: dienstAktiv('nginx'), auto: dienstAn('nginx') },
+      tunnel: dienstAktiv('stellium-tunnel') || dienstAktiv('cloudflared'),
+    },
+    ki: g?.ai ?? null,
+    inhalt: zahlen(),
+    zertifikat: zertifikat(),
+    firewall: feuer ? /Status: active/.test(feuer) : null,
+    gesperrt: gesperrt(),
+    leistung: {
+      kerne: os.cpus().length,
+      mhz: takt(),
+      cpu: cpuAuslastung(),
+      ramAnteil: 1 - os.freemem() / os.totalmem(),
+      ramBelegt: os.totalmem() - os.freemem(),
+      ramGesamt: os.totalmem(),
+      swap: sw,
+      platte: pl,
+      grafik: grafik(),
+      temperaturen: temperaturen(),
+      drosselung: drosselung(),
+      netz: n,
+      laufzeit: os.uptime(),
+    },
+    bestandteile: bestandteile(),
+    sicherung,
+  };
 }
 
 async function zeichnen() {
@@ -436,7 +516,9 @@ async function zeichnen() {
   return z.join('\n');
 }
 
-if (EINMAL) {
+if (ALS_JSON) {
+  process.stdout.write(JSON.stringify(await daten()));
+} else if (EINMAL) {
   process.stdout.write(await zeichnen());
 } else {
   process.stdout.write('\x1b[?1049h\x1b[?25l');
