@@ -164,14 +164,37 @@ function buildMenu(): void {
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
 
-/** Kleines Sternsymbol für das Tray — als Data-URI, damit keine Datei nötig ist. */
+/**
+ * Kleines Sternsymbol für die Menüleiste.
+ *
+ * Hier stand einmal ein SVG als Data-URI — „damit keine Datei nötig ist".
+ * Das war still kaputt: **`nativeImage` kann kein SVG lesen.** Gemessen unter
+ * Electron 43.4.1 kam ein leeres Bild heraus (`isEmpty()`, Größe 0×0, auch
+ * nach `resize`), und weil `new Tray()` mit einem leeren Bild nicht wirft,
+ * fiel es nie auf: in der Menüleiste war einfach nichts zu sehen.
+ *
+ * Jetzt wird eine echte PNG-Datei geladen, gerastert von
+ * scripts/symbole-erzeugen.mjs. `tray@2x.png` findet Electron von selbst.
+ */
 function trayIcon(): Electron.NativeImage {
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">
-    <path d="M16 3l3.2 8.6L28 14l-8.8 2.4L16 25l-3.2-8.6L4 14l8.8-2.4z" fill="black"/></svg>`;
-  const img = nativeImage.createFromDataURL(`data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`);
-  const resized = img.resize({ width: 16, height: 16 });
-  resized.setTemplateImage(true);
-  return resized;
+  const pfad = bildPfad('tray.png');
+  if (!pfad) return nativeImage.createEmpty();
+  const img = nativeImage.createFromPath(pfad);
+  // macOS wertet bei Vorlagenbildern nur den Alphakanal aus und färbt selbst
+  // ein — hell auf dunkler Leiste, dunkel auf heller. Anderswo unerwünscht.
+  if (process.platform === 'darwin') img.setTemplateImage(true);
+  return img;
+}
+
+/**
+ * Das Abzeichen für die Windows-Taskleiste.
+ *
+ * Nicht dasselbe Bild wie oben: Windows färbt nichts ein, ein schwarzer Stern
+ * verschwände auf dunklem Grund. Deshalb ein eigenes, sichtbares Abzeichen.
+ */
+function abzeichenIcon(): Electron.NativeImage | null {
+  const pfad = bildPfad('abzeichen.png');
+  return pfad ? nativeImage.createFromPath(pfad) : null;
 }
 
 /**
@@ -181,13 +204,17 @@ function trayIcon(): Electron.NativeImage {
  * Kasten. Im Paket liegt das Symbol neben den Programmdateien, in der
  * Entwicklung im Quellordner — beide Wege werden probiert.
  */
-function symbolPfad(): string | undefined {
+function bildPfad(name: string): string | undefined {
   const kandidaten = [
-    path.join(process.resourcesPath ?? '', 'icon.png'),
-    path.join(here, '../build/icon.png'),
-    path.join(here, '../../build/icon.png'),
+    path.join(process.resourcesPath ?? '', name),
+    path.join(here, '../build/', name),
+    path.join(here, '../../build/', name),
   ];
   return kandidaten.find((p) => { try { return fs.existsSync(p); } catch { return false; } });
+}
+
+function symbolPfad(): string | undefined {
+  return bildPfad('icon.png');
 }
 
 function createTray(): void {
@@ -257,7 +284,7 @@ ipcMain.handle('badge:set', (_e, count: number) => {
     try { app.setBadgeCount(count); } catch { /* nicht überall unterstützt */ }
   }
   if (process.platform === 'win32' && mainWindow) {
-    mainWindow.setOverlayIcon(count > 0 ? trayIcon() : null, count > 0 ? `${count} ungelesen` : '');
+    mainWindow.setOverlayIcon(count > 0 ? abzeichenIcon() : null, count > 0 ? `${count} ungelesen` : '');
   }
   return true;
 });
