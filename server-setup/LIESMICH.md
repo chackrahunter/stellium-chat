@@ -44,6 +44,16 @@ den Pi weitergeleitet.
 wie `meinefirma.duckdns.org`, ebenfalls mit echtem Let's-Encrypt-Zertifikat.
 Das Skript hält sie aktuell, auch wenn euer Anschluss die IP-Adresse wechselt.
 
+**4 · Tunnel.** Der Pi baut die Verbindung selbst nach außen auf, statt auf
+Anfragen zu warten. Kein Port, kein Router-Zugang, funktioniert auch hinter
+CGNAT. Verschlüsselt wird außen von Cloudflare, auf den Geräten im Team ist
+nichts zu installieren. Zwei Ausprägungen:
+
+- **schnell** — sofort, ohne Konto. Adresse wie `wort-wort-name.trycloudflare.com`,
+  wechselt aber bei jedem Neustart des Tunnels. Gut zum Ausprobieren.
+- **fest** — eine eigene Adresse, die bleibt. Kostenlos, braucht aber ein
+  Cloudflare-Konto und eine dort geführte Domain.
+
 **3 · Nur im Heimnetz.** Ohne Verschlüsselung. Zum Ausprobieren in Ordnung, für
 echte Gespräche nicht.
 
@@ -117,6 +127,15 @@ Für DuckDNS: `STELLIUM_MODE=2 STELLIUM_DUCK=meinefirma:dein-token`.
 
 ## Kein Zugang zum Router?
 
+Zwei Wege, unabhängig voneinander:
+
+```bash
+sudo stellium-zugang     # Router überreden
+sudo stellium-tunnel     # oder ganz ohne Router
+```
+
+### Router überreden
+
 ```bash
 sudo stellium-zugang
 ```
@@ -132,6 +151,20 @@ Kunden (CGNAT oder DS-Lite), hilft auch die schönste Portfreigabe nichts — di
 Anfragen kommen gar nicht erst bei euch an. Dann sagt es das klar und nennt die
 beiden Auswege: eine öffentliche IPv4 beim Provider beantragen, oder einen
 Tunnel benutzen, bei dem der Pi die Verbindung nach außen aufbaut.
+
+### Ohne Router
+
+```bash
+sudo stellium-tunnel            # fragt, welche Art
+sudo stellium-tunnel schnell    # sofort, Adresse wechselt
+sudo stellium-tunnel fest       # feste Adresse, Cloudflare-Konto nötig
+sudo stellium-tunnel adresse    # aktuelle Adresse anzeigen
+sudo stellium-tunnel aus        # wieder abschalten
+```
+
+Der Pi hält die Verbindung nach außen offen; Anfragen kommen darüber herein.
+Weder eine Portfreigabe noch eine öffentliche IP-Adresse sind nötig. nginx
+bleibt dazwischen und bedient den Tunnel nur noch lokal.
 
 ## Nichts doppelt eintippen
 

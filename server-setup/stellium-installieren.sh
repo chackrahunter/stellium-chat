@@ -171,6 +171,12 @@ cat <<ERKLAERUNG
      Ohne Verschlüsselung, nur im eigenen WLAN erreichbar.
      ${GELB}Zum Ausprobieren, nicht für echte Gespräche.${AUS}
 
+  ${FETT}4)${AUS} Über einen Tunnel
+     Der Pi baut die Verbindung selbst nach außen auf. Kein Port,
+     kein Router-Zugang, geht auch hinter CGNAT. Verschlüsselt wird
+     außen von Cloudflare. Auf den Geräten im Team ist nichts zu
+     installieren.
+
   ${GRAU}Bei ${AUS}${FETT}2${AUS}${GRAU} läuft die Prüfung von Let's Encrypt über einen
   DNS-Eintrag — dafür muss im Router nichts freigegeben sein.
   Damit euer Team den Pi auch erreicht, sollte trotzdem ein Port
@@ -188,7 +194,7 @@ DUCK_NAME=""
 DUCK_TOKEN=""
 DUCK_VORGABE=""
 while [[ -z "$WAHL" ]]; do
-  WAHL="$(frage "Deine Wahl [1/2/3]: " "${STELLIUM_MODE:-}")"
+  WAHL="$(frage "Deine Wahl [1/2/3/4]: " "${STELLIUM_MODE:-}")"
   case "$WAHL" in
     1)
       while [[ -z "$DOMAIN" ]]; do
@@ -250,12 +256,13 @@ MAILHINWEIS
         MAIL="$(frage "E-Mail (oder leer): " "")"
       done
       ;;
+    4) ;;
     3)
       warn "Ohne Verschlüsselung kann jeder im selben Netz mitlesen."
       SICHER="$(frage "Wirklich? [ja/nein]: " "ja")"
       [[ "$SICHER" == "ja" ]] || WAHL=""
       ;;
-    *) warn "Bitte 1, 2 oder 3."; WAHL="" ;;
+    *) warn "Bitte 1, 2, 3 oder 4."; WAHL="" ;;
   esac
 done
 
@@ -625,7 +632,18 @@ fi
 
 ADRESSE=""
 
-if [[ "$WAHL" == "3" ]]; then
+if [[ "$WAHL" == "4" ]]; then
+  # Der Tunnel spricht nginx auf dem Pi selbst an; nach außen geht nichts
+  # direkt. Eingerichtet wird er gleich, nach dem Rest.
+  schreibe_nur_http
+  ln -sf /etc/nginx/sites-available/stellium /etc/nginx/sites-enabled/stellium
+  pruefe_nginx
+  systemctl enable --quiet nginx
+  systemctl restart nginx
+  ADRESSE="(wird beim Tunnel vergeben)"
+  ok "nginx bereit für den Tunnel"
+
+elif [[ "$WAHL" == "3" ]]; then
   schreibe_nur_http
   ln -sf /etc/nginx/sites-available/stellium /etc/nginx/sites-enabled/stellium
   pruefe_nginx
@@ -634,6 +652,9 @@ if [[ "$WAHL" == "3" ]]; then
   if [[ "$PORT_HTTP" == "80" ]]; then ADRESSE="http://$(lokale_ip)"
   else ADRESSE="http://$(lokale_ip):$PORT_HTTP"; fi
   warn "Unverschlüsselt. Nur im Heimnetz benutzen."
+
+elif [[ "$WAHL" == "4" ]]; then
+  : # nichts weiter — der Tunnel bringt die Verschlüsselung mit
 
 else
   # ── DuckDNS: Adresse aktuell halten ─────────────────────────
@@ -829,7 +850,8 @@ cp "$ZIEL/server-setup/stellium-konsole.mjs" /usr/local/lib/stellium/konsole.mjs
 chmod 755 /usr/local/lib/stellium/konsole.mjs
 
 install -m 755 "$ZIEL/server-setup/stellium-zugang.sh" /usr/local/bin/stellium-zugang
-ok "stellium-zugang eingerichtet — öffnet die Ports ohne Router-Zugang"
+install -m 755 "$ZIEL/server-setup/stellium-tunnel.sh" /usr/local/bin/stellium-tunnel
+ok "stellium-zugang und stellium-tunnel eingerichtet"
 
 cat > /usr/local/bin/stellium <<KONSOLE
 #!/usr/bin/env bash
@@ -915,10 +937,16 @@ KONTO="$(journalctl -u stellium --no-pager -n 200 2>/dev/null | grep -A1 'Benutz
 if [[ "$PORT_HTTP" == "80" ]]; then LOKAL="http://$(lokale_ip)"
 else LOKAL="http://$(lokale_ip):$PORT_HTTP"; fi
 
+if [[ "$WAHL" == "4" ]]; then
+  schritt "Tunnel einrichten"
+  /usr/local/bin/stellium-tunnel || warn "Der Tunnel wurde nicht fertig eingerichtet — nachholbar mit: sudo stellium-tunnel"
+  [[ -r "$DATEN/tunnel-adresse" ]] && ADRESSE="$(cat "$DATEN/tunnel-adresse")"
+fi
+
 # Erreicht euch das Team wirklich? Das Zertifikat allein genügt nicht — die
 # Verbindung muss auch durch den Router kommen.
 VON_AUSSEN_DA=0
-if [[ "$WAHL" != "3" ]]; then
+if [[ "$WAHL" != "3" && "$WAHL" != "4" ]]; then
   if curl -fsS --max-time 10 -o /dev/null "$ADRESSE/api/health" 2>/dev/null; then
     VON_AUSSEN_DA=1
   fi
@@ -936,7 +964,7 @@ ${GRUEN}${FETT}   ✓  Fertig.${AUS}
 
 ENDE
 
-if [[ "$WAHL" != "3" && "$VON_AUSSEN_DA" == "0" ]]; then
+if [[ "$WAHL" != "3" && "$WAHL" != "4" && "$VON_AUSSEN_DA" == "0" ]]; then
   # Erst selbst versuchen, den Router zu überreden — dafür braucht es keinen
   # Zugang zu seiner Oberfläche, sofern UPnP dort nicht abgeschaltet ist.
   schritt "Von außen erreichbar machen"
@@ -986,10 +1014,12 @@ fi
 
 cat <<BEFEHLE
    ${FETT}Befehle${AUS}
-     ${BLAU}stellium${AUS}                    Statuskonsole
-     ${GRAU}sudo systemctl restart stellium${AUS}   neu starten
-     ${GRAU}sudo journalctl -u stellium -f${AUS}    mitlesen
-     ${GRAU}sudo stellium-sichern${AUS}             sofort sichern
+     ${BLAU}stellium${AUS}                        Statuskonsole
+     ${GRAU}sudo stellium-zugang${AUS}            Ports ohne Router-Zugang öffnen
+     ${GRAU}sudo stellium-tunnel${AUS}            Weg nach außen ohne Portfreigabe
+     ${GRAU}sudo systemctl restart stellium${AUS} neu starten
+     ${GRAU}sudo journalctl -u stellium -f${AUS}  mitlesen
+     ${GRAU}sudo stellium-sichern${AUS}           sofort sichern
 
    Der Server startet bei jedem Neustart von selbst mit.
 

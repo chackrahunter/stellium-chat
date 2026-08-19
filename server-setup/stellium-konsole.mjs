@@ -203,6 +203,12 @@ function adressen() {
     }
   } catch { /* nginx noch nicht eingerichtet */ }
 
+  // Ein Tunnel hat keine eigene nginx-Zeile — seine Adresse steht in einer Datei.
+  try {
+    const tunnel = fs.readFileSync(`${DATEN}/tunnel-adresse`, 'utf8').trim();
+    if (tunnel) liste.push({ art: 'tunnel', url: tunnel });
+  } catch { /* kein Tunnel eingerichtet */ }
+
   for (const [, karten] of Object.entries(os.networkInterfaces())) {
     for (const a of karten ?? []) {
       if (a.family === 'IPv4' && !a.internal) liste.push({ art: 'lokal', url: `http://${a.address}` });
@@ -291,10 +297,17 @@ async function zeichnen() {
   const offen = adr.filter((a) => a.art === 'offen');
   const lokal = adr.filter((a) => a.art === 'lokal');
 
+  const tunnel = adr.filter((a) => a.art === 'tunnel');
   for (const a of sicher) schreib(`    ${F.gruen}🔒${F.aus}  ${F.fett}${F.blau}${a.url}${F.aus}`);
+  for (const a of tunnel) {
+    schreib(`    ${F.gruen}🔒${F.aus}  ${F.fett}${F.blau}${a.url}${F.aus}  ${F.grau}durch den Tunnel${F.aus}`);
+  }
   for (const a of offen) schreib(`    ${F.gelb}⚠${F.aus}   ${a.url}  ${F.grau}unverschlüsselt${F.aus}`);
   for (const a of lokal.slice(0, 2)) schreib(`    ${F.grau}·   ${a.url}   im eigenen Netz${F.aus}`);
   if (!adr.length) schreib(`    ${F.rot}keine Adresse gefunden${F.aus}`);
+  if (tunnel.length && /trycloudflare\.com/.test(tunnel[0].url)) {
+    schreib(`    ${F.gelb}Diese Adresse wechselt bei jedem Neustart des Tunnels.${F.aus}`);
+  }
   schreib(`    ${F.grau}In der App unter Einstellungen → Server eintragen.${F.aus}`);
 
   /* ── Chat ────────────────────────────────────────────────── */
@@ -338,6 +351,9 @@ async function zeichnen() {
     feld('Zertifikat', 'vorhanden', F.gruen);
   } else {
     feld('Zertifikat', 'keines — Verbindung offen', F.gelb);
+  }
+  for (const [dienst, name] of [['stellium-tunnel', 'Tunnel'], ['cloudflared', 'Tunnel']]) {
+    if (dienstAktiv(dienst)) { feld(name, 'läuft', F.gruen); break; }
   }
   const feuer = ruf('ufw', ['status']);
   if (feuer) feld('Firewall', /Status: active/.test(feuer) ? 'aktiv' : 'AUS', /Status: active/.test(feuer) ? F.gruen : F.rot);
