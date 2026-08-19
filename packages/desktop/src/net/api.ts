@@ -220,6 +220,12 @@ export const api = {
       method: 'POST', body: JSON.stringify({ baseUrl }),
     }),
 
+  /** Ein Konto in eine andere Schublade legen. */
+  setUserKategorie: (id: string, kategorie: string | null) =>
+    request<{ users: ManagedUser[] }>(`/api/admin/users/${id}/kategorie`, {
+      method: 'POST', body: JSON.stringify({ kategorie }),
+    }),
+
   glossary: () => request<{ entries: GlossaryEntry[] }>('/api/glossary'),
   addGlossary: (input: { term: string; translations: Record<string, string> | null; note?: string }) =>
     request<{ entries: GlossaryEntry[] }>('/api/glossary', { method: 'POST', body: JSON.stringify(input) }),

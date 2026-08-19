@@ -109,8 +109,16 @@ fi
 
 schritt "Holen"
 ARBEIT="$(mktemp -d /tmp/stellium-selbstupdate-XXXX)"
+chmod 700 "$ARBEIT"
 trap 'rm -rf "$ARBEIT"' EXIT
 PAKET="$ARBEIT/stellium-server.tar.gz"
+
+# Platz prüfen, bevor geladen wird. Ein Update, das die Platte füllt, nimmt
+# nicht nur sich selbst mit, sondern auch die Datenbank.
+FREI_KB="$(df -Pk /var/lib/stellium 2>/dev/null | awk 'NR==2 {print $4}')"
+if [[ -n "${FREI_KB:-}" ]] && (( FREI_KB < 500000 )); then
+  fehler "Zu wenig Platz: $((FREI_KB / 1024)) MB frei, mindestens 500 MB nötig."
+fi
 
 curl -fsS --max-time 900 -H "authorization: Bearer $TOKEN" \
   -o "$PAKET" "$BASIS/releases/server/download" \
@@ -124,7 +132,17 @@ ok "geladen und geprüft ($(du -h "$PAKET" | cut -f1))"
 schritt "Auspacken"
 # Ohne --no-xattrs beschwert sich tar über jede Datei, die von einem Mac
 # kommt — hunderte Zeilen, die den eigentlichen Fehler verdecken.
-tar -C "$ARBEIT" --no-xattrs -xzf "$PAKET" 2>/dev/null || tar -C "$ARBEIT" -xzf "$PAKET"
+# Vor dem Auspacken hineinsehen: ein Archiv mit "../" oder absoluten Pfaden
+# schreibt sonst außerhalb des Arbeitsverzeichnisses. Das Paket kommt zwar vom
+# eigenen Server und die Prüfsumme stimmt — aber wer Fassungen hochladen darf,
+# soll damit trotzdem nicht überall hinschreiben können.
+if tar -tzf "$PAKET" | grep -qE '^/|(^|/)\.\.(/|$)'; then
+  fehler "Das Paket enthält Pfade außerhalb des Zielordners und wird verworfen."
+fi
+
+# --no-same-owner: sonst legt tar Dateien unter fremden Kennungen an.
+tar -C "$ARBEIT" --no-same-owner --no-xattrs -xzf "$PAKET" 2>/dev/null \
+  || tar -C "$ARBEIT" --no-same-owner -xzf "$PAKET"
 
 # Im Paket liegt das Skript unter stellium-server/server-setup/ — also drei
 # Ebenen tief. Mit "maxdepth 2" wurde es nie gefunden, und der Selbstupdate

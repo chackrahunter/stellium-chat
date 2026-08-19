@@ -2693,3 +2693,28 @@ button.msg__author:hover { color: var(--violet-soft); text-decoration: underline
   background: var(--grad-nebula);
   transition: width 0.2s linear;
 }
+
+/* Schubladen in der Kontenverwaltung — bei vielen Konten ist eine reine
+   Liste nicht mehr zu überblicken. */
+.kat-gruppe { margin-bottom: var(--sp-3); }
+.kat-gruppe__kopf {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 8px 5px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--tx-lo);
+}
+.kat-gruppe__zahl {
+  min-width: 18px;
+  padding: 1px 6px;
+  border-radius: 9px;
+  background: var(--bg-sunken);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-align: center;
+}

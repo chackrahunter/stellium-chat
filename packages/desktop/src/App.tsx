@@ -97,7 +97,17 @@ export function App() {
     const offClick = window.stellium?.onNotificationClick((channelId) => {
       useStore.getState().openChannel(channelId);
     });
-    return () => { off?.(); offClick?.(); };
+    // Dasselbe im Browser: die Benachrichtigung meldet sich über ein Ereignis.
+    const imBrowser = (e: Event) => {
+      const id = (e as CustomEvent<string>).detail;
+      if (id) useStore.getState().openChannel(id);
+    };
+    window.addEventListener('stellium:kanal-oeffnen', imBrowser);
+    return () => {
+      off?.();
+      offClick?.();
+      window.removeEventListener('stellium:kanal-oeffnen', imBrowser);
+    };
   }, []);
 
   useEffect(() => { void useStore.getState().boot(); }, []);

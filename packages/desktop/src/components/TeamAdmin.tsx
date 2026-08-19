@@ -5,8 +5,9 @@ import {
   ShieldCheck, Trash2, UserPlus, X,
 } from 'lucide-react';
 import {
-  LANGUAGES, PERMISSIONS,
-  type ManagedUser, type MemberRole, type OneTimeCredential, type PermissionKey,
+  KONTO_KATEGORIEN, LANGUAGES, PERMISSIONS,
+  type KontoKategorie, type ManagedUser, type MemberRole, type OneTimeCredential,
+  type PermissionKey,
 } from '@stellium/shared';
 import { useStore } from '../state/store.js';
 import { api } from '../net/api.js';
@@ -74,6 +75,24 @@ export function TeamAdmin({ onClose }: { onClose: () => void }) {
 
   const geloeschte = liste.filter((u) => u.deletedAt);
 
+  /**
+   * In welche Schublade ein Konto gehört.
+   *
+   * Gelöschte sind gesetzt — dafür gibt es keine Wahl. Sonst gilt, was jemand
+   * von Hand gewählt hat; ohne Wahl entscheidet, was das Konto ist: ein Bot
+   * gehört zu den technischen, wer sich noch nie angemeldet hat, ist neu, und
+   * die Leitung steht bei der Leitung.
+   */
+  const schublade = (u: ManagedUser): KontoKategorie => {
+    if (u.deletedAt) return 'geloescht';
+    if (u.kategorie) return u.kategorie;
+    if (u.role === 'bot') return 'technisch';
+    if (u.mustChangePassword) return 'neu';
+    if (u.role === 'owner' || u.role === 'admin') return 'leitung';
+    if (u.role === 'guest') return 'extern';
+    return 'mitglieder';
+  };
+
   /* Gelöschte Konten bleiben in der Datenbank, damit ihre Nachrichten einen
      Urheber behalten. In der Liste haben sie nichts verloren: dort sahen sie
      aus wie gewöhnliche Konten, und das Löschen wirkte, als hätte es nicht
@@ -85,6 +104,21 @@ export function TeamAdmin({ onClose }: { onClose: () => void }) {
     return sichtbar.filter((u) =>
       u.displayName.toLowerCase().includes(q) || u.handle.toLowerCase().includes(q));
   }, [liste, suche, zeigeGeloeschte]);
+
+  /* Nach Schubladen sortiert, leere fallen weg. Bei acht Konten wirkt das
+     überflüssig — bei achtzig ist es der Unterschied zwischen Suchen und
+     Finden. */
+  const gruppen = useMemo(() => {
+    const nach = new Map<KontoKategorie, ManagedUser[]>();
+    for (const u of gefiltert) {
+      const k = schublade(u);
+      if (!nach.has(k)) nach.set(k, []);
+      nach.get(k)!.push(u);
+    }
+    return KONTO_KATEGORIEN
+      .map((k) => ({ kategorie: k, leute: nach.get(k) ?? [] }))
+      .filter((g) => g.leute.length > 0);
+  }, [gefiltert, liste]);
 
   const person = liste.find((u) => u.id === gewaehlt) ?? null;
 
@@ -149,23 +183,30 @@ export function TeamAdmin({ onClose }: { onClose: () => void }) {
               </button>
             )}
 
-            {gefiltert.map((u) => (
-              <button
-                key={u.id}
-                className="result"
-                data-active={gewaehlt === u.id}
-                onClick={() => setGewaehlt(u.id)}
-              >
-                <Avatar user={{ displayName: u.displayName, avatarColor: '#7c5cff', avatarUrl: null, status: 'offline' }} size={30} />
-                <div className="result__main">
-                  <div className="result__title">
-                    {u.displayName}
-                    {u.disabled && <span className="msg__tag" style={{ marginLeft: 6 }}>{t('team.blocked')}</span>}
-                    {u.mustChangePassword && <span className="msg__tag" style={{ marginLeft: 6 }}>{t('team.new')}</span>}
-                  </div>
-                  <div className="result__sub">@{u.handle} · {ROLLEN.find((r) => r.wert === u.role)?.label}</div>
+            {gruppen.map((g) => (
+              <div key={g.kategorie} className="kat-gruppe">
+                <div className="kat-gruppe__kopf">
+                  {t(`kat.${g.kategorie}` as never)}
+                  <span className="kat-gruppe__zahl">{g.leute.length}</span>
                 </div>
-              </button>
+                {g.leute.map((u) => (
+                  <button
+                    key={u.id}
+                    className="result"
+                    data-active={gewaehlt === u.id}
+                    onClick={() => setGewaehlt(u.id)}
+                  >
+                    <Avatar user={{ displayName: u.displayName, avatarColor: '#7c5cff', avatarUrl: null, status: 'offline' }} size={30} />
+                    <div className="result__main">
+                      <div className="result__title">
+                        {u.displayName}
+                        {u.disabled && !u.deletedAt && <span className="msg__tag" style={{ marginInlineStart: 6 }}>{t('team.blocked')}</span>}
+                      </div>
+                      <div className="result__sub">@{u.handle} · {ROLLEN.find((r) => r.wert === u.role)?.label}</div>
+                    </div>
+                  </button>
+                ))}
+              </div>
             ))}
           </div>
 
@@ -244,6 +285,29 @@ export function TeamAdmin({ onClose }: { onClose: () => void }) {
                     </button>
                   )}
                 </div>
+
+                {!person.deletedAt && darfVerwalten && (
+                  <div className="field">
+                    <label className="field__label">{t('kat.einsortieren')}</label>
+                    <select
+                      className="select"
+                      value={person.kategorie ?? ''}
+                      disabled={busy}
+                      onChange={(e) => void mit(
+                        () => api.setUserKategorie(person.id, e.target.value || null),
+                        t('kat.verschoben'),
+                      )}
+                    >
+                      <option value="">
+                        {t('kat.automatisch')} — {t(`kat.${schublade({ ...person, kategorie: null })}` as never)}
+                      </option>
+                      {KONTO_KATEGORIEN.filter((k) => k !== 'geloescht').map((k) => (
+                        <option key={k} value={k}>{t(`kat.${k}` as never)}</option>
+                      ))}
+                    </select>
+                    <p className="field__hint">{t('kat.hinweis')}</p>
+                  </div>
+                )}
 
                 <div className="field">
                   <label className="field__label">

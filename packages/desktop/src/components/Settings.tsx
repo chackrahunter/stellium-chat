@@ -7,6 +7,7 @@ import { api, serverUrl, setServerUrl } from '../net/api.js';
 import { Avatar } from './Avatar.jsx';
 import { languageInfo } from '../lib/format.js';
 import { coverage, UI_LANGUAGES, useT, t } from '../i18n/index.js';
+import { erlaubnisHolen, erlaubnisStand, zeigen, type Erlaubnis } from '../lib/benachrichtigung.js';
 import { tourZuruecksetzen } from './Tour.jsx';
 import { UpdatePanel } from './UpdatePanel.jsx';
 import { spracheDesSystems } from '../i18n/index.js';
@@ -19,6 +20,7 @@ export function Settings({ onClose }: { onClose: () => void }) {
   const ai = useStore((s) => s.ai);
   const { updatePrefs, logout } = useStore.getState();
   const [tab, setTab] = useState<Tab>('sprache');
+  const [erlaubnis, setErlaubnis] = useState<Erlaubnis>(() => erlaubnisStand());
   const [server, setServer] = useState(serverUrl());
 
   if (!self) return null;
@@ -201,6 +203,44 @@ export function Settings({ onClose }: { onClose: () => void }) {
                   <option value="none">{t('settings.notifyNone')}</option>
                 </select>
               </div>
+              {/* Nur im Browser: die App fragt das System selbst. */}
+              {!window.stellium && (
+                <div className="field">
+                  <label className="field__label">{t('settings.browserNotify')}</label>
+                  <p className="field__hint" style={{ marginBottom: 8 }}>{t('settings.browserNotifyHint')}</p>
+                  <div className="hstack gap-2">
+                    {erlaubnis === 'gefragt-werden' && (
+                      <button
+                        className="btn btn--primary"
+                        onClick={async () => setErlaubnis(await erlaubnisHolen())}
+                      >
+                        <Bell size={14} /> {t('settings.browserNotifyAsk')}
+                      </button>
+                    )}
+                    {erlaubnis === 'erlaubt' && (
+                      <>
+                        <span className="muted" style={{ fontSize: 13 }}>{t('settings.browserNotifyOn')}</span>
+                        <button
+                          className="btn"
+                          onClick={() => zeigen({
+                            titel: t('settings.browserNotifyTestTitle'),
+                            text: t('settings.browserNotifyTestBody'),
+                          })}
+                        >
+                          {t('settings.browserNotifyTest')}
+                        </button>
+                      </>
+                    )}
+                    {erlaubnis === 'abgelehnt' && (
+                      <span className="muted" style={{ fontSize: 13 }}>{t('settings.browserNotifyOff')}</span>
+                    )}
+                    {erlaubnis === 'geht-nicht' && (
+                      <span className="muted" style={{ fontSize: 13 }}>{t('settings.browserNotifyNone')}</span>
+                    )}
+                  </div>
+                </div>
+              )}
+
               <div className="field">
                 <label className="field__label">{t('settings.sound')}</label>
                 <select

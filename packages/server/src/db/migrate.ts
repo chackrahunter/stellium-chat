@@ -20,6 +20,8 @@ const COLUMNS: { table: string; column: string; definition: string }[] = [
   { table: 'users', column: 'deleted_at',           definition: 'INTEGER' },
   // Prüfsumme des Inhalts: damit muss dieselbe Datei nur einmal übertragen werden.
   { table: 'attachments', column: 'sha256',        definition: 'TEXT' },
+  // Schublade in der Verwaltung; leer heißt "von selbst einsortieren".
+  { table: 'users', column: 'kategorie',            definition: 'TEXT' },
   { table: 'users', column: 'ui_language',          definition: "TEXT" },
   { table: 'users',    column: 'status_expires_at',  definition: 'INTEGER' },
   { table: 'users',    column: 'notification_sound', definition: "TEXT NOT NULL DEFAULT 'ping'" },

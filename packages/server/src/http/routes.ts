@@ -7,6 +7,7 @@ import { normalizeLang, LANGUAGES } from '@stellium/shared';
 import { signToken, verifyPassword, verifyToken } from '../auth.js';
 import * as users from '../services/users.js';
 import { may } from '../services/users.js';
+import { KONTO_KATEGORIEN } from '@stellium/shared';
 import { PERMISSIONS, type MemberRole, type PermissionKey } from '@stellium/shared';
 import { config } from '../config.js';
 import { db } from '../db/index.js';
@@ -438,6 +439,27 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     } catch (err) {
       return reply.code(400).send({ error: (err as Error).message });
     }
+  });
+
+  /** Ein Konto in eine andere Schublade legen. */
+  app.post('/api/admin/users/:id/kategorie', async (req, reply) => {
+    const userId = requireUser(req);
+    if (!may(userId, 'user.manage')) {
+      return reply.code(403).send({ error: 'Dafür fehlt dir das Recht.' });
+    }
+    const { id } = req.params as { id: string };
+    const body = req.body as { kategorie?: string | null };
+    const wert = body.kategorie ? String(body.kategorie) : null;
+    if (wert && !KONTO_KATEGORIEN.includes(wert as never)) {
+      return reply.code(400).send({ error: `Unbekannte Kategorie "${wert}".` });
+    }
+    // Gelöschte bleiben gelöscht — dafür gibt es keine andere Schublade.
+    const ziel = store.listManagedUsers().find((u) => u.id === id);
+    if (!ziel) return reply.code(404).send({ error: 'Konto nicht gefunden.' });
+    if (ziel.deletedAt) return reply.code(400).send({ error: 'Gelöschte Konten lassen sich nicht einsortieren.' });
+
+    db.run('UPDATE users SET kategorie = ? WHERE id = ?', wert, id);
+    return { users: store.listManagedUsers() };
   });
 
   app.post('/api/admin/users/:id/disabled', async (req, reply) => {

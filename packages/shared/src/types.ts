@@ -53,6 +53,20 @@ export interface SelfUser extends User {
 }
 
 /** Was die Verwaltung über ein Konto sieht. */
+/**
+ * Schubladen in der Kontenverwaltung.
+ *
+ * Bei acht Konten hilft eine Liste, bei achtzig nicht mehr. Die Einordnung
+ * geschieht von selbst — neue Konten landen unter "neu", Bots unter
+ * "technisch", gelöschte unter "geloescht" — und lässt sich jederzeit von Hand
+ * ändern. Nur "geloescht" ist nicht verhandelbar: was gelöscht ist, gehört
+ * nirgendwo anders hin.
+ */
+export const KONTO_KATEGORIEN = [
+  'neu', 'mitglieder', 'leitung', 'technisch', 'extern', 'geloescht',
+] as const;
+export type KontoKategorie = (typeof KONTO_KATEGORIEN)[number];
+
 export interface ManagedUser {
   id: string;
   handle: string;
@@ -63,6 +77,8 @@ export interface ManagedUser {
   disabled: boolean;
   /** Gelöscht heißt: anonymisiert, damit Nachrichten lesbar bleiben. */
   deletedAt: number | null;
+  /** Schublade in der Verwaltung. Leer heißt: von selbst einsortieren. */
+  kategorie: KontoKategorie | null;
   mustChangePassword: boolean;
   lastSeenAt: number | null;
   createdAt: number;

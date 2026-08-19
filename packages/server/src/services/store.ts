@@ -71,6 +71,7 @@ export function listManagedUsers(): ManagedUser[] {
     role: r.role,
     disabled: Boolean(r.disabled),
     deletedAt: r.deleted_at ?? null,
+    kategorie: r.kategorie ?? null,
     mustChangePassword: Boolean(r.must_change_password),
     lastSeenAt: r.last_seen_at ?? null,
     createdAt: r.created_at,

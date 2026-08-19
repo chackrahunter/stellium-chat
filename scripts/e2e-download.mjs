@@ -32,12 +32,16 @@ const DB = process.env.STELLIUM_DB ?? 'data/stellium.db';
       const name = suche(muster);
       if (!name) continue;
       const voll = pfad.resolve(ordner, name);
+      // Echte Prüfsumme: die Update-Prüfung verlässt sich darauf.
+      const krypto = await import('node:crypto');
+      const summe = krypto.createHash('sha256').update(fs.readFileSync(voll)).digest('hex');
       d.prepare(`INSERT INTO releases (platform, version, notes, file_name, path, size, sha256, published_by, published_at)
                  VALUES (?,?,?,?,?,?,?,?,?)
                  ON CONFLICT(platform) DO UPDATE SET version = excluded.version, path = excluded.path,
-                   file_name = excluded.file_name, size = excluded.size, published_at = excluded.published_at`)
+                   file_name = excluded.file_name, size = excluded.size, sha256 = excluded.sha256,
+                   published_at = excluded.published_at`)
         .run(plattform, version, 'Erste Zeile der Änderungsliste\nZweite Zeile', name, voll,
-             fs.statSync(voll).size, 'x'.repeat(64), wer, Date.now());
+             fs.statSync(voll).size, summe, wer, Date.now());
     }
     console.log('  (Fassungen für die Prüfung eingetragen)');
   }

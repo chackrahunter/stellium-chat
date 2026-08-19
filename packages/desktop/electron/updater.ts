@@ -139,8 +139,13 @@ async function laden(update: Fern): Promise<void> {
     return;
   }
 
-  const ordner = path.join(os.tmpdir(), 'stellium-updates');
-  fs.mkdirSync(ordner, { recursive: true });
+  /* Nicht in den gemeinsamen Zwischenspeicher: unter Linux ist /tmp für alle
+     Konten beschreibbar. Zwischen dem Prüfen der Prüfsumme und dem Ausführen
+     könnte dort jemand die Datei austauschen. Das eigene Verzeichnis der App
+     gehört dem angemeldeten Konto allein. */
+  const ordner = path.join(app.getPath('userData'), 'updates');
+  fs.mkdirSync(ordner, { recursive: true, mode: 0o700 });
+  try { fs.chmodSync(ordner, 0o700); } catch { /* auf Windows ohne Belang */ }
   altesAufraeumen(ordner, update.version);
 
   const ziel = path.join(ordner, `${update.version}-${update.fileName}`);
@@ -323,20 +328,63 @@ async function installiereMac(datei: string): Promise<void> {
 
   // Nach dem Beenden: austauschen, aushängen, neu starten. Das Skript läuft
   // ohne Elternprozess weiter, deshalb überlebt es unser Ende.
-  const skript = path.join(os.tmpdir(), `stellium-update-${Date.now()}.sh`);
+  const skript = path.join(app.getPath('userData'), `update-${Date.now()}.sh`);
+
+  /* Erst kopieren, dann tauschen — nicht andersherum.
+     Vorher wurde die alte App gelöscht und danach die neue kopiert. Ging beim
+     Kopieren etwas schief (Platte voll, Abbild ausgehängt, Rechte), war
+     überhaupt keine App mehr da: aus einem fehlgeschlagenen Update wurde eine
+     verschwundene Anwendung. Jetzt liegt die neue vollständig daneben, bevor
+     die alte weicht — und wenn etwas klemmt, kommt die alte zurück. */
   fs.writeFileSync(skript, `#!/bin/bash
 # Von Stellium erzeugt. Tauscht die App aus, während sie beendet ist.
+set -u
+ZIEL=${JSON.stringify(ziel)}
+NEU=${JSON.stringify(neu)}
+ABBILD=${JSON.stringify(einhaengepunkt)}
+FRISCH="$ZIEL.neu"
+ALT="$ZIEL.alt"
+
+aufraeumen() {
+  rm -rf "$FRISCH"
+  hdiutil detach "$ABBILD" -force >/dev/null 2>&1
+  rm -f "$0"
+}
+
 for i in $(seq 1 40); do
   pgrep -x Stellium >/dev/null || break
   sleep 0.25
 done
-rm -rf ${JSON.stringify(ziel)}
-cp -R ${JSON.stringify(neu)} ${JSON.stringify(ziel)}
-xattr -dr com.apple.quarantine ${JSON.stringify(ziel)} 2>/dev/null
-hdiutil detach ${JSON.stringify(einhaengepunkt)} -force >/dev/null 2>&1
-open ${JSON.stringify(ziel)}
+
+rm -rf "$FRISCH" "$ALT"
+if ! cp -R "$NEU" "$FRISCH"; then
+  # Nichts angefasst — die alte App läuft weiter.
+  aufraeumen
+  open "$ZIEL"
+  exit 1
+fi
+
+xattr -dr com.apple.quarantine "$FRISCH" 2>/dev/null
+
+if ! mv "$ZIEL" "$ALT"; then
+  aufraeumen
+  open "$ZIEL"
+  exit 1
+fi
+
+if ! mv "$FRISCH" "$ZIEL"; then
+  # Umbenennen ging schief: den alten Stand zurückholen.
+  mv "$ALT" "$ZIEL" 2>/dev/null
+  aufraeumen
+  open "$ZIEL"
+  exit 1
+fi
+
+rm -rf "$ALT"
+hdiutil detach "$ABBILD" -force >/dev/null 2>&1
+open "$ZIEL"
 rm -f "$0"
-`, { mode: 0o755 });
+`, { mode: 0o700 });
 
   spawn('/bin/bash', [skript], { detached: true, stdio: 'ignore' }).unref();
 }
