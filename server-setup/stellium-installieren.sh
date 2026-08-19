@@ -828,6 +828,9 @@ install -o "$BENUTZER" -g "$BENUTZER" -m 755 -d /usr/local/lib/stellium
 cp "$ZIEL/server-setup/stellium-konsole.mjs" /usr/local/lib/stellium/konsole.mjs
 chmod 755 /usr/local/lib/stellium/konsole.mjs
 
+install -m 755 "$ZIEL/server-setup/stellium-zugang.sh" /usr/local/bin/stellium-zugang
+ok "stellium-zugang eingerichtet — öffnet die Ports ohne Router-Zugang"
+
 cat > /usr/local/bin/stellium <<KONSOLE
 #!/usr/bin/env bash
 # Statuskonsole. Ohne Argument läuft sie fortlaufend, mit "einmal" nur einmal.
@@ -934,13 +937,18 @@ ${GRUEN}${FETT}   ✓  Fertig.${AUS}
 ENDE
 
 if [[ "$WAHL" != "3" && "$VON_AUSSEN_DA" == "0" ]]; then
-  OEFFENTLICH="$(curl -fsS --max-time 8 https://api.ipify.org 2>/dev/null || echo '?')"
-  cat <<OFFEN
-   ${GELB}${FETT}Noch ein Schritt: von außen kommt bisher nichts an.${AUS}
+  # Erst selbst versuchen, den Router zu überreden — dafür braucht es keinen
+  # Zugang zu seiner Oberfläche, sofern UPnP dort nicht abgeschaltet ist.
+  schritt "Von außen erreichbar machen"
+  if /usr/local/bin/stellium-zugang; then
+    VON_AUSSEN_DA=1
+  else
+    cat <<OFFEN
 
-   Das Zertifikat steht, aber der Router lässt niemanden zu diesem Pi
-   durch. Damit euer Team die Adresse erreicht, muss ${FETT}ein${AUS} Port
-   weitergereicht werden:
+   ${GELB}${FETT}Von außen kommt noch nichts an.${AUS}
+
+   Das Zertifikat steht und im Heimnetz läuft alles. Es fehlt nur der
+   Weg durch den Router — ${FETT}ein${AUS} Port genügt:
 
        Port ${FETT}${PORT_HTTPS}${AUS}  →  ${FETT}$(lokale_ip)${AUS}   Port ${PORT_HTTPS}   (TCP)
 
@@ -948,10 +956,14 @@ if [[ "$WAHL" != "3" && "$VON_AUSSEN_DA" == "0" ]]; then
    Gerät für Freigaben hinzufügen. Sonst heißt es meist
    "Portweiterleitung" oder "Port Forwarding".
 
-   ${GRAU}Euer Anschluss ist von außen ${OEFFENTLICH}.
+   ${GRAU}Kommst du an den Router nicht heran, versuch es später noch
+   einmal mit  sudo stellium-zugang  — oder frag nach einem Tunnel,
+   dann baut der Pi die Verbindung selbst nach außen auf.
+
    Im Heimnetz funktioniert Stellium schon jetzt über ${LOKAL}.${AUS}
 
 OFFEN
+  fi
 fi
 
 if [[ -n "$EINMAL" ]]; then

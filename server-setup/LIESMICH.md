@@ -115,6 +115,24 @@ sudo STELLIUM_MODE=1 STELLIUM_DOMAIN=chat.meinefirma.de \
 
 Für DuckDNS: `STELLIUM_MODE=2 STELLIUM_DUCK=meinefirma:dein-token`.
 
+## Kein Zugang zum Router?
+
+```bash
+sudo stellium-zugang
+```
+
+Das versucht, die Freigabe beim Router selbst zu erwirken — über UPnP, sonst
+NAT-PMP. Viele Router haben das ab Werk an; dann klappt es ohne Anmeldung an
+der Oberfläche. Gelingt es, wird die Freigabe stündlich erneuert, weil solche
+Regeln ablaufen.
+
+Vorher prüft es noch etwas Wichtigeres: ob euer Anschluss überhaupt eine eigene
+öffentliche Adresse hat. Teilt sich der Provider eine Adresse unter vielen
+Kunden (CGNAT oder DS-Lite), hilft auch die schönste Portfreigabe nichts — die
+Anfragen kommen gar nicht erst bei euch an. Dann sagt es das klar und nennt die
+beiden Auswege: eine öffentliche IPv4 beim Provider beantragen, oder einen
+Tunnel benutzen, bei dem der Pi die Verbindung nach außen aufbaut.
+
 ## Nichts doppelt eintippen
 
 Alle Antworten landen in `/etc/stellium-einrichtung.conf` (nur für root
