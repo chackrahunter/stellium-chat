@@ -58,13 +58,19 @@ export function toSelf(r: any): SelfUser {
 
 /** Kontenliste für die Verwaltung — E-Mails nur angedeutet. */
 export function listManagedUsers(): ManagedUser[] {
-  return db.all('SELECT * FROM users ORDER BY disabled, display_name COLLATE NOCASE').map((r: any) => ({
+  /* Gelöschte ans Ende: sie bleiben nur bestehen, damit ihre Nachrichten
+     einen Urheber behalten — vorn stehen die, um die es geht. */
+  return db.all(
+    `SELECT * FROM users
+     ORDER BY CASE WHEN deleted_at IS NULL THEN 0 ELSE 1 END, disabled, display_name COLLATE NOCASE`,
+  ).map((r: any) => ({
     id: r.id,
     handle: decryptField(r.handle),
     displayName: r.display_name,
     emailMasked: r.email ? maskEmail(decryptField(r.email)) : '—',
     role: r.role,
     disabled: Boolean(r.disabled),
+    deletedAt: r.deleted_at ?? null,
     mustChangePassword: Boolean(r.must_change_password),
     lastSeenAt: r.last_seen_at ?? null,
     createdAt: r.created_at,

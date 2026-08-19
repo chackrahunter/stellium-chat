@@ -235,7 +235,7 @@ export const MessageItem = memo(function MessageItem({ message, grouped, inThrea
         {message.kind === 'voice' && hasTranslation && (
           <button className="translated__meta" onClick={() => toggleOriginal(message.id)}>
             <Languages size={11} className="spark" />
-            {showOriginal ? 'Übersetzung anzeigen' : `Original · ${languageInfo(message.sourceLang).native}`}
+            {showOriginal ? t('msg.showTranslationTitle') : `Original · ${languageInfo(message.sourceLang).native}`}
           </button>
         )}
 

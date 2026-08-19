@@ -61,6 +61,8 @@ export interface ManagedUser {
   emailMasked: string;
   role: MemberRole;
   disabled: boolean;
+  /** Gelöscht heißt: anonymisiert, damit Nachrichten lesbar bleiben. */
+  deletedAt: number | null;
   mustChangePassword: boolean;
   lastSeenAt: number | null;
   createdAt: number;

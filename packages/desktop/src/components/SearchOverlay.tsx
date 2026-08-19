@@ -77,7 +77,7 @@ export function SearchOverlay({ onClose }: { onClose: () => void }) {
                 onClick={() => setScopeChannel((v) => !v)}
               >
                 <Filter size={12} />
-                {scopeChannel ? `Nur #${channels[activeChannelId ?? '']?.name ?? 'aktueller Kanal'}` : 'Alle Kanäle'}
+                {scopeChannel ? `Nur #${channels[activeChannelId ?? '']?.name ?? t('search.currentChannel')}` : t('search.allChannels')}
               </button>
               <span className="muted" style={{ fontSize: 12, alignSelf: 'center' }}>
                 {query.length >= 2 && `${hits.length} Treffer`}

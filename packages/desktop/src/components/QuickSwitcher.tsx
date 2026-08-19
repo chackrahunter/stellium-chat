@@ -33,7 +33,7 @@ export function QuickSwitcher({ onClose }: { onClose: () => void }) {
       if (c.kind === 'dm') continue;
       out.push({
         id: c.id, kind: 'channel', title: `#${kanalName(c)}`,
-        sub: c.topic ?? (c.kind === 'private' ? 'Privater Kanal' : 'Öffentlicher Kanal'),
+        sub: c.topic ?? (c.kind === 'private' ? t('channel.privateOne') : t('channel.publicOne')),
         icon: c.kind === 'private' ? <Lock size={16} className="muted" /> : <Hash size={16} className="muted" />,
         run: () => { store.openChannel(c.id); onClose(); },
       });

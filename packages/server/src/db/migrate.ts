@@ -17,6 +17,7 @@ const COLUMNS: { table: string; column: string; definition: string }[] = [
   { table: 'users', column: 'disabled',             definition: 'INTEGER NOT NULL DEFAULT 0' },
   { table: 'users', column: 'created_by',           definition: 'TEXT' },
   { table: 'users', column: 'password_set_at',      definition: 'INTEGER' },
+  { table: 'users', column: 'deleted_at',           definition: 'INTEGER' },
   { table: 'users', column: 'ui_language',          definition: "TEXT" },
   { table: 'users',    column: 'status_expires_at',  definition: 'INTEGER' },
   { table: 'users',    column: 'notification_sound', definition: "TEXT NOT NULL DEFAULT 'ping'" },
@@ -49,6 +50,29 @@ export function migrate(): void {
   rebuildUsersTable();
   encryptExistingUsers();
   bestehendeTexteVerschluesseln();
+  geloeschteNachtragen();
+}
+
+/**
+ * Konten, die vor dieser Fassung gelöscht wurden, tragen kein Datum.
+ *
+ * Erkennbar sind sie am Platzhalternamen: nur so kamen sie zustande. Ohne
+ * diesen Nachtrag stünden sie weiter wie gewöhnliche Konten in der Verwaltung —
+ * und genau das sah aus, als hätte das Löschen nicht gewirkt.
+ */
+function geloeschteNachtragen(): void {
+  const spalten = db.all<{ name: string }>('PRAGMA table_info(users)');
+  if (!spalten.some((c) => c.name === 'deleted_at')) return;
+
+  const offen = db.all<{ id: string }>(
+    "SELECT id FROM users WHERE deleted_at IS NULL AND display_name = 'Ehemaliges Mitglied'",
+  );
+  if (!offen.length) return;
+  const jetzt = Date.now();
+  db.transaction(() => {
+    for (const u of offen) db.run('UPDATE users SET deleted_at = ? WHERE id = ?', jetzt, u.id);
+  });
+  console.log(`[db] ${offen.length} bereits gelöschte Konten als solche gekennzeichnet.`);
 }
 
 /**

@@ -37,7 +37,7 @@ export function Settings({ onClose }: { onClose: () => void }) {
           <Avatar user={self} size={36} showPresence />
           <div>
             <h2>{self.displayName}</h2>
-            <div className="muted" style={{ fontSize: 12.5 }}>@{self.handle} · {self.title ?? 'Team Stellium'}</div>
+            <div className="muted" style={{ fontSize: 12.5 }}>@{self.handle} · {self.title ?? t('settings.defaultTitle')}</div>
           </div>
           <button className="icon-btn" style={{ marginLeft: 'auto' }} onClick={onClose}><X size={17} /></button>
         </div>
@@ -103,8 +103,8 @@ export function Settings({ onClose }: { onClose: () => void }) {
                 <label className="field__label">{t('settings.translationSpeed')}</label>
                 <div className="hstack gap-2">
                   {([
-                    ['fast', t('settings.speedFast'), 'Kleines Modell, Antwort in Sekundenbruchteilen'],
-                    ['balanced', t('settings.speedBalanced'), 'Kurzes schnell, Längeres gründlich'],
+                    ['fast', t('settings.speedFast'), t('settings.speedFastHint')],
+                    ['balanced', t('settings.speedBalanced'), t('settings.speedBalancedHint')],
                     ['accurate', t('settings.speedAccurate'), t('settings.alwaysBig')],
                   ] as const).map(([value, label, hint]) => (
                     <button
@@ -141,9 +141,9 @@ export function Settings({ onClose }: { onClose: () => void }) {
                 {ai?.modelSource && (
                   <p className="muted" style={{ fontSize: 12, margin: '8px 0 0' }}>
                     {ai.modelSource === 'auto'
-                      ? `Automatisch gewählt aus ${ai.modelsAvailable ?? '?'} Modellen, die ${ai.provider} gerade anbietet. Der Server sieht alle sechs Stunden nach, ob es etwas Besseres gibt.`
+                      ? t('settings.modelAutoHint', { n: ai.modelsAvailable ?? '?', anbieter: ai.provider })
                       : ai.modelSource === 'pinned'
-                        ? 'Fest in der .env eingetragen. Lösche GROQ_MODEL, damit der Server wieder selbst wählt.'
+                        ? t('settings.modelPinnedHint')
                         : t('settings.modelFallback')}
                   </p>
                 )}
@@ -542,7 +542,7 @@ function ModelPicker() {
           )}
         </div>
         <p className="muted" style={{ fontSize: 12, margin: '8px 0 0' }}>
-          {ai.modelSource === 'manual' ? 'Von Hand gewählt.'
+          {ai.modelSource === 'manual' ? t('settings.modelManual')
             : ai.modelSource === 'pinned' ? t('settings.fixedInEnv')
             : ai.modelSource === 'auto' ? `Automatisch aus ${ai.modelsAvailable ?? '?'} Modellen gewählt.`
             : 'Standardwerte.'}
@@ -589,7 +589,7 @@ function ModelPicker() {
 
       {usable.length > 0 && (
         <div style={{ marginTop: 'var(--sp-5)' }}>
-          <div className="ai-section__title">Verfügbar bei {ai.provider} ({usable.length})</div>
+          <div className="ai-section__title">{t('settings.modelAvailable', { anbieter: ai.provider, n: usable.length })}</div>
           {usable.map((m) => (
             <div key={m.id} className="row">
               <div className="row__main">
@@ -608,7 +608,7 @@ function ModelPicker() {
 
       {rejected.length > 0 && (
         <div style={{ marginTop: 'var(--sp-4)' }}>
-          <div className="ai-section__title">Nicht für Chat geeignet ({rejected.length})</div>
+          <div className="ai-section__title">{t('settings.modelUnsuited', { n: rejected.length })}</div>
           <div className="muted" style={{ fontSize: 12.5, lineHeight: 1.8 }}>
             {rejected.map((m) => (
               <div key={m.id}>

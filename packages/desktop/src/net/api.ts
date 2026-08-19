@@ -4,6 +4,18 @@ import type {
   ReleaseInfo, ReleasePlatform, SearchHit, SelfUser, StoredFile, StorageUsage,
 } from '@stellium/shared';
 
+import { spracheDesSystems, translate, type TranslationKey } from '../i18n/kern.js';
+
+/**
+ * Meldungen dieser Ebene in der Sprache des Rechners.
+ *
+ * Bewusst ohne den Zustand: der lädt diese Datei, und ein Ringschluss wäre
+ * die Folge. Für Verbindungsfehler ist die Systemsprache nah genug dran.
+ */
+function txt(key: TranslationKey, werte?: Record<string, string | number>): string {
+  return translate(spracheDesSystems(), key, werte);
+}
+
 const STORAGE_SERVER = 'stellium.serverUrl';
 const STORAGE_TOKEN = 'stellium.token';
 
@@ -73,11 +85,11 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   try {
     res = await fetch(`${serverUrl()}${path}`, { ...init, headers });
   } catch {
-    throw new ApiError('Server nicht erreichbar. Läuft er unter ' + serverUrl() + '?', 0);
+    throw new ApiError(txt('api.serverUnreachable', { adresse: serverUrl() }), 0);
   }
 
   if (!res.ok) {
-    let message = `Fehler ${res.status}`;
+    let message = txt('api.error', { status: res.status });
     try { message = ((await res.json()) as { error?: string }).error ?? message; } catch { /* kein JSON */ }
     throw new ApiError(message, res.status);
   }
@@ -266,10 +278,10 @@ export const api = {
           if (xhr.status >= 200 && xhr.status < 300) resolve(data);
           else reject(new ApiError(data.error ?? `Upload fehlgeschlagen (${xhr.status})`, xhr.status));
         } catch {
-          reject(new ApiError('Ungültige Serverantwort beim Upload', xhr.status));
+          reject(new ApiError(txt('api.badResponse'), xhr.status));
         }
       };
-      xhr.onerror = () => reject(new ApiError('Upload fehlgeschlagen — keine Verbindung', 0));
+      xhr.onerror = () => reject(new ApiError(txt('api.uploadNoConnection'), 0));
       xhr.send(form);
     });
   },
@@ -291,10 +303,10 @@ export const api = {
           if (xhr.status >= 200 && xhr.status < 300) resolve(data);
           else reject(new ApiError(data.error ?? `Upload fehlgeschlagen (${xhr.status})`, xhr.status));
         } catch {
-          reject(new ApiError('Ungültige Serverantwort beim Upload', xhr.status));
+          reject(new ApiError(txt('api.badResponse'), xhr.status));
         }
       };
-      xhr.onerror = () => reject(new ApiError('Upload fehlgeschlagen — keine Verbindung', 0));
+      xhr.onerror = () => reject(new ApiError(txt('api.uploadNoConnection'), 0));
       xhr.send(form);
     }),
 
@@ -312,10 +324,10 @@ export const api = {
           if (xhr.status >= 200 && xhr.status < 300) resolve(data);
           else reject(new ApiError(data.error ?? `Upload fehlgeschlagen (${xhr.status})`, xhr.status));
         } catch {
-          reject(new ApiError('Ungültige Serverantwort beim Upload', xhr.status));
+          reject(new ApiError(txt('api.badResponse'), xhr.status));
         }
       };
-      xhr.onerror = () => reject(new ApiError('Upload fehlgeschlagen — keine Verbindung', 0));
+      xhr.onerror = () => reject(new ApiError(txt('api.uploadNoConnection'), 0));
       xhr.send(form);
     }),
 };

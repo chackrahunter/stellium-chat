@@ -16,8 +16,11 @@ const DB = process.env.STELLIUM_DB ?? 'data/stellium.db';
   const fs = await import('node:fs');
   const pfad = await import('node:path');
   const d = new DatabaseSync(DB);
-  const da = d.prepare("SELECT COUNT(*) AS n FROM releases WHERE platform <> 'server'").get().n;
-  if (!da) {
+  /* Auch neu eintragen, wenn die hinterlegten Pfade ins Leere zeigen —
+     alte Pakete werden beim Aufräumen gelöscht. */
+  const eintraege = d.prepare("SELECT path FROM releases WHERE platform <> 'server'").all();
+  const brauchbar = eintraege.length > 0 && eintraege.every((r) => fs.existsSync(r.path));
+  if (!brauchbar) {
     const ordner = 'packages/desktop/release';
     const version = JSON.parse(fs.readFileSync('packages/desktop/package.json', 'utf8')).version;
     const wer = d.prepare('SELECT id FROM users LIMIT 1').get().id;

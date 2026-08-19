@@ -263,7 +263,7 @@ function awaitReply<T>(requestId: string, timeoutMs = 45_000): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const timer = window.setTimeout(() => {
       pending.delete(requestId);
-      reject(new Error('Die KI hat nicht rechtzeitig geantwortet.'));
+      reject(new Error(ts('toast.aiTimeout')));
     }, timeoutMs);
     pending.set(requestId, { resolve, reject, timer });
   });
@@ -509,7 +509,7 @@ export const useStore = create<StoreState>((set, get) => ({
   pin: (messageId, pinned) => socket.send({ t: 'message:pin', messageId, pinned }) as unknown as void,
   save: (messageId, saved) => {
     socket.send({ t: 'message:save', messageId, saved });
-    get().toast({ kind: 'ok', title: saved ? 'Gemerkt' : 'Aus den gemerkten entfernt' });
+    get().toast({ kind: 'ok', title: saved ? 'Gemerkt' : ts('toast.unsaved') });
   },
 
   schedule: ({ channelId, text, sendAt, parentId }) => {
@@ -838,7 +838,7 @@ export const useStore = create<StoreState>((set, get) => ({
       set({ ai });
       get().toast({
         kind: 'ok',
-        title: input.auto ? 'Zurück auf automatische Wahl' : 'Modell übernommen',
+        title: input.auto ? ts('toast.modelAuto') : ts('toast.modelTaken'),
         body: ai.model ?? undefined,
       });
     } catch (err) {
@@ -1124,7 +1124,7 @@ socket.onEvent((ev: ServerEvent) => {
       store.toast({
         kind: 'info',
         title: ev.reminder.note || 'Erinnerung',
-        body: preview ? preview.slice(0, 140) : `in ${channel?.name ? `#${channel.name}` : 'einem Kanal'}`,
+        body: preview ? preview.slice(0, 140) : `in ${channel?.name ? `#${channel.name}` : ts('toast.aChannel')}`,
       });
       void window.stellium?.notify({
         title: ev.reminder.note || 'Stellium — Erinnerung',
@@ -1307,7 +1307,7 @@ function notifyIfNeeded(msg: Message): void {
   if (focused) return;
 
   const author = s.users[msg.userId];
-  const title = isDm ? (author?.displayName ?? 'Neue Nachricht') : `#${channel?.name ?? 'Kanal'}`;
+  const title = isDm ? (author?.displayName ?? ts('toast.newMessage')) : `#${channel?.name ?? 'Kanal'}`;
   const prefix = isDm ? '' : `${author?.displayName ?? ''}: `;
   // Übersetzung bevorzugen, damit die Vorschau in der eigenen Sprache steht.
   const body = `${prefix}${msg.translation?.text ?? msg.text}`.slice(0, 180);

@@ -15,19 +15,21 @@ import { t } from '../i18n/index.js';
 import { relativeTime } from '../lib/format.js';
 
 const ROLLEN: { wert: MemberRole; label: string; hinweis: string }[] = [
-  { wert: 'owner',  label: 'Owner',    hinweis: 'Darf alles, kann nicht eingeschränkt werden' },
-  { wert: 'admin',  label: 'Admin',    hinweis: 'Verwaltet Konten und Kanäle' },
+  { wert: 'owner',  label: 'Owner',    hinweis: t('role.ownerHint') },
+  { wert: 'admin',  label: 'Admin',    hinweis: t('role.adminHint') },
   { wert: 'member', label: 'Mitglied', hinweis: 'Normale Nutzung' },
-  { wert: 'guest',  label: 'Gast',     hinweis: 'Nur lesen und antworten' },
+  { wert: 'guest',  label: 'Gast',     hinweis: t('role.guestHint') },
 ];
 
-const GRUPPEN: { id: string; titel: string }[] = [
-  { id: 'nachrichten', titel: 'Nachrichten' },
-  { id: 'kanaele', titel: 'Kanäle' },
-  { id: 'inhalte', titel: 'Inhalte' },
-  { id: 'ki', titel: 'KI und Übersetzung' },
-  { id: 'verwaltung', titel: 'Verwaltung' },
-];
+/* Nur die Kennungen — die Überschriften kommen aus dem Wörterbuch. */
+const GRUPPEN = ['nachrichten', 'kanaele', 'inhalte', 'ki', 'verwaltung'] as const;
+const GRUPPEN_SCHLUESSEL: Record<(typeof GRUPPEN)[number], string> = {
+  nachrichten: 'perm.groupMessages',
+  kanaele: 'perm.groupChannels',
+  inhalte: 'perm.groupContent',
+  ki: 'perm.groupAi',
+  verwaltung: 'perm.groupAdmin',
+};
 
 export function TeamAdmin({ onClose }: { onClose: () => void }) {
   const self = useStore((s) => s.self);
@@ -38,6 +40,7 @@ export function TeamAdmin({ onClose }: { onClose: () => void }) {
   const [anlegen, setAnlegen] = useState(false);
   const [zugang, setZugang] = useState<OneTimeCredential | null>(null);
   const [busy, setBusy] = useState(false);
+  const [zeigeGeloeschte, setZeigeGeloeschte] = useState(false);
 
   const darfVerwalten = self?.permissions['user.manage'];
   const darfAnlegen = self?.permissions['user.invite'];
@@ -69,12 +72,19 @@ export function TeamAdmin({ onClose }: { onClose: () => void }) {
       .finally(() => setLaden(false));
   }, []);
 
+  const geloeschte = liste.filter((u) => u.deletedAt);
+
+  /* Gelöschte Konten bleiben in der Datenbank, damit ihre Nachrichten einen
+     Urheber behalten. In der Liste haben sie nichts verloren: dort sahen sie
+     aus wie gewöhnliche Konten, und das Löschen wirkte, als hätte es nicht
+     funktioniert. */
   const gefiltert = useMemo(() => {
     const q = suche.trim().toLowerCase();
-    if (!q) return liste;
-    return liste.filter((u) =>
+    const sichtbar = zeigeGeloeschte ? liste : liste.filter((u) => !u.deletedAt);
+    if (!q) return sichtbar;
+    return sichtbar.filter((u) =>
       u.displayName.toLowerCase().includes(q) || u.handle.toLowerCase().includes(q));
-  }, [liste, suche]);
+  }, [liste, suche, zeigeGeloeschte]);
 
   const person = liste.find((u) => u.id === gewaehlt) ?? null;
 
@@ -106,7 +116,7 @@ export function TeamAdmin({ onClose }: { onClose: () => void }) {
         <div className="panel__head">
           <ShieldCheck size={18} />
           <h2>{t('team.title')}</h2>
-          <span className="muted" style={{ fontSize: 12.5 }}>{t('team.accounts', { n: liste.length })}</span>
+          <span className="muted" style={{ fontSize: 12.5 }}>{t('team.accounts', { n: liste.length - geloeschte.length })}</span>
           {darfAnlegen && (
             <button className="pill pill--accent" style={{ marginLeft: 'auto' }} onClick={() => setAnlegen(true)}>
               <UserPlus size={13} /> {t('team.createAccount')}
@@ -126,6 +136,18 @@ export function TeamAdmin({ onClose }: { onClose: () => void }) {
             </div>
 
             {laden && <div className="hstack gap-2 muted"><Loader2 size={14} className="spin" /> {t('team.loading')}</div>}
+
+            {geloeschte.length > 0 && (
+              <button
+                className="btn btn--ghost"
+                style={{ width: '100%', justifyContent: 'flex-start', fontSize: 12, padding: '5px 8px' }}
+                onClick={() => setZeigeGeloeschte((v) => !v)}
+              >
+                {zeigeGeloeschte
+                  ? t('team.hideDeleted')
+                  : t('team.showDeleted', { n: geloeschte.length })}
+              </button>
+            )}
 
             {gefiltert.map((u) => (
               <button
@@ -196,32 +218,41 @@ export function TeamAdmin({ onClose }: { onClose: () => void }) {
                       const r = await mit(() => api.resetUserPassword(person.id));
                       if (r) setZugang(r.credential);
                     }}>
-                      <KeyRound size={15} /> Passwort zurücksetzen
+                      <KeyRound size={15} /> {t('team.resetPassword')}
                     </button>
                   )}
-                  {darfVerwalten && person.role !== 'owner' && (
+                  {person.deletedAt && (
+                    <p className="hinweis" style={{ margin: 0, width: '100%' }}>
+                      <AlertTriangle size={14} />
+                      {t('team.deletedNote')}
+                    </p>
+                  )}
+                  {!person.deletedAt && darfVerwalten && person.role !== 'owner' && (
                     <button className="btn" disabled={busy}
                       onClick={() => void mit(() => api.setUserDisabled(person.id, !person.disabled),
-                        person.disabled ? 'Entsperrt' : 'Gesperrt')}>
-                      <Ban size={15} /> {person.disabled ? 'Entsperren' : 'Sperren'}
+                        person.disabled ? t('team.unblocked') : t('team.blockedDone'))}>
+                      <Ban size={15} /> {person.disabled ? t('team.unblock') : t('team.block')}
                     </button>
                   )}
-                  {darfLoeschen && person.role !== 'owner' && person.id !== self?.id && (
+                  {!person.deletedAt && darfLoeschen && person.role !== 'owner' && person.id !== self?.id && (
                     <button className="btn btn--danger" disabled={busy} onClick={() => {
-                      if (!window.confirm(`${person.displayName} wirklich löschen? Nachrichten bleiben erhalten.`)) return;
-                      void mit(() => api.deleteUser(person.id), 'Konto gelöscht');
+                      if (!window.confirm(t('team.deleteConfirm', { name: person.displayName }))) return;
+                      void mit(() => api.deleteUser(person.id), t('team.deletedToast'));
                       setGewaehlt(null);
                     }}>
-                      <Trash2 size={15} /> Löschen
+                      <Trash2 size={15} /> {t('team.delete')}
                     </button>
                   )}
                 </div>
 
                 <div className="field">
                   <label className="field__label">
-                    Rechte
+                    {t('team.rights')}
                     <span className="muted" style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0, marginLeft: 8 }}>
-                      {Object.values(person.permissions).filter(Boolean).length} von {PERMISSIONS.length} erlaubt
+                      {t('team.rightsCount', {
+                        erlaubt: Object.values(person.permissions).filter(Boolean).length,
+                        gesamt: PERMISSIONS.length,
+                      })}
                     </span>
                   </label>
                   {person.role === 'owner' && (
@@ -230,11 +261,11 @@ export function TeamAdmin({ onClose }: { onClose: () => void }) {
                 </div>
 
                 {person.role !== 'owner' && GRUPPEN.map((g) => {
-                  const rechte = PERMISSIONS.filter((p) => p.group === g.id);
+                  const rechte = PERMISSIONS.filter((p) => p.group === g);
                   if (!rechte.length) return null;
                   return (
-                    <div key={g.id} style={{ marginBottom: 'var(--sp-4)' }}>
-                      <div className="ai-section__title">{g.titel}</div>
+                    <div key={g} style={{ marginBottom: 'var(--sp-4)' }}>
+                      <div className="ai-section__title">{t(GRUPPEN_SCHLUESSEL[g] as never)}</div>
                       {rechte.map((p) => {
                         const an = person.permissions[p.key];
                         const abweichend = person.overrides[p.key] !== undefined;
@@ -306,6 +337,7 @@ function KontoAnlegen({ onClose, onFertig }: {
   const [rolle, setRolle] = useState<MemberRole>('member');
   const [sprache, setSprache] = useState('de');
   const [busy, setBusy] = useState(false);
+  const [zeigeGeloeschte, setZeigeGeloeschte] = useState(false);
   const [fehler, setFehler] = useState<string | null>(null);
 
   const anlegen = async () => {

@@ -184,7 +184,7 @@ export function Composer({ channelId, parentId = null, placeholder, autoFocus }:
         }))
       : kanalMatches.map((c) => ({
           id: c.id, primaer: `#${c.name}`,
-          sekundaer: c.topic || (c.kind === 'private' ? 'Privater Kanal' : 'Öffentlicher Kanal'),
+          sekundaer: c.topic || (c.kind === 'private' ? t('channel.privateOne') : t('channel.publicOne')),
           einsetzen: `#${c.name}`,
         }));
 

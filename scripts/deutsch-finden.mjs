@@ -52,6 +52,26 @@ function pruefeDatei(pfad) {
       if (DEUTSCH.test(m[1])) funde.push(`'${m[1]}'`);
     }
 
+    /* Zeichenketten als Argument: mit(…, 'Gesperrt'), confirm('… wirklich …').
+       Diese Muster fehlten und haben ein gutes Dutzend Texte durchgelassen. */
+    for (const m of ohneKommentar.matchAll(/(?:^|[(,?:]\s*)'([^']{4,})'/g)) {
+      const text = m[1];
+      if (!DEUTSCH.test(text)) continue;
+      // Importpfade, Klassennamen und Schlüssel sind kein Oberflächentext.
+      if (/^[a-z0-9_.\/-]+$/i.test(text)) continue;
+      if (/^[a-z]+\.[a-zA-Z]/.test(text)) continue;
+      // CSS-Auswahl und Protokollnamen: enthalten keine Satzzeichen und
+      // stehen voller Bindestriche, Doppelpunkte oder eckiger Klammern.
+      if (/^[[.#]/.test(text) || /\[data-|^[a-z]+:[a-z-]+$/.test(text)) continue;
+      funde.push(`Argument: '${text}'`);
+    }
+
+    // JSX-Text, der mit einem Ausdruck in derselben Zeile steht.
+    for (const m of ohneKommentar.matchAll(/[>}]\s*([A-ZÄÖÜ][^<>{}='"]{6,})\s*[<{]/g)) {
+      const text = m[1].trim();
+      if (DEUTSCH.test(text)) funde.push(`Text: ${text}`);
+    }
+
     // Reiner JSX-Text zwischen den Zeichen > und <
     for (const m of ohneKommentar.matchAll(/>([^<>{}\n]{3,})</g)) {
       const text = m[1].trim();

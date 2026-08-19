@@ -12,7 +12,7 @@ import { relativeTime } from '../lib/format.js';
 const PLATTFORMEN: { id: ReleasePlatform; name: string; icon: React.ReactNode; hinweis: string }[] = [
   { id: 'darwin', name: 'macOS', icon: <Apple size={15} />, hinweis: '.dmg' },
   { id: 'win32', name: 'Windows', icon: <Monitor size={15} />, hinweis: '.exe' },
-  { id: 'linux', name: 'Linux', icon: <Terminal size={15} />, hinweis: '.AppImage oder .deb' },
+  { id: 'linux', name: 'Linux', icon: <Terminal size={15} />, hinweis: '.AppImage / .deb' },
   // Der Server gehört dazu: er wurde hochgeladen, tauchte hier aber nie auf.
   { id: 'server', name: 'Server', icon: <Server size={15} />, hinweis: '.tar.gz' },
 ];

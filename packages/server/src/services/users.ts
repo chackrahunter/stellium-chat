@@ -224,19 +224,23 @@ export function setDisabled(userId: string, disabled: boolean): void {
  * unverständlich. Der Name wird durch einen Platzhalter ersetzt.
  */
 export function deleteAccount(userId: string): void {
-  const ziel = db.get<{ role: string }>('SELECT role FROM users WHERE id = ?', userId);
+  const ziel = db.get<{ role: string; deleted_at: number | null }>(
+    'SELECT role, deleted_at FROM users WHERE id = ?', userId,
+  );
   if (!ziel) throw new Error('Konto nicht gefunden');
   if (ziel.role === 'owner') throw new Error('Der Owner lässt sich nicht löschen. Erst die Rolle übergeben.');
+  if (ziel.deleted_at) throw new Error('Dieses Konto ist bereits gelöscht.');
 
   db.transaction(() => {
     db.run(
       `UPDATE users SET display_name = 'Ehemaliges Mitglied', handle = ?, handle_bidx = ?,
               email = '', email_bidx = NULL, avatar_url = NULL, status = 'offline',
               status_text = NULL, status_emoji = NULL, disabled = 1,
-              password_hash = ?, role = 'guest'
+              password_hash = ?, role = 'guest', deleted_at = ?
        WHERE id = ?`,
       encryptField(`geloescht.${userId.slice(-6)}`), blindIndex(`geloescht.${userId.slice(-6)}`),
       hashPassword(crypto.randomBytes(32).toString('hex')),
+      Date.now(),
       userId,
     );
     db.run('DELETE FROM user_permissions WHERE user_id = ?', userId);

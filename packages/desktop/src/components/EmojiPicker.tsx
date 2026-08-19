@@ -1,14 +1,15 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { useT } from '../i18n/index.js';
 import { motion } from 'framer-motion';
 import { Search, X } from 'lucide-react';
 
 const GROUPS: { name: string; emoji: string[] }[] = [
-  { name: 'Häufig', emoji: ['👍', '🎉', '❤️', '😂', '👀', '🚀', '✅', '🔥', '🙏', '💡', '👏', '🤝'] },
-  { name: 'Gesichter', emoji: ['😀','😄','😊','🙂','😉','😍','🤔','😅','😬','😴','🥳','😎','🤯','😭','😤','🤗','🙃','😇'] },
-  { name: 'Gesten', emoji: ['👍','👎','👌','✌️','🤞','🙌','👋','🤙','💪','🫶','🤌','✍️'] },
-  { name: 'Arbeit', emoji: ['💻','📱','📊','📈','📉','🗓️','📌','📎','✏️','🔧','⚙️','🧪','🐛','🚧','📦','🔍'] },
-  { name: 'Symbole', emoji: ['⭐','✨','💫','🌟','⚡','🔥','💧','🌈','🎯','🏆','🥇','💯','❗','❓','✔️','❌'] },
+  { name: 'emoji.frequent', emoji: ['👍', '🎉', '❤️', '😂', '👀', '🚀', '✅', '🔥', '🙏', '💡', '👏', '🤝'] },
+  { name: 'emoji.faces', emoji: ['😀','😄','😊','🙂','😉','😍','🤔','😅','😬','😴','🥳','😎','🤯','😭','😤','🤗','🙃','😇'] },
+  { name: 'emoji.gestures', emoji: ['👍','👎','👌','✌️','🤞','🙌','👋','🤙','💪','🫶','🤌','✍️'] },
+  { name: 'emoji.work', emoji: ['💻','📱','📊','📈','📉','🗓️','📌','📎','✏️','🔧','⚙️','🧪','🐛','🚧','📦','🔍'] },
+  { name: 'emoji.symbols', emoji: ['⭐','✨','💫','🌟','⚡','🔥','💧','🌈','🎯','🏆','🥇','💯','❗','❓','✔️','❌'] },
 ];
 
 interface Props {
@@ -22,6 +23,7 @@ const BREITE = 306;
 const RAND = 10;
 
 export function EmojiPicker({ onPick, onClose, ankerRef }: Props) {
+  const t = useT();
   const [query, setQuery] = useState('');
   const ref = useRef<HTMLDivElement>(null);
   const [ort, setOrt] = useState<{ left: number; top: number; hoehe: number } | null>(null);
@@ -68,7 +70,7 @@ export function EmojiPicker({ onPick, onClose, ankerRef }: Props) {
   }, [onClose]);
 
   const groups = query.trim()
-    ? [{ name: 'Treffer', emoji: GROUPS.flatMap((g) => g.emoji) }]
+    ? [{ name: 'emoji.hits', emoji: GROUPS.flatMap((g) => g.emoji) }]
     : GROUPS;
 
   // Am <body>, nicht dort wo es im Baum steht: der Eingabebereich hat einen
@@ -108,7 +110,7 @@ export function EmojiPicker({ onPick, onClose, ankerRef }: Props) {
         {groups.map((g) => (
           <div key={g.name} style={{ marginBottom: 8 }}>
             <div className="muted" style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '.07em', textTransform: 'uppercase', margin: '4px 2px' }}>
-              {g.name}
+              {t(g.name as never)}
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(8, 1fr)', gap: 2 }}>
               {g.emoji.map((e) => (
