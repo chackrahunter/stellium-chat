@@ -324,8 +324,10 @@ class Konsole:
             self.k_aussen.feld("fail2ban", f"{n} gesperrt" if n else "wacht, nichts gesperrt",
                                F["warn"] if n else F["gut"])
         sicherung = d.get("sicherung")
+        anzahl = sicherung["anzahl"] if sicherung else 0
         self.k_aussen.feld("Sicherung",
-                           f"{sicherung['anzahl']} Stände" if sicherung else "noch keine",
+                           f"{anzahl} Stand" if anzahl == 1
+                           else f"{anzahl} Stände" if anzahl else "noch keine",
                            F["gut"] if sicherung else F["warn"])
 
         # ── Leistung
