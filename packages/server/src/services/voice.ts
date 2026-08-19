@@ -1,43 +1,142 @@
-import fs from 'node:fs';
 import { detectLanguage, type VoiceNote } from '@stellium/shared';
 import { config } from '../config.js';
 import { db } from '../db/index.js';
 import { entschluesseln, verschluesseln } from '../crypto/nachrichten.js';
-import { transcriptionAvailable, transcriptionModel } from '../translation/index.js';
+import * as ablage from './ablage.js';
+import { transcriptionAvailable, transcriptionModel, transcriptionWeg } from '../translation/index.js';
+import * as stimme from './stimme.js';
+import * as vertraulich from './vertraulich.js';
 
 /**
- * Sprachnachrichten: die Aufnahme geht an Groqs Whisper, das Transkript
- * wird danach wie normaler Text behandelt — also auch übersetzt.
- * Eine japanische Sprachnachricht ist damit auf Deutsch lesbar.
+ * Sprachnachrichten: die Aufnahme wird abgetippt, das Transkript wird danach
+ * wie normaler Text behandelt — also auch übersetzt, durchsucht und von der
+ * KI gelesen. Eine japanische Sprachnachricht ist damit auf Deutsch lesbar.
+ *
+ * Es gibt zwei Wege dorthin, und die Reihenfolge ist Absicht:
+ *
+ *  1. **Der eigene Rechner.** Läuft nebenan ein Sprachdienst (whisper.cpp),
+ *     geht die Aufnahme dorthin. Sie verlässt das Haus nicht.
+ *  2. **Groq**, falls ein Schlüssel hinterlegt ist und sonst nichts da ist.
+ *
+ * Der lokale Weg hat Vorrang, und zwar nicht nur, weil er billiger ist: wer
+ * auf ein lokales Modell umgestellt hat, hat sich dafür entschieden, dass
+ * nichts über Nachrichten das Netz verlässt. Eine Sprachnachricht, die
+ * trotzdem zu einem fremden Dienst ginge, wäre genau das Loch in dieser
+ * Zusage — und das leiseste, weil man es der Oberfläche nicht ansieht.
  */
 
 export class TranscriptionUnavailable extends Error {
   constructor(reason: string) { super(`Transkription nicht möglich: ${reason}`); }
 }
 
-export { transcriptionAvailable, transcriptionModel };
+export { transcriptionAvailable, transcriptionModel, transcriptionWeg };
 
 export interface TranscriptResult {
   text: string;
   lang: string | null;
   durationMs: number | null;
   model: string;
+  /** "lokal" oder "groq" — wandert ins Transkript, damit man es später sieht. */
+  provider: string;
+}
+
+/** Größer nimmt Groq nicht an; der lokale Dienst hätte sonst Aufnahmen ohne Ende. */
+const HOECHSTENS = 25 * 1024 * 1024;
+
+/**
+ * Gehört diese Aufnahme in einen vertraulichen Kanal?
+ *
+ * Der Aufrufer prüft das schon — und trotzdem steht es hier noch einmal. Der
+ * Grund ist derselbe, aus dem `klartextNoetig` im Gateway an jeder Fundstelle
+ * einzeln steht: eine Prüfung, die nur oben hängt, schützt genau die Wege, die
+ * heute jemand durch sie hindurchführt. Der nächste Aufrufer von `transcribe`
+ * — ein Nachzieh-Lauf für alte Aufnahmen, ein Knopf „nochmal versuchen",
+ * irgendetwas in einem halben Jahr — bringt sie nicht von selbst mit.
+ *
+ * Und der Schaden wäre hier größer als anderswo: das Transkript wäre der
+ * einzige lesbare Klartext in einem Kanal, dessen ganzer Zweck ist, dass der
+ * Server nichts lesen kann. Bei einem fremden Dienst käme dazu, dass die
+ * Aufnahme das Haus verlässt.
+ */
+function inVertraulichemKanal(attachmentId: string): boolean {
+  const zeile = db.get<{ channel_id: string | null }>(
+    `SELECT m.channel_id FROM attachments a
+     LEFT JOIN messages m ON m.id = a.message_id
+     WHERE a.id = ?`, attachmentId,
+  );
+  return Boolean(zeile?.channel_id) && vertraulich.istVertraulich(zeile!.channel_id!);
 }
 
 export async function transcribe(attachmentId: string): Promise<TranscriptResult> {
-  if (!transcriptionAvailable()) throw new TranscriptionUnavailable('kein Groq-Schlüssel gesetzt');
+  if (inVertraulichemKanal(attachmentId)) {
+    throw new TranscriptionUnavailable('vertraulicher Kanal — hier wird nicht abgetippt');
+  }
 
-  const attachment = db.get<{ path: string; mime: string; name: string; size: number }>(
-    'SELECT path, mime, name, size FROM attachments WHERE id = ?', attachmentId,
-  );
+  const attachment = db.get<{
+    path: string; mime: string; name: string; size: number; encoding: string | null;
+  }>('SELECT path, mime, name, size, encoding FROM attachments WHERE id = ?', attachmentId);
   if (!attachment) throw new TranscriptionUnavailable('Aufnahme nicht gefunden');
-  if (!fs.existsSync(attachment.path)) throw new TranscriptionUnavailable('Datei fehlt auf der Platte');
-  if (attachment.size > 25 * 1024 * 1024) throw new TranscriptionUnavailable('Aufnahme ist größer als 25 MB');
+  if (attachment.size > HOECHSTENS) throw new TranscriptionUnavailable('Aufnahme ist größer als 25 MB');
 
-  const model = transcriptionModel()!;
+  const bytes = await lesen(attachmentId, attachment);
+  const aufnahme: Aufnahme = { bytes, mime: attachment.mime, name: attachment.name };
+
+  if (await stimme.erreichbar()) return lokalAbtippen(aufnahme);
+  if (config.ai.groq.apiKey) return beiGroqAbtippen(aufnahme);
+
+  throw new TranscriptionUnavailable(
+    stimme.eingerichtet()
+      ? `Sprachdienst antwortet nicht (${config.ai.stimme.baseUrl})`
+      : 'kein Sprachdienst eingerichtet und kein Groq-Schlüssel gesetzt',
+  );
+}
+
+interface Aufnahme { bytes: Buffer; mime: string; name: string }
+
+/**
+ * Die Aufnahme holen — über die Ablage, nicht über den Pfad.
+ *
+ * Der Pfad in `attachments.path` gilt nur so lange, bis der Blockspeicher die
+ * Datei übernommen hat, und das passiert bei einer Sprachnachricht direkt nach
+ * dem Hochladen: sie ist klein und damit zerlegt, bevor die Antwort auf den
+ * Upload geschrieben ist. Wer hier `fs.readFile(path)` aufruft, gewinnt ein
+ * Rennen oder verliert es — gemessen: von drei Aufnahmen hintereinander kam
+ * genau die erste durch, die beiden anderen scheiterten mit „Datei fehlt auf
+ * der Platte". Und weil das Scheitern nur eine Zeile ins Journal schreibt,
+ * sah es in der App aus wie eine Sprachnachricht, zu der es eben kein
+ * Transkript gibt.
+ */
+async function lesen(
+  id: string,
+  attachment: { path: string; encoding: string | null },
+): Promise<Buffer> {
+  const strom = ablage.oeffnen({
+    id, art: 'attachment', pfad: attachment.path, encoding: attachment.encoding,
+  });
+  if (!strom) throw new TranscriptionUnavailable('Aufnahme ist weder auf der Platte noch im Blockspeicher');
+  const teile: Buffer[] = [];
+  for await (const stueck of strom) teile.push(Buffer.from(stueck as Uint8Array));
+  return Buffer.concat(teile);
+}
+
+/* ── Der eigene Rechner ───────────────────────────────────────── */
+
+async function lokalAbtippen(aufnahme: Aufnahme): Promise<TranscriptResult> {
+  try {
+    const roh = await stimme.abtippen(aufnahme);
+    return auswerten(roh.text, roh.sprache, roh.sekunden, config.ai.stimme.modell, 'lokal');
+  } catch (err) {
+    if (err instanceof TranscriptionUnavailable) throw err;
+    throw new TranscriptionUnavailable((err as Error).message);
+  }
+}
+
+/* ── Groq ─────────────────────────────────────────────────────── */
+
+async function beiGroqAbtippen(aufnahme: Aufnahme): Promise<TranscriptResult> {
+  const model = transcriptionModel() ?? 'whisper-large-v3-turbo';
   const form = new FormData();
-  const bytes = await fs.promises.readFile(attachment.path);
-  form.append('file', new Blob([bytes], { type: attachment.mime || 'audio/webm' }), attachment.name || 'aufnahme.webm');
+  form.append('file', new Blob([aufnahme.bytes], { type: aufnahme.mime || 'audio/webm' }), aufnahme.name || 'aufnahme.webm');
   form.append('model', model);
   // verbose_json liefert zusätzlich die erkannte Sprache und die Dauer.
   form.append('response_format', 'verbose_json');
@@ -56,15 +155,7 @@ export async function transcribe(attachmentId: string): Promise<TranscriptResult
       throw new TranscriptionUnavailable(`${res.status} ${(await res.text()).slice(0, 200)}`);
     }
     const data = await res.json() as { text?: string; language?: string; duration?: number };
-    const text = (data.text ?? '').trim();
-    if (!text) throw new TranscriptionUnavailable('nichts Verständliches in der Aufnahme');
-
-    return {
-      text,
-      lang: normalizeWhisperLanguage(data.language) ?? detectLanguage(text).lang,
-      durationMs: typeof data.duration === 'number' ? Math.round(data.duration * 1000) : null,
-      model,
-    };
+    return auswerten(data.text, data.language, data.duration, model, 'groq');
   } catch (err) {
     if (err instanceof TranscriptionUnavailable) throw err;
     if ((err as Error).name === 'AbortError') throw new TranscriptionUnavailable('Zeitüberschreitung');
@@ -72,6 +163,30 @@ export async function transcribe(attachmentId: string): Promise<TranscriptResult
   } finally {
     clearTimeout(timer);
   }
+}
+
+/* ── Gemeinsame Auswertung ────────────────────────────────────── */
+
+/**
+ * Beide Wege antworten in derselben Form — deshalb steht die Auswertung
+ * einmal hier und nicht zweimal daneben.
+ */
+function auswerten(
+  text: string | undefined,
+  sprache: string | undefined,
+  sekunden: number | undefined,
+  model: string,
+  provider: string,
+): TranscriptResult {
+  const sauber = (text ?? '').trim();
+  if (!sauber) throw new TranscriptionUnavailable('nichts Verständliches in der Aufnahme');
+  return {
+    text: sauber,
+    lang: normalizeWhisperLanguage(sprache) ?? detectLanguage(sauber).lang,
+    durationMs: typeof sekunden === 'number' ? Math.round(sekunden * 1000) : null,
+    model,
+    provider,
+  };
 }
 
 /** Whisper meldet "german", wir brauchen "de". */
@@ -95,7 +210,8 @@ export function saveTranscript(attachmentId: string, result: TranscriptResult): 
      ON CONFLICT(attachment_id) DO UPDATE SET
        text = excluded.text, lang = excluded.lang, duration_ms = excluded.duration_ms,
        provider = excluded.provider, model = excluded.model, created_at = excluded.created_at`,
-    attachmentId, verschluesseln(result.text), result.lang, result.durationMs, 'groq', result.model, Date.now(),
+    attachmentId, verschluesseln(result.text), result.lang, result.durationMs,
+    result.provider, result.model, Date.now(),
   );
 }
 

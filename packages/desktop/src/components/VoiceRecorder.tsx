@@ -146,8 +146,8 @@ export function VoiceRecorder({ channelId, parentId, onDone }: Props) {
       <span className="spacer" />
 
       {state === 'laeuft' && (
-        <button className="btn btn--ghost" onClick={stop} title="Aufnahme beenden">
-          <Square size={14} fill="currentColor" /> Stopp
+        <button className="btn btn--ghost" onClick={stop} title={t('voice.stopRecording')}>
+          <Square size={14} fill="currentColor" /> {t('voice.stop')}
         </button>
       )}
       {state === 'fertig' && (

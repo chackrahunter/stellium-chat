@@ -234,6 +234,33 @@ export const config = {
     },
     memoryCacheSize: int('TRANSLATION_MEMORY_CACHE', 5000),
     requestTimeoutMs: int('AI_TIMEOUT_MS', 25_000),
+
+    /**
+     * Sprache zu Text auf der eigenen Maschine — whisper.cpp als kleiner
+     * Dienst nebenan.
+     *
+     * Getrennt vom Textmodell, weil es zwei verschiedene Dinge sind: das
+     * Textmodell darf auf einer anderen Maschine im Tailscale-Netz liegen und
+     * acht Milliarden Gewichte haben, die Abschrift läuft auf dem Pi selbst
+     * und muss dort neben dem Chat Platz finden.
+     *
+     * `modell` ist reine Anzeige — welche Gewichte wirklich geladen sind,
+     * entscheidet der Dienst beim Start. Der Server schreibt den Namen nur
+     * zum Transkript, damit später nachvollziehbar ist, womit es entstand.
+     */
+    stimme: {
+      baseUrl: str('STIMME_URL', 'http://127.0.0.1:8788'),
+      modell: str('STIMME_MODELL', 'whisper'),
+      /* Großzügig: eine Minute Aufnahme braucht auf dem Pi um die halbe
+         Minute, und wenn zwei Aufnahmen zugleich ankommen, wartet die zweite
+         hinter der ersten. Lieber spät fertig als grundlos abgebrochen. */
+      timeoutMs: int('STIMME_TIMEOUT_MS', 600_000),
+      /* Wie viele Aufnahmen höchstens warten dürfen. Darüber hinaus wird
+         abgewiesen statt aufgestaut: eine Abschrift, die in einer halben
+         Stunde erscheint, hilft niemandem mehr, und der Pi soll die Warteschlange
+         nicht im Speicher tragen. */
+      warteschlange: int('STIMME_WARTESCHLANGE', 8),
+    },
   },
 } as const;
 
