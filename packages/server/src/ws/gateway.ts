@@ -752,6 +752,12 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
 
     case 'ai:thread-summary': {
       if (!darf(session, 'ai.assistant')) return;
+      /* Ohne diese Prüfung ließe sich jeder Thread zusammenfassen, dessen
+         Kennung man kennt — auch aus einem Kanal, in dem man nichts verloren
+         hat. Die Zusammenfassung gäbe den Inhalt dann wieder. */
+      if (!darfNachrichtSehen(userId, ev.messageId)) {
+        return fail(session, 'not_found', 'Nachricht nicht gefunden', ev.requestId);
+      }
       const summary = await ai.summarizeThread(ev.messageId, session.language);
       send(session, { t: 'ai:thread-summary', requestId: ev.requestId, messageId: ev.messageId, summary });
       return;
@@ -759,6 +765,10 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
 
     case 'ai:smart-replies': {
       if (!darf(session, 'ai.assistant')) return;
+      // Vorschläge entstehen aus dem Verlauf — also nur, wo man mitliest.
+      if (!store.getChannel(ev.channelId, userId)) {
+        return fail(session, 'not_found', 'Kanal nicht gefunden', ev.requestId);
+      }
       const self = store.getSelf(userId)!;
       const replies = await ai.smartReplies({
         channelId: ev.channelId, parentId: ev.parentId ?? null,
@@ -999,6 +1009,10 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
 
     case 'ai:extract-tasks': {
       if (!darf(session, 'ai.assistant')) return;
+      // Aufgaben entstehen aus dem Verlauf des Kanals — nur aus einem eigenen.
+      if (!store.getChannel(ev.channelId, userId)) {
+        return fail(session, 'not_found', 'Kanal nicht gefunden', ev.requestId);
+      }
       /* Nur das Neue seit dem letzten Durchgang ansehen. */
       const marke = `aufgaben_ab:${ev.channelId}`;
       const seit = settings.getSetting(marke);
