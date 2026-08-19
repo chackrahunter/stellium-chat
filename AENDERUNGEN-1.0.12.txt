@@ -1,0 +1,68 @@
+Anleitung und Beispielkonfiguration auf den heutigen Stand gebracht
+Werkzeuge für den Pi: Fernzugang einrichten, Abhängigkeiten prüfen, Konsole und SSH-Wache überarbeitet
+Electron von 33 auf 43 gehoben, dazu electron-builder und @fastify/static — keine gemeldete Schwachstelle mehr
+Beim Ausliefern bricht ein Paket ab, dessen Nummer nicht zur Ankündigung passt, statt den Server in eine Schleife zu schicken
+Bei verschlossenen Dateien stehen Name und Art im verschlüsselten Umschlag statt lesbar daneben
+Ein Entwurf aus einem vertraulichen Kanal erreicht die KI auch dann nicht, wenn ihn eine fremde App absichtlich hinschickt
+Der Beschleunigungslauf schaltet caddy nicht mehr ab — dort läuft die Webseite eines Kollegen
+Prüfläufe messen den gebauten Stand statt eines veralteten und stolpern nicht mehr übereinander; neuer Lauf prüft, dass die Oberfläche überhaupt erscheint
+Der Server beendet sich auf ein Stoppsignal in Millisekunden statt zu hängen; offene Verbindungen halten ihn nicht mehr fest
+Im Browser führt ein eigener Knopf zum Herunterladen der App
+Das Symbol in der Menüleiste ist wieder zu sehen — es war seit jeher leer, weil dort ein SVG lag, das nicht gelesen werden kann
+Auf dem Telefon kein dunkler Streifen mehr am Rand, die Reiterleiste wird nicht mehr zusammengedrückt, und lange Verläufe scrollen sauber
+Antworten aus einem Thread erscheinen nicht mehr doppelt im Kanalverlauf
+Einführung: die Abdunklung verdeckt die Oberfläche nicht mehr, und der Weiter-Knopf steht nicht über den Kartenrand hinaus
+Alle Oberflächentexte kommen aus dem Wörterbuch — auch die kurzen Beschriftungen, die der alte Prüfer nicht sehen konnte; 1041 Einträge je Sprache
+Kurze deutsche Sätze werden nicht mehr für Englisch gehalten; Dänisch, Norwegisch und Schwedisch haben eigene Wortlisten
+Fehlermeldungen des Servers erscheinen in der eingestellten Sprache statt immer auf Deutsch
+Status lässt sich endlich selbst setzen: Zeichen, freier Text und eine wählbare Haltedauer; unsichtbar bleibt von offline ununterscheidbar
+Sprachnachrichten lassen sich auch mit einem lokalen Modell abtippen, ohne Schlüssel bei einem Anbieter
+Übersetzung gibt nicht mehr den Eingabetext zurück; die Anzeige verspricht Übersetzung nur, wenn das Modell wirklich antwortet, und wartet bei totem Modell Sekunden statt Minuten
+Blockspeicher greift auch bei großen Dateien; ein gelöschter Kanal lässt keine Blöcke und keine Dateien zurück
+Anhänge in vertraulichen Kanälen liegen verschlüsselt auf der Platte; private Dateien sieht nur noch ihr Besitzer
+Vertrauliche Kanäle: Nachrichten sind Ende-zu-Ende verschlüsselt, der Server sieht keinen Klartext, und nach einem Vorfall gibt ein Code die Mitschrift frei
+background-attachment: fixed ist auf iOS fehlerhaft
+body malte den Seitenverlauf zu — daher der dunkle Streifen unten
+Aurora liegt auf der Seite selbst — kein Bereich kann mehr anders aussehen
+Dunkles Band unter dem Eingabefeld entfernt — im Browser gibt es keine Wischleiste
+Telefon-Regel hob den Sicherheitsabstand wieder auf; versehentlich vervielfachte Regel entfernt
+Eingabefeld reicht optisch bis unter die Home-Leiste; Tastatur-Knopf nur mit dem Finger
+Kein schwarzer Streifen hinter der Home-Leiste; Plattenreserve richtet sich nach dem freien Platz statt einen festen Wert zu fordern
+Randloses Symbol ohne eigene Ecken, Startbildschirm heisst Stellium Chat; Liste springt nicht mehr unter die Kopfzeile
+Fehlende Dateien liefern 404 statt der Startseite; Tastatur laesst sich auf dem Telefon einfahren; neuer Stylesheet-Name bricht vergiftete Zwischenspeicher
+Weboberflaeche ausliefern ohne die alten Dateien zu loeschen und mit Neustart
+Oberflaeche auf Telefon und Tablet: Symbolleiste faehrt mit der Schublade ein, undurchsichtige Schublade, Sicherheitsabstaende, Hintergrund laeuft nicht mehr ueber; Startbildschirm-Symbol als Stellium Chat; Schirmbilder ueber zehn Geraete
+Fehlermeldungen tragen Kennungen und erscheinen in der eingestellten Sprache
+Sprachnamen in der Oberflaechensprache statt im Eigennamen; zwei fest verdrahtete Texte uebersetzt; Pruefer fuer Sprachvollstaendigkeit
+Sprachschalter im Fernzugriff-Fenster; Symbol fuer Systemmeldungen ins Paket; Speicher- und Layouttests ohne persoenliche Zugangsdaten
+Anwesenheit beim Start zuruecksetzen; Konsole zeigt offene Verbindungen
+Blockspeicher scharf: inhaltsabhaengige Bloecke, geteilte Ablage, bitgenauer Rueckweg mit Pruefung; Verpasst-Zusammenfassung ohne eigene Nachrichten; NEU-Strich nicht ueber eigenen Nachrichten
+Dateiablage auf 50 GB
+Dateiablage auf 100 GB, aber nie auf Kosten des Systems: harte Plattenreserve; Windows zeigt Meldungen erst mit Programmkennung
+CPU-Anzeige misst wirklich, Takt auf zwei Sekunden, lange Werte brechen um
+Anbieter-Auswahl zeigt den echten Anbieter; Konsole zeigt Dateiablage mit Belegung und freiem Platz
+Konsole im Design der App: Palette, Aurora, Tachos im Raster, Sprachknopf, Mindestbreite
+Leistungswerte als Bogenanzeigen mit weicher Bewegung
+Ein Stand ist kein Staende
+Konsole darf die Sicherungsstaende zaehlen
+Konsole flackert nicht mehr; Pi-Beschleunigung als umkehrbares Skript
+Sicherung um 23 Uhr, drei Staende; Konsole zaehlt gepackte Staende
+Protokoll mit Tagesauswahl und Verknuepfung auf dem Schreibtisch; Layouttest ohne persoenliche Zugangsdaten; Client-Fehler aus dem Review
+KI-Zusammenfassungen und Kanaluebersetzungen verschluesseln; Volltextindex an den Schluessel binden; Kontoumstellung erfasst alle; Glossarrecht pruefen; users-Neuaufbau vollstaendig
+Sitzung gesperrter Konten beenden, Einstellungen nicht mehr verwerfen, Anheften pruefen; Sicherheitstest lief am Ziel vorbei
+Anhaenge nur fuer Berechtigte, keine Selbstbefoerderung, Planen nur in eigene Kanaele, Serverpaket nur fuer Verwalter
+Zertifikat an der Adresse pruefen, auf der nginx wirklich lauscht
+Grafische Stellium-Konsole mit Karten, Messstreifen und Startmenue-Eintrag; Zertifikat auch ohne Root erkennen
+Wachfenster mit Farbverlauf, atmendem Punkt, weichem Ein- und Ausblenden
+Wachfenster: eigene Geraete ausblenden, eine Minute Nachlauf, Protokoll aus dem Startmenue
+Wachfenster: Sitzungen als Klammer, Uhrzeit-Spalte, mehrzeilige Befehle eingerueckt
+Wachfenster ohne Fensterleiste: kein Kreuz, dafuer Kopf zum Ziehen
+Wache erkannte keine einzige Sitzung: Lebendpruefung scheiterte an fehlender Berechtigung
+Wachfenster laesst sich einklappen, aber nicht schliessen; startet nach Absturz neu
+Wache liest das Journal, benennt den Schlüssel und ignoriert Karteileichen; Dienste überstehen Absturz und Neustart
+SSH abhärten; Updater gegen Doppellauf, falsche Pakete und stumme Fehlschläge; Geheimnisse aus dem Serverpaket
+SSH-Port des Dienstes selbst ermitteln statt 22 annehmen
+SSH-Dienst auf Raspberry Pi OS erst entsperren
+Fenster auf dem Pi zeigt Fernzugriff samt Befehlsmitschrift
+SSH-Zugang zum Pi dauerhaft; Kanalprüfung für drei KI-Funktionen
+Speicher begrenzt, Benachrichtigungen im Browser, Kategorien in der Verwaltung
