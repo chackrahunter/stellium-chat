@@ -413,6 +413,20 @@ function AnbieterWahl() {
   const { selectProvider, toast } = useStore.getState();
 
   const [anbieter, setAnbieter] = useState(ai?.provider ?? 'groq');
+
+  /* Beim ersten Rendern steht die Serverantwort oft noch aus — useState merkt
+     sich dann den Ersatzwert "groq" für immer. Der Kasten zeigte danach Groq,
+     obwohl längst das lokale Modell lief. Also nachziehen, sobald der Server
+     sagt, was wirklich eingestellt ist. */
+  useEffect(() => {
+    if (ai?.provider) setAnbieter(ai.provider);
+  }, [ai?.provider]);
+  useEffect(() => {
+    if (ai?.lokaleAdresse) setAdresse(ai.lokaleAdresse);
+  }, [ai?.lokaleAdresse]);
+  useEffect(() => {
+    if (ai?.model) setModell(ai.model);
+  }, [ai?.model]);
   const [adresse, setAdresse] = useState(ai?.lokaleAdresse ?? '');
   const [modelle, setModelle] = useState<string[]>([]);
   const [modell, setModell] = useState(ai?.model ?? '');

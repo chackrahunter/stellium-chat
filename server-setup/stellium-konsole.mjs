@@ -173,6 +173,34 @@ async function gesundheit() {
   } catch { return null; }
 }
 
+/** Wie viel Platz die Dateiablage belegt — und was ihr noch bleibt. */
+function ablage() {
+  const ordner = [`${DATEN}/uploads`, `${DATEN}/storage`];
+  let belegt = 0;
+  let dateien = 0;
+  const zaehlen = (pfad) => {
+    let eintraege;
+    try { eintraege = fs.readdirSync(pfad, { withFileTypes: true }); }
+    catch { return; }                    // gibt es nicht oder kein Zugriff
+    for (const e of eintraege) {
+      const voll = `${pfad}/${e.name}`;
+      if (e.isDirectory()) { zaehlen(voll); continue; }
+      try { belegt += fs.statSync(voll).size; dateien += 1; } catch { /* eben weg */ }
+    }
+  };
+  for (const o of ordner) zaehlen(o);
+
+  // Der freie Platz ist der der Platte, auf der die Ablage liegt — nicht der
+  // von "/", falls die Daten auf einem eigenen Datenträger liegen.
+  const pl = platte(DATEN);
+  return {
+    belegt,
+    dateien,
+    frei: pl ? pl.gesamt - pl.belegt : null,
+    gesamt: pl ? pl.gesamt : null,
+  };
+}
+
 function zahlen() {
   const datei = `${DATEN}/stellium.db`;
   if (!fs.existsSync(datei)) return null;
@@ -347,6 +375,7 @@ async function daten() {
     },
     ki: g?.ai ?? null,
     inhalt: zahlen(),
+    ablage: ablage(),
     zertifikat: zertifikat(),
     firewall: feuer ? /Status: active/.test(feuer) : null,
     gesperrt: gesperrt(),
@@ -431,6 +460,12 @@ async function zeichnen() {
     if (db.ideas) weiter.push(`${db.ideas} Ideen`);
     if (weiter.length) feld('', weiter.join(' · '));
     if (db.groesse) feld('Datenbank', groesse(db.groesse));
+  }
+
+  const abl = ablage();
+  if (abl.dateien) {
+    feld('Dateiablage', `${groesse(abl.belegt)} in ${abl.dateien} Dateien`
+      + (abl.frei !== null ? `  ·  ${groesse(abl.frei)} frei` : ''));
   }
 
   /* ── Weg nach außen ──────────────────────────────────────── */

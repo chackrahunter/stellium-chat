@@ -39,6 +39,7 @@ TEXTE = {
         "tunnel": "durch den Tunnel", "aktiv": "aktiv",
         "gesperrt": "{n} gesperrt", "wacht": "wacht, nichts gesperrt",
         "konten": "Konten", "kanaele": "Kanäle", "nachrichten": "Nachrichten",
+        "ablage": "Dateiablage", "dateien": "Dateien", "belegt": "belegt",
         "empfangen": "empfangen", "gesendet": "gesendet",
         "fuss": "Aktualisiert sich alle vier Sekunden  ·  im Terminal:  stellium-konsole",
         "verbinde": "verbinde …", "keine_verbindung": "Keine Verbindung zur Konsole: {f}",
@@ -61,6 +62,7 @@ TEXTE = {
         "tunnel": "through the tunnel", "aktiv": "active",
         "gesperrt": "{n} blocked", "wacht": "watching, nothing blocked",
         "konten": "accounts", "kanaele": "channels", "nachrichten": "messages",
+        "ablage": "File storage", "dateien": "files", "belegt": "used",
         "empfangen": "received", "gesendet": "sent",
         "fuss": "Refreshes every four seconds  ·  in the terminal:  stellium-konsole",
         "verbinde": "connecting …", "keine_verbindung": "No connection to the console: {f}",
@@ -533,6 +535,13 @@ class Konsole:
         if inhalt.get("groesse"):
             self.k_chat.feld("datenbank", groesse(inhalt["groesse"]))
 
+        abl = d.get("ablage") or {}
+        if abl.get("dateien"):
+            teil = f"{groesse(abl['belegt'])} {T('belegt')}  ·  {abl['dateien']} {T('dateien')}"
+            if abl.get("frei") is not None:
+                teil += f"  ·  {groesse(abl['frei'])} {T('frei')}"
+            self.k_chat.feld("ablage", teil)
+
         # ── Weg nach außen
         web = dienste.get("web", {})
         self.k_aussen.feld("nginx",
@@ -571,6 +580,14 @@ class Konsole:
             pl = L["platte"]
             self.k_leistung.tacho("platte", pl["belegt"] / max(pl["gesamt"], 1),
                                   unten=f"{groesse(pl['gesamt'] - pl['belegt'])} {T('frei')}")
+        abl = d.get("ablage") or {}
+        if abl.get("gesamt"):
+            # Nicht der Anteil der Ablage an der Platte, sondern wie voll die
+            # Platte ist, auf der sie liegt — das ist die Zahl, die zählt.
+            self.k_leistung.tacho("ablage",
+                                  1 - (abl["frei"] or 0) / max(abl["gesamt"], 1),
+                                  unten=f"{groesse(abl['belegt'])} {T('belegt')}")
+
         temperaturen = L.get("temperaturen", [])
         if temperaturen:
             grad = temperaturen[0]["grad"]
