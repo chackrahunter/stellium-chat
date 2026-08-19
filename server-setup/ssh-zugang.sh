@@ -11,7 +11,7 @@
 set -euo pipefail
 
 AUSSEN="${1:-2222}"
-INNEN=22
+INNEN=""   # wird gleich beim Dienst nachgesehen
 DIENST=/etc/systemd/system/stellium-ssh-port.service
 TIMER=/etc/systemd/system/stellium-ssh-port.timer
 
@@ -31,14 +31,26 @@ systemctl enable --now ssh >/dev/null 2>&1 || systemctl enable --now sshd >/dev/
 # Neuere Debian-Fassungen starten den Dienst erst bei der ersten Verbindung.
 systemctl is-active --quiet ssh || systemctl start ssh.socket >/dev/null 2>&1 || true
 
-lauscht() { ss -ltn 2>/dev/null | grep -qE "[^0-9]$INNEN[[:space:]]"; }
-for _ in 1 2 3 4 5 6 7 8 9 10; do lauscht && break; sleep 1; done
-if ! lauscht; then
-  echo "FEHLER: auf Port $INNEN lauscht nichts. Was der Dienst sagt:"
+# Welchen Port der Dienst wirklich nimmt, sagt er selbst — die 22 ist nur die
+# übliche Wahl, nicht die garantierte. Auf diesem Pi ist es die 2222.
+port_finden() {
+  local p
+  p="$(ss -ltnp 2>/dev/null | awk '/sshd/ {split($4,a,":"); print a[length(a)]}' | sort -un | head -1)"
+  [ -z "$p" ] && p="$(sshd -T 2>/dev/null | awk '/^port /{print $2; exit}')"
+  [ -z "$p" ] && p="$(awk '/^[[:space:]]*Port[[:space:]]+[0-9]+/{print $2; exit}' /etc/ssh/sshd_config /etc/ssh/sshd_config.d/*.conf 2>/dev/null)"
+  echo "${p:-22}"
+}
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+  INNEN="$(port_finden)"
+  ss -ltn 2>/dev/null | grep -qE "[^0-9]${INNEN}[[:space:]]" && break
+  sleep 1
+done
+if ! ss -ltn 2>/dev/null | grep -qE "[^0-9]${INNEN}[[:space:]]"; then
+  echo "FEHLER: der SSH-Dienst lauscht auf keinem Port. Was er sagt:"
   systemctl status ssh --no-pager -l 2>&1 | head -14
   exit 1
 fi
-echo "  SSH lauscht."
+echo "  SSH lauscht auf Port $INNEN."
 command -v ufw >/dev/null && ufw allow "$INNEN"/tcp >/dev/null 2>&1 || true
 
 echo "→ alte Zuordnungen aufräumen"
