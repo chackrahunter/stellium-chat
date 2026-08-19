@@ -16,6 +16,7 @@ import {
 } from './translation/index.js';
 import { ensureSeed } from './seed.js';
 import { ensureAssistant, repairAssistantChats } from './services/assistant.js';
+import * as stimme from './services/stimme.js';
 
 const app = Fastify({
   logger: { level: process.env.LOG_LEVEL ?? 'warn' },
@@ -40,6 +41,12 @@ async function main(): Promise<void> {
   // Modell-Liste beim Anbieter holen, damit der erste Chat schon das
   // passende Modell trifft. Schlägt es fehl, greifen die Standardwerte.
   await warmUpModels();
+
+  /* Sprachdienst im Blick behalten. Einmal jetzt, damit die Startmeldung die
+     Wahrheit sagt, und danach im Takt — der Dienst darf später kommen und
+     zwischendurch weg sein, ohne dass jemand den Chat neu startet. */
+  await stimme.erreichbar(true);
+  stimme.beobachten();
 
   await app.register(cors, { origin: true, credentials: true });
   await app.register(multipart, { limits: { fileSize: config.maxUploadBytes, files: 1 } });
@@ -80,7 +87,7 @@ async function main(): Promise<void> {
       if (pfad.startsWith('/api/') || pfad.startsWith('/ws')
         || pfad.startsWith('/files/') || pfad.startsWith('/storage/')
         || pfad.startsWith('/releases/')) {
-        return reply.code(404).send({ error: 'Nicht gefunden' });
+        return reply.code(404).send({ error: 'Nicht gefunden', code: 'fehler.nichtGefunden' });
       }
 
       /* Auf eine fehlende Datei niemals die Startseite ausliefern.
@@ -91,7 +98,7 @@ async function main(): Promise<void> {
          Browser gar nicht erst nachfragte. Ein ehrliches 404 kostet einen
          Fehlversuch, ein falsches HTML kostet die ganze Seite. */
       if (/\.[a-z0-9]{2,5}$/i.test(pfad)) {
-        return reply.code(404).send({ error: 'Nicht gefunden' });
+        return reply.code(404).send({ error: 'Nicht gefunden', code: 'fehler.nichtGefunden' });
       }
 
       return reply.type('text/html').sendFile('index.html');
@@ -101,7 +108,7 @@ async function main(): Promise<void> {
     // einer Fehlermeldung, mit der niemand etwas anfangen kann.
     app.setNotFoundHandler((req, reply) => {
       const pfad = req.url.split('?')[0];
-      if (pfad !== '/') return reply.code(404).send({ error: 'Nicht gefunden' });
+      if (pfad !== '/') return reply.code(404).send({ error: 'Nicht gefunden', code: 'fehler.nichtGefunden' });
       return reply.type('text/html').send(hinweisSeite());
     });
   }
@@ -110,10 +117,41 @@ async function main(): Promise<void> {
   anwesenheitZuruecksetzen();
   const stopJobs = startBackgroundJobs();
 
+  /**
+   * Herunterfahren — mit Frist.
+   *
+   * Hier stand einmal nur `await app.close()`. Das wartet aber darauf, dass
+   * alle offenen Verbindungen zu Ende gehen, und ein WebSocket geht nicht von
+   * selbst zu Ende: er ist genau dafür gebaut, offen zu bleiben. Also kam der
+   * Ablauf nie bei `process.exit(0)` an, und der Prozess überlebte sein
+   * SIGTERM. Auf diesem Rechner haben sich so verwaiste Probeserver gesammelt,
+   * die dann Ports besetzten und fremde Prüfläufe falsch scheitern ließen —
+   * und auf dem Pi bedeutet dasselbe, dass ein `systemctl restart` in seinen
+   * eigenen Zeitablauf läuft, statt sauber neu zu starten.
+   *
+   * Deshalb: ordentlich versuchen, aber nicht ewig. Wer nach der Frist noch
+   * hängt, wird beendet. Ein Chat-Server hat nichts, das ein längeres Warten
+   * rechtfertigen würde — die Datenbank ist nach jedem Schreibvorgang
+   * beständig, offene Sitzungen verbinden sich von selbst neu.
+   */
+  const FRIST_MS = 4000;
+  let faehrtHerunter = false;
   const shutdown = async (signal: string) => {
+    if (faehrtHerunter) return; // zweites Signal nicht doppelt abarbeiten
+    faehrtHerunter = true;
     console.log(`\n[server] ${signal} — fahre herunter…`);
     stopJobs();
+
+    // Der Notausgang. `unref()`, damit die Frist den Prozess nicht ihrerseits
+    // am Leben hält, falls alles andere längst fertig ist.
+    const notausgang = setTimeout(() => {
+      console.error(`[server] Nach ${FRIST_MS} ms hängt noch etwas — beende hart.`);
+      process.exit(0);
+    }, FRIST_MS);
+    notausgang.unref();
+
     await app.close().catch(() => {});
+    clearTimeout(notausgang);
     try { db.close(); } catch { /* ignore */ }
     process.exit(0);
   };
@@ -142,6 +180,9 @@ async function main(): Promise<void> {
     Volltext  ${db.fts ? 'FTS5' : 'LIKE (FTS5 nicht verfügbar)'}
     KI        ${caps.provider} — Übersetzung ${caps.translation ? 'an' : 'aus'}, Assistent ${caps.assistant ? 'an' : 'aus'}
 ${caps.model ? `    Modelle   ${caps.model} (Übersetzung/Zusammenfassung)\n              ${caps.fastModel} (Antwortvorschläge)\n              ${describeSource(caps.modelSource, caps.modelsAvailable)}\n` : ''}
+    Stimme    ${caps.transcription
+    ? `${caps.transcriptionModel} (${caps.transcriptionLokal ? 'auf diesem Rechner' : 'bei Groq'})`
+    : 'aus — Sprachnachrichten bleiben ohne Abschrift'}
 ${caps.note ? `    Hinweis   ${caps.note}\n` : ''}`);
 }
 
