@@ -130,6 +130,15 @@ lokale_ip() {
   printf '%s' "${ip:-dieser-rechner}"
 }
 
+# Beim Bauen darf nicht bloß "etwas ist schiefgegangen" herauskommen — die
+# letzten Zeilen sagen fast immer sofort, woran es lag.
+bau_fehlgeschlagen() {
+  printf '\n%s✗ Das Bauen ist fehlgeschlagen. Die letzten Zeilen:%s\n\n' "$ROT$FETT" "$AUS" >&2
+  tail -25 "${BAULOG:-/tmp/stellium-bau.log}" 2>/dev/null | sed 's/^/    /' >&2
+  printf '\n    %sVollständig:  %s%s\n\n' "$GRAU" "${BAULOG:-/tmp/stellium-bau.log}" "$AUS" >&2
+  return 1
+}
+
 BENUTZER="stellium"
 ZIEL="/opt/stellium"
 DATEN="/var/lib/stellium"
@@ -369,10 +378,16 @@ fi
 
 cd "$ZIEL"
 info "Abhängigkeiten — das dauert auf einem Pi ein paar Minuten"
-npm ci --omit=optional --no-audit --no-fund >/dev/null 2>&1 \
-  || npm install --no-audit --no-fund >/dev/null 2>&1
-npm run build:shared >/dev/null 2>&1
-npm run build -w @stellium/server >/dev/null 2>&1
+# Der Server braucht kein Electron. Dessen Binärpaket ist über 100 MB groß und
+# bringt die Einrichtung auf einem Pi regelmäßig zu Fall.
+export ELECTRON_SKIP_BINARY_DOWNLOAD=1
+export npm_config_electron_skip_binary_download=1
+
+BAULOG="/tmp/stellium-bau.log"
+if ! npm ci --omit=optional --no-audit --no-fund > "$BAULOG" 2>&1; then
+  npm install --no-audit --no-fund >> "$BAULOG" 2>&1 || bau_fehlgeschlagen
+fi
+npm run build:server >> "$BAULOG" 2>&1 || bau_fehlgeschlagen
 chown -R "$BENUTZER:$BENUTZER" "$ZIEL"
 ok "gebaut"
 

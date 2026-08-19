@@ -2,7 +2,7 @@
   "name": "stellium-chat",
   "version": "0.1.0",
   "private": true,
-  "description": "Stellium \u2014 Team-Chat mit Live-\u00dcbersetzung und KI (macOS Intel/ARM, Windows, Linux)",
+  "description": "Stellium — Team-Chat mit Live-Übersetzung und KI (macOS Intel/ARM, Windows, Linux)",
   "workspaces": [
     "packages/shared",
     "packages/server",
@@ -24,7 +24,8 @@
     "start:server": "npm run start -w @stellium/server",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "e2e": "node scripts/e2e.mjs",
-    "e2e:sichtbar": "node scripts/e2e.mjs --sichtbar"
+    "e2e:sichtbar": "node scripts/e2e.mjs --sichtbar",
+    "build:server": "npm run build:shared && npm run build -w @stellium/server && npm run build:web -w @stellium/desktop"
   },
   "devDependencies": {
     "concurrently": "^9.1.2",

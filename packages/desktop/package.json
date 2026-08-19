@@ -17,7 +17,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.electron.json --noEmit",
     "build:electron": "tsc -p tsconfig.electron.json && node -e \"const fs=require('fs');fs.renameSync('dist-electron/preload.js','dist-electron/preload.mjs')\"",
     "dist:mac:universal": "electron-builder --mac --universal",
-    "dist:mac:intel": "electron-builder --mac --x64"
+    "dist:mac:intel": "electron-builder --mac --x64",
+    "build:web": "vite build"
   },
   "devDependencies": {
     "@playwright/test": "^1.62.1",
