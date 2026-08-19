@@ -1,0 +1,2 @@
+Ein neuer Chat weiß, dass "lade das Update hoch" den Auslieferungslauf meint
+Probelauf prüft den Zugang, Änderungsliste entsteht aus den Commits
