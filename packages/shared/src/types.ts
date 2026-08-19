@@ -110,6 +110,23 @@ export interface Channel {
   aiMode: 'off' | 'mention' | 'always';
   /** Nur Berechtigte dürfen schreiben — für Ankündigungskanäle. */
   readOnly: boolean;
+  /**
+   * Ende-zu-Ende verschlüsselt: der Server sieht nur Chiffrat.
+   *
+   * Damit fallen alle Funktionen weg, die Klartext brauchen — Übersetzung,
+   * Zusammenfassungen, Antwortvorschläge, serverseitige Suche,
+   * Aufgabenerkennung. Das ist kein Versehen, sondern der Preis dafür, dass
+   * auch der Server nicht mitliest.
+   */
+  vertraulich: boolean;
+  /**
+   * Welche Fassung des Kanalschlüssels gerade gilt.
+   *
+   * Sie zählt hoch, sobald jemand den Kanal verlässt. Alte Nachrichten bleiben
+   * mit der alten Fassung lesbar: wer geht, verliert nicht rückwirkend, was er
+   * ohnehin schon gelesen hat — aber alles Neue bleibt ihm verschlossen.
+   */
+  schluesselFassung: number;
   archived: boolean;
   createdBy: string;
   createdAt: number;
@@ -491,6 +508,12 @@ export interface StoredFile {
   name: string;
   mime: string;
   size: number;
+  /**
+   * Privat heißt: der Inhalt wurde in der App verschlüsselt, bevor er den
+   * Rechner verlassen hat. Der Server verwahrt ihn, kann ihn aber nicht
+   * öffnen — auch nicht mit dem Masterpasswort.
+   */
+  privat: boolean;
   folder: string;
   channelId: string | null;
   description: string | null;

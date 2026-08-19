@@ -1,6 +1,9 @@
 /** WebSocket-Protokoll zwischen Desktop-Client und Server. */
 
 import type {
+  Freigabe, FreigabeSchluessel, OeffentlicherSchluessel, SchluesselPaket,
+} from './vertraulich.js';
+import type {
   AiSummary, CalendarEvent, Channel, ChannelState, Draft, LinkPreview, Message,
   Idea, IdeaComment, IdeaStatus, MeetingProtocol, Poll, Reaction, ReleaseInfo, Reminder, ScheduledMessage, SelfUser, SmartReply, StoredFile, StorageUsage,
   Task, TaskEvent, TaskPriority, TaskStatus, TranslationView, User,
@@ -110,7 +113,37 @@ export type ClientEvent =
   /* Dateiablage */
   | { t: 'file:list'; channelId?: string | null; folder?: string }
   | { t: 'file:update'; fileId: string; name?: string; description?: string | null; folder?: string }
-  | { t: 'file:delete'; fileId: string };
+  | { t: 'file:delete'; fileId: string }
+
+  /* ── Vertrauliche Kanäle ──────────────────────────────────
+     Alles, was hier hin- und hergeht, ist entweder öffentlich (Schlüsselteile,
+     die öffentlich sein sollen) oder bereits verschlossen. Der Server ist
+     Briefkasten, nicht Empfänger. */
+
+  /** Öffentlichen Teil hinterlegen — und wahlweise die verschlossene Sicherung. */
+  | { t: 'vertraulich:schluessel-melden'; jwk: string; abdruck: string; sicherung?: string | null }
+  /** Öffentliche Teile anderer Konten holen, um für sie verpacken zu können. */
+  | { t: 'vertraulich:schluessel-holen'; userIds?: string[] }
+  /** Die eigene verschlossene Sicherung anfordern — für ein neues Gerät. */
+  | { t: 'vertraulich:sicherung-holen' }
+  /** Kanal auf vertraulich stellen und gleich für alle Mitglieder verpacken. */
+  | { t: 'vertraulich:einschalten'; channelId: string; pakete: { userId: string; paket: SchluesselPaket }[] }
+  /** Fehlende Pakete nachreichen — nach Aufnahme oder nach einem Wechsel. */
+  | { t: 'vertraulich:pakete'; channelId: string; fassung: number; pakete: { userId: string; paket: SchluesselPaket }[] }
+  /** Den Kanalschlüssel wechseln, weil jemand gegangen ist. */
+  | { t: 'vertraulich:wechseln'; channelId: string; pakete: { userId: string; paket: SchluesselPaket }[] }
+  /** Die eigenen Pakete eines Kanals holen (alle Fassungen). */
+  | { t: 'vertraulich:paket-holen'; channelId: string }
+  /** Vorfall melden: Kanalschlüssel für die Verwaltung freigeben. */
+  | { t: 'vertraulich:vorfall-melden'; channelId: string; grund: string;
+      codeAbdruck: string; tage?: number;
+      pakete: { userId: string; paket: SchluesselPaket }[] }
+  /** Freigaben eines Kanals auflisten. */
+  | { t: 'vertraulich:freigaben'; channelId?: string | null }
+  /** Mit dem Code an den freigegebenen Schlüssel kommen. */
+  | { t: 'vertraulich:freigabe-oeffnen'; freigabeId: string; codeAbdruck: string }
+  /** Eine Freigabe vorzeitig beenden. */
+  | { t: 'vertraulich:freigabe-zuruecknehmen'; freigabeId: string };
 
 export type RewriteTone =
   | 'polish' | 'formal' | 'friendly' | 'concise' | 'expand' | 'bullets' | 'apologize';
@@ -194,7 +227,29 @@ export type ServerEvent =
 
   | { t: 'file:list'; files: StoredFile[]; usage: { used: number; quota: number; fileCount: number } }
   | { t: 'file:upsert'; file: StoredFile; usage?: StorageUsage }
-  | { t: 'file:removed'; fileId: string };
+  | { t: 'file:removed'; fileId: string }
+
+  /* ── Vertrauliche Kanäle ────────────────────────────────── */
+
+  | { t: 'vertraulich:schluessel'; schluessel: OeffentlicherSchluessel[] }
+  /** Die eigene verschlossene Sicherung. Ohne Wiederherstellungscode wertlos. */
+  | { t: 'vertraulich:sicherung'; paket: string | null }
+  /** Die eigenen Schlüsselpakete eines Kanals, nach Fassung. */
+  | { t: 'vertraulich:paket'; channelId: string; fassung: number;
+      pakete: { fassung: number; paket: SchluesselPaket }[] }
+  /**
+   * Für diese Konten fehlt im Kanal noch ein Paket.
+   *
+   * Geht an alle, die den Schlüssel schon haben. Wer zuerst antwortet, hat
+   * ihn verpackt — die anderen Antworten laufen ins Leere, und das ist
+   * billiger als eine Absprache darüber, wer zuständig ist.
+   */
+  | { t: 'vertraulich:pakete-fehlen'; channelId: string; fassung: number; userIds: string[] }
+  /** Bitte den Kanalschlüssel wechseln — jemand hat den Kanal verlassen. */
+  | { t: 'vertraulich:wechsel-noetig'; channelId: string; grund: string }
+  | { t: 'vertraulich:freigaben'; channelId: string | null; freigaben: Freigabe[] }
+  | { t: 'vertraulich:freigabe'; freigabe: Freigabe }
+  | { t: 'vertraulich:freigabe-schluessel'; schluessel: FreigabeSchluessel };
 
 export interface AiCapabilities {
   provider: string;

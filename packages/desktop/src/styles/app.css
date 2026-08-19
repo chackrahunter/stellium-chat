@@ -645,18 +645,12 @@ a:hover { text-decoration: underline; }
 .composer-wrap {
   flex: 0 0 auto;
   padding: 0 var(--sp-5) var(--sp-4);
-  /* Der Streifen über der Home-Leiste gehört optisch zum Eingabefeld.
-     Neuere iPhones haben keinen Home-Knopf mehr, aber die Wischleiste ist
-     geblieben — Bedienelemente dürfen dort nicht liegen, weil jede Berührung
-     als Geste gilt. Der Platz bleibt also; er soll nur nicht wie ein
-     abgeschnittener schwarzer Balken wirken, sondern wie der Fuß der App. */
+  /* Abstand zur Wischleiste, aber KEINE eigene Farbe.
+     Ein dunkler Verlauf an dieser Stelle sah auf dem Startbildschirm sauber
+     aus — im Browser, wo es gar keine Wischleiste gibt, stand er als schwarzes
+     Band unter dem Eingabefeld. Ohne Farbe scheint der Sternenhimmel durch und
+     der Übergang ist in beiden Fällen fließend. */
   padding-bottom: calc(var(--sp-4) + var(--sicher-unten));
-  background: linear-gradient(
-    to bottom,
-    transparent 0,
-    var(--bg-deep) calc(100% - var(--sicher-unten) - var(--sp-4)),
-    var(--bg-deep) 100%
-  );
   /* Hier darf KEIN overflow stehen: Erwähnungsliste, Emoji-Auswahl und das
      Umformulieren-Menü liegen mit bottom:100% über dem Eingabefeld und damit
      außerhalb dieses Kastens — ein overflow würde sie abschneiden.
