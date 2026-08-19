@@ -21,7 +21,7 @@ python3 - "$SKRIPT" "$W" <<'PY'
 import sys, pathlib
 skript, w = sys.argv[1], sys.argv[2]
 s = pathlib.Path(skript).read_text()
-teil = s[s.index('# Bausteine, die beide Varianten teilen.'):s.index('ADRESSE=""\n\nif [[ "$WAHL" == "3" ]]')]
+teil = s[s.index('# Bausteine, die beide Varianten teilen.'):s.index('# ── Ports wählen ──')]
 teil = (teil.replace('/etc/nginx', w)
             .replace('/var/www/html', f'{w}/www')
             .replace(f'/etc/letsencrypt/live/$NAME', f'{w}/zert')

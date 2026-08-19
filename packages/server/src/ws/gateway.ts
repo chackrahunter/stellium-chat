@@ -23,6 +23,7 @@ import * as tasks from '../services/tasks.js';
 import * as events from '../services/events.js';
 import * as files from '../services/files.js';
 import * as ideas from '../services/ideas.js';
+import * as wartung from '../services/wartung.js';
 import { db as database } from '../db/index.js';
 import { reindexMessage } from '../db/index.js';
 
@@ -326,6 +327,16 @@ async function authenticate(session: Session, ev: Extract<ClientEvent, { t: 'aut
     serverTime: Date.now(),
     ai: aiCapabilities(),
   });
+
+  // Steht eine Auszeit an, soll auch wer gerade erst kommt sie sehen.
+  const auszeit = wartung.anstehend();
+  if (auszeit) {
+    send(session, {
+      t: 'server:update',
+      ...auszeit,
+      serverZeit: Date.now(),
+    });
+  }
 
   if (wasOffline) setStatus(userId, self.status === 'offline' ? 'online' : self.status);
 
@@ -1416,6 +1427,24 @@ export function startBackgroundJobs(): () => void {
     }
   }, 30_000);
 
+  // Hat das Aktualisierungsskript eine Auszeit hinterlegt? Dann einmal
+  // ansagen — und einmal, wenn sie wieder verschwindet.
+  let angesagt: string | null = null;
+  const wartungsTimer = setInterval(() => {
+    try {
+      const w = wartung.anstehend();
+      if (w && w.version !== angesagt) {
+        angesagt = w.version;
+        broadcast({ t: 'server:update', ...w, serverZeit: Date.now() });
+      } else if (!w && angesagt) {
+        angesagt = null;
+        broadcast({ t: 'server:update-abgesagt' });
+      }
+    } catch (err) {
+      console.error('[wartung]', (err as Error).message);
+    }
+  }, 5_000);
+
   // Termine, die in 15 Minuten beginnen, einmal ankündigen
   const gemeldet = new Set<string>();
   const terminTimer = setInterval(() => {
@@ -1456,6 +1485,7 @@ export function startBackgroundJobs(): () => void {
     clearInterval(reminderTimer);
     clearInterval(statusTimer);
     clearInterval(terminTimer);
+    clearInterval(wartungsTimer);
     clearInterval(heartbeat);
   };
 }

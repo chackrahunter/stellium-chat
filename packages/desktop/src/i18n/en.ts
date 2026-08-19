@@ -527,4 +527,6 @@ export const en: Partial<Dictionary> = {
   'update.bandCountdown': 'Version {version} installs in {zeit}',
   'update.bandPostponed': 'Version {version} installs when you quit',
   'update.bandPostpone': 'Later',
+  'wartung.countdown': 'The server updates in {zeit} — about {dauer} minutes offline',
+  'wartung.laeuft': 'The server is updating — about {dauer} minutes',
 };

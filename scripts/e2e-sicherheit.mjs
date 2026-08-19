@@ -52,9 +52,14 @@ function ueberWs(token, ereignis, warteAuf) {
         ws.send(JSON.stringify(typeof ereignis === 'function' ? ereignis(ev) : ereignis));
         return;
       }
-      if (bereit && (ev.t === warteAuf || ev.t === 'error')) {
+      // Seit der Server Kanalübersetzungen nachliefert, kommen laufend
+      // channel:upsert-Meldungen. Nur die zum gefragten Kanal zählt.
+      if (bereit && ev.t === warteAuf) {
+        const gemeint = typeof ereignis === 'object' ? ereignis.channelId : null;
+        if (gemeint && ev.channel && ev.channel.id !== gemeint) return;
         clearTimeout(timer); ws.close(); resolve(ev);
       }
+      if (bereit && ev.t === 'error') { clearTimeout(timer); ws.close(); resolve(ev); }
     };
     ws.onerror = () => { clearTimeout(timer); reject(new Error('Verbindungsfehler')); };
   });

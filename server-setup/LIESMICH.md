@@ -245,7 +245,7 @@ ENDE
 sudo chmod 600 /etc/stellium-update.env
 ```
 
-Ab dann sieht er stündlich nach, ob ein neuer Serverstand hochgeladen wurde,
+Ab dann sieht er alle 30 Minuten nach, ob ein neuer Serverstand hochgeladen wurde,
 lädt ihn, prüft die Prüfsumme und spielt ihn ein — mit derselben Rückfallebene
 wie von Hand. Nachsehen ohne einzuspielen:
 

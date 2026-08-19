@@ -26,7 +26,7 @@ import { CalendarPanel } from './components/CalendarPanel.jsx';
 import { FilesPanel } from './components/FilesPanel.jsx';
 import { ProtocolPanel } from './components/ProtocolPanel.jsx';
 import { IdeaBoard } from './components/IdeaBoard.jsx';
-import { UpdateBanner, UpdateWillkommen } from './components/UpdateBanner.jsx';
+import { UpdateBanner, UpdateWillkommen, ServerWartung } from './components/UpdateBanner.jsx';
 import { Toasts } from './components/Toasts.jsx';
 import { clsx } from './lib/format.js';
 
@@ -138,6 +138,7 @@ export function App() {
     <>
       <Cosmos />
       <div className="rahmen">
+        <ServerWartung />
         <UpdateBanner />
         <div className={clsx('app', threadParentId && 'app--thread')}>
         <Rail />

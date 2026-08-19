@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { ArrowRight, Download, Loader2, RefreshCw, Sparkles, X } from 'lucide-react';
+import { ArrowRight, Download, Loader2, RefreshCw, Server, Sparkles, X } from 'lucide-react';
 import { useStore } from '../state/store.js';
 import { useT } from '../i18n/index.js';
 
@@ -181,5 +181,73 @@ export function UpdateWillkommen() {
         </div>
       </motion.div>
     </div>
+  );
+}
+
+/**
+ * Der Server aktualisiert sich gleich — sichtbar für alle, mit derselben Uhr.
+ *
+ * Bewusst nicht wegklickbar: anders als bei einem Update der eigenen App kann
+ * hier niemand etwas entscheiden. Es passiert, und wer gerade schreibt, soll
+ * es vorher wissen statt mitten im Satz die Verbindung zu verlieren.
+ */
+export function ServerWartung() {
+  const t = useT();
+  const wartung = useStore((s) => s.serverUpdate);
+  const [jetzt, setJetzt] = useState(Date.now());
+
+  useEffect(() => {
+    if (!wartung) return undefined;
+    const uhr = setInterval(() => setJetzt(Date.now()), 1000);
+    return () => clearInterval(uhr);
+  }, [wartung]);
+
+  if (!wartung) return null;
+
+  const bisStart = Math.max(0, wartung.startetUm - jetzt);
+  const laeuft = bisStart === 0;
+  const vorbei = jetzt > wartung.startetUm + wartung.dauertEtwa;
+  if (vorbei) return null;
+
+  const minuten = Math.floor(bisStart / 60000);
+  const sekunden = Math.floor((bisStart % 60000) / 1000);
+  const zeit = minuten > 0 ? `${minuten}:${String(sekunden).padStart(2, '0')}` : `${sekunden} s`;
+  const dauer = Math.max(1, Math.round(wartung.dauertEtwa / 60000));
+
+  return (
+    <motion.div
+      className="wartung"
+      initial={{ height: 0, opacity: 0 }}
+      animate={{ height: 'auto', opacity: 1 }}
+      exit={{ height: 0, opacity: 0 }}
+      transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
+    >
+      <div className="wartung__inner">
+        <motion.span
+          className="wartung__icon"
+          animate={laeuft ? { rotate: 360 } : { scale: [1, 1.08, 1] }}
+          transition={laeuft
+            ? { duration: 1.6, repeat: Infinity, ease: 'linear' }
+            : { duration: 2.2, repeat: Infinity, ease: 'easeInOut' }}
+        >
+          <Server size={15} />
+        </motion.span>
+
+        <span className="wartung__text">
+          {laeuft
+            ? t('wartung.laeuft', { dauer })
+            : t('wartung.countdown', { zeit, dauer })}
+          {wartung.notes && <span className="wartung__notes"> — {wartung.notes.split('\n')[0]}</span>}
+        </span>
+
+        {/* Ein Balken, der zur vollen Länge zusammenläuft: man sieht auf einen
+            Blick, wie viel Zeit noch bleibt, ohne die Zahl zu lesen. */}
+        {!laeuft && (
+          <span className="wartung__bar">
+            <span style={{ width: `${Math.min(100, (1 - bisStart / (15 * 60000)) * 100)}%` }} />
+          </span>
+        )}
+      </div>
+    </motion.div>
   );
 }

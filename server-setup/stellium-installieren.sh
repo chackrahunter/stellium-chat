@@ -500,6 +500,13 @@ map $http_upgrade $connection_upgrade {
 }
 MAP
 
+# Die Serveransicht gehört nicht ins Netz. Der Dienst selbst weist Fremde
+# schon ab; das hier ist die zweite Tür davor.
+cat > /etc/nginx/snippets/stellium-nurhier.conf <<'NURHIER'
+location /konsole    { return 404; }
+location /api/system { return 404; }
+NURHIER
+
 cat > /etc/nginx/snippets/stellium-proxy.conf <<'PROXY'
 proxy_pass http://127.0.0.1:8787;
 
@@ -572,6 +579,7 @@ server {
   server_name ${1:-_};
 
   include snippets/stellium-sicherheit.conf;
+  include snippets/stellium-nurhier.conf;
 
   location / {
     include snippets/stellium-proxy.conf;
@@ -614,6 +622,7 @@ server {
   add_header Strict-Transport-Security "max-age=63072000; includeSubDomains" always;
 
   location /.well-known/acme-challenge/ { root /var/www/html; }
+  include snippets/stellium-nurhier.conf;
 
   location / {
     include snippets/stellium-proxy.conf;
@@ -872,10 +881,16 @@ install -m 755 "$ZIEL/server-setup/stellium-zugang.sh" /usr/local/bin/stellium-z
 install -m 755 "$ZIEL/server-setup/stellium-tunnel.sh" /usr/local/bin/stellium-tunnel
 install -m 755 "$ZIEL/server-setup/stellium-aktualisieren.sh" /usr/local/bin/stellium-update
 install -m 755 "$ZIEL/server-setup/stellium-selbstupdate.sh" /usr/local/bin/stellium-selbstupdate
+
+# Die Knöpfe der Serveransicht brauchen genau drei Dinge — sonst nichts.
+cat > /etc/sudoers.d/stellium-konsole <<SUDO
+$BENUTZER ALL=(root) NOPASSWD: /usr/bin/systemctl restart stellium, /usr/local/bin/stellium-sichern, /usr/local/bin/stellium-selbstupdate pruefen
+SUDO
+chmod 440 /etc/sudoers.d/stellium-konsole
 ok "stellium-zugang, stellium-tunnel, stellium-update, stellium-selbstupdate"
 
-# Stündlich nach einem neuen Serverstand sehen. Ohne hinterlegten Zugang
-# meldet das Skript sich mit einem Hinweis und tut sonst nichts.
+# Alle dreißig Minuten nach einem neuen Serverstand sehen. Ohne hinterlegten
+# Zugang meldet das Skript sich mit einem Hinweis und tut sonst nichts.
 cat > /etc/systemd/system/stellium-selbstupdate.service <<'SU1'
 [Unit]
 Description=Stellium: nach einem neuen Serverstand sehen
@@ -887,18 +902,18 @@ ExecStart=/usr/local/bin/stellium-selbstupdate
 SU1
 cat > /etc/systemd/system/stellium-selbstupdate.timer <<'SU2'
 [Unit]
-Description=Stündlich nach einem neuen Serverstand sehen
+Description=Alle 30 Minuten nach einem neuen Serverstand sehen
 [Timer]
-OnBootSec=10min
-OnUnitActiveSec=1h
-RandomizedDelaySec=10min
+OnBootSec=5min
+OnUnitActiveSec=30min
+RandomizedDelaySec=3min
 [Install]
 WantedBy=timers.target
 SU2
 systemctl daemon-reload
 systemctl enable --quiet stellium-selbstupdate.timer
 systemctl start stellium-selbstupdate.timer
-ok "sieht stündlich nach neuen Serverständen"
+ok "sieht alle 30 Minuten nach neuen Serverständen"
 
 cat > /usr/local/bin/stellium <<KONSOLE
 #!/usr/bin/env bash
@@ -908,18 +923,47 @@ KONSOLE
 chmod 755 /usr/local/bin/stellium
 
 # Beim Anmelden von selbst öffnen.
-if [[ -d /etc/xdg/autostart ]] && command -v lxterminal >/dev/null 2>&1; then
-  # Mit Desktop: eigenes Terminalfenster.
-  cat > /etc/xdg/autostart/stellium-konsole.desktop <<'DESKTOP'
+BROWSER=""
+for kandidat in chromium-browser chromium google-chrome firefox; do
+  command -v "$kandidat" >/dev/null 2>&1 && { BROWSER="$kandidat"; break; }
+done
+
+if [[ -d /etc/xdg/autostart && -n "$BROWSER" ]]; then
+  # Mit Desktop: ein eigenes Fenster mit der Serveransicht. Kein Terminal —
+  # eine Übersicht mit Knöpfen liest sich schlicht besser als Textausgabe.
+  if [[ "$BROWSER" == firefox ]]; then
+    START="$BROWSER --new-window http://127.0.0.1:$PORT/konsole"
+  else
+    START="$BROWSER --app=http://127.0.0.1:$PORT/konsole --window-size=1240,860 --disable-features=TranslateUI"
+  fi
+
+  cat > /etc/xdg/autostart/stellium-konsole.desktop <<DESKTOP
 [Desktop Entry]
 Type=Application
-Name=Stellium — Serverstatus
-Comment=Zeigt, wie es dem Chat-Server geht
-Exec=lxterminal --title="Stellium" --geometry=94x34 -e /usr/local/bin/stellium
+Name=Stellium — Server
+Comment=Übersicht und Bedienung des Chat-Servers
+Exec=$START
+Icon=utilities-system-monitor
 Terminal=false
-X-GNOME-Autostart-Delay=8
+X-GNOME-Autostart-Delay=12
 DESKTOP
-  ok "Öffnet sich beim Anmelden in einem eigenen Fenster"
+
+  # Auch im Startmenü, damit man es nach dem Schließen wiederfindet.
+  install -d /usr/share/applications
+  cat > /usr/share/applications/stellium-konsole.desktop <<DESKTOP
+[Desktop Entry]
+Type=Application
+Name=Stellium — Server
+Comment=Übersicht und Bedienung des Chat-Servers
+Exec=$START
+Icon=utilities-system-monitor
+Terminal=false
+Categories=System;Monitor;
+DESKTOP
+
+  ok "Öffnet sich beim Anmelden als eigenes Fenster ($BROWSER)"
+elif [[ -d /etc/xdg/autostart ]]; then
+  warn "Kein Browser gefunden — die Ansicht gibt es unter http://127.0.0.1:$PORT/konsole"
 else
   # Ohne Desktop: einmalige Übersicht bei jeder Anmeldung an der Konsole.
   cat > /etc/profile.d/zz-stellium.sh <<'PROFIL'

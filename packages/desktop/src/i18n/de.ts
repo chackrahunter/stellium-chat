@@ -535,4 +535,6 @@ export const de = {
   'update.bandCountdown': 'Version {version} wird in {zeit} installiert',
   'update.bandPostponed': 'Version {version} wird beim Beenden installiert',
   'update.bandPostpone': 'Später',
+  'wartung.countdown': 'Der Server aktualisiert sich in {zeit} — etwa {dauer} Minuten ohne Verbindung',
+  'wartung.laeuft': 'Der Server aktualisiert sich gerade — etwa {dauer} Minuten',
 } as const;

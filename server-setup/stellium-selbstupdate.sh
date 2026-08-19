@@ -5,7 +5,7 @@
 #   stellium-selbstupdate           nachsehen und, wenn etwas da ist, einspielen
 #   stellium-selbstupdate pruefen   nur nachsehen
 #
-# Läuft stündlich über einen Timer. Eingespielt wird mit derselben
+# Läuft alle 30 Minuten über einen Timer. Eingespielt wird mit derselben
 # Rückfallebene wie von Hand: startet der neue Stand nicht, kommt der alte
 # zurück.
 #
@@ -86,6 +86,27 @@ info "Neu verfügbar: ${FETT}$NEU${AUS}  ${GRAU}(hier: $HIER)${AUS}"
 
 [[ "$NUR_PRUEFEN" == "pruefen" ]] && exit 0
 
+# ── Ankündigen ──────────────────────────────────────────────────
+#
+# Erst Bescheid geben, dann warten, dann machen. Mitten im Gespräch
+# kommentarlos zu verschwinden wäre unhöflich; eine Viertelstunde reicht, um
+# einen Satz zu Ende zu schreiben.
+VORLAUF="${STELLIUM_UPDATE_VORLAUF:-900}"        # Sekunden
+DAUER="${STELLIUM_UPDATE_DAUER:-240}"            # geschätzte Auszeit
+
+if [[ "$VORLAUF" -gt 0 ]]; then
+  schritt "Ankündigen"
+  START=$(( ($(date +%s) + VORLAUF) * 1000 ))
+  jq -n --arg v "$NEU" --arg n "$NOTIZ" --argjson s "$START" --argjson d "$(( DAUER * 1000 ))" \
+    '{version:$v, notes:(if $n == "" then null else $n end), startetUm:$s, dauertEtwa:$d}' \
+    > /var/lib/stellium/wartung.json
+  chown stellium:stellium /var/lib/stellium/wartung.json 2>/dev/null || true
+  ok "Alle sehen jetzt eine Uhr: in $(( VORLAUF / 60 )) Minuten geht es los"
+
+  info "warte"
+  sleep "$VORLAUF"
+fi
+
 schritt "Holen"
 ARBEIT="$(mktemp -d /tmp/stellium-selbstupdate-XXXX)"
 trap 'rm -rf "$ARBEIT"' EXIT
@@ -109,4 +130,11 @@ ok "bereit"
 schritt "Einspielen"
 # Von hier an übernimmt das mitgelieferte Skript — samt Sicherung und
 # Rückfall, falls der neue Stand nicht startet.
-bash "$QUELLE"
+if bash "$QUELLE"; then
+  rm -f /var/lib/stellium/wartung.json
+  ok "fertig"
+else
+  # Die Ankündigung muss weg, sonst steht bei allen ewig eine Uhr.
+  rm -f /var/lib/stellium/wartung.json
+  fehler "Das Einspielen ist fehlgeschlagen. Der alte Stand läuft weiter."
+fi

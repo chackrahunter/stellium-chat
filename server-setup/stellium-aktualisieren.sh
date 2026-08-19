@@ -115,6 +115,8 @@ ok "stellium, stellium-zugang, stellium-tunnel, stellium-update"
 
 # ── Starten ─────────────────────────────────────────────────────
 schritt "Neu starten"
+# Die Ankündigung hat ihren Zweck erfüllt.
+rm -f /var/lib/stellium/wartung.json
 systemctl restart stellium
 sleep 5
 

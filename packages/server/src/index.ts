@@ -9,6 +9,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import statisch from '@fastify/static';
 import { registerRoutes } from './http/routes.js';
+import { registerKonsole } from './http/konsole.js';
 import { handleConnection, startBackgroundJobs } from './ws/gateway.js';
 import { aiCapabilities, dropForeignTranslations, warmUpModels } from './translation/index.js';
 import { ensureSeed } from './seed.js';
@@ -39,6 +40,7 @@ async function main(): Promise<void> {
   await app.register(websocket, { options: { maxPayload: 4 * 1024 * 1024 } });
 
   await registerRoutes(app);
+  await registerKonsole(app);
 
   app.register(async (scope) => {
     scope.get('/ws', { websocket: true }, (socket) => handleConnection(socket as any));

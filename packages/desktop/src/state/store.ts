@@ -69,6 +69,17 @@ interface StoreState {
     restSekunden?: number;
     verschoben?: boolean;
   };
+  /**
+   * Angekündigte Auszeit des Servers. Die Zeiten sind bereits auf die
+   * eigene Uhr umgerechnet — der Server schickt seine mit, damit eine
+   * falsch gestellte Uhr hier keinen anderen Countdown ergibt.
+   */
+  serverUpdate: {
+    version: string;
+    notes: string | null;
+    startetUm: number;
+    dauertEtwa: number;
+  } | null;
   ideas: Record<string, Idea>;
   ideaComments: Record<string, IdeaComment[]>;
   protocol: MeetingProtocol | null;
@@ -321,6 +332,7 @@ export const useStore = create<StoreState>((set, get) => ({
   extractedTasks: null,
   extractingTasks: false,
   update: { zustand: 'aus' },
+  serverUpdate: null,
   ideas: {},
   ideaComments: {},
   protocol: null,
@@ -1113,6 +1125,26 @@ socket.onEvent((ev: ServerEvent) => {
 
     case 'idea:comments':
       useStore.setState((s) => ({ ideaComments: { ...s.ideaComments, [ev.ideaId]: ev.comments } }));
+      break;
+
+    case 'server:update': {
+      // Uhren gehen auseinander. Der Server schickt seine mit; die
+      // Abweichung rechnen wir einmal heraus, dann zeigt jedes Gerät
+      // dieselbe Restzeit.
+      const abweichung = Date.now() - ev.serverZeit;
+      useStore.setState({
+        serverUpdate: {
+          version: ev.version,
+          notes: ev.notes,
+          startetUm: ev.startetUm + abweichung,
+          dauertEtwa: ev.dauertEtwa,
+        },
+      });
+      break;
+    }
+
+    case 'server:update-abgesagt':
+      useStore.setState({ serverUpdate: null });
       break;
 
     case 'release:available':

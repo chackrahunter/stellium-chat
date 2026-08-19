@@ -387,6 +387,19 @@ export interface CalendarEvent {
   attendees: EventAttendee[];
 }
 
+/* ── Ankündigung einer Serverauszeit ──────────────────────────── */
+
+export interface ServerUpdateInfo {
+  version: string;
+  notes: string | null;
+  /** Wann es losgeht — Millisekunden seit der Epoche. */
+  startetUm: number;
+  /** Wie lange es voraussichtlich dauert, in Millisekunden. */
+  dauertEtwa: number;
+  /** Uhrzeit des Servers beim Absenden, um Abweichungen auszugleichen. */
+  serverZeit: number;
+}
+
 /* ── App-Versionen ────────────────────────────────────────────── */
 
 /** Auch der Server selbst bekommt seine Stände über denselben Weg. */

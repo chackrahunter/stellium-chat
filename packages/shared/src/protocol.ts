@@ -170,6 +170,14 @@ export type ServerEvent =
   | { t: 'release:available'; release: ReleaseInfo }
   /** Bitte diesen Kanal anzeigen — etwa, wenn er gerade erst entstanden ist. */
   | { t: 'channel:focus'; channelId: string }
+  /**
+   * Der Server aktualisiert sich gleich selbst und ist dabei kurz weg.
+   * Alle Angaben in Millisekunden seit der Epoche, damit alle Uhren
+   * dieselbe Zeit anzeigen — eine mitgeschickte Restdauer liefe auf jedem
+   * Gerät anders, je nachdem wann die Meldung ankam.
+   */
+  | { t: 'server:update'; version: string; notes: string | null; startetUm: number; dauertEtwa: number; serverZeit: number }
+  | { t: 'server:update-abgesagt' }
 
   | { t: 'event:list'; events: CalendarEvent[] }
   | { t: 'event:upsert'; event: CalendarEvent }

@@ -2427,3 +2427,50 @@ button.msg__author:hover { color: var(--violet-soft); text-decoration: underline
   border-radius: 50%;
   background: var(--violet);
 }
+
+/* ── Angekündigte Auszeit des Servers ──────────────────────── */
+
+.wartung {
+  position: relative;
+  z-index: 2;
+  overflow: hidden;
+  background: linear-gradient(90deg, color-mix(in oklab, var(--amber) 20%, var(--bg-elevated)), var(--bg-elevated));
+  border-bottom: 1px solid var(--line-strong);
+}
+
+.wartung__inner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.wartung__icon {
+  display: grid;
+  place-items: center;
+  width: 26px; height: 26px;
+  flex: none;
+  border-radius: 8px;
+  color: #1a1207;
+  background: linear-gradient(135deg, var(--amber), #ffcc66);
+}
+
+.wartung__text { flex: 1; min-width: 0; }
+.wartung__notes { color: var(--text-dim); }
+
+.wartung__bar {
+  width: 140px; height: 4px;
+  flex: none;
+  border-radius: 999px;
+  background: var(--bg-sunken);
+  overflow: hidden;
+}
+
+.wartung__bar > span {
+  display: block; height: 100%;
+  border-radius: 999px;
+  background: var(--amber);
+  transition: width 1s linear;
+}
