@@ -40,7 +40,8 @@ SICHERUNG="/var/lib/stellium/quelltext-vorher"
 # Woher kommt der neue Stand? Aus dem Paket, in dem dieses Skript liegt.
 QUELLE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 [[ -f "$QUELLE/package.json" && -d "$QUELLE/packages/server" ]] \
-  || fehler "Dieses Skript gehört in ein ausgepacktes Stellium-Paket."
+  || fehler "Dieser Teil arbeitet im entpackten Paket und wird von dort aufgerufen.
+    Zum Aktualisieren von Hand:  ${FETT}sudo stellium-update${AUS}"
 [[ "$QUELLE" != "$ZIEL" ]] || fehler "Quelle und Ziel sind dasselbe Verzeichnis."
 
 [[ -d "$ZIEL" ]] || fehler "$ZIEL gibt es nicht. Für die Ersteinrichtung: server-setup/stellium-installieren.sh"
@@ -121,7 +122,11 @@ for werkzeug in stellium-zugang stellium-tunnel stellium-selbstupdate; do
 done
 [[ -f "$ZIEL/server-setup/stellium-konsole.mjs" ]] \
   && install -m 755 "$ZIEL/server-setup/stellium-konsole.mjs" /usr/local/lib/stellium/konsole.mjs
-install -m 755 "$ZIEL/server-setup/stellium-aktualisieren.sh" /usr/local/bin/stellium-update
+# "stellium-update" ist der Befehl, den man von Hand aufruft: er holt den
+# neuen Stand vom Server. Der Teil, der im entpackten Paket arbeitet, liegt
+# daneben und wird von dort aufgerufen — von Hand war er nur verwirrend.
+install -m 755 "$ZIEL/server-setup/stellium-selbstupdate.sh" /usr/local/bin/stellium-update
+install -m 755 "$ZIEL/server-setup/stellium-aktualisieren.sh" /usr/local/bin/stellium-einspielen
 ok "stellium, stellium-zugang, stellium-tunnel, stellium-update"
 
 # ── Serveransicht als Fenster ───────────────────────────────────

@@ -1,5 +1,5 @@
+import { APP, LOGIN, PW, SERVER as S } from './zugang.mjs';
 /** Verteilung neuer App-Versionen: hochladen, prüfen, herunterladen. */
-const S = 'http://localhost:8787';
 const ergebnisse = [];
 const pruefe = async (name, fn) => {
   try { const n = await fn(); ergebnisse.push(true); console.log(`  ✓ ${name}${n ? ` — ${n}` : ''}`); }
@@ -11,7 +11,7 @@ const anmeldung = await (await fetch(`${S}/api/auth/login`, {
   method: 'POST', headers: { 'content-type': 'application/json' },
   body: JSON.stringify({
     login: process.env.STELLIUM_TEST_LOGIN ?? 'don',
-    password: process.env.STELLIUM_TEST_PASSWORT ?? 'MeinLangesPasswort-2026',
+    password: PW,
   }),
 })).json();
 if (!anmeldung.token) {

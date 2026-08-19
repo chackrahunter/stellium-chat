@@ -1,10 +1,7 @@
 /** Die Aktualisierungsansicht muss sagen, wenn der Server hinterherhinkt. */
 import { chromium } from 'playwright';
+import { APP, LOGIN, PW, SERVER as S } from './zugang.mjs';
 
-const APP = 'http://localhost:5173';
-const S = process.env.STELLIUM_SERVER ?? 'http://localhost:8787';
-const LOGIN = process.env.STELLIUM_TEST_LOGIN ?? 'don';
-const PW = process.env.STELLIUM_TEST_PASSWORT ?? 'MeinLangesPasswort-2026';
 const DB = process.env.STELLIUM_DB ?? 'data/stellium.db';
 
 const ergebnisse = [];

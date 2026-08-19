@@ -32,3 +32,6 @@ scripts/screenshots/
 
 # Fertige Installationsdateien — gehören in ein GitHub-Release, nicht ins Repo
 downloads/
+
+# Zugang für die Prüfläufe — gehört niemals ins Repository.
+.stellium-test

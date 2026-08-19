@@ -1,10 +1,8 @@
+import { APP, LOGIN, PW, SERVER as S } from './zugang.mjs';
 /**
  * Prüft die Zugangsregeln des Servers — die Stellen, an denen ein Fehler
  * bedeutet, dass jemand etwas sieht oder tut, was ihm nicht zusteht.
  */
-const S = process.env.STELLIUM_SERVER ?? 'http://localhost:8787';
-const LOGIN = process.env.STELLIUM_TEST_LOGIN ?? 'don';
-const PW = process.env.STELLIUM_TEST_PASSWORT ?? 'MeinLangesPasswort-2026';
 
 const ergebnisse = [];
 const pruefe = async (n, f) => {

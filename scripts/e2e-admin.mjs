@@ -9,12 +9,12 @@ import { chromium } from 'playwright';
 import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { APP, LOGIN, PW, SERVER as S } from './zugang.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const shots = path.join(root, 'scripts/screenshots');
 fs.mkdirSync(shots, { recursive: true });
 
-const APP = 'http://localhost:5173';
 const einmal = process.argv[2];
 const neuerNutzer = process.argv[3] ?? 'admin';
 // Eigener Name je Durchlauf — sonst kollidiert der zweite Lauf mit dem ersten.
@@ -70,8 +70,8 @@ await pruefe('Eigene Zugangsdaten setzen', async () => {
   await felder.nth(0).fill('Don-Calvin Kuhn');
   await felder.nth(1).fill(eigenerName);
   await felder.nth(2).fill(`${eigenerName}@stellium.de`);
-  await felder.nth(3).fill('MeinLangesPasswort-2026');
-  await felder.nth(4).fill('MeinLangesPasswort-2026');
+  await felder.nth(3).fill(PW);
+  await felder.nth(4).fill(PW);
   await seite.screenshot({ path: path.join(shots, 'einrichtung.png') });
   await seite.locator('.auth__card button', { hasText: 'Einrichtung abschließen' }).click();
   await seite.waitForSelector('.app', { timeout: 20000 });

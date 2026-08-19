@@ -136,15 +136,28 @@ function zugang() {
     } catch { /* nächstes Konto */ }
   }
 
+  /* Zeile 1 Benutzername, Zeile 2 Passwort, Zeile 3 (freiwillig) Serveradresse. */
   const datei = path.join(os.homedir(), '.stellium-veroeffentlichen');
   if (fs.existsSync(datei)) {
-    const [login, passwort] = fs.readFileSync(datei, 'utf8').split('\n').map((z) => z.trim());
-    if (login && passwort) return { login, passwort, quelle: datei };
+    const [login, passwort, adresse] = fs.readFileSync(datei, 'utf8').split('\n').map((z) => z.trim());
+    if (login && passwort) return { login, passwort, server: adresse || '', quelle: datei };
   }
   return null;
 }
 
-const server = (process.env.STELLIUM_SERVER || 'https://stellium-chat.duckdns.org:9443').replace(/\/+$/, '');
+/** Serveradresse aus dem Schlüsselbund — dort darf sie liegen. */
+function serverAusSchluesselbund() {
+  try {
+    return execSync('security find-generic-password -s stellium-server -w', {
+      encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+  } catch { return ''; }
+}
+
+/* Die Adresse steht nicht im Quelltext: das Repository ist öffentlich, und
+   die Anschrift des eigenen Servers geht niemanden etwas an. Sie kommt aus
+   der Umgebung oder aus der Zugangsdatei. */
+const server = (process.env.STELLIUM_SERVER || serverAusSchluesselbund() || zugang()?.server || '').replace(/\/+$/, '');
 
 /* ── Los ─────────────────────────────────────────────────────── */
 
@@ -156,6 +169,12 @@ sag(`   ${F.grau}${notizen.split('\n').length} Punkte in der Änderungsliste${F.
    erst beim echten Ausliefern, dass er nicht hinterlegt ist. Benutzt wird er
    dabei nicht. */
 const daten = zugang();
+if (!probe && !server && !ohneServer) {
+  raus('Keine Serveradresse.\n\n'
+    + '  Einmal im Schlüsselbund ablegen:\n'
+    + `  ${F.fett}security add-generic-password -U -s stellium-server -w https://dein-server:9443${F.aus}\n\n`
+    + '  Oder STELLIUM_SERVER setzen.');
+}
 if (!probe && !daten && !ohneServer) {
   raus('Kein Zugang zum Stellium-Server gefunden.\n\n'
     + '  Einmal im Schlüsselbund ablegen (Passwort wird nicht angezeigt):\n'

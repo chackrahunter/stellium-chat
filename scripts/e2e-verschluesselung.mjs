@@ -1,12 +1,9 @@
 /** Nachrichten liegen verschlüsselt in der Datenbank — und funktionieren trotzdem. */
 import { chromium } from 'playwright';
 import { DatabaseSync } from 'node:sqlite';
+import { APP, LOGIN, PW, SERVER as S } from './zugang.mjs';
 
-const APP = 'http://localhost:5173';
-const S = process.env.STELLIUM_SERVER ?? 'http://localhost:8787';
 const DB = process.env.STELLIUM_DB ?? 'data/stellium.db';
-const LOGIN = process.env.STELLIUM_TEST_LOGIN ?? 'don';
-const PW = process.env.STELLIUM_TEST_PASSWORT ?? 'MeinLangesPasswort-2026';
 
 const ergebnisse = [];
 const pruefe = async (n, f) => {

@@ -1,15 +1,14 @@
 /** Prüft die neuen Bereiche: KI-Reiter, Aufgaben, Kalender, Dateien, Tour. */
 import { chromium } from 'playwright';
 import fs from 'node:fs';
+import { APP, LOGIN, PW, SERVER as S } from './zugang.mjs';
 
 const SERVER = 'http://localhost:8787';
-const APP = 'http://localhost:5173';
 const SHOTS = '/private/tmp/claude-501/-Users-don-calvinkuhn-Documents-Projekte/ed07e87c-fec9-446f-b57e-d0359eadaf24/scratchpad/shots';
 fs.mkdirSync(SHOTS, { recursive: true });
 
-const LOGIN = process.env.STELLIUM_TEST_LOGIN ?? 'don';
 const EINMAL = process.env.STELLIUM_OTP ?? 'KY4D-3FKZ-9EBC-UQRZ';
-const PASSWORT = process.env.STELLIUM_TEST_PASSWORT ?? 'MeinLangesPasswort-2026';
+const PASSWORT = PW;
 
 const ergebnisse = [];
 let seite;

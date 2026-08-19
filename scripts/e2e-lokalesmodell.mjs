@@ -1,10 +1,7 @@
 /** Ein Modell auf der eigenen Maschine muss alle KI-Funktionen tragen. */
 import { chromium } from 'playwright';
+import { APP, LOGIN, PW, SERVER as S } from './zugang.mjs';
 
-const APP = 'http://localhost:5173';
-const S = process.env.STELLIUM_SERVER ?? 'http://localhost:8787';
-const LOGIN = process.env.STELLIUM_TEST_LOGIN ?? 'don';
-const PW = process.env.STELLIUM_TEST_PASSWORT ?? 'MeinLangesPasswort-2026';
 const LOKAL = process.env.STELLIUM_LOKAL ?? 'http://127.0.0.1:11434/v1';
 
 const ergebnisse = [];

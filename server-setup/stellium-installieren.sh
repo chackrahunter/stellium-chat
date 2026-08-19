@@ -879,7 +879,11 @@ chmod 755 /usr/local/lib/stellium/konsole.mjs
 
 install -m 755 "$ZIEL/server-setup/stellium-zugang.sh" /usr/local/bin/stellium-zugang
 install -m 755 "$ZIEL/server-setup/stellium-tunnel.sh" /usr/local/bin/stellium-tunnel
-install -m 755 "$ZIEL/server-setup/stellium-aktualisieren.sh" /usr/local/bin/stellium-update
+# "stellium-update" ist der Befehl, den man von Hand aufruft: er holt den
+# neuen Stand vom Server. Der Teil, der im entpackten Paket arbeitet, liegt
+# daneben und wird von dort aufgerufen — von Hand war er nur verwirrend.
+install -m 755 "$ZIEL/server-setup/stellium-selbstupdate.sh" /usr/local/bin/stellium-update
+install -m 755 "$ZIEL/server-setup/stellium-aktualisieren.sh" /usr/local/bin/stellium-einspielen
 install -m 755 "$ZIEL/server-setup/stellium-selbstupdate.sh" /usr/local/bin/stellium-selbstupdate
 
 # Die Knöpfe der Serveransicht brauchen genau drei Dinge — sonst nichts.
@@ -887,7 +891,7 @@ cat > /etc/sudoers.d/stellium-konsole <<SUDO
 $BENUTZER ALL=(root) NOPASSWD: /usr/bin/systemctl restart stellium, /usr/local/bin/stellium-sichern, /usr/local/bin/stellium-selbstupdate pruefen
 SUDO
 chmod 440 /etc/sudoers.d/stellium-konsole
-ok "stellium-zugang, stellium-tunnel, stellium-update, stellium-selbstupdate"
+ok "stellium-zugang, stellium-tunnel, stellium-update, stellium-einspielen"
 
 # Alle dreißig Minuten nach einem neuen Serverstand sehen. Ohne hinterlegten
 # Zugang meldet das Skript sich mit einem Hinweis und tut sonst nichts.
@@ -1133,6 +1137,7 @@ cat <<BEFEHLE
      ${BLAU}stellium${AUS}                        Statuskonsole
      ${GRAU}sudo stellium-zugang${AUS}            Ports ohne Router-Zugang öffnen
      ${GRAU}sudo stellium-tunnel${AUS}            Weg nach außen ohne Portfreigabe
+     ${GRAU}sudo stellium-update${AUS}            neuen Stand holen und einspielen
      ${GRAU}sudo systemctl restart stellium${AUS} neu starten
      ${GRAU}sudo journalctl -u stellium -f${AUS}  mitlesen
      ${GRAU}sudo stellium-sichern${AUS}           sofort sichern

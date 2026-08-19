@@ -11,6 +11,7 @@ import { chromium } from 'playwright';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { LOGIN, PW, SERVER as S } from './zugang.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const shots = path.join(root, 'scripts/screenshots');
@@ -25,7 +26,7 @@ const sichtbar = process.argv.includes('--sichtbar');
  * Die Kolleg:in für den Übersetzungstest legt der Test selbst an.
  */
 const KONTO = process.env.STELLIUM_TEST_LOGIN ?? 'don';
-const PASSWORT = process.env.STELLIUM_TEST_PASSWORT ?? 'MeinLangesPasswort-2026';
+const PASSWORT = PW;
 let zweiterToken = null;
 
 const ergebnisse = [];

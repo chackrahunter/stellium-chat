@@ -47,8 +47,13 @@ liegt. Einmalig, das Passwort wird dabei nicht angezeigt:
 security add-generic-password -U -s stellium-veroeffentlichen -a claude -w
 ```
 
-Die Serveradresse kommt aus `STELLIUM_SERVER`; ohne Angabe
-`https://stellium-chat.duckdns.org:9443`.
+Die Serveradresse steht bewusst nicht im Quelltext — das Repository ist
+öffentlich. Sie kommt aus `STELLIUM_SERVER`, aus dem Schlüsselbund
+(`stellium-server`) oder aus Zeile 3 von `~/.stellium-veroeffentlichen`:
+
+```bash
+security add-generic-password -U -s stellium-server -w https://dein-server:9443
+```
 
 ## Wenn etwas schiefgeht
 
@@ -58,7 +63,7 @@ Die Serveradresse kommt aus `STELLIUM_SERVER`; ohne Angabe
 * **GitHub oder Git schlagen fehl** — das Skript warnt und macht weiter; die
   Auslieferung an die Clients ist davon nicht betroffen.
 * **Nichts kommt an** — nachsehen, ob der Pi läuft:
-  `curl -sI https://stellium-chat.duckdns.org:9443/api/releases`
+  `curl -sI "$STELLIUM_SERVER/api/releases"`
 
 ## Prüfläufe
 
