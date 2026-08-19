@@ -22,7 +22,7 @@ import * as files from '../services/files.js';
 import * as releases from '../services/releases.js';
 import { downloadSeite, systemErkennen } from './download/seite.js';
 
-import { broadcastAll, sitzungenBeenden } from '../ws/gateway.js';
+import { broadcastAll, sitzungenBeenden, verbindungen } from '../ws/gateway.js';
 import * as ablage from '../services/ablage.js';
 
 function bearer(req: FastifyRequest): string | null {
@@ -144,6 +144,7 @@ setInterval(() => {
 
 export async function registerRoutes(app: FastifyInstance): Promise<void> {
   app.get('/api/health', async () => ({
+    verbunden: verbindungen(),
     ok: true,
     workspace: config.workspaceName,
     ai: aiCapabilities(),

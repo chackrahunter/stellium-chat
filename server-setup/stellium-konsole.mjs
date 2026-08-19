@@ -398,6 +398,7 @@ async function daten() {
       tunnel: dienstAktiv('stellium-tunnel') || dienstAktiv('cloudflared'),
     },
     ki: g?.ai ?? null,
+    verbunden: g?.verbunden ?? null,
     inhalt: zahlen(),
     ablage: ablage(),
     zertifikat: zertifikat(),
@@ -469,6 +470,13 @@ async function zeichnen() {
     if (g.ai.transcription) feld('Sprachnachricht', 'Umschrift möglich', F.gruen);
   } else if (chat) {
     feld('Übersetzung', 'Server antwortet noch nicht', F.gelb);
+  }
+
+  if (g?.verbunden) {
+    const { clients, benutzer } = g.verbunden;
+    feld('Verbunden', clients
+      ? `${clients} ${clients === 1 ? 'Verbindung' : 'Verbindungen'} · ${benutzer} ${benutzer === 1 ? 'Person' : 'Personen'}`
+      : 'niemand', clients ? F.gruen : F.grau);
   }
 
   if (db) {

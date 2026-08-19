@@ -40,6 +40,8 @@ TEXTE = {
         "gesperrt": "{n} gesperrt", "wacht": "wacht, nichts gesperrt",
         "konten": "Konten", "kanaele": "Kanäle", "nachrichten": "Nachrichten",
         "ablage": "Dateiablage", "dateien": "Dateien", "belegt": "belegt",
+        "verbunden": "Verbunden", "verbindung": "Verbindung", "verbindungen": "Verbindungen",
+        "person": "Person", "personen": "Personen", "niemand": "niemand",
         "empfangen": "empfangen", "gesendet": "gesendet",
         "fuss": "Aktualisiert sich alle zwei Sekunden  ·  im Terminal:  stellium-konsole",
         "verbinde": "verbinde …", "keine_verbindung": "Keine Verbindung zur Konsole: {f}",
@@ -63,6 +65,8 @@ TEXTE = {
         "gesperrt": "{n} blocked", "wacht": "watching, nothing blocked",
         "konten": "accounts", "kanaele": "channels", "nachrichten": "messages",
         "ablage": "File storage", "dateien": "files", "belegt": "used",
+        "verbunden": "Connected", "verbindung": "connection", "verbindungen": "connections",
+        "person": "person", "personen": "people", "niemand": "nobody",
         "empfangen": "received", "gesendet": "sent",
         "fuss": "Refreshes every two seconds  ·  in the terminal:  stellium-konsole",
         "verbinde": "connecting …", "keine_verbindung": "No connection to the console: {f}",
@@ -529,6 +533,15 @@ class Konsole:
                              F["gut"] if an else F["warn"])
             if ki.get("model"):
                 self.k_chat.feld("modell", ki["model"])
+        verbunden = d.get("verbunden") or {}
+        clients = verbunden.get("clients", 0)
+        leute = verbunden.get("benutzer", 0)
+        self.k_chat.feld("verbunden",
+                         f"{clients} {T('verbindung') if clients == 1 else T('verbindungen')}"
+                         f"  ·  {leute} {T('person') if leute == 1 else T('personen')}"
+                         if clients else T("niemand"),
+                         F["gut"] if clients else F["zeit"])
+
         inhalt = d.get("inhalt") or {}
         teile = [f"{inhalt[k]} {T(n)}" for k, n in
                  (("users", "konten"), ("channels", "kanaele"), ("messages", "nachrichten"))

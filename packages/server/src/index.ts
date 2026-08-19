@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 import statisch from '@fastify/static';
 import { registerRoutes } from './http/routes.js';
 import { registerKonsole } from './http/konsole.js';
-import { handleConnection, startBackgroundJobs } from './ws/gateway.js';
+import { handleConnection, startBackgroundJobs, anwesenheitZuruecksetzen, verbindungen } from './ws/gateway.js';
 import {
   aiCapabilities, anbieterAusEinstellungen, dropForeignTranslations, warmUpModels,
 } from './translation/index.js';
@@ -94,6 +94,8 @@ async function main(): Promise<void> {
     });
   }
 
+  // Erst aufräumen, dann horchen: der Stand von vorhin gilt nicht mehr.
+  anwesenheitZuruecksetzen();
   const stopJobs = startBackgroundJobs();
 
   const shutdown = async (signal: string) => {

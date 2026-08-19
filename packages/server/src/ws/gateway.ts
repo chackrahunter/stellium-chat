@@ -1614,3 +1614,21 @@ export function sitzungenBeenden(userId: string, grund = 'Dieses Konto ist nicht
 export function onlineUserIds(): string[] {
   return [...byUser.keys()];
 }
+
+/** Wie viele Verbindungen gerade offen sind — und wie viele Menschen dahinter. */
+export function verbindungen(): { clients: number; benutzer: number } {
+  return { clients: sessions.size, benutzer: byUser.size };
+}
+
+/**
+ * Beim Start aufräumen: niemand kann verbunden sein, bevor es einen Server gibt.
+ *
+ * Ohne das bleibt der Stand vom letzten Mal stehen — nach einem Absturz oder
+ * einem Update stünden Leute tagelang als "online" da, die längst weg sind.
+ */
+export function anwesenheitZuruecksetzen(): void {
+  const betroffen = database.run(
+    "UPDATE users SET status = 'offline' WHERE status <> 'offline'",
+  );
+  void betroffen;
+}
