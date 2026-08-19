@@ -773,4 +773,5 @@ export const de = {
   'update.linuxHint': '.AppImage oder .deb',
   'api.error': 'Fehler {status}',
   'update.forOtherDevices': 'App für ein anderes Gerät herunterladen',
+  'msg.showOlder': 'Ältere anzeigen',
 } as const;

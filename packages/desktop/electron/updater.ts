@@ -141,40 +141,144 @@ async function laden(update: Fern): Promise<void> {
 
   const ordner = path.join(os.tmpdir(), 'stellium-updates');
   fs.mkdirSync(ordner, { recursive: true });
+  altesAufraeumen(ordner, update.version);
+
   const ziel = path.join(ordner, `${update.version}-${update.fileName}`);
+  const halb = `${ziel}.teil`;
+
+  // Platz prüfen, bevor 170 MB gezogen werden: doppelt, weil beim Installieren
+  // noch einmal entpackt wird. Ohne diese Prüfung bricht der Download erst
+  // nach Minuten ab — mit einer Meldung, die niemand versteht.
+  const noetig = update.size * 2;
+  const frei = freierPlatz(ordner);
+  if (frei !== null && frei < noetig) {
+    melden('update:error', {
+      message: `Zu wenig Platz: ${(noetig / 1e9).toFixed(1)} GB nötig, ${(frei / 1e9).toFixed(1)} GB frei.`,
+    });
+    return;
+  }
+
+  /* Bis zu drei Anläufe, und zwar dort weiter, wo es abgerissen ist. Über eine
+     Hausleitung dauert ein Update Minuten — in dieser Zeit reicht ein
+     Funkloch, und ohne Wiederaufnahme fängt alles von vorn an. */
+  for (let versuch = 1; versuch <= 3; versuch += 1) {
+    try {
+      await ladenVersuch(update, halb, ziel);
+      bereit = { version: update.version, datei: ziel };
+      letzteNotizen = update.notes;
+      melden('update:ready', { version: update.version, datei: ziel, notes: update.notes });
+      if (!installiertBeimBeenden) fristStarten();
+      return;
+    } catch (err) {
+      const grund = (err as Error).message;
+      if (versuch === 3) {
+        fs.rmSync(halb, { force: true });
+        melden('update:error', { message: grund });
+        return;
+      }
+      melden('update:retry', { versuch, message: grund });
+      await new Promise((f) => setTimeout(f, versuch * 4000));
+    }
+  }
+}
+
+/** Freier Platz am Ablageort, oder null wenn nicht feststellbar. */
+function freierPlatz(ordner: string): number | null {
+  try {
+    return fs.statfsSync(ordner).bavail * fs.statfsSync(ordner).bsize;
+  } catch { return null; }
+}
+
+/** Reste früherer Läufe wegräumen — sonst füllt sich der Ablageort still. */
+function altesAufraeumen(ordner: string, behalten: string): void {
+  try {
+    for (const name of fs.readdirSync(ordner)) {
+      if (name.startsWith(behalten)) continue;
+      fs.rmSync(path.join(ordner, name), { force: true, recursive: true });
+    }
+  } catch { /* nicht schlimm */ }
+}
+
+/**
+ * Eine Fassung herunterladen — als Datenstrom auf die Platte, nicht in den
+ * Speicher.
+ *
+ * Vorher sammelte sich die ganze Datei im Arbeitsspeicher und wurde erst am
+ * Ende geschrieben: bei 170 MB gut ein Drittel Gigabyte, und auf einem Rechner
+ * mit wenig Speicher scheiterte genau daran das Update. Die Prüfsumme entsteht
+ * jetzt beim Schreiben mit.
+ */
+async function ladenVersuch(update: Fern, halb: string, ziel: string): Promise<void> {
+  const schon = fs.existsSync(halb) ? fs.statSync(halb).size : 0;
+  const kopf: Record<string, string> = { authorization: `Bearer ${token}` };
+  if (schon > 0 && schon < update.size) kopf.range = `bytes=${schon}-`;
+
+  // Eine Leitung, die nichts mehr liefert, darf nicht ewig blockieren.
+  const abbruch = new AbortController();
+  let letzteRegung = Date.now();
+  const wache = setInterval(() => {
+    if (Date.now() - letzteRegung > 90_000) abbruch.abort();
+  }, 10_000);
 
   try {
-    const antwort = await fetch(`${serverUrl}${update.url}`, {
-      headers: { authorization: `Bearer ${token}` },
-    });
+    const antwort = await fetch(`${serverUrl}${update.url}`, { headers: kopf, signal: abbruch.signal });
     if (!antwort.ok || !antwort.body) throw new Error(`Download fehlgeschlagen (${antwort.status})`);
 
-    const gesamt = update.size;
-    let geladen = 0;
-    const stuecke: Buffer[] = [];
-    // Der Body ist in Node ein async-iterierbarer Web-Stream.
+    // Beantwortet der Server den Bereich nicht, fangen wir eben von vorn an.
+    const setztFort = antwort.status === 206 && schon > 0;
+    if (!setztFort && schon > 0) fs.rmSync(halb, { force: true });
+
+    const schreiber = fs.createWriteStream(halb, { flags: setztFort ? 'a' : 'w', highWaterMark: 1024 * 1024 });
+    let geladen = setztFort ? schon : 0;
+    let zuletztGemeldet = 0;
+
     for await (const stueck of antwort.body as unknown as AsyncIterable<Uint8Array>) {
       const buf = Buffer.from(stueck);
-      stuecke.push(buf);
+      letzteRegung = Date.now();
+      if (!schreiber.write(buf)) {
+        await new Promise<void>((f) => { schreiber.once('drain', () => f()); });
+      }
       geladen += buf.byteLength;
-      melden('update:progress', { version: update.version, geladen, gesamt });
+      // Höchstens viermal je Sekunde melden — sonst überschwemmt der
+      // Fortschritt die Oberfläche mit Nachrichten.
+      const jetzt = Date.now();
+      if (jetzt - zuletztGemeldet > 250) {
+        zuletztGemeldet = jetzt;
+        melden('update:progress', { version: update.version, geladen, gesamt: update.size });
+      }
     }
+    await new Promise<void>((fertig, schief) => {
+      schreiber.end((err?: Error | null) => (err ? schief(err) : fertig()));
+    });
 
-    const daten = Buffer.concat(stuecke);
-    const summe = createHash('sha256').update(daten).digest('hex');
+    const gross = fs.statSync(halb).size;
+    if (gross !== update.size) throw new Error(`Unvollständig: ${gross} von ${update.size} Bytes.`);
+
+    // Erst prüfen, dann an den endgültigen Platz — eine halbe Datei darf nie
+    // wie eine fertige aussehen.
+    const summe = await summeVonDatei(halb);
     if (summe !== update.sha256) {
+      fs.rmSync(halb, { force: true });
       throw new Error('Die geladene Datei stimmt nicht mit der Prüfsumme überein.');
     }
 
-    fs.writeFileSync(ziel, daten);
-    bereit = { version: update.version, datei: ziel };
-    letzteNotizen = update.notes;
-    melden('update:ready', { version: update.version, datei: ziel, notes: update.notes });
-    // Ab jetzt läuft die Uhr — es sei denn, jemand verschiebt sie.
-    if (!installiertBeimBeenden) fristStarten();
-  } catch (err) {
-    melden('update:error', { message: (err as Error).message });
+    fs.rmSync(ziel, { force: true });
+    fs.renameSync(halb, ziel);
+    melden('update:progress', { version: update.version, geladen: update.size, gesamt: update.size });
+  } finally {
+    clearInterval(wache);
   }
+}
+
+/** Prüfsumme einer Datei, ohne sie ganz in den Speicher zu holen. */
+function summeVonDatei(datei: string): Promise<string> {
+  return new Promise((fertig, schief) => {
+    const hash = createHash('sha256');
+    const strom = fs.createReadStream(datei, { highWaterMark: 1024 * 1024 });
+    strom.on('data', (d) => hash.update(d));
+    strom.on('end', () => fertig(hash.digest('hex')));
+    strom.on('error', schief);
+  });
 }
 
 /* ── Installieren ─────────────────────────────────────────────── */

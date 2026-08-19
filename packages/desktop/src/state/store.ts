@@ -11,6 +11,7 @@ import {
 } from '@stellium/shared';
 import { api, serverUrl, setToken, token } from '../net/api.js';
 import { socket, type ConnectionState } from '../net/socket.js';
+import { titelZaehler, zeigen } from '../lib/benachrichtigung.js';
 
 export interface Toast {
   id: string;
@@ -99,6 +100,8 @@ interface StoreState {
   sidebarCollapsed: boolean;
   typing: Record<string, Record<string, number>>;   // channelId -> userId -> ts
   readMarkers: Record<string, string | null>;       // channelId -> Grenze beim Öffnen
+  /** Zuletzt geöffnete Kanäle, neuester zuerst — für das Aufräumen. */
+  zuletztOffen: string[];
   toasts: Toast[];
   smartReplies: SmartReply[];
   smartRepliesLoading: boolean;
@@ -300,6 +303,44 @@ function patchThreads(
 }
 
 /** Nachricht in die chronologisch sortierte Liste einfügen bzw. ersetzen. */
+/**
+ * Wie viele Nachrichten je Kanal im Speicher bleiben.
+ *
+ * Vorher wuchs die Liste unbegrenzt: wer einen Vormittag lang scrollt, trägt
+ * am Abend jede Nachricht des Jahres mit sich herum — samt Anhängen,
+ * Vorschauen und Umfragen. Ältere werden beim Hochscrollen ohnehin wieder
+ * nachgeladen, sie müssen nicht dauerhaft liegen bleiben.
+ */
+const NACHRICHTEN_JE_KANAL = 400;
+
+/** Wie viele Kanäle ihre Nachrichten behalten dürfen. */
+const KANAELE_IM_GEDAECHTNIS = 6;
+
+/** Auf die jüngsten Einträge kürzen — die ältesten fallen vorne weg. */
+function gekuerzt(list: Message[]): Message[] {
+  return list.length > NACHRICHTEN_JE_KANAL ? list.slice(-NACHRICHTEN_JE_KANAL) : list;
+}
+
+/**
+ * Nachrichten von Kanälen vergessen, die lange nicht offen waren.
+ *
+ * Der zuletzt geöffnete bleibt immer, dazu die fünf davor. Wer zurückwechselt,
+ * bekommt sie in einem Wimpernschlag neu vom Server — dafür trägt niemand
+ * zwanzig Kanäle im Arbeitsspeicher mit.
+ */
+function vergessen(
+  messages: Record<string, Message[]>,
+  zuletzt: string[],
+): Record<string, Message[]> {
+  const behalten = new Set(zuletzt.slice(0, KANAELE_IM_GEDAECHTNIS));
+  if (Object.keys(messages).length <= KANAELE_IM_GEDAECHTNIS) return messages;
+  const neu: Record<string, Message[]> = {};
+  for (const [id, liste] of Object.entries(messages)) {
+    if (behalten.has(id)) neu[id] = liste;
+  }
+  return neu;
+}
+
 function upsertMessage(list: Message[] | undefined, msg: Message): Message[] {
   const arr = list ? [...list] : [];
   const byId = arr.findIndex((m) => m.id === msg.id);
@@ -318,7 +359,9 @@ function upsertMessage(list: Message[] | undefined, msg: Message): Message[] {
   return arr;
 }
 
-import { translate, spracheDesSystems, type TranslationKey } from '../i18n/kern.js';
+import {
+  dokumentSpracheSetzen, translate, spracheDesSystems, type TranslationKey,
+} from '../i18n/kern.js';
 
 /**
  * Meldungen aus dem Zustand in der Sprache der angemeldeten Person.
@@ -374,6 +417,7 @@ export const useStore = create<StoreState>((set, get) => ({
   sidebarCollapsed: false,
   typing: {},
   readMarkers: {},
+  zuletztOffen: [],
   toasts: [],
   smartReplies: [],
   smartRepliesLoading: false,
@@ -448,6 +492,9 @@ export const useStore = create<StoreState>((set, get) => ({
       smartReplies: [],
       catchup: null,
       readMarkers: { ...s.readMarkers, [channelId]: state?.lastReadMessageId ?? null },
+      zuletztOffen: [channelId, ...s.zuletztOffen.filter((id) => id !== channelId)],
+      // Was lange niemand angesehen hat, muss nicht im Speicher bleiben.
+      messages: vergessen(s.messages, [channelId, ...s.zuletztOffen.filter((id) => id !== channelId)]),
     }));
     socket.send({ t: 'channel:open', channelId, limit: 50 });
   },
@@ -486,7 +533,7 @@ export const useStore = create<StoreState>((set, get) => ({
     };
 
     set((s) => {
-      const next: Partial<StoreState> = { messages: { ...s.messages, [channelId]: upsertMessage(s.messages[channelId], optimistic) } };
+      const next: Partial<StoreState> = { messages: { ...s.messages, [channelId]: gekuerzt(upsertMessage(s.messages[channelId], optimistic)) } };
       if (parentId && s.threads[parentId]) {
         next.threads = { ...s.threads, [parentId]: upsertMessage(s.threads[parentId], optimistic) };
       }
@@ -874,6 +921,9 @@ export const useStore = create<StoreState>((set, get) => ({
 
 function applyTheme(theme: SelfUser['theme'], density: SelfUser['density']): void {
   const root = document.documentElement;
+  // Sprache und Leserichtung hängen am selben Ereignis wie das Aussehen:
+  // beides gilt für das ganze Dokument und ändert sich zusammen.
+  dokumentSpracheSetzen(useStore.getState().self?.uiLanguage || spracheDesSystems());
   const resolved = theme === 'system'
     ? (window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark')
     : theme;
@@ -927,7 +977,12 @@ socket.onEvent((ev: ServerEvent) => {
         // Ältere Seite: vorne anhängen. Erste Seite: ersetzen.
         const isOlderPage = existing.length > 0 && ev.messages.length > 0
           && ev.messages[ev.messages.length - 1].createdAt < (existing[0]?.createdAt ?? Infinity);
-        const merged = isOlderPage ? [...ev.messages, ...existing] : ev.messages;
+        /* Beim Nachladen älterer Seiten nach hinten kürzen, sonst nach vorn:
+           gescrollt wird nach oben, dort braucht man die alten. */
+        const zusammen = isOlderPage ? [...ev.messages, ...existing] : ev.messages;
+        const merged = zusammen.length > NACHRICHTEN_JE_KANAL
+          ? (isOlderPage ? zusammen.slice(0, NACHRICHTEN_JE_KANAL) : zusammen.slice(-NACHRICHTEN_JE_KANAL))
+          : zusammen;
         return {
           messages: { ...s.messages, [ev.channelId]: merged },
           hasMore: { ...s.hasMore, [ev.channelId]: ev.hasMore },
@@ -944,7 +999,7 @@ socket.onEvent((ev: ServerEvent) => {
       const msg: Message = ev.clientId ? { ...ev.message, clientId: ev.clientId } : ev.message;
       useStore.setState((s) => {
         const next: Partial<StoreState> = {
-          messages: { ...s.messages, [msg.channelId]: upsertMessage(s.messages[msg.channelId], msg) },
+          messages: { ...s.messages, [msg.channelId]: gekuerzt(upsertMessage(s.messages[msg.channelId], msg)) },
         };
         if (msg.parentId && s.threads[msg.parentId]) {
           next.threads = { ...s.threads, [msg.parentId]: upsertMessage(s.threads[msg.parentId], msg) };
@@ -971,7 +1026,7 @@ socket.onEvent((ev: ServerEvent) => {
     case 'message:updated':
       useStore.setState((s) => {
         const next: Partial<StoreState> = {
-          messages: { ...s.messages, [ev.message.channelId]: upsertMessage(s.messages[ev.message.channelId], ev.message) },
+          messages: { ...s.messages, [ev.message.channelId]: gekuerzt(upsertMessage(s.messages[ev.message.channelId], ev.message)) },
         };
         if (ev.message.parentId && s.threads[ev.message.parentId]) {
           next.threads = { ...s.threads, [ev.message.parentId]: upsertMessage(s.threads[ev.message.parentId], ev.message) };
@@ -1312,8 +1367,10 @@ function notifyIfNeeded(msg: Message): void {
   // Übersetzung bevorzugen, damit die Vorschau in der eigenen Sprache steht.
   const body = `${prefix}${msg.translation?.text ?? msg.text}`.slice(0, 180);
 
-  void window.stellium?.notify({ title, body, channelId: msg.channelId });
-  void window.stellium?.flashWindow();
+  // In der App über Electron, im Browser über die Web-Benachrichtigung —
+  // die Entscheidung darüber, OB benachrichtigt wird, steht oben und gilt für
+  // beide gleich.
+  zeigen({ titel: title, text: body, kanalId: msg.channelId, gruppe: msg.channelId });
 }
 
 function markReadIfViewing(msg: Message): void {
@@ -1326,6 +1383,8 @@ function updateBadge(): void {
   const s = useStore.getState();
   const total = Object.values(s.states).reduce((sum, st) => sum + (st.muted ? 0 : st.unreadCount), 0);
   void window.stellium?.setBadge(total);
+  // Im Browser gibt es kein Dock-Symbol — dort trägt der Reitertitel die Zahl.
+  titelZaehler(total);
 }
 
 /* Alte Tipp-Indikatoren regelmäßig aufräumen. */

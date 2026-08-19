@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ArrowDown, Sparkles } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
 import type { Message } from '@stellium/shared';
@@ -15,8 +15,29 @@ interface Props {
 /** Nachrichten desselben Autors innerhalb von 5 Minuten werden gruppiert. */
 const GROUP_WINDOW_MS = 5 * 60_000;
 
+/**
+ * Wie viele Nachrichten gleichzeitig im Dokument stehen.
+ *
+ * Jede Nachricht ist ein gutes Dutzend Knoten — mit Bild, Reaktionen, Umfrage
+ * oder Vorschau schnell fünfzig. Bei tausend Nachrichten sind das
+ * zehntausende, und der Browser trägt sie alle mit: Speicher, Layout,
+ * Neuzeichnen. Sichtbar sind davon nie mehr als zwanzig.
+ *
+ * Deshalb ein Fenster: gezeigt wird das jüngste Stück, beim Hochscrollen
+ * wächst es. Wer wirklich weit zurückgeht, bekommt mehr — wer nur mitliest,
+ * zahlt nichts dafür.
+ */
+const FENSTER_ANFANG = 80;
+const FENSTER_SCHRITT = 80;
+
 export function MessageList({ channelId }: Props) {
-  const messages = useStore((s) => s.messages[channelId]) ?? EMPTY;
+  const alle = useStore((s) => s.messages[channelId]) ?? EMPTY;
+  const [fenster, setFenster] = useState(FENSTER_ANFANG);
+  const messages = useMemo(
+    () => (alle.length > fenster ? alle.slice(-fenster) : alle),
+    [alle, fenster],
+  );
+  const mehrImSpeicher = alle.length > messages.length;
   const hasMore = useStore((s) => s.hasMore[channelId] ?? false);
   const readMarker = useStore((s) => s.readMarkers[channelId] ?? null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -31,6 +52,7 @@ export function MessageList({ channelId }: Props) {
     stickToBottom.current = true;
     setAtBottom(true);
     prevCount.current = 0;
+    setFenster(FENSTER_ANFANG);
     const el = scrollRef.current;
     if (el) el.scrollTop = el.scrollHeight;
     // Bilder und Vorschaukarten laden nachträglich und ändern die Höhe —
@@ -80,7 +102,12 @@ export function MessageList({ channelId }: Props) {
       const near = distance < 120;
       stickToBottom.current = near;
       setAtBottom((prev) => (prev === near ? prev : near));
-      if (el.scrollTop < 300 && hasMore) useStore.getState().loadOlder(channelId);
+      if (el.scrollTop < 300) {
+        // Erst das Fenster öffnen — was schon im Speicher liegt, muss nicht
+        // noch einmal über die Leitung.
+        if (mehrImSpeicher) setFenster((f) => f + FENSTER_SCHRITT);
+        else if (hasMore) useStore.getState().loadOlder(channelId);
+      }
     };
     el.addEventListener('scroll', onScroll, { passive: true });
     return () => el.removeEventListener('scroll', onScroll);
@@ -104,12 +131,23 @@ export function MessageList({ channelId }: Props) {
 
   return (
     <div className="stream" ref={scrollRef}>
-      {hasMore && (
+      {mehrImSpeicher && (
+        <div style={{ textAlign: 'center', padding: 'var(--sp-3)' }}>
+          <button
+            className="btn btn--ghost"
+            style={{ fontSize: 12 }}
+            onClick={() => setFenster((f) => f + FENSTER_SCHRITT)}
+          >
+            {t('msg.showOlder')}
+          </button>
+        </div>
+      )}
+      {!mehrImSpeicher && hasMore && (
         <div style={{ textAlign: 'center', padding: 'var(--sp-3)' }}>
           <span className="muted" style={{ fontSize: 12 }}>{t('msg.loadingOlder')}</span>
         </div>
       )}
-      {!hasMore && messages.length > 0 && <ChannelIntro channelId={channelId} />}
+      {!mehrImSpeicher && !hasMore && messages.length > 0 && <ChannelIntro channelId={channelId} />}
 
       {messages.map((msg, i) => {
         const prev = messages[i - 1];

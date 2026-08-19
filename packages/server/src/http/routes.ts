@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { pipeline } from 'node:stream/promises';
@@ -110,6 +111,17 @@ const teilUploads = new Map<string, {
   userId: string; name: string; mime: string; size: number; parts: number;
   da: Set<number>; begonnen: number;
 }>();
+
+/** Prüfsumme einer Datei, ohne sie ganz in den Speicher zu holen. */
+function dateiSumme(datei: string): Promise<string> {
+  return new Promise((fertig, schief) => {
+    const hash = crypto.createHash('sha256');
+    const strom = fs.createReadStream(datei, { highWaterMark: 1024 * 1024 });
+    strom.on('data', (d) => hash.update(d));
+    strom.on('end', () => fertig(hash.digest('hex')));
+    strom.on('error', schief);
+  });
+}
 
 async function teileAufraeumen(id: string, anzahl: number): Promise<void> {
   for (let i = 0; i < anzahl; i += 1) {
@@ -545,18 +557,61 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
     const size = (await fs.promises.stat(target)).size;
     const dims = file.mimetype.startsWith('image/') ? await imageSize(target) : null;
+    const summe = await dateiSumme(target);
 
     db.run(
-      `INSERT INTO attachments (id, message_id, uploader_id, name, mime, size, path, width, height, created_at)
-       VALUES (?, NULL, ?,?,?,?,?,?,?,?)`,
+      `INSERT INTO attachments (id, message_id, uploader_id, name, mime, size, path, width, height, sha256, created_at)
+       VALUES (?, NULL, ?,?,?,?,?,?,?,?,?)`,
       id, userId, safeName, file.mimetype || 'application/octet-stream', size, target,
-      dims?.width ?? null, dims?.height ?? null, Date.now(),
+      dims?.width ?? null, dims?.height ?? null, summe, Date.now(),
     );
 
     return {
       attachment: {
         id, messageId: null, name: safeName, mime: file.mimetype, size,
         url: `/files/${id}`, width: dims?.width ?? null, height: dims?.height ?? null,
+      },
+    };
+  });
+
+  /**
+   * Kennt der Server diese Datei schon?
+   *
+   * Dieselbe Datei zweimal zu übertragen ist die teuerste Art, nichts zu
+   * erreichen — bei einer Hausleitung mit zweieinhalb Megabyte in der Sekunde
+   * sind das Minuten für etwas, das längst dort liegt. Der Client rechnet die
+   * Prüfsumme aus und fragt vorher nach; passt sie, entsteht nur ein neuer
+   * Verweis auf dieselben Bytes.
+   */
+  app.post('/api/uploads/bekannt', async (req, reply) => {
+    const userId = requireUser(req);
+    const body = req.body as { sha256?: string; size?: number; name?: string; mime?: string };
+    const summe = String(body.sha256 ?? '').toLowerCase();
+    if (!/^[a-f0-9]{64}$/.test(summe)) return reply.code(400).send({ error: 'Ungültige Prüfsumme.' });
+
+    const vorhanden = db.get<any>(
+      'SELECT * FROM attachments WHERE sha256 = ? AND size = ? ORDER BY created_at DESC LIMIT 1',
+      summe, Number(body.size ?? 0),
+    );
+    if (!vorhanden || !fs.existsSync(vorhanden.path)) return { bekannt: false };
+
+    /* Ein neuer Eintrag auf dieselbe Datei: Name und Absender gehören zu
+       diesem Vorgang, die Bytes werden geteilt. Gelöscht wird eine Datei erst,
+       wenn kein Eintrag mehr auf sie zeigt. */
+    const id = newId('at_');
+    const name = path.basename(String(body.name ?? vorhanden.name)).replace(/[^\p{L}\p{N}._ -]/gu, '_').slice(0, 120);
+    db.run(
+      `INSERT INTO attachments (id, message_id, uploader_id, name, mime, size, path, width, height, sha256, created_at)
+       VALUES (?, NULL, ?,?,?,?,?,?,?,?,?)`,
+      id, userId, name, String(body.mime ?? vorhanden.mime), vorhanden.size, vorhanden.path,
+      vorhanden.width ?? null, vorhanden.height ?? null, summe, Date.now(),
+    );
+
+    return {
+      bekannt: true,
+      attachment: {
+        id, messageId: null, name, mime: String(body.mime ?? vorhanden.mime), size: vorhanden.size,
+        url: `/files/${id}`, width: vorhanden.width ?? null, height: vorhanden.height ?? null,
       },
     };
   });
@@ -664,11 +719,12 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     }
 
     const dims = auftrag.mime.startsWith('image/') ? await imageSize(ziel) : null;
+    const summe = await dateiSumme(ziel);
     db.run(
-      `INSERT INTO attachments (id, message_id, uploader_id, name, mime, size, path, width, height, created_at)
-       VALUES (?, NULL, ?,?,?,?,?,?,?,?)`,
+      `INSERT INTO attachments (id, message_id, uploader_id, name, mime, size, path, width, height, sha256, created_at)
+       VALUES (?, NULL, ?,?,?,?,?,?,?,?,?)`,
       anhangId, userId, auftrag.name, auftrag.mime, size, ziel,
-      dims?.width ?? null, dims?.height ?? null, Date.now(),
+      dims?.width ?? null, dims?.height ?? null, summe, Date.now(),
     );
 
     return {

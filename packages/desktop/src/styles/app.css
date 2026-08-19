@@ -1,3 +1,10 @@
+/* ── Leserichtung ────────────────────────────────────────────
+   Arabisch gehört zu den zweiundzwanzig Sprachen und wird von rechts nach
+   links gelesen. Deshalb stehen hier durchgehend logische Eigenschaften
+   (inline-start/end statt left/right): sie drehen sich mit, sobald am
+   Dokument dir="rtl" steht. Physische Angaben blieben stehen und hätten
+   die Oberfläche gespiegelt zerlegt. */
+
 @import './tokens.css';
 
 /* ── Reset ──────────────────────────────────────────────────── */
@@ -141,7 +148,7 @@ a:hover { text-decoration: underline; }
   align-items: center;
   gap: var(--sp-3);
   padding: var(--sp-4) 0 var(--sp-3);
-  border-right: 1px solid var(--line);
+  border-inline-end: 1px solid var(--line);
   background: var(--bg-panel);
   backdrop-filter: blur(24px);
 }
@@ -203,7 +210,7 @@ a:hover { text-decoration: underline; }
   min-width: 0;
   min-height: 0;
   height: 100%;
-  border-right: 1px solid var(--line);
+  border-inline-end: 1px solid var(--line);
   background: var(--bg-panel);
   backdrop-filter: blur(24px);
   overflow: hidden;
@@ -243,7 +250,7 @@ a:hover { text-decoration: underline; }
 }
 .search-trigger:hover { border-color: var(--line-strong); background: var(--bg-panel-2); }
 .search-trigger kbd {
-  margin-left: auto;
+  margin-inline-start: auto;
   font-family: var(--font-ui);
   font-size: 11px;
   padding: 2px 6px;
@@ -264,7 +271,7 @@ a:hover { text-decoration: underline; }
 .group__head:hover { color: var(--tx-mid); }
 .group__head .chev { transition: transform var(--t-base) var(--ease-out); }
 .group__head[aria-expanded='false'] .chev { transform: rotate(-90deg); }
-.group__add { margin-left: auto; opacity: 0; transition: opacity var(--t-fast); }
+.group__add { margin-inline-start: auto; opacity: 0; transition: opacity var(--t-fast); }
 .group:hover .group__add { opacity: 1; }
 
 .chan {
@@ -275,7 +282,7 @@ a:hover { text-decoration: underline; }
   border-radius: var(--r-sm);
   color: var(--tx-mid);
   font-size: 14px;
-  text-align: left;
+  text-align: start;
   transition: background var(--t-fast), color var(--t-fast);
 }
 .chan:hover { background: var(--bg-hover); color: var(--tx-hi); }
@@ -328,7 +335,7 @@ a:hover { text-decoration: underline; }
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   max-width: 46ch;
 }
-.header__actions { margin-left: auto; display: flex; align-items: center; gap: 4px; }
+.header__actions { margin-inline-start: auto; display: flex; align-items: center; gap: 4px; }
 
 .icon-btn {
   width: 34px; height: 34px;
@@ -456,7 +463,7 @@ a:hover { text-decoration: underline; }
 .translated__original {
   margin-top: 6px;
   padding: 8px 11px;
-  border-left: 2px solid var(--line-strong);
+  border-inline-start: 2px solid var(--line-strong);
   border-radius: 0 var(--r-sm) var(--r-sm) 0;
   background: var(--bg-hover);
   color: var(--tx-mid);
@@ -521,10 +528,10 @@ a:hover { text-decoration: underline; }
 .md pre code { background: none; border: 0; padding: 0; font-size: 12.8px; line-height: 1.55; }
 .md blockquote {
   margin: 6px 0; padding: 3px 0 3px 12px;
-  border-left: 3px solid var(--line-strong);
+  border-inline-start: 3px solid var(--line-strong);
   color: var(--tx-mid);
 }
-.md ul, .md ol { margin: 5px 0; padding-left: 22px; }
+.md ul, .md ol { margin: 5px 0; padding-inline-start: 22px; }
 .md li { margin: 2px 0; }
 .md .mention {
   padding: 1px 5px; border-radius: 5px;
@@ -604,7 +611,7 @@ a:hover { text-decoration: underline; }
 }
 .thread-link:hover { background: var(--bg-hover); border-color: var(--line); }
 .thread-link__faces { display: flex; }
-.thread-link__faces > * { margin-right: -6px; box-shadow: 0 0 0 2px var(--bg-deep); }
+.thread-link__faces > * { margin-inline-end: -6px; box-shadow: 0 0 0 2px var(--bg-deep); }
 
 /* ── Composer ───────────────────────────────────────────────── */
 
@@ -750,7 +757,7 @@ a:hover { text-decoration: underline; }
   min-width: 0;
   min-height: 0;
   height: 100%;
-  border-left: 1px solid var(--line);
+  border-inline-start: 1px solid var(--line);
   background: var(--bg-panel);
   backdrop-filter: blur(24px);
 }
@@ -818,7 +825,7 @@ a:hover { text-decoration: underline; }
   width: 100%;
   padding: 9px var(--sp-4);
   border-radius: var(--r-md);
-  text-align: left;
+  text-align: start;
   transition: background var(--t-fast);
 }
 .result:hover, .result[data-active='true'] { background: var(--bg-hover); }
@@ -852,7 +859,7 @@ a:hover { text-decoration: underline; }
   box-shadow: 0 0 0 3px rgba(124, 92, 255, 0.14);
 }
 .textarea { resize: vertical; min-height: 84px; font-family: inherit; }
-.select { appearance: none; cursor: pointer; padding-right: 34px;
+.select { appearance: none; cursor: pointer; padding-inline-end: 34px;
   background-image: linear-gradient(45deg, transparent 50%, var(--tx-lo) 50%), linear-gradient(135deg, var(--tx-lo) 50%, transparent 50%);
   background-position: right 15px center, right 10px center;
   background-size: 5px 5px, 5px 5px;
@@ -938,7 +945,7 @@ a:hover { text-decoration: underline; }
   color: var(--violet-soft);
 }
 .ai-card h3 { margin: 0 0 var(--sp-3); font-size: 16px; font-weight: 700; letter-spacing: -0.015em; }
-.ai-list { margin: 0; padding-left: 20px; }
+.ai-list { margin: 0; padding-inline-start: 20px; }
 .ai-list li { margin-bottom: 5px; font-size: 14px; }
 .ai-section { margin-top: var(--sp-4); }
 .ai-section__title {
@@ -1130,7 +1137,7 @@ a:hover { text-decoration: underline; }
   border-radius: var(--r-md);
   border: 1px solid var(--line);
   background: var(--bg-panel);
-  font-size: 14px; text-align: left;
+  font-size: 14px; text-align: start;
   overflow: hidden;
   transition: border-color var(--t-fast), transform var(--t-fast);
 }
@@ -1155,10 +1162,10 @@ a:hover { text-decoration: underline; }
 .poll-option__mark--on { background: var(--violet); border-color: var(--violet); }
 .poll-option__text { position: relative; flex: 1; min-width: 0; }
 .poll-option__faces { position: relative; display: flex; }
-.poll-option__faces > * { margin-right: -5px; box-shadow: 0 0 0 2px var(--bg-deep); }
+.poll-option__faces > * { margin-inline-end: -5px; box-shadow: 0 0 0 2px var(--bg-deep); }
 .poll-option__count {
   position: relative;
-  min-width: 22px; text-align: right;
+  min-width: 22px; text-align: end;
   font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums;
 }
 
@@ -1168,7 +1175,7 @@ a:hover { text-decoration: underline; }
   font-size: 11.5px; color: var(--tx-lo);
 }
 .poll__close {
-  margin-left: auto;
+  margin-inline-start: auto;
   padding: 3px 10px; border-radius: 99px;
   border: 1px solid var(--line);
   color: var(--tx-mid); font-size: 11.5px; font-weight: 650;
@@ -1228,7 +1235,7 @@ a:hover { text-decoration: underline; }
 .voice__transcript {
   margin-top: 7px;
   padding: 9px 12px;
-  border-left: 2px solid rgba(124, 92, 255, 0.5);
+  border-inline-start: 2px solid rgba(124, 92, 255, 0.5);
   border-radius: 0 var(--r-sm) var(--r-sm) 0;
   background: var(--bg-hover);
   font-size: 14px;
@@ -1291,7 +1298,7 @@ a:hover { text-decoration: underline; }
   border: 1px solid var(--line);
   background: var(--bg-panel-2);
   overflow: hidden;
-  text-align: left;
+  text-align: start;
   transition: border-color var(--t-fast), transform var(--t-fast);
 }
 .link-card:hover { border-color: var(--line-strong); transform: translateY(-1px); }
@@ -1345,7 +1352,7 @@ button.msg__author:hover { color: var(--violet-soft); text-decoration: underline
 .forward-preview {
   margin-bottom: var(--sp-4);
   padding: 11px 13px;
-  border-left: 3px solid var(--line-strong);
+  border-inline-start: 3px solid var(--line-strong);
   border-radius: 0 var(--r-sm) var(--r-sm) 0;
   background: var(--bg-hover);
   color: var(--tx-mid);
@@ -1498,7 +1505,7 @@ button.msg__author:hover { color: var(--violet-soft); text-decoration: underline
     width: 0;
     min-width: 0;
     overflow: hidden;
-    border-right: none;
+    border-inline-end: none;
     pointer-events: none;
   }
 }
@@ -1554,7 +1561,7 @@ button.msg__author:hover { color: var(--violet-soft); text-decoration: underline
     place-items: center;
     width: 34px; height: 34px;
     flex: none;
-    margin-right: 2px;
+    margin-inline-end: 2px;
     border-radius: 9px;
     color: var(--tx-mid);
   }
@@ -1568,8 +1575,8 @@ button.msg__author:hover { color: var(--violet-soft); text-decoration: underline
     box-shadow: var(--shadow-lg);
   }
 
-  .msg { padding-left: var(--sp-4); padding-right: var(--sp-4); }
-  .composer-wrap { padding-left: var(--sp-4); padding-right: var(--sp-4); }
+  .msg { padding-inline-start: var(--sp-4); padding-inline-end: var(--sp-4); }
+  .composer-wrap { padding-inline-start: var(--sp-4); padding-inline-end: var(--sp-4); }
   .header { padding: 0 var(--sp-3); }
   .header__topic { display: none; }
   .att-img { max-width: 100%; }
@@ -1624,16 +1631,16 @@ button.msg__author:hover { color: var(--violet-soft); text-decoration: underline
   /* Von den Werkzeugen bleiben die drei, die man unterwegs wirklich braucht. */
   .header__actions > *:nth-child(n + 4) { display: none; }
 
-  .msg { padding-left: 10px; padding-right: 10px; gap: 8px; }
+  .msg { padding-inline-start: 10px; padding-inline-end: 10px; gap: 8px; }
   .msg__body { font-size: 15px; }
-  .stream { padding-left: 0; padding-right: 0; }
+  .stream { padding-inline-start: 0; padding-inline-end: 0; }
 
   .composer-wrap { padding: 0 8px 8px; }
   /* 16 Pixel: darunter zoomt iOS beim Antippen von selbst hinein. */
   .composer__input { font-size: 16px; }
   /* Umgebrochen belegte die Werkzeugleiste drei Zeilen und drückte den
      Verlauf zusammen. Eine Zeile, dafür etwas kleinere Symbole. */
-  .composer__bar { gap: 0; flex-wrap: nowrap; padding-left: 6px; padding-right: 6px; }
+  .composer__bar { gap: 0; flex-wrap: nowrap; padding-inline-start: 6px; padding-inline-end: 6px; }
   .composer__bar .icon-btn { width: 32px; height: 32px; flex: none; }
   .composer__bar .muted { display: none; }
 
@@ -1693,7 +1700,7 @@ button.msg__author:hover { color: var(--violet-soft); text-decoration: underline
 .staerke__fuellung--schwach { background: var(--rose); }
 .staerke__fuellung--mittel  { background: var(--amber); }
 .staerke__fuellung--stark   { background: var(--mint); }
-.staerke__text { font-size: 11.5px; color: var(--tx-lo); min-width: 92px; text-align: right; }
+.staerke__text { font-size: 11.5px; color: var(--tx-lo); min-width: 92px; text-align: end; }
 
 /* ── Team-Verwaltung ─────────────────────────────────────────── */
 
@@ -1705,7 +1712,7 @@ button.msg__author:hover { color: var(--violet-soft); text-decoration: underline
 }
 .admin__liste {
   padding: var(--sp-4) var(--sp-3) var(--sp-4) var(--sp-5);
-  border-right: 1px solid var(--line);
+  border-inline-end: 1px solid var(--line);
   overflow-y: auto;
   min-height: 0;
 }
@@ -1753,7 +1760,7 @@ button.msg__author:hover { color: var(--violet-soft); text-decoration: underline
 
 @media (max-width: 880px) {
   .admin { grid-template-columns: 1fr; }
-  .admin__liste { border-right: 0; border-bottom: 1px solid var(--line); max-height: 200px; }
+  .admin__liste { border-inline-end: 0; border-bottom: 1px solid var(--line); max-height: 200px; }
 }
 
 /* Der Assistent formuliert gerade — deutlicher als ein Tipp-Indikator */
@@ -1865,7 +1872,7 @@ button.msg__author:hover { color: var(--violet-soft); text-decoration: underline
 .tour__dot--on { width: 18px; background: var(--violet); }
 
 .tour__foot { display: flex; align-items: center; gap: 7px; }
-.tour__count { margin-left: auto; font-size: 11px; color: var(--text-dim); white-space: nowrap; }
+.tour__count { margin-inline-start: auto; font-size: 11px; color: var(--text-dim); white-space: nowrap; }
 
 @media (max-width: 720px) {
   .tour__card { width: min(340px, calc(100vw - 32px)); }
@@ -1891,7 +1898,7 @@ button.msg__author:hover { color: var(--violet-soft); text-decoration: underline
   border-radius: var(--r-xs);
   color: var(--tx-mid);
   font-size: 13.5px;
-  text-align: left;
+  text-align: start;
   transition: background var(--t-fast), color var(--t-fast);
 }
 .kontextmenue__eintrag:hover:not(:disabled) { background: var(--bg-hover); color: var(--tx-hi); }
@@ -1991,7 +1998,7 @@ button.msg__author:hover { color: var(--violet-soft); text-decoration: underline
 
 .board__dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
 .board__title { font-size: 12px; font-weight: 620; letter-spacing: 0.01em; }
-.board__count { margin-left: auto; font-size: 11px; color: var(--text-dim); }
+.board__count { margin-inline-start: auto; font-size: 11px; color: var(--text-dim); }
 .board__empty { padding: 12px 4px; font-size: 11.5px; color: var(--text-dim); text-align: center; }
 
 .board__cards {
@@ -2007,7 +2014,7 @@ button.msg__author:hover { color: var(--violet-soft); text-decoration: underline
   display: grid;
   gap: 6px;
   padding: 9px 10px 8px 13px;
-  text-align: left;
+  text-align: start;
   border-radius: var(--r-sm);
   background: var(--bg-elevated);
   border: 1px solid var(--line);
@@ -2179,8 +2186,8 @@ button.msg__author:hover { color: var(--violet-soft); text-decoration: underline
   display: grid;
   gap: 1px;
   padding: 5px 7px;
-  text-align: left;
-  border-left: 3px solid var(--violet);
+  text-align: start;
+  border-inline-start: 3px solid var(--violet);
   border-radius: 0 var(--r-sm) var(--r-sm) 0;
   background: var(--bg-elevated);
   transition: transform 0.13s, box-shadow 0.13s;
@@ -2320,11 +2327,11 @@ button.msg__author:hover { color: var(--violet-soft); text-decoration: underline
   margin-bottom: 9px;
   border-radius: var(--r-sm);
   background: var(--bg-sunken);
-  border-left: 3px solid var(--line-strong);
+  border-inline-start: 3px solid var(--line-strong);
 }
 
-.proto__block--gut { border-left-color: var(--green); }
-.proto__block--offen { border-left-color: var(--amber); }
+.proto__block--gut { border-inline-start-color: var(--green); }
+.proto__block--offen { border-inline-start-color: var(--amber); }
 
 .proto__title {
   display: flex;
@@ -2335,7 +2342,7 @@ button.msg__author:hover { color: var(--violet-soft); text-decoration: underline
   font-weight: 640;
 }
 
-.proto__list { margin: 0; padding-left: 17px; display: grid; gap: 4px; }
+.proto__list { margin: 0; padding-inline-start: 17px; display: grid; gap: 4px; }
 .proto__list li { font-size: 12.5px; line-height: 1.45; color: var(--text-dim); }
 
 .proto__actions { display: flex; flex-direction: column; gap: 6px; }
@@ -2419,7 +2426,7 @@ button.msg__author:hover { color: var(--violet-soft); text-decoration: underline
 .idea-vote__btn--off { color: var(--red); }
 .idea-vote__zahl { font-size: 12px; font-weight: 650; font-variant-numeric: tabular-nums; }
 
-.idea-row__main { flex: 1; min-width: 0; display: grid; gap: 3px; text-align: left; }
+.idea-row__main { flex: 1; min-width: 0; display: grid; gap: 3px; text-align: start; }
 .idea-row__title { font-size: 13px; line-height: 1.35; overflow-wrap: anywhere; }
 
 .idea-row__meta,
@@ -2445,7 +2452,7 @@ button.msg__author:hover { color: var(--violet-soft); text-decoration: underline
   border: 1px solid var(--line);
 }
 
-.idea-saldo { display: inline-flex; align-items: center; gap: 4px; margin-left: auto; }
+.idea-saldo { display: inline-flex; align-items: center; gap: 4px; margin-inline-start: auto; }
 .idea-body { margin: 0; font-size: 13px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
 
 .idea-decision {
@@ -2455,7 +2462,7 @@ button.msg__author:hover { color: var(--violet-soft); text-decoration: underline
   padding: 9px 11px;
   margin: 0 0 14px;
   border-radius: var(--r-sm);
-  border-left: 3px solid var(--green);
+  border-inline-start: 3px solid var(--green);
   background: var(--bg-sunken);
   font-size: 12.5px;
 }
@@ -2584,7 +2591,7 @@ button.msg__author:hover { color: var(--violet-soft); text-decoration: underline
   margin: 0 0 20px;
   padding: 0;
   list-style: none;
-  text-align: left;
+  text-align: start;
   display: grid;
   gap: 7px;
 }

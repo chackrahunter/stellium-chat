@@ -99,6 +99,42 @@ await pruefe('Ein Strom gegen vier Ströme', async () => {
   return `1 Strom ${tempoEiner.toFixed(0)} MB/s · 4 Ströme ${tempoVier.toFixed(0)} MB/s`;
 });
 
+await pruefe('Eine bekannte Datei wird nicht noch einmal übertragen', async () => {
+  const summe = crypto.createHash('sha256').update(inhalt).digest('hex');
+  const start = performance.now();
+  const r = await fetch(`${S}/api/uploads/bekannt`, {
+    method: 'POST', headers: { ...kopf, 'content-type': 'application/json' },
+    body: JSON.stringify({ sha256: summe, size: GROESSE, name: 'nochmal.bin', mime: 'application/octet-stream' }),
+  });
+  const daten = await r.json();
+  const dauer = (performance.now() - start) / 1000;
+  muss(r.ok, `Status ${r.status}`);
+  muss(daten.bekannt === true, 'die Datei gilt als unbekannt');
+  muss(daten.attachment?.size === GROESSE, `Größe ${daten.attachment?.size}`);
+
+  // Und der Verweis muss wirklich dieselben Bytes liefern.
+  const zurueck = Buffer.from(await (await fetch(`${S}/files/${daten.attachment.id}`, { headers: kopf })).arrayBuffer());
+  muss(crypto.createHash('sha256').update(zurueck).digest('hex') === summe, 'Inhalt weicht ab');
+  return `${(GROESSE / 1048576).toFixed(0)} MB in ${dauer.toFixed(2)} s statt zu übertragen`;
+});
+
+await pruefe('Eine unbekannte Datei gilt als unbekannt', async () => {
+  const r = await fetch(`${S}/api/uploads/bekannt`, {
+    method: 'POST', headers: { ...kopf, 'content-type': 'application/json' },
+    body: JSON.stringify({ sha256: 'a'.repeat(64), size: 123, name: 'neu.bin' }),
+  });
+  const daten = await r.json();
+  muss(daten.bekannt === false, 'behauptet, sie zu kennen');
+});
+
+await pruefe('Eine unsinnige Prüfsumme wird abgelehnt', async () => {
+  const r = await fetch(`${S}/api/uploads/bekannt`, {
+    method: 'POST', headers: { ...kopf, 'content-type': 'application/json' },
+    body: JSON.stringify({ sha256: 'unsinn', size: 1 }),
+  });
+  muss(r.status === 400, `Status ${r.status}`);
+});
+
 fs.rmSync(datei, { force: true });
 const schlecht = ergebnisse.filter((x) => !x).length;
 console.log(`\n${ergebnisse.length - schlecht}/${ergebnisse.length} bestanden`);

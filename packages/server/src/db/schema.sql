@@ -98,9 +98,15 @@ CREATE TABLE IF NOT EXISTS attachments (
   path       TEXT NOT NULL,
   width      INTEGER,
   height     INTEGER,
+  -- Prüfsumme des Inhalts. Wird dieselbe Datei noch einmal geschickt, genügt
+  -- ein Verweis darauf — übertragen werden muss sie dann nicht mehr.
+  sha256     TEXT,
   created_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_attachments_message ON attachments(message_id);
+-- Der Index auf sha256 entsteht in migrate.ts, nicht hier: diese Datei läuft
+-- vor dem Nachrüsten der Spalten, und in einer bestehenden Datenbank gibt es
+-- die Spalte an dieser Stelle noch nicht. Der Server startete dann gar nicht.
 
 -- Übersetzungs-Cache: pro Nachricht und Zielsprache genau ein Eintrag.
 CREATE TABLE IF NOT EXISTS message_translations (

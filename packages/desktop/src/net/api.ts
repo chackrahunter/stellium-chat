@@ -102,6 +102,41 @@ export interface Anhang {
   url: string; width: number | null; height: number | null;
 }
 
+/**
+ * Prüfsumme einer Datei im Browser — in Stücken, damit auch große Dateien
+ * nicht am Stück in den Speicher müssen.
+ */
+async function pruefsumme(file: File): Promise<string | null> {
+  if (!globalThis.crypto?.subtle) return null;
+  try {
+    const puffer = await file.arrayBuffer();
+    const roh = await crypto.subtle.digest('SHA-256', puffer);
+    return [...new Uint8Array(roh)].map((b) => b.toString(16).padStart(2, '0')).join('');
+  } catch { return null; }
+}
+
+/** Liegt die Datei schon auf dem Server? Dann gibt es sie sofort. */
+async function schonDa(
+  file: File,
+  onProgress?: (anteil: number, bytes: number) => void,
+): Promise<Anhang | null> {
+  // Bei Kleinigkeiten kostet das Rechnen mehr, als es spart.
+  if (file.size < 256 * 1024) return null;
+  const summe = await pruefsumme(file);
+  if (!summe) return null;
+  try {
+    const antwort = await request<{ bekannt: boolean; attachment?: Anhang }>('/api/uploads/bekannt', {
+      method: 'POST',
+      body: JSON.stringify({ sha256: summe, size: file.size, name: file.name, mime: file.type }),
+    });
+    if (antwort.bekannt && antwort.attachment) {
+      onProgress?.(1, file.size);
+      return antwort.attachment;
+    }
+  } catch { /* dann eben hochladen */ }
+  return null;
+}
+
 export const api = {
   health: () => request<{ ok: boolean; workspace: string; ai: AiCapabilities }>('/api/health'),
 
@@ -202,6 +237,12 @@ export const api = {
     file: File,
     onProgress?: (fraction: number, bytes: number) => void,
   ): Promise<{ attachment: Anhang }> => {
+    /* Zuerst fragen, ob der Server die Datei schon hat. Das Rechnen der
+       Prüfsumme dauert Millisekunden, das Übertragen Minuten — bei allem, was
+       schon einmal geschickt wurde, ist der Upload danach sofort fertig. */
+    const bekannt = await schonDa(file, onProgress);
+    if (bekannt) return { attachment: bekannt };
+
     const GRENZE = 8 * 1024 * 1024;      // darunter lohnt der Aufwand nicht
     const TEILGROESSE = 4 * 1024 * 1024;
     const GLEICHZEITIG = 4;

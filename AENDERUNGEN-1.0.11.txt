@@ -1,0 +1,3 @@
+Marken vor dem Ausliefern holen, sonst wiederholt sich die Änderungsliste
+Der Selbstupdate hat das Aktualisierungsskript nie gefunden
+Kein Testpasswort und keine Serveradresse mehr im Quelltext

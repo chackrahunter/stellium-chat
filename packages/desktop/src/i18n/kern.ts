@@ -77,3 +77,25 @@ export function coverage(sprache: string): number {
   const da = Object.keys(wb).filter((k) => (wb as any)[k]).length;
   return Math.round((da / gesamt) * 100);
 }
+
+/**
+ * Sprachen, die von rechts nach links gelesen werden.
+ *
+ * Unter den zweiundzwanzig ist das bisher nur Arabisch. Ohne diese Angabe
+ * steht arabischer Text in einem Layout, das für die andere Richtung gebaut
+ * ist: Satzzeichen rutschen ans falsche Ende, Namen und Uhrzeiten stehen
+ * verkehrt herum, und die Kanalliste liegt auf der unerwarteten Seite.
+ */
+const VON_RECHTS = new Set(['ar', 'fa', 'he', 'ur', 'ps', 'sd', 'yi']);
+
+export function istVonRechts(sprache: string): boolean {
+  return VON_RECHTS.has(sprache.toLowerCase().split(/[-_]/)[0]);
+}
+
+/** Sprache und Leserichtung am Dokument hinterlegen. */
+export function dokumentSpracheSetzen(sprache: string): void {
+  if (typeof document === 'undefined') return;
+  const kurz = (sprache || spracheDesSystems()).toLowerCase().split(/[-_]/)[0];
+  document.documentElement.lang = kurz;
+  document.documentElement.dir = istVonRechts(kurz) ? 'rtl' : 'ltr';
+}

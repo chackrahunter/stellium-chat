@@ -18,6 +18,8 @@ const COLUMNS: { table: string; column: string; definition: string }[] = [
   { table: 'users', column: 'created_by',           definition: 'TEXT' },
   { table: 'users', column: 'password_set_at',      definition: 'INTEGER' },
   { table: 'users', column: 'deleted_at',           definition: 'INTEGER' },
+  // Prüfsumme des Inhalts: damit muss dieselbe Datei nur einmal übertragen werden.
+  { table: 'attachments', column: 'sha256',        definition: 'TEXT' },
   { table: 'users', column: 'ui_language',          definition: "TEXT" },
   { table: 'users',    column: 'status_expires_at',  definition: 'INTEGER' },
   { table: 'users',    column: 'notification_sound', definition: "TEXT NOT NULL DEFAULT 'ping'" },
@@ -45,6 +47,12 @@ export function migrate(): void {
     db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email_bidx  ON users(email_bidx)  WHERE email_bidx  IS NOT NULL');
   } catch (err) {
     console.warn('[db] Eindeutigkeitsindex für Personendaten:', (err as Error).message);
+  }
+
+  try {
+    db.exec('CREATE INDEX IF NOT EXISTS idx_attachments_sha ON attachments(sha256)');
+  } catch (err) {
+    console.warn('[db] Index für Anhang-Prüfsummen:', (err as Error).message);
   }
 
   rebuildUsersTable();
