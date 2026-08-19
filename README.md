@@ -79,9 +79,17 @@ das und fragt nach — statt eine plausible Antwort zu bauen. Das ist geprüft:
 
 ### Sprachnachrichten
 
-Aufnehmen, senden. **Groqs Whisper** transkribiert, das Transkript wird zum
-Text der Nachricht — und damit automatisch übersetzt und durchsuchbar. Eine
-japanische Sprachnachricht liest du auf Deutsch.
+Aufnehmen, senden. **Whisper tippt ab** — auf dem Server selbst, über einen
+kleinen whisper.cpp-Dienst nebenan (`server-setup/dienste/stimme-einrichten.sh`).
+Die Aufnahme verlässt das Haus nicht. Ohne diesen Dienst wird über Groq
+abgetippt, sofern ein Schlüssel hinterlegt ist.
+
+Das Transkript wird zum Text der Nachricht — und ist damit automatisch
+übersetzt, durchsuchbar und für die KI lesbar: Zusammenfassung,
+Aufgabenerkennung und Assistent sehen eine Sprachnachricht wie getippten Text.
+Eine japanische Sprachnachricht liest du auf Deutsch.
+
+In vertraulichen Kanälen gibt es weder Sprachnachrichten noch Transkripte.
 
 ### Chat-Grundlagen
 
