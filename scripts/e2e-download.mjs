@@ -1,5 +1,5 @@
 /** Die Download-Seite: aktuelle Fassung, passender Vorschlag, echte Datei. */
-const S = process.env.STELLIUM_SERVER ?? 'http://localhost:8787';
+import { LOGIN, PW, SERVER as S } from './zugang.mjs';
 
 const ergebnisse = [];
 const pruefe = async (n, f) => {
@@ -52,10 +52,17 @@ const KENNUNGEN = {
 };
 const ERWARTET = { macOS: 'macOS', Windows: 'Windows', Linux: 'Linux' };
 
-const seite = async (ua) => (await fetch(`${S}/download`, { headers: { 'user-agent': ua } })).text();
+/* Die Seite liegt hinter der Anmeldung — der Nachweis steht in der Adresse. */
+const { token } = await (await fetch(`${S}/api/auth/login`, {
+  method: 'POST', headers: { 'content-type': 'application/json' },
+  body: JSON.stringify({ login: LOGIN, password: PW }),
+})).json();
+const mitZugang = (pfad) => `${S}${pfad}${pfad.includes('?') ? '&' : '?'}token=${encodeURIComponent(token)}`;
 
-await pruefe('Seite ist ohne Anmeldung erreichbar', async () => {
-  const r = await fetch(`${S}/download`, { headers: { 'user-agent': KENNUNGEN.macOS } });
+const seite = async (ua) => (await fetch(mitZugang('/download'), { headers: { 'user-agent': ua } })).text();
+
+await pruefe('Seite ist mit Anmeldung erreichbar', async () => {
+  const r = await fetch(mitZugang('/download'), { headers: { 'user-agent': KENNUNGEN.macOS } });
   muss(r.status === 200, `Status ${r.status}`);
   muss((r.headers.get('content-type') ?? '').includes('text/html'), 'kein HTML');
 });
@@ -95,7 +102,7 @@ await pruefe('Die Seite zeigt die neueste Fassung', async () => {
 });
 
 await pruefe('Die Datei kommt wirklich', async () => {
-  const r = await fetch(`${S}/download/darwin`, { method: 'HEAD' });
+  const r = await fetch(mitZugang('/download/darwin'), { method: 'HEAD' });
   muss(r.status === 200, `Status ${r.status}`);
   const laenge = Number(r.headers.get('content-length'));
   muss(laenge > 1_000_000, `nur ${laenge} Bytes`);
@@ -105,13 +112,23 @@ await pruefe('Die Datei kommt wirklich', async () => {
 });
 
 await pruefe('Das Serverpaket bleibt außen vor', async () => {
-  const r = await fetch(`${S}/download/server`);
+  const r = await fetch(mitZugang('/download/server'));
   muss(r.status === 404, `Status ${r.status}`);
 });
 
 await pruefe('Unbekanntes System bekommt kein Paket', async () => {
-  const r = await fetch(`${S}/download/haiku`);
+  const r = await fetch(mitZugang('/download/haiku'));
   muss(r.status === 404, `Status ${r.status}`);
+});
+
+await pruefe('Ohne Anmeldung führt die Seite zur Anmeldung', async () => {
+  const r = await fetch(`${S}/download`, { redirect: 'manual', headers: { 'user-agent': KENNUNGEN.macOS } });
+  muss(r.status === 302 || r.status === 301, `Status ${r.status}`);
+});
+
+await pruefe('Ohne Anmeldung gibt es keine Datei', async () => {
+  const r = await fetch(`${S}/download/darwin`, { method: 'HEAD' });
+  muss(r.status === 401, `Status ${r.status}`);
 });
 
 const schlecht = ergebnisse.filter((x) => !x).length;

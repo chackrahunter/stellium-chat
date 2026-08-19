@@ -741,4 +741,5 @@ export const no = {
   'emoji.hits': 'Treff',
   'update.linuxHint': '.AppImage eller .deb',
   'api.error': 'Feil {status}',
+  'update.forOtherDevices': 'Last ned app for en annen enhet',
 };

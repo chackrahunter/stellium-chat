@@ -39,7 +39,10 @@ export function downloadSeite(input: {
   releases: ReleaseInfo[];
   erkannt: Erkannt;
   arbeitsbereich: string;
+  /** Wird an die Dateilinks angehängt — ein Klick trägt keinen Kopf mit. */
+  token?: string;
 }): string {
+  const anhang = input.token ? `?token=${encodeURIComponent(input.token)}` : '';
   const apps = input.releases.filter((r) => r.platform !== 'server');
   const empfohlen = apps.find((r) => r.platform === input.erkannt) ?? null;
   const rest = apps.filter((r) => r !== empfohlen);
@@ -49,7 +52,7 @@ export function downloadSeite(input: {
     const n = NAMEN[r.platform] ?? { name: r.platform, hinweis: '', symbol: '•' };
     const datum = new Date(r.publishedAt).toLocaleDateString('de-DE', { day: 'numeric', month: 'long', year: 'numeric' });
     return `
-      <a class="karte${gross ? ' karte--gross' : ''}" href="/download/${r.platform}">
+      <a class="karte${gross ? ' karte--gross' : ''}" href="/download/${r.platform}${anhang}">
         <span class="karte__symbol">${n.symbol}</span>
         <span class="karte__text">
           <strong>${schuetzen(n.name)}</strong>

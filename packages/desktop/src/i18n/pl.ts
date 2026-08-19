@@ -741,4 +741,5 @@ export const pl = {
   'emoji.hits': 'Uderzenia',
   'update.linuxHint': '.AppImage lub .deb',
   'api.error': 'Błąd {status}',
+  'update.forOtherDevices': 'Pobierz aplikację na inne urządzenie',
 };

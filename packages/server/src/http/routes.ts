@@ -799,23 +799,30 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   });
 
   /**
-   * Die Seite zum Herunterladen — ohne Anmeldung erreichbar.
+   * Die Seite zum Herunterladen — nur für Angemeldete.
    *
-   * Wer eine App braucht, hat noch keine, und oft auch noch kein Konto. Die
-   * Installationsdateien sind nichts Geheimes: hinein kommt trotzdem nur, wer
-   * Zugangsdaten hat.
+   * Seit der Quelltext öffentlich ist, ist auch die Adresse dieses Servers
+   * bekannt. Die Installationsdateien gehören trotzdem dem Team: wer keinen
+   * Zugang hat, hat hier nichts zu holen. Der Nachweis darf in der Adresse
+   * stehen (`?token=`), weil ein Browserfenster keinen Kopf mitschickt.
    */
   app.get('/download', async (req, reply) => {
+    if (!bearerOderAdresse(req)) {
+      // Zur Anmeldung schicken statt eine leere Seite zu zeigen.
+      return reply.redirect('/');
+    }
     const ua = String((req.headers['user-agent'] ?? ''));
     return reply.type('text/html; charset=utf-8').send(downloadSeite({
       releases: releases.listReleases(),
       erkannt: systemErkennen(ua),
       arbeitsbereich: config.workspaceName,
+      token: (req.query as { token?: string } | undefined)?.token ?? '',
     }));
   });
 
-  /** Die Datei selbst, ebenfalls ohne Anmeldung. */
+  /** Die Datei selbst — ebenfalls nur mit Nachweis. */
   app.get('/download/:platform', async (req, reply) => {
+    requireLeser(req);
     const { platform } = req.params as { platform: string };
     // Das Serverpaket gehört nicht auf die öffentliche Seite.
     if (platform === 'server') return reply.code(404).send({ error: 'Nicht gefunden' });

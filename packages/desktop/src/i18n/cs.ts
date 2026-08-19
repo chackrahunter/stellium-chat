@@ -741,4 +741,5 @@ export const cs = {
   'emoji.hits': 'Zásahy',
   'update.linuxHint': '.AppImage nebo .deb',
   'api.error': 'Chyba {status}',
+  'update.forOtherDevices': 'Stáhnout aplikaci pro jiné zařízení',
 };

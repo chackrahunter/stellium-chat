@@ -741,4 +741,5 @@ export const it = {
   'emoji.hits': 'Successi',
   'update.linuxHint': '.AppImage o .deb',
   'api.error': 'Errore {status}',
+  'update.forOtherDevices': 'Scarica l\'app per un altro dispositivo',
 };

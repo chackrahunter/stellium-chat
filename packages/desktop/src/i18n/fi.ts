@@ -741,4 +741,5 @@ export const fi = {
   'emoji.hits': 'Osumat',
   'update.linuxHint': '.AppImage tai .deb',
   'api.error': 'Virhe {status}',
+  'update.forOtherDevices': 'Lataa sovellus toiselle laitteelle',
 };

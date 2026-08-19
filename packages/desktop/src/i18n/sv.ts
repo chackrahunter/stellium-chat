@@ -741,4 +741,5 @@ export const sv = {
   'emoji.hits': 'Träffar',
   'update.linuxHint': '.AppImage eller .deb',
   'api.error': 'Fel {status}',
+  'update.forOtherDevices': 'Ladda ner appen till en annan enhet',
 };

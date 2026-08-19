@@ -122,9 +122,19 @@ GEMESSEN="$(sha256sum "$PAKET" | awk '{print $1}')"
 ok "geladen und geprüft ($(du -h "$PAKET" | cut -f1))"
 
 schritt "Auspacken"
-tar -C "$ARBEIT" -xzf "$PAKET"
-QUELLE="$(find "$ARBEIT" -maxdepth 2 -name 'stellium-aktualisieren.sh' -print -quit)"
-[[ -n "$QUELLE" ]] || fehler "Im Paket fehlt das Aktualisierungsskript."
+# Ohne --no-xattrs beschwert sich tar über jede Datei, die von einem Mac
+# kommt — hunderte Zeilen, die den eigentlichen Fehler verdecken.
+tar -C "$ARBEIT" --no-xattrs -xzf "$PAKET" 2>/dev/null || tar -C "$ARBEIT" -xzf "$PAKET"
+
+# Im Paket liegt das Skript unter stellium-server/server-setup/ — also drei
+# Ebenen tief. Mit "maxdepth 2" wurde es nie gefunden, und der Selbstupdate
+# brach genau hier ab, seit das Paket diesen Aufbau hat.
+QUELLE="$(find "$ARBEIT" -maxdepth 4 -name 'stellium-aktualisieren.sh' -print -quit)"
+if [[ -z "$QUELLE" ]]; then
+  warn "Gefunden wurde stattdessen:"
+  find "$ARBEIT" -maxdepth 3 -name '*.sh' -print 2>/dev/null | sed 's/^/    /' >&2
+  fehler "Im Paket fehlt das Aktualisierungsskript."
+fi
 ok "bereit"
 
 schritt "Einspielen"

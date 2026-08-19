@@ -772,4 +772,5 @@ export const de = {
   'emoji.hits': 'Treffer',
   'update.linuxHint': '.AppImage oder .deb',
   'api.error': 'Fehler {status}',
+  'update.forOtherDevices': 'App für ein anderes Gerät herunterladen',
 } as const;

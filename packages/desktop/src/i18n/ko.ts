@@ -741,4 +741,5 @@ export const ko = {
   'emoji.hits': '히트',
   'update.linuxHint': '.AppImage 또는 .deb',
   'api.error': '오류 {status}',
+  'update.forOtherDevices': '다른 기기용 앱 다운로드',
 };

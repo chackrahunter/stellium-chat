@@ -741,4 +741,5 @@ export const zh = {
   'emoji.hits': '热门',
   'update.linuxHint': '.AppImage 或 .deb',
   'api.error': '错误 {status}',
+  'update.forOtherDevices': '在其他设备上下载应用',
 };

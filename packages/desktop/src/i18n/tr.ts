@@ -741,4 +741,5 @@ export const tr = {
   'emoji.hits': 'Etkiler',
   'update.linuxHint': '.AppImage veya .deb',
   'api.error': 'Hata {status}',
+  'update.forOtherDevices': 'Diğer bir cihaz için uygulamayı indirin',
 };

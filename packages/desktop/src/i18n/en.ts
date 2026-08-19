@@ -762,4 +762,5 @@ export const en: Partial<Dictionary> = {
   'emoji.hits': 'Hits',
   'update.linuxHint': '.AppImage or .deb',
   'api.error': 'Error {status}',
+  'update.forOtherDevices': 'Download app for another device',
 };

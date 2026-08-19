@@ -741,4 +741,5 @@ export const hi = {
   'emoji.hits': 'हिट्स',
   'update.linuxHint': '.AppImage या .deb',
   'api.error': 'त्रुटि {status}',
+  'update.forOtherDevices': 'दूसरे डिवाइस के लिए ऐप डाउनलोड करें',
 };

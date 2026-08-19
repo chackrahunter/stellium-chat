@@ -6,7 +6,7 @@ import {
 import type { ReleaseInfo, ReleasePlatform } from '@stellium/shared';
 import { useStore } from '../state/store.js';
 import { useT } from '../i18n/index.js';
-import { api } from '../net/api.js';
+import { api, serverUrl, token } from '../net/api.js';
 import { relativeTime } from '../lib/format.js';
 
 const PLATTFORMEN: { id: ReleasePlatform; name: string; icon: React.ReactNode; hinweis: string }[] = [
@@ -143,6 +143,18 @@ export function UpdatePanel() {
           </div>
         )}
         <p className="field__hint">{t('update.installHint')}</p>
+
+        {/* Für weitere Geräte: die Seite trägt den Nachweis in der Adresse,
+            weil ein Klick im Browser keinen Kopf mitschickt. */}
+        <a
+          className="btn btn--ghost"
+          style={{ marginTop: 8, textDecoration: 'none', fontSize: 12.5 }}
+          href={`${serverUrl().replace(/\/+$/, '')}/download?token=${encodeURIComponent(token() ?? '')}`}
+          target="_blank"
+          rel="noreferrer"
+        >
+          <Download size={13} /> {t('update.forOtherDevices')}
+        </a>
       </div>
 
       {/* Der Server — bisher stand hier "alles aktuell", während er noch auf

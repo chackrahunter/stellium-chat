@@ -81,20 +81,6 @@ export function Login() {
 
         <div className="auth__demo">{t('auth.noAccount')}</div>
 
-        {/* Nur im Browser: wer schon in der App ist, braucht sie nicht noch einmal. */}
-        {!window.stellium && (
-          <div style={{ marginTop: 'var(--sp-3)', textAlign: 'center' }}>
-            <a
-              className="btn btn--ghost"
-              style={{ height: 'auto', padding: 4, fontSize: 12, textDecoration: 'none' }}
-              href={`${serverUrl().replace(/\/+$/, '')}/download`}
-              target="_blank"
-              rel="noreferrer"
-            >
-              <Download size={13} /> {t('auth.getApp')}
-            </a>
-          </div>
-        )}
 
         <div style={{ marginTop: 'var(--sp-3)', textAlign: 'center' }}>
           <button

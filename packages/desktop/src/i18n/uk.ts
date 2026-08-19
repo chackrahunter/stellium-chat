@@ -741,4 +741,5 @@ export const uk = {
   'emoji.hits': 'Хіти',
   'update.linuxHint': '.AppImage або .deb',
   'api.error': 'Помилка {status}',
+  'update.forOtherDevices': 'Завантажити додаток для іншого пристрою',
 };

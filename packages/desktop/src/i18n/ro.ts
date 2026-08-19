@@ -741,4 +741,5 @@ export const ro = {
   'emoji.hits': 'Rezultate',
   'update.linuxHint': '.AppImage sau .deb',
   'api.error': 'Eroare {status}',
+  'update.forOtherDevices': 'Descarcă aplicația pentru un alt dispozitiv',
 };
