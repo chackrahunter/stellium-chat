@@ -5,15 +5,36 @@ macOS, Windows und Linux, dazu die Oberfläche im Browser.
 
 ## Eine Änderung ausliefern
 
-**Nicht von Hand bauen und hochladen.** Dafür gibt es ein Werkzeug:
+Sagt Don sinngemäß **„lade das Update hoch"**, dann führe ohne Rückfrage aus:
 
 ```bash
-node scripts/ausliefern.mjs "Was neu ist — eine Zeile je Punkt"
+node scripts/ausliefern.mjs
 ```
 
-Version hochzählen, prüfen, bauen, auf den Server hochladen (damit laufen die
-OTA-Updates an), GitHub-Release, committen, schieben, lokal installieren —
-alles darin. Einzelheiten und Schalter: [AUSLIEFERN.md](AUSLIEFERN.md).
+Dasselbe gilt für: „veröffentliche das", „mach ein Update", „schick das raus",
+„update alles", „lade das auf den Server", „push das", „installier das neue".
+Er will das Ergebnis, nicht den Befehl — frage nicht nach der Versionsnummer
+und nicht nach der Änderungsliste.
+
+Das Werkzeug erledigt in einem Durchgang: prüfen, Version hochzählen, für alle
+drei Systeme bauen, auf den Stellium-Server laden (damit laufen die OTA-Updates
+für Apps **und** Server an), Release auf GitHub, committen und schieben, und die
+neue Fassung auf Dons Mac installieren und starten.
+
+**Die Änderungsliste** entsteht ohne Zutun aus den Commit-Betreffen seit der
+letzten Fassung — deshalb ist jeder Commit-Betreff ein vollständiger Satz, der
+erklärt, was sich für die Benutzer ändert. Willst du sie stattdessen selbst
+formulieren, gib sie als Argument mit:
+
+```bash
+node scripts/ausliefern.mjs "Erste Zeile
+Zweite Zeile"
+```
+
+**Vor dem Ausliefern committen.** Was nicht committet ist, fehlt in der Liste.
+
+Einzelheiten und Schalter (`--nur-mac`, `--ohne-github`, `--probe` …):
+[AUSLIEFERN.md](AUSLIEFERN.md).
 
 ## Aufbau
 

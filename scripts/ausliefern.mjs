@@ -86,7 +86,20 @@ let notizen = notizenDatei
  */
 if (!notizen) {
   try {
-    const letzterStand = lauf('git', ['describe', '--tags', '--abbrev=0']).trim();
+    /* Die Marken der letzten Fassungen entstehen beim Veröffentlichen auf
+       GitHub und fehlen lokal, solange niemand sie geholt hat. */
+    const marke = () => {
+      try { return lauf('git', ['describe', '--tags', '--abbrev=0']).trim(); } catch { return ''; }
+    };
+    let letzterStand = marke();
+    if (!letzterStand) {
+      try { lauf('git', ['fetch', '--tags', '--quiet']); } catch { /* ohne Netz eben nicht */ }
+      letzterStand = marke();
+    }
+    // Immer noch nichts: dann ab dem Commit, der die Version zuletzt anhob.
+    if (!letzterStand) {
+      letzterStand = lauf('git', ['log', '-1', '--format=%H', '--', 'packages/desktop/package.json']).trim();
+    }
     const roh = lauf('git', ['log', `${letzterStand}..HEAD`, '--format=%s']).trim();
     notizen = roh
       .split('\n')
