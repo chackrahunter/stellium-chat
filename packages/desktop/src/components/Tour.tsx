@@ -86,7 +86,16 @@ const SCHRITTE: Schritt[] = [
 interface Rechteck { top: number; left: number; width: number; height: number }
 
 const LUFT = 8;
-const KARTE_BREIT = 340;
+/* Muss mit der Breite in app.css (.tour__card) übereinstimmen — sonst rechnet
+   die Platzsuche mit einer Karte, die es auf dem Schirm nicht gibt.
+
+   Gemessen: bei 340 passten „Überspringen“, „Zurück“ und „Weiter“ auf Deutsch
+   in keiner Fenstergröße nebeneinander (nötig 298, vorhanden 302 abzüglich der
+   Abstände). Sie brachen deshalb in eine zweite Zeile um, und die Karte wuchs
+   von 245 auf 302 Punkte Höhe — genau diese 57 Punkte trugen sie in flachen
+   Fenstern wieder aus dem Bild und über den Scheinwerfer. Breiter ist hier
+   also nicht Geschmack, sondern das, was die Karte flach hält. */
+const KARTE_BREIT = 380;
 /** Startwert, bis die Karte einmal gerendert und gemessen wurde. */
 const KARTE_HOCH_SCHAETZUNG = 230;
 
@@ -96,7 +105,7 @@ export function Tour({ onClose }: { onClose: () => void }) {
   const [ziel, setZiel] = useState<Rechteck | null>(null);
   const [messung, setMessung] = useState(0);
   const [kartenHoehe, setKartenHoehe] = useState(KARTE_HOCH_SCHAETZUNG);
-  const karte = useRef<HTMLDivElement>(null);
+  const karte = useRef<HTMLDivElement | null>(null);
 
   // Nur Schritte, deren Ziel es in dieser Oberfläche wirklich gibt.
   const [schritte, setSchritte] = useState<Schritt[]>(SCHRITTE);
@@ -114,18 +123,40 @@ export function Tour({ onClose }: { onClose: () => void }) {
   const zurueck = useCallback(() => setIndex((i) => Math.max(0, i - 1)), []);
 
   /* Höhe der Karte messen. Die Texte sind unterschiedlich lang; ohne die
-     echte Höhe könnte die Karte unten aus dem Fenster rutschen. Bewusst in
-     einem Effekt statt im ref-Aufruf — sonst liefe ein setState mitten in
-     der Darstellungsphase einer anderen Komponente.
+     echte Höhe könnte die Karte unten aus dem Fenster rutschen.
 
      offsetHeight statt des Rechtecks, weil die Karte beim Einblenden noch
      kleingerechnet ist: das Rechteck lieferte die geschrumpfte Höhe, und weil
      das Ende der Animation kein neues Rendern auslöst, blieb dieser zu kleine
-     Wert stehen — die Karte rückte dem Ziel dichter auf den Leib als geplant. */
-  useLayoutEffect(() => {
-    const h = karte.current?.offsetHeight;
-    if (h && Math.abs(h - kartenHoehe) > 2) setKartenHoehe(h);
-  });
+     Wert stehen — die Karte rückte dem Ziel dichter auf den Leib als geplant.
+
+     Ein Beobachter statt einer Messung im Effekt, weil die Höhe sich auch
+     ohne neues Rendern ändert. Gemessen bei 375×500 auf dem letzten Schritt:
+     die Fußzeile bricht auf schmalen Karten in eine zweite Zeile um, die Karte
+     wächst dabei von 252 auf 294 Punkte — aber erst, nachdem der vorige
+     Schritt ausgeblendet ist. Zu diesem Zeitpunkt kam kein Rendern mehr, in dem
+     hätte nachgemessen werden können: die Karte stand mit dem alten Maß
+     berechnet 21 Punkte zu tief. Der Beobachter meldet jede solche Änderung,
+     auch das Nachladen einer Schrift.
+
+     Als Rückruf am ref und nicht als Effekt mit Abhängigkeit: bei
+     AnimatePresence mit „wait“ entsteht der neue Kasten erst, wenn der alte
+     ausgeblendet ist. Ein Effekt hätte in diesem Moment noch den alten
+     beobachtet. */
+  const beobachter = useRef<ResizeObserver | null>(null);
+  const karteRef = useCallback((el: HTMLDivElement | null) => {
+    karte.current = el;
+    beobachter.current?.disconnect();
+    beobachter.current = null;
+    if (!el) return;
+    const messen = () => {
+      const h = el.offsetHeight;
+      if (h) setKartenHoehe((alt) => (Math.abs(h - alt) > 2 ? h : alt));
+    };
+    messen();
+    beobachter.current = new ResizeObserver(messen);
+    beobachter.current.observe(el);
+  }, []);
 
   /* Zielrechteck messen — auch nach Größenänderung des Fensters. */
   useLayoutEffect(() => {
@@ -200,7 +231,7 @@ export function Tour({ onClose }: { onClose: () => void }) {
       <AnimatePresence mode="wait">
         <motion.div
           key={aktuell.id}
-          ref={karte}
+          ref={karteRef}
           className="tour__card"
           style={{ top: platz.top, left: platz.left }}
           initial={{ opacity: 0, scale: 0.96, y: 8 }}
@@ -224,6 +255,12 @@ export function Tour({ onClose }: { onClose: () => void }) {
           <h2 className="tour__title">{t(aktuell.titel)}</h2>
           <p className="tour__text">{t(aktuell.text)}</p>
 
+          {/* Die Zählung steht bei den Punkten, nicht bei den Knöpfen: sie sagt
+              dasselbe wie die Punkte und gehört zum Fortschritt. In der Fußzeile
+              nahm sie den Knöpfen die Breite, die diese in langen Sprachen
+              brauchen — „Überspringen“, „Zurück“ und „Weiter“ zusammen passten
+              dort in keiner Fenstergröße hinein, und „Weiter“ ragte aus der
+              Karte heraus. */}
           <div className="tour__dots">
             {schritte.map((s, i) => (
               <button
@@ -233,11 +270,11 @@ export function Tour({ onClose }: { onClose: () => void }) {
                 aria-label={t('tour.step', { n: i + 1, total: schritte.length })}
               />
             ))}
+            <span className="tour__count">{t('tour.step', { n: index + 1, total: schritte.length })}</span>
           </div>
 
           <div className="tour__foot">
             <button className="btn btn--ghost" onClick={beenden}>{t('tour.skip')}</button>
-            <span className="tour__count">{t('tour.step', { n: index + 1, total: schritte.length })}</span>
             {index > 0 && (
               <button className="btn" onClick={zurueck}><ArrowLeft size={14} /> {t('tour.back')}</button>
             )}
