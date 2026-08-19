@@ -1,6 +1,7 @@
 import { aktiverAnbieter, config, lokaleEinstellung } from '../../config.js';
-import { languageInfo } from '@stellium/shared';
 import { ModelRegistry } from './model-registry.js';
+import { translationBudget, uebersetzungsRegeln, uebersetzungsTemperatur } from '../prompt.js';
+import { uebersetzungAusAntwort } from '../antwort.js';
 import {
   type AssistantProvider, type ChatMessage, type ChatOptions,
   ProviderError, type TranslateRequest, type TranslateResult, type TranslationProvider,
@@ -119,34 +120,19 @@ export class OpenAICompatibleProvider implements TranslationProvider, AssistantP
   }
 
   async translate(req: TranslateRequest): Promise<TranslateResult> {
-    const target = languageInfo(req.targetLang);
-    const source = req.sourceLang ? languageInfo(req.sourceLang) : null;
+    const rules = uebersetzungsRegeln(req);
 
-    const rules = [
-      `Übersetze den Text ins ${target.name} (${target.native}).`,
-      source ? `Ausgangssprache ist ${source.name}.` : 'Erkenne die Ausgangssprache selbst.',
-      'Es handelt sich um Nachrichten aus einem Firmen-Chat. Behalte den Tonfall bei: locker bleibt locker, förmlich bleibt förmlich.',
-      'Platzhalter der Form {{0}}, {{1}} usw. sind Code, Links, @Erwähnungen oder Produktnamen. Gib sie unverändert und vollzählig zurück.',
-      'Übersetze keine Emojis und erfinde keine zusätzlichen Sätze.',
-      'Behalte Zeilenumbrüche und Markdown-Struktur bei.',
-    ];
-
-    if (req.glossary && Object.keys(req.glossary).length) {
-      const pairs = Object.entries(req.glossary).map(([k, v]) => `"${k}" -> "${v}"`).join(', ');
-      rules.push(`Verwende diese Firmen-Terminologie zwingend: ${pairs}.`);
-    }
-    if (req.context) {
-      rules.push(`Kontext des Gesprächs (nur zur Orientierung, nicht übersetzen): ${req.context}`);
-    }
-    rules.push('Antworte ausschließlich als JSON: {"translation": "...", "detected_source_language": "<ISO-639-1>", "confidence": <0..1>}');
-
-    const data = await this.json<{ translation?: string; detected_source_language?: string; confidence?: number }>(
+    /* Roh entgegennehmen statt über json() gehen: llama.cpp hält sich nicht
+       zuverlässig an response_format und antwortet mitunter mit der blanken
+       Übersetzung. Über json() flöge die weg, obwohl sie brauchbar ist. */
+    const roh = await this.chat(
       [
         { role: 'system', content: rules.join('\n') },
         { role: 'user', content: req.text },
       ],
       {
-        temperature: 0,
+        json: true,
+        temperature: uebersetzungsTemperatur(req),
         // Großzügig rechnen: Denkmodelle wie gpt-oss verbrauchen Tokens, bevor
         // das erste Zeichen der Antwort kommt. Zu knapp bemessen bricht die
         // Ausgabe mitten im JSON ab und Groq antwortet mit 400.
@@ -155,26 +141,16 @@ export class OpenAICompatibleProvider implements TranslationProvider, AssistantP
       },
     );
 
-    if (typeof data.translation !== 'string') {
-      throw new ProviderError(`${this.ep.name}: Feld "translation" fehlt`);
-    }
+    const feld = uebersetzungAusAntwort(roh, req.text);
+    if (!feld) throw new ProviderError(`${this.ep.name}: Antwort enthielt keine Übersetzung`);
+
     return {
-      text: data.translation,
-      detectedSourceLang: data.detected_source_language?.toLowerCase().slice(0, 2) ?? null,
-      confidence: typeof data.confidence === 'number' ? Math.max(0, Math.min(1, data.confidence)) : null,
+      text: feld.translation,
+      detectedSourceLang: feld.detected?.toLowerCase().slice(0, 2) ?? null,
+      confidence: feld.confidence,
       model: this.registry.current.quality,
     };
   }
-}
-
-/**
- * Wie viele Tokens die Übersetzung höchstens brauchen darf.
- * Faustregel: rund ein Token pro drei Zeichen, dazu Luft für JSON-Gerüst und
- * die internen Denkschritte der Reasoning-Modelle.
- */
-function translationBudget(text: string): number {
-  const geschaetzt = Math.ceil(text.length / 3);
-  return Math.min(8192, Math.max(1500, geschaetzt * 4 + 800));
 }
 
 /**

@@ -6,6 +6,12 @@ export interface TranslateRequest {
   context?: string | null;
   /** Begriffe, die in der Zielsprache exakt so lauten müssen. */
   glossary?: Record<string, string>;
+  /**
+   * Zweiter Anlauf, nachdem der erste den Eingabetext zurückgegeben hat.
+   * Provider, die einen Prompt schreiben, formulieren dann deutlicher.
+   * Wer fest übersetzt (DeepL, Libre), darf das Feld übergehen.
+   */
+  nachdruck?: boolean;
 }
 
 export interface TranslateResult {

@@ -1,6 +1,6 @@
 import {
   detectLanguage, maskText, normalizeLang, placeholdersIntact,
-  translatableLength, unmaskText, type TranslationView,
+  translatableLength, unmaskText, type AiCapabilities, type TranslationView,
 } from '@stellium/shared';
 import {
   config, aiConfigured, aktiverAnbieter, istLokal, laufzeitSetzen, lokaleEinstellung, type AiProvider,
@@ -19,6 +19,12 @@ import {
   createGroqProvider, createLokalProvider, createOpenAIProvider, OpenAICompatibleProvider,
 } from './providers/openai-compatible.js';
 import { ProviderError, type AssistantProvider, type TranslationProvider } from './providers/types.js';
+import { istEcho, wortAehnlichkeit } from './echo.js';
+import {
+  ausfallMelden, erfolgMelden, lageVergessen, lokaleLage, lokaleLageJetzt, modelleAbfragen,
+  type LokaleLage,
+} from './erreichbarkeit.js';
+import * as stimme from '../services/stimme.js';
 
 /* ── Provider-Auswahl ─────────────────────────────────────────── */
 
@@ -62,6 +68,7 @@ export const provider: TranslationProvider = new Proxy({} as TranslationProvider
 /** Nach einer Änderung in den Einstellungen neu aufbauen. */
 export async function providerNeuAufbauen(): Promise<void> {
   aktiv = build();
+  lageVergessen();
   await warmUpModels();
   console.log(`[ai] Anbieter gewechselt auf "${aktiv.name}"${aktiv.model ? ` (${aktiv.model})` : ''}.`);
 }
@@ -134,24 +141,12 @@ export async function anbieterWaehlen(input: {
 export async function lokalePruefung(baseUrl: string): Promise<{
   erreichbar: boolean; modelle: string[]; fehler: string | null;
 }> {
-  const adresse = baseUrl.replace(/\/+$/, '');
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 6000);
-  try {
-    const res = await fetch(`${adresse}/models`, { signal: ctrl.signal });
-    if (!res.ok) return { erreichbar: false, modelle: [], fehler: `${res.status} ${res.statusText}` };
-    const body = await res.json() as { data?: { id?: string }[] };
-    const modelle = (body.data ?? []).map((m) => String(m.id ?? '')).filter(Boolean);
-    return { erreichbar: true, modelle, fehler: modelle.length ? null : 'Dort ist kein Modell geladen.' };
-  } catch (err) {
-    const grund = (err as Error).name === 'AbortError' ? 'keine Antwort' : (err as Error).message;
-    return { erreichbar: false, modelle: [], fehler: grund };
-  } finally {
-    clearTimeout(timer);
-  }
+  return modelleAbfragen(baseUrl);
 }
 
 export async function warmUpModels(): Promise<void> {
+  // Damit die Konsole gleich nach dem Start sagen kann, ob jemand antwortet.
+  void lokaleLage();
   if (!(provider instanceof OpenAICompatibleProvider)) return;
   await provider.registry.refresh();
   // Von Hand gewählte Modelle haben Vorrang vor der automatischen Auswahl.
@@ -170,20 +165,29 @@ export function chooseModels(quality: string | null, fast: string | null, userId
 }
 
 /**
- * Kann jemand Sprachnachrichten abtippen?
+ * Kann jemand Sprachnachrichten abtippen, und auf welchem Weg?
  *
- * Das hängt am Groq-Schlüssel, nicht am gewählten Anbieter: Ollama und
- * llama.cpp können kein Whisper. Wer auf ein lokales Modell umstellt, soll
- * deshalb nicht stillschweigend die Sprachnachrichten verlieren — liegt ein
- * Schlüssel vor, wird weiter darüber transkribiert.
+ * Das hängt nicht am gewählten Textmodell: Ollama und llama.cpp können kein
+ * Whisper, und das lokale Textmodell darf auf einer ganz anderen Maschine
+ * liegen. Gefragt sind deshalb zwei andere Dinge — läuft nebenan ein
+ * Sprachdienst, und liegt ein Groq-Schlüssel vor.
+ *
+ * Der lokale Weg hat Vorrang. Die Begründung steht in services/voice.ts.
  */
-export function transcriptionAvailable(): boolean {
-  return Boolean(config.ai.groq.apiKey);
+export function transcriptionWeg(): 'lokal' | 'groq' | null {
+  if (stimme.bekanntErreichbar()) return 'lokal';
+  if (config.ai.groq.apiKey) return 'groq';
+  return null;
 }
 
-/** Das beste Whisper-Modell, das Groq gerade führt. */
+export function transcriptionAvailable(): boolean {
+  return transcriptionWeg() !== null;
+}
+
+/** Womit abgetippt wird — der lokale Dienst oder das beste Whisper bei Groq. */
 export function transcriptionModel(): string | null {
-  if (!transcriptionAvailable()) return null;
+  if (transcriptionWeg() === 'lokal') return config.ai.stimme.modell || 'whisper';
+  if (transcriptionWeg() !== 'groq') return null;
   const whisper = modelRegistry()?.discovered.filter((m) => /whisper/i.test(m.id)) ?? [];
   if (!whisper.length) return 'whisper-large-v3-turbo';
   // "turbo" ist deutlich schneller und für Chat-Länge genau genug.
@@ -198,6 +202,14 @@ export function aiCapabilities() {
   const a = assistant();
   const registry = modelRegistry();
   const selection = registry?.current ?? null;
+
+  /* null heißt: kein lokales Modell, also nichts zu prüfen. Steht noch kein
+     Ergebnis, wird im Hintergrund nachgesehen und bis dahin nichts
+     behauptet — ein „aus" beim Hochfahren wäre genauso falsch wie das
+     dauerhafte „an" von vorher. */
+  const lage = lokaleLage();
+  const lokalAntwortet = !lage || lage.zustand === 'erreichbar';
+
   return {
     provider: provider.name,
     model: provider.model,
@@ -206,18 +218,82 @@ export function aiCapabilities() {
     modelsAvailable: registry ? registry.usable.length || null : null,
     transcription: transcriptionAvailable(),
     transcriptionModel: transcriptionModel(),
-    translation: provider.name !== 'demo',
+    /* Damit in den Einstellungen nicht nur steht, *dass* abgetippt wird,
+       sondern auch *wo*. Bei einem lokalen Textmodell ist das der Unterschied
+       zwischen „nichts verlässt das Haus" und dem Gegenteil. */
+    transcriptionLokal: transcriptionWeg() === 'lokal',
+    /* Hing bisher allein am eingestellten Anbieter und war damit für ein
+       lokales Modell immer wahr — auch wenn der Rechner schlief. Jetzt hängt
+       es an einer tatsächlichen Antwort. */
+    translation: provider.name !== 'demo' && lokalAntwortet,
     assistant: a !== null,
     lokal: istLokal(),
     lokaleAdresse: istLokal() ? lokaleEinstellung().baseUrl : null,
-    note: provider.name === 'demo'
-      ? 'Kein API-Schlüssel gesetzt. Trage GROQ_API_KEY in die .env ein oder stelle auf ein lokales Modell um.'
-      : a === null
-        ? `${provider.name} übersetzt, kann aber keine KI-Zusammenfassungen. Für alle Funktionen Groq, OpenAI oder ein lokales Modell wählen.`
-        : istLokal() && !transcriptionAvailable()
-          ? 'Lokales Modell — Sprachnachrichten lassen sich damit nicht abtippen. Dafür bräuchte es einen Groq-Schlüssel.'
-          : null,
+    lokalerZustand: lage?.zustand ?? null,
+    lokaleModelle: lage?.modelle ?? null,
+    lokalerFehler: lage?.fehler ?? null,
+    lokalGeprueftAm: lage?.geprueftAm ?? null,
+    lokalErfolgAm: lage?.letzterErfolgAm ?? null,
+    ...hinweis(lage),
   };
+}
+
+/**
+ * Der Hinweis unter „Übersetzungs-Dienst" in den Einstellungen.
+ *
+ * Er geht als Kennung hinaus, nicht als Satz: der deutsche Text daneben ist
+ * nur der Rückfall für ältere Clients. Vorher stand hier fester deutscher
+ * Text — und den las jede Person, egal welche Sprache sie eingestellt hatte.
+ */
+function hinweis(lage: LokaleLage | null): Pick<AiCapabilities, 'note' | 'noteCode' | 'noteWerte'> {
+  const a = assistant();
+  const leer = { note: null, noteCode: null, noteWerte: null };
+
+  /* Zuerst, weil es alles andere aufhebt: steht das Modell nicht zur
+     Verfügung, nützt der beste Schlüssel nichts. */
+  if (lage && lage.zustand === 'antwortet-nicht') {
+    return {
+      noteCode: 'hinweis.lokalStumm',
+      noteWerte: { adresse: lokaleEinstellung().baseUrl, fehler: lage.fehler ?? '—' },
+      note: `Das Modell unter ${lokaleEinstellung().baseUrl} antwortet nicht `
+        + `(${lage.fehler ?? 'keine Antwort'}). Nachrichten bleiben unübersetzt, bis es wieder läuft.`,
+    };
+  }
+  if (lage && lage.zustand === 'kein-modell') {
+    return {
+      noteCode: 'hinweis.lokalOhneModell', noteWerte: { adresse: lokaleEinstellung().baseUrl },
+      note: `Unter ${lokaleEinstellung().baseUrl} ist kein Modell geladen. `
+        + 'Dort eines starten, sonst bleibt alles unübersetzt.',
+    };
+  }
+
+  if (provider.name === 'demo') {
+    return {
+      noteCode: 'hinweis.keinSchluessel', noteWerte: null,
+      note: 'Kein API-Schlüssel gesetzt. Trage GROQ_API_KEY in die .env ein oder stelle auf ein lokales Modell um.',
+    };
+  }
+  if (a === null) {
+    return {
+      noteCode: 'hinweis.keinAssistent', noteWerte: { anbieter: provider.name },
+      note: `${provider.name} übersetzt, kann aber keine KI-Zusammenfassungen. Für alle Funktionen Groq, OpenAI oder ein lokales Modell wählen.`,
+    };
+  }
+  if (!transcriptionAvailable()) {
+    return {
+      noteCode: 'hinweis.keinAbtippen', noteWerte: null,
+      note: 'Sprachnachrichten werden nicht abgetippt. Dafür bräuchte es den Sprachdienst auf dem Server '
+        + '(server-setup/dienste/stimme-einrichten.sh) oder einen Groq-Schlüssel.',
+    };
+  }
+  if (istLokal() && transcriptionWeg() === 'groq') {
+    return {
+      noteCode: 'hinweis.stimmeBeiGroq', noteWerte: null,
+      note: 'Das Textmodell läuft im eigenen Netz, Sprachnachrichten gehen aber an Groq. '
+        + 'Mit server-setup/dienste/stimme-einrichten.sh bleiben auch sie hier.',
+    };
+  }
+  return leer;
 }
 
 /* ── Glossar ──────────────────────────────────────────────────── */
@@ -303,6 +379,11 @@ export interface TranslateOutcome {
   cached: boolean;
   /** true, wenn Ausgangs- und Zielsprache gleich sind — nichts zu tun. */
   noop: boolean;
+  /**
+   * true, wenn das Modell zwar geantwortet hat, aber mit dem Eingabetext.
+   * `text` trägt dann das Original: unübersetzt, und das soll man sehen.
+   */
+  unuebersetzt: boolean;
 }
 
 export async function translate(opts: TranslateOptions): Promise<TranslateOutcome> {
@@ -312,7 +393,7 @@ export async function translate(opts: TranslateOptions): Promise<TranslateOutcom
 
   const base = {
     sourceLang: source, provider: provider.name, model: provider.model,
-    confidence: null as number | null, cached: false, noop: false,
+    confidence: null as number | null, cached: false, noop: false, unuebersetzt: false,
   };
 
   if (source === target) return { ...base, text: opts.text, noop: true, confidence: 1 };
@@ -327,9 +408,38 @@ export async function translate(opts: TranslateOptions): Promise<TranslateOutcom
 
   const key = tmKey(source, target, masked);
 
+  /**
+   * Gemeinsamer Ausgang für alle Wege — frisch übersetzt wie aus dem Cache.
+   *
+   * Hier fällt die Entscheidung, ob am Ende wirklich eine Übersetzung steht.
+   * Kommt der Eingabetext zurück, wird er als Original ausgegeben und nicht
+   * als Übersetzung ausgegeben: lieber sichtbar unübersetzt als falsch
+   * beschriftet.
+   */
+  const fertig = (
+    uebersetzt: string,
+    zusatz: {
+      provider: string; model: string | null; confidence: number | null;
+      cached: boolean; sourceLang?: string;
+    },
+  ): TranslateOutcome => {
+    if (istEcho(masked, uebersetzt)) {
+      console.warn(
+        `[translate] ${provider.name} gab den Eingabetext zurück statt ihn zu übersetzen`
+        + ` (${zusatz.sourceLang ?? source} → ${target}, ${masked.length} Zeichen,`
+        + ` ${Math.round(wortAehnlichkeit(masked, uebersetzt) * 100)} % Übereinstimmung)`
+        + ' — wird als unübersetzt gekennzeichnet.',
+      );
+      return { ...base, ...zusatz, text: opts.text, noop: true, unuebersetzt: true, confidence: 0 };
+    }
+    return { ...base, ...zusatz, text: unmaskText(uebersetzt, tokens) };
+  };
+
   if (!opts.skipCache) {
     const hot = memory.get(key);
-    if (hot) return { ...base, ...hot, text: unmaskText(hot.text, tokens), cached: true };
+    if (hot) {
+      return fertig(hot.text, { provider: hot.provider, model: hot.model, confidence: hot.confidence, cached: true });
+    }
 
     const row = db.get<{ target_text: string; provider: string }>(
       'SELECT target_text, provider FROM translation_memory WHERE key = ?', key,
@@ -341,30 +451,79 @@ export async function translate(opts: TranslateOptions): Promise<TranslateOutcom
         model: provider.model, confidence: 0.9,
       };
       memory.set(key, entry);
-      return { ...base, ...entry, text: unmaskText(entry.text, tokens), cached: true };
+      return fertig(entry.text, { provider: entry.provider, model: entry.model, confidence: entry.confidence, cached: true });
     }
   }
 
-  let result;
-  try {
-    result = await withRetry(() => provider.translate({
-      text: masked,
-      targetLang: target,
-      sourceLang: source,
-      context: opts.context ?? null,
-      glossary: mapping,
-    }));
-  } catch (err) {
-    console.error('[translate]', (err as Error).message);
-    // Lieber das Original zeigen als gar nichts.
-    return { ...base, text: opts.text, confidence: 0, noop: true };
+  /* Erst nachsehen, ob überhaupt jemand da ist. Ein Modell im eigenen Netz
+     läuft auf einem Rechner, der auch mal aus ist — ohne diesen Test liefe
+     jede Nachricht in drei Versuche à 25 Sekunden, und bei mehreren
+     Zielsprachen steht der Betrieb. Der Test steht bewusst hinter den
+     Zwischenspeichern: was schon übersetzt ist, soll auch dann ankommen,
+     wenn gerade niemand antwortet. */
+  const lage = await lokaleLageJetzt();
+  if (lage && lage.zustand !== 'erreichbar') {
+    console.warn(
+      `[translate] ${lokaleEinstellung().baseUrl}: ${lage.fehler ?? 'antwortet nicht'}`
+      + ' — nicht übersetzt, wird beim nächsten Mal erneut versucht.',
+    );
+    return { ...base, text: opts.text, confidence: 0, noop: true, unuebersetzt: true };
   }
 
-  let out = result.text;
+  const anfrage = {
+    text: masked,
+    targetLang: target,
+    sourceLang: source,
+    context: opts.context ?? null,
+    glossary: mapping,
+  };
+
+  let result;
+  try {
+    result = await withRetry(() => provider.translate(anfrage));
+    // Wer antwortet, ist erreichbar — billiger als jede weitere Nachfrage.
+    erfolgMelden();
+
+    /* Der Eingabetext kam zurück — einmal mit deutlicherer Anweisung
+       nachfassen. Ein zweiter Versuch mit demselben Prompt wäre sinnlos:
+       bei temperature 0 antwortet das Modell Wort für Wort dasselbe,
+       dreimal von drei Läufen gemessen.
+
+       Nicht nachgefasst wird, wenn das Modell selbst sagt, der Text stehe
+       schon in der Zielsprache: dann ist die unveränderte Rückgabe richtig
+       und Nachdruck würde eine Übersetzung erzwingen, die keine ist. */
+    const erkannt = result.detectedSourceLang ? normalizeLang(result.detectedSourceLang) : source;
+    if (erkannt !== target && istEcho(masked, result.text)) {
+      const zweiter = await withRetry(() => provider.translate({ ...anfrage, nachdruck: true }))
+        .catch((err) => {
+          console.warn('[translate] Nachfassen fehlgeschlagen:', (err as Error).message);
+          return null;
+        });
+      if (zweiter && !istEcho(masked, zweiter.text)) result = zweiter;
+    }
+  } catch (err) {
+    /* Bei einem Modell im eigenen Netz gehört die Adresse dazu. Sonst steht im
+       Journal nur „fetch failed", und die häufigste Ursache — der Rechner mit
+       dem Modell ist aus oder aus dem Tailscale-Netz gefallen — sieht genauso
+       aus wie jeder andere Fehler. */
+    const wo = istLokal() ? ` (${lokaleEinstellung().baseUrl})` : '';
+    console.error(`[translate]${wo}`, (err as Error).message);
+
+    /* Kam gar keine Antwort — Verbindung abgelehnt oder Zeitüberschreitung —,
+       dann sofort merken. Sonst liefe die nächste Nachricht noch einmal in
+       die volle Wartezeit, obwohl längst feststeht, dass niemand da ist.
+       Ein 400er oder 429er sagt dagegen nichts über die Erreichbarkeit. */
+    const status = err instanceof ProviderError ? err.status : undefined;
+    if (status === undefined || status === 408) ausfallMelden((err as Error).message);
+    // Lieber das Original zeigen als gar nichts.
+    return { ...base, text: opts.text, confidence: 0, noop: true, unuebersetzt: true };
+  }
+
+  const out = result.text;
   if (!placeholdersIntact(masked, out)) {
     // Modell hat Platzhalter verschluckt — Original zurückgeben statt Kauderwelsch.
     console.warn('[translate] Platzhalter beschädigt, nutze Original');
-    return { ...base, text: opts.text, confidence: 0, noop: true };
+    return { ...base, text: opts.text, confidence: 0, noop: true, unuebersetzt: true };
   }
 
   const finalSource = result.detectedSourceLang ? normalizeLang(result.detectedSourceLang) : source;
@@ -386,7 +545,10 @@ export async function translate(opts: TranslateOptions): Promise<TranslateOutcom
     key, finalSource, target, verschluesseln(masked), verschluesseln(out), provider.name, Date.now(),
   );
 
-  return { ...base, ...entry, sourceLang: finalSource, text: unmaskText(out, tokens) };
+  return fertig(out, {
+    provider: entry.provider, model: entry.model, confidence: entry.confidence,
+    cached: false, sourceLang: finalSource,
+  });
 }
 
 async function withRetry<T>(fn: () => Promise<T>, attempts = 3): Promise<T> {
@@ -451,6 +613,18 @@ export async function translateMessage(
     db.run('UPDATE messages SET source_lang = ? WHERE id = ?', outcome.sourceLang, messageId);
   }
 
+  /* Es kam eine Antwort, aber keine Übersetzung — der Eingabetext, ein
+     zerschossener Platzhalter oder ein Fehler beim Anbieter. Nichts
+     speichern: die Nachricht bleibt unübersetzt stehen. Der Vermerk geht
+     trotzdem hinaus, damit die Oberfläche „Original in Englisch" schreiben
+     kann statt „Übersetzt aus Englisch". */
+  if (outcome.unuebersetzt) {
+    return {
+      lang: target, text: outcome.text, provider: outcome.provider, model: outcome.model,
+      confidence: 0, cached: outcome.cached, unuebersetzt: true,
+    };
+  }
+
   if (outcome.noop) return null;
 
   db.run(
@@ -498,22 +672,8 @@ export async function roundTrip(messageId: string, targetLang: string): Promise<
     sourceLang: normalizeLang(targetLang),
     skipCache: true,
   });
-  return { backTranslation: back.text, similarity: similarity(msg.text, back.text) };
-}
-
-/** Token-basierte Ähnlichkeit (Dice-Koeffizient auf Wortebene). */
-function similarity(a: string, b: string): number {
-  const norm = (s: string) => s.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, ' ').split(/\s+/).filter(Boolean);
-  const A = norm(a); const B = norm(b);
-  if (!A.length || !B.length) return 0;
-  const counts = new Map<string, number>();
-  for (const w of A) counts.set(w, (counts.get(w) ?? 0) + 1);
-  let overlap = 0;
-  for (const w of B) {
-    const c = counts.get(w) ?? 0;
-    if (c > 0) { overlap++; counts.set(w, c - 1); }
-  }
-  return (2 * overlap) / (A.length + B.length);
+  // Dieselbe Messlatte wie bei der Echo-Erkennung — eine Ähnlichkeit, ein Maß.
+  return { backTranslation: back.text, similarity: wortAehnlichkeit(msg.text, back.text) };
 }
 
 /* ── Glossar-Verwaltung ───────────────────────────────────────── */
