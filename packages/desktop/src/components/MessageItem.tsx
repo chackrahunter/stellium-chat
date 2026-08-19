@@ -1,12 +1,13 @@
 import { memo, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
-  AlertTriangle, Bell, Bookmark, Check, Copy, EyeOff, Forward, Languages,
+  AlertTriangle, Bell, Bookmark, Check, Copy, EyeOff, Forward, Languages, Lock,
   MessageSquare, MoreHorizontal, Pencil, Pin, RefreshCw, Smile, Sparkles, Trash2,
+  Unlock,
 } from 'lucide-react';
 import {
   DELETE_FOR_ALL_WINDOW_MS, EDIT_WINDOW_MS, minutesLeft,
-  withinDeleteWindow, withinEditWindow, type Message,
+  withinDeleteWindow, withinEditWindow, type Attachment, type Message,
 } from '@stellium/shared';
 import { useStore } from '../state/store.js';
 import { spracheName, useT } from '../i18n/index.js';
@@ -18,6 +19,8 @@ import { PollCard } from './PollCard.jsx';
 import { VoiceMessage } from './VoiceMessage.jsx';
 import { LinkPreviewCard } from './LinkPreviewCard.jsx';
 import { clsx, fileSize, languageInfo, timeOfDay } from '../lib/format.js';
+import { useKlartext, useVerschlosseneDatei } from './Vertraulich.jsx';
+import type { TranslationKey } from '../i18n/index.js';
 
 interface Props {
   message: Message;
@@ -46,6 +49,11 @@ export const MessageItem = memo(function MessageItem({ message, grouped, inThrea
   const [pickerOpen, setPickerOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
 
+  /* Entschlüsselt wird beim Anzeigen. In gewöhnlichen Kanälen kommt der Text
+     unverändert zurück — die Prüfung kostet einen Zeichenvergleich. */
+  const vertraulich = useStore((s) => Boolean(s.channels[message.channelId]?.vertraulich));
+  const { text: klartext, unlesbar } = useKlartext(message.channelId, message.text);
+
   const isMine = self?.id === message.userId;
   // Bearbeiten und Zurücknehmen sind zeitlich begrenzt: nach zwei Stunden ist
   // die Nachricht Teil eines Verlaufs, auf den sich andere bezogen haben.
@@ -56,8 +64,15 @@ export const MessageItem = memo(function MessageItem({ message, grouped, inThrea
   const restLoeschen = minutesLeft(message.createdAt, DELETE_FOR_ALL_WINDOW_MS);
   const isMention = self ? message.mentionUserIds.includes(self.id) : false;
   const translation = message.translation;
-  const hasTranslation = Boolean(translation && translation.text !== message.text);
-  const bodyText = hasTranslation && !showOriginal ? translation!.text : message.text;
+  /* Das Modell gibt bei Umgangssprache ohne Satzzeichen gelegentlich den
+     Eingabetext zurück, statt zu übersetzen — gemessen in 37 % der Fälle bei
+     Englisch als Quelle. Der Server fasst dann nach und markiert, wenn auch
+     das nichts half. Diesen Fall darf die Oberfläche nicht als Übersetzung
+     ausgeben: „Übersetzt aus English" über unübersetztem Englisch ist
+     schlimmer als gar keine Angabe, weil es den Leser in die Irre führt. */
+  const unuebersetzt = Boolean(translation?.unuebersetzt);
+  const hasTranslation = Boolean(translation && translation.text !== message.text) && !unuebersetzt;
+  const bodyText = hasTranslation && !showOriginal ? translation!.text : klartext;
 
   // Für mich ausgeblendet: nur ein dezenter Hinweis, kein Inhalt.
   if (message.hiddenForMe) {
@@ -83,19 +98,27 @@ export const MessageItem = memo(function MessageItem({ message, grouped, inThrea
   }
 
   if (message.systemKind) {
+    const eigen = systemtextVertraulich(message, author?.displayName ?? '', t);
     return (
       <div className="msg msg--grouped" style={{ opacity: 0.7 }}>
         <div className="msg__gutter" />
-        <div className="msg__body muted" style={{ fontSize: 13 }}>{message.text}</div>
+        <div className="msg__body muted" style={{ fontSize: 13 }}>
+          {eigen && <Lock size={11} style={{ verticalAlign: -1, marginRight: 5, color: 'var(--violet-soft)' }} />}
+          {eigen ?? message.text}
+        </div>
       </div>
     );
   }
 
   const submitEdit = () => {
     const clean = draft.trim();
-    if (clean && clean !== message.text) editMessage(message.id, clean);
+    if (clean && clean !== klartext) editMessage(message.id, clean);
     setEditing(false);
   };
+
+  /* In den Entwurf gehört der lesbare Text, nicht das Chiffrat aus dem
+     Zustand — sonst bearbeitete man Base64. */
+  const bearbeitenStarten = () => { setDraft(klartext); setEditing(true); };
 
   return (
     <motion.div
@@ -117,7 +140,7 @@ export const MessageItem = memo(function MessageItem({ message, grouped, inThrea
         {grouped
           ? <span className="msg__time-hover">{timeOfDay(message.createdAt)}</span>
           : (
-            <button onClick={() => setProfileUser(message.userId)} title={`Profil von ${author?.displayName ?? ''}`}>
+            <button onClick={() => setProfileUser(message.userId)} title={t('profile.of', { name: author?.displayName ?? '' })}>
               <Avatar user={author} size={38} showPresence />
             </button>
           )}
@@ -127,14 +150,14 @@ export const MessageItem = memo(function MessageItem({ message, grouped, inThrea
         {message.forwardedFrom && (
           <div className="msg__forwarded">
             <Forward size={11} />
-            Weitergeleitet von {useStore.getState().users[message.forwardedFrom.userId]?.displayName ?? 'jemandem'}
+            {t('msg.forwardedBy', { name: useStore.getState().users[message.forwardedFrom.userId]?.displayName ?? t('msg.someone') })}
           </div>
         )}
 
         {!grouped && (
           <div className="msg__head">
             <button className="msg__author" onClick={() => setProfileUser(message.userId)}>
-              {author?.displayName ?? 'Unbekannt'}
+              {author?.displayName ?? t('common.unknown')}
             </button>
             <span className="msg__time">{timeOfDay(message.createdAt)}</span>
             {message.editedAt && <span className="msg__tag">{t('msg.edited')}</span>}
@@ -156,12 +179,12 @@ export const MessageItem = memo(function MessageItem({ message, grouped, inThrea
               onChange={(e) => setDraft(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submitEdit(); }
-                if (e.key === 'Escape') { setEditing(false); setDraft(message.text); }
+                if (e.key === 'Escape') { setEditing(false); setDraft(klartext); }
               }}
             />
             <div className="hstack gap-2">
               <button className="btn btn--primary" onClick={submitEdit}><Check size={15} /> {t('msg.saveButton')}</button>
-              <button className="btn btn--ghost" onClick={() => { setEditing(false); setDraft(message.text); }}>{t('msg.cancel')}</button>
+              <button className="btn btn--ghost" onClick={() => { setEditing(false); setDraft(klartext); }}>{t('msg.cancel')}</button>
               <span className="muted" style={{ fontSize: 12 }}>{t('msg.enterSaves')}</span>
             </div>
           </div>
@@ -174,7 +197,15 @@ export const MessageItem = memo(function MessageItem({ message, grouped, inThrea
           />
         ) : (
           <div className="msg__body translated">
-            {message.kind === 'poll' && message.poll
+            {/* Fehlt der Schlüssel, ist das kein Fehler, sondern der normale
+                Zustand auf einem neuen Gerät. Deshalb ein Hinweis in der
+                Zeile und keine Fehlermeldung. */}
+            {unlesbar ? (
+              <div className="muted" style={{ fontStyle: 'italic', fontSize: 13.5 }}>
+                <Lock size={12} style={{ verticalAlign: -2, marginRight: 5 }} />
+                {t('vertraulich.nichtLesbar')}
+              </div>
+            ) : message.kind === 'poll' && message.poll
               ? <PollCard poll={message.poll} />
               : <Markdown text={bodyText} selfHandle={self?.handle} />}
 
@@ -183,6 +214,14 @@ export const MessageItem = memo(function MessageItem({ message, grouped, inThrea
                 <Sparkles size={11} className="spark" />
                 <span>{t('msg.translating')}</span>
                 <span className="tr-pending__bar" />
+              </div>
+            )}
+
+            {unuebersetzt && (
+              // Kein Knopf: es gibt nichts aufzuklappen, der Text steht schon da.
+              <div className="translated__meta translated__meta--roh">
+                <AlertTriangle size={11} />
+                {t('msg.notTranslated', { language: spracheName(message.sourceLang ?? '') })}
               </div>
             )}
 
@@ -223,8 +262,8 @@ export const MessageItem = memo(function MessageItem({ message, grouped, inThrea
                 {roundTrip && (
                   <div className="translated__original" style={{ borderLeftColor: 'var(--cyan)' }}>
                     <div className="muted" style={{ fontSize: 11, marginBottom: 3 }}>
-                      Rückübersetzung · {Math.round(roundTrip.similarity * 100)} % Übereinstimmung
-                      {roundTrip.similarity < 0.5 && ' — Bedeutung könnte abweichen'}
+                      {t('msg.backTranslation', { percent: Math.round(roundTrip.similarity * 100) })}
+                      {roundTrip.similarity < 0.5 && ` — ${t('msg.meaningMayDiffer')}`}
                     </div>
                     {roundTrip.backTranslation}
                   </div>
@@ -251,27 +290,9 @@ export const MessageItem = memo(function MessageItem({ message, grouped, inThrea
 
         {message.attachments.filter((a) => message.kind !== 'voice' || !a.mime.startsWith('audio/')).length > 0 && (
           <div className="attachments">
-            {message.attachments.filter((a) => message.kind !== 'voice' || !a.mime.startsWith('audio/')).map((att) => (
-              att.mime.startsWith('image/') ? (
-                <img
-                  key={att.id}
-                  className="att-img"
-                  src={fileUrl(att.url)}
-                  alt={att.name}
-                  loading="lazy"
-                  width={att.width ?? undefined}
-                  height={att.height ?? undefined}
-                  onClick={() => setLightbox(fileUrl(att.url))}
-                />
-              ) : (
-                <a key={att.id} className="att-file" href={fileUrl(att.url)} target="_blank" rel="noreferrer">
-                  <div className="stack">
-                    <span className="att-file__name">{att.name}</span>
-                    <span className="att-file__size">{fileSize(att.size)}</span>
-                  </div>
-                </a>
-              )
-            ))}
+            {message.attachments
+              .filter((a) => message.kind !== 'voice' || !a.mime.startsWith('audio/'))
+              .map((att) => <AnhangKachel key={att.id} anhang={att} imKanal={message.channelId} />)}
           </div>
         )}
 
@@ -318,11 +339,14 @@ export const MessageItem = memo(function MessageItem({ message, grouped, inThrea
         {!inThread && (
           <button className="icon-btn icon-btn--sm" onClick={() => openThread(message.id)} title={t('msg.replyInThread')}><MessageSquare size={15} /></button>
         )}
-        {hasTranslation ? (
+        {/* Übersetzen und Weiterleiten brauchen Klartext auf dem Server. In
+            einem vertraulichen Kanal gibt es dort keinen — der Knopf könnte
+            nur scheitern. */}
+        {!vertraulich && (hasTranslation ? (
           <button className="icon-btn icon-btn--sm" onClick={() => requestRoundTrip(message.id)} title={t('msg.checkBackTranslation')}><RefreshCw size={15} /></button>
         ) : (
           <button className="icon-btn icon-btn--sm" onClick={() => requestTranslation(message.id)} title={t('msg.translateToMine')}><Languages size={15} /></button>
-        )}
+        ))}
         <button className="icon-btn icon-btn--sm" onClick={() => setMenuOpen((v) => !v)} title={t('msg.more')}><MoreHorizontal size={15} /></button>
 
         <AnimatePresence>
@@ -341,14 +365,16 @@ export const MessageItem = memo(function MessageItem({ message, grouped, inThrea
             >
               <MenuItem icon={<Bookmark size={14} />} label={t('msg.save')} onClick={() => { save(message.id, true); setMenuOpen(false); }} />
               <MenuItem icon={<Bell size={14} />} label={t('msg.remind')} onClick={() => { startReminder(message); setMenuOpen(false); }} />
-              <MenuItem icon={<Forward size={14} />} label={t('msg.forward')} onClick={() => { startForward(message); setMenuOpen(false); }} />
+              {!vertraulich && (
+                <MenuItem icon={<Forward size={14} />} label={t('msg.forward')} onClick={() => { startForward(message); setMenuOpen(false); }} />
+              )}
               <MenuItem icon={<Pin size={14} />} label={message.pinned ? t('msg.unpin') : t('msg.pin')} onClick={() => { pin(message.id, !message.pinned); setMenuOpen(false); }} />
-              <MenuItem icon={<Copy size={14} />} label={t('msg.copy')} onClick={() => { void navigator.clipboard.writeText(message.text); setMenuOpen(false); }} />
+              <MenuItem icon={<Copy size={14} />} label={t('msg.copy')} onClick={() => { void navigator.clipboard.writeText(klartext); setMenuOpen(false); }} />
               {darfBearbeiten && (
                 <MenuItem
                   icon={<Pencil size={14} />}
                   label={`${t('msg.edit')} · ${t('msg.minutesLeft', { n: restBearbeiten })}`}
-                  onClick={() => { setEditing(true); setMenuOpen(false); }}
+                  onClick={() => { bearbeitenStarten(); setMenuOpen(false); }}
                 />
               )}
               {isMine && !darfBearbeiten && (
@@ -406,5 +432,129 @@ function MenuItem({ icon, label, onClick, danger, disabled }: {
     >
       {icon}{label}
     </button>
+  );
+}
+
+/* ── Zugangsmeldungen aus vertraulichen Kanälen ───────────────── */
+
+/**
+ * Der Server schreibt seine Zugangsmeldungen als fertigen Satz in den Kanal.
+ *
+ * Das muss er auch: sie sollen selbst dann lesbar sein, wenn jemandem der
+ * Schlüssel fehlt, und sie dürfen nicht von der App abhängen, die sie
+ * ausgelöst hat — sonst könnte man sie weglassen. Für die Anzeige wird der
+ * Satz hier durch den Eintrag der Oberflächensprache ersetzt.
+ *
+ * Der Grund einer Freigabe ist der einzige Teil, den der Server nicht kennt.
+ * Er steht hinter dem Doppelpunkt am Ende; alles davor ist der feste Satz.
+ */
+const GRUND_IM_SYSTEMTEXT = /—[^:]*:\s*([\s\S]+)$/;
+
+const SYSTEMTEXTE: Record<string, TranslationKey> = {
+  'vertraulich.ein': 'sys.vertraulichEin',
+  'vertraulich.freigabe': 'sys.vertraulichFreigabe',
+  'vertraulich.eingeloest': 'sys.vertraulichEingeloest',
+  'vertraulich.zurueckgenommen': 'sys.vertraulichZurueckgenommen',
+};
+
+function systemtextVertraulich(
+  message: Message,
+  name: string,
+  t: (key: TranslationKey, werte?: Record<string, string | number>) => string,
+): string | null {
+  const schluessel = SYSTEMTEXTE[message.systemKind ?? ''];
+  if (!schluessel) return null;
+  const grund = GRUND_IM_SYSTEMTEXT.exec(message.text)?.[1]?.trim() ?? '';
+  return t(schluessel, { name, grund });
+}
+
+/* ── Anhänge ──────────────────────────────────────────────────── */
+
+/**
+ * Ein Anhang — offen oder verschlossen.
+ *
+ * Der offene Fall ist der von jeher: der Server liefert das Bild aus, das
+ * `<img src>` zeigt es. Beim verschlossenen geht das nicht, und zwar
+ * grundsätzlich nicht — beim Server liegt Chiffrat, und ein Bildbetrachter
+ * bekäme Rauschen. Also holt die App die Datei, schließt sie auf und zeigt
+ * sie aus dem Arbeitsspeicher. Erst dabei kommen auch Name und Typ zum
+ * Vorschein; auf dem Server steht an ihrer Stelle ein Platzhalter.
+ *
+ * Der dritte Fall ist der wichtigste für das Vertrauen in die Sache: ein
+ * offener Anhang in einem vertraulichen Kanal. Den gibt es, weil ein Kanal
+ * nachträglich vertraulich gestellt werden kann — was vorher hochgeladen
+ * wurde, liegt weiter offen da, und niemand kann das rückwirkend ändern.
+ * Diese Anhänge werden gekennzeichnet, statt sie stillschweigend zwischen
+ * den verschlossenen mitlaufen zu lassen: wer sich auf das Schloss verlässt,
+ * soll sehen, wo es nicht gilt.
+ */
+function AnhangKachel({ anhang, imKanal }: { anhang: Attachment; imKanal: string }) {
+  const t = useT();
+  const kanal = useStore((s) => s.channels[imKanal]);
+  const setLightbox = useStore((s) => s.setLightbox);
+  const { url, name, mime, unlesbar, laeuft } = useVerschlosseneDatei(anhang);
+
+  const verschlossen = Boolean(anhang.huelle);
+  const ausOffenerZeit = !verschlossen && Boolean(kanal?.vertraulich);
+
+  if (verschlossen && laeuft) {
+    return <div className="att-file att-file--laeuft">{t('anhang.wirdGeoeffnet')}</div>;
+  }
+  if (verschlossen && (unlesbar || !url)) {
+    return (
+      <div className="att-file att-file--zu" title={t('anhang.unlesbarHinweis')}>
+        <div className="stack">
+          <span className="att-file__name">{t('anhang.unlesbar')}</span>
+          <span className="att-file__size">{fileSize(anhang.size)}</span>
+        </div>
+      </div>
+    );
+  }
+
+  const adresse = verschlossen ? url! : fileUrl(anhang.url);
+
+  if (mime.startsWith('image/')) {
+    /* Die Marke sitzt inline und nicht in einer eigenen Regel: das Stylesheet
+       gehört gerade jemand anderem. Sie soll auffallen, ohne das Bild zu
+       verdecken — deshalb unter dem Bild und nicht darauf. */
+    return (
+      <span className="att-bild">
+        <img
+          className="att-img"
+          src={adresse}
+          alt={name}
+          loading="lazy"
+          width={anhang.width ?? undefined}
+          height={anhang.height ?? undefined}
+          onClick={() => setLightbox(adresse)}
+        />
+        {ausOffenerZeit && (
+          <span
+            className="att-offen-marke muted"
+            title={t('anhang.ausOffenerZeitHinweis')}
+          >
+            <Unlock size={10} /> {t('anhang.ausOffenerZeit')}
+          </span>
+        )}
+      </span>
+    );
+  }
+
+  return (
+    <a
+      className="att-file"
+      href={adresse}
+      download={verschlossen ? name : undefined}
+      target={verschlossen ? undefined : '_blank'}
+      rel="noreferrer"
+    >
+      <div className="stack">
+        <span className="att-file__name">{name}</span>
+        <span className="att-file__size">
+          {fileSize(anhang.size)}
+          {ausOffenerZeit && ` · ${t('anhang.ausOffenerZeit')}`}
+        </span>
+      </div>
+    </a>
   );
 }

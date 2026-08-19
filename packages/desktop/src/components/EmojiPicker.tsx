@@ -99,7 +99,7 @@ export function EmojiPicker({ onPick, onClose, ankerRef }: Props) {
         <input
           className="input"
           style={{ padding: '5px 9px', fontSize: 13 }}
-          placeholder="Emoji suchen…"
+          placeholder={t('emoji.search')}
           value={query}
           autoFocus
           onChange={(e) => setQuery(e.target.value)}

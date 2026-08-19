@@ -33,9 +33,9 @@ export function PollCard({ poll }: { poll: Poll }) {
       <div className="poll__head">
         <BarChart3 size={13} />
         {t('poll.label')}
-        {poll.multiple && <span className="poll__flag">Mehrfachwahl</span>}
-        {poll.anonymous && <span className="poll__flag"><Lock size={9} /> anonym</span>}
-        {poll.closed && <span className="poll__flag poll__flag--closed">beendet</span>}
+        {poll.multiple && <span className="poll__flag">{t('poll.multiple')}</span>}
+        {poll.anonymous && <span className="poll__flag"><Lock size={9} /> {t('poll.anonymous')}</span>}
+        {poll.closed && <span className="poll__flag poll__flag--closed">{t('poll.closed')}</span>}
       </div>
 
       <div className="poll__question">{poll.translation?.question ?? poll.question}</div>
@@ -83,9 +83,9 @@ export function PollCard({ poll }: { poll: Poll }) {
         {poll.totalVoters === 0
           ? t('poll.noVotes')
           : t(poll.totalVoters === 1 ? 'poll.oneVote' : 'poll.votes', { n: poll.totalVoters })}
-        {poll.closesAt && !poll.closed && <span>· endet {relativeTime(poll.closesAt)}</span>}
+        {poll.closesAt && !poll.closed && <span>· {t('poll.endsIn', { zeit: relativeTime(poll.closesAt) })}</span>}
         {canClose && !poll.closed && (
-          <button className="poll__close" onClick={() => closePoll(poll.id)}>Beenden</button>
+          <button className="poll__close" onClick={() => closePoll(poll.id)}>{t('poll.close')}</button>
         )}
       </div>
     </div>

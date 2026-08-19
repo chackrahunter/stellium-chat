@@ -1,29 +1,49 @@
 import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Bell, Cpu, Globe, Loader2, LogOut, Palette, RefreshCw, Server, Sparkles, User, Volume2, X } from 'lucide-react';
-import { LANGUAGES, type AiModelInfo } from '@stellium/shared';
+import { Bell, Cpu, Globe, Loader2, Lock, LogOut, Palette, RefreshCw, Server, Sparkles, User, Volume2, X } from 'lucide-react';
+import { LANGUAGES, type AiCapabilities, type AiModelInfo } from '@stellium/shared';
 import { useStore } from '../state/store.js';
 import { api, serverUrl, setServerUrl } from '../net/api.js';
 import { Avatar } from './Avatar.jsx';
 import { languageInfo } from '../lib/format.js';
-import { coverage, spracheName, UI_LANGUAGES, useT, t } from '../i18n/index.js';
+import { coverage, spracheName, UI_LANGUAGES, useT, t, type TranslationKey } from '../i18n/index.js';
 import { erlaubnisHolen, erlaubnisStand, zeigen, type Erlaubnis } from '../lib/benachrichtigung.js';
 import { tourZuruecksetzen } from './Tour.jsx';
 import { UpdatePanel } from './UpdatePanel.jsx';
+import { reiterWunschAbholen, VertraulichEinstellungen } from './Vertraulich.jsx';
 import { spracheDesSystems } from '../i18n/index.js';
 
-type Tab = 'profil' | 'sprache' | 'modelle' | 'benachrichtigungen' | 'darstellung' | 'aktualisierung' | 'server';
+type Tab = 'profil' | 'sprache' | 'modelle' | 'benachrichtigungen' | 'darstellung'
+  | 'vertraulich' | 'aktualisierung' | 'server';
+
+/**
+ * Der Hinweis zum Stand der KI kommt als Kennung vom Server, mit deutschem
+ * Text daneben. Kennt das Wörterbuch die Kennung, gilt der eigene Satz in der
+ * eingestellten Sprache; sonst bleibt der Text des Servers stehen — so ist
+ * eine neuere Serverfassung nie stumm gegenüber einer älteren App.
+ */
+function kiHinweis(ai: AiCapabilities | null | undefined): string | null {
+  if (!ai) return null;
+  if (!ai.noteCode) return ai.note;
+  const eigener = t(ai.noteCode as TranslationKey, ai.noteWerte ?? undefined);
+  return eigener && eigener !== ai.noteCode ? eigener : ai.note;
+}
 
 export function Settings({ onClose }: { onClose: () => void }) {
   const t = useT();
   const self = useStore((s) => s.self);
   const ai = useStore((s) => s.ai);
   const { updatePrefs, logout } = useStore.getState();
-  const [tab, setTab] = useState<Tab>('sprache');
+  /* Der Hinweis im Kanal führt hierher und meint den Wiederherstellungscode.
+     Ohne diesen Umweg landete er auf dem ersten Reiter, und der Code wäre
+     genau das, was er nicht sein soll: irgendwo unter „auch noch da". */
+  const [tab, setTab] = useState<Tab>(() => (reiterWunschAbholen() ? 'vertraulich' : 'sprache'));
   const [erlaubnis, setErlaubnis] = useState<Erlaubnis>(() => erlaubnisStand());
   const [server, setServer] = useState(serverUrl());
+  const eigenerStatus = useStore((s) => (s.self ? s.users[s.self.id]?.status : undefined));
 
   if (!self) return null;
+  const lebenderStatus = eigenerStatus ?? self.status;
 
   return (
     <div className="scrim scrim--center" onClick={onClose}>
@@ -36,7 +56,10 @@ export function Settings({ onClose }: { onClose: () => void }) {
         onClick={(e) => e.stopPropagation()}
       >
         <div className="panel__head">
-          <Avatar user={self} size={36} showPresence />
+          {/* `self` wird von presence-Ereignissen nicht fortgeschrieben — hier
+              stand deshalb „offline", während der Mensch abwesend war. Der
+              lebende Stand liegt in `users`; StatusMenu macht es genauso. */}
+          <Avatar user={{ ...self, status: lebenderStatus }} size={36} showPresence />
           <div>
             <h2>{self.displayName}</h2>
             <div className="muted" style={{ fontSize: 12.5 }}>@{self.handle} · {self.title ?? t('settings.defaultTitle')}</div>
@@ -122,7 +145,7 @@ export function Settings({ onClose }: { onClose: () => void }) {
               <div className="ai-card" style={{ marginTop: 'var(--sp-4)' }}>
                 <div className="ai-card__head"><Sparkles size={12} /> {t('settings.aiService')}</div>
                 <div style={{ fontSize: 14, marginBottom: ai?.model ? 8 : 0 }}>
-                  <b>{ai?.provider ?? 'unbekannt'}</b>
+                  <b>{ai?.provider ?? t('common.unknown')}</b>
                 </div>
 
                 {ai?.model && (
@@ -150,7 +173,7 @@ export function Settings({ onClose }: { onClose: () => void }) {
                   </p>
                 )}
 
-                {ai?.note && <p className="muted" style={{ fontSize: 12.5, margin: '6px 0 0' }}>{ai.note}</p>}
+                {kiHinweis(ai) && <p className="muted" style={{ fontSize: 12.5, margin: '6px 0 0' }}>{kiHinweis(ai)}</p>}
               </div>
             </>
           )}
@@ -170,7 +193,7 @@ export function Settings({ onClose }: { onClose: () => void }) {
                 <input
                   className="input"
                   defaultValue={self.title ?? ''}
-                  placeholder="z.B. Backend Engineer"
+                  placeholder={t('settings.rolePlaceholder')}
                   onBlur={(e) => updatePrefs({ title: e.target.value.trim() || null })}
                 />
               </div>
@@ -250,7 +273,7 @@ export function Settings({ onClose }: { onClose: () => void }) {
                 >
                   <option value="ping">Ping</option>
                   <option value="blip">Blip</option>
-                  <option value="chime">Glocke</option>
+                  <option value="chime">{t('settings.soundChime')}</option>
                   <option value="aus">{t('settings.soundOff')}</option>
                 </select>
               </div>
@@ -321,6 +344,8 @@ export function Settings({ onClose }: { onClose: () => void }) {
             </>
           )}
 
+          {tab === 'vertraulich' && <VertraulichEinstellungen />}
+
           {tab === 'aktualisierung' && <UpdatePanel />}
 
           {tab === 'server' && (
@@ -352,6 +377,7 @@ function Tabs({ tab, setTab }: { tab: Tab; setTab: (t: Tab) => void }) {
     { id: 'profil', label: t('settings.profile'), icon: <User size={14} /> },
     { id: 'benachrichtigungen', label: t('settings.notifications'), icon: <Bell size={14} /> },
     { id: 'darstellung', label: t('settings.appearance'), icon: <Palette size={14} /> },
+    { id: 'vertraulich', label: t('vertraulich.tab'), icon: <Lock size={14} /> },
     { id: 'aktualisierung', label: t('update.tab'), icon: <RefreshCw size={14} /> },
     { id: 'server', label: t('settings.server'), icon: <Server size={14} /> },
   ];
@@ -568,7 +594,7 @@ function ModelPicker() {
     return (
       <p className="muted" style={{ fontSize: 13.5 }}>
         {t('settings.modelNeedsKey')}
-        {ai?.note ? ` ${ai.note}` : ''}
+        {kiHinweis(ai) ? ` ${kiHinweis(ai)}` : ''}
       </p>
     );
   }
@@ -590,7 +616,7 @@ function ModelPicker() {
           </div>
           {ai.transcription && (
             <div className="hstack gap-2">
-              <span className="muted" style={{ minWidth: 152 }}>Sprachnachrichten</span>
+              <span className="muted" style={{ minWidth: 152 }}>{t('settings.forVoice')}</span>
               <span className="mono">{ai.transcriptionModel}</span>
             </div>
           )}
@@ -598,8 +624,8 @@ function ModelPicker() {
         <p className="muted" style={{ fontSize: 12, margin: '8px 0 0' }}>
           {ai.modelSource === 'manual' ? t('settings.modelManual')
             : ai.modelSource === 'pinned' ? t('settings.fixedInEnv')
-            : ai.modelSource === 'auto' ? `Automatisch aus ${ai.modelsAvailable ?? '?'} Modellen gewählt.`
-            : 'Standardwerte.'}
+            : ai.modelSource === 'auto' ? t('settings.autoFrom', { n: ai.modelsAvailable ?? '?' })
+            : t('settings.modelFallback')}
         </p>
       </div>
 
@@ -622,7 +648,7 @@ function ModelPicker() {
               <option value="">{t('settings.modelAuto')}</option>
               {usable.map((m) => (
                 <option key={m.id} value={m.id}>
-                  {m.id}{m.params ? ` — ${m.params} Mrd.` : ''} · {Math.round(m.contextWindow / 1024)}k Kontext
+                  {m.id}{m.params ? ` — ${t('settings.params', { n: m.params })}` : ''} · {t('settings.context', { n: Math.round(m.contextWindow / 1024) })}
                 </option>
               ))}
             </select>
@@ -633,7 +659,7 @@ function ModelPicker() {
 
           <div className="hstack gap-2">
             <button className="btn" disabled={busy} onClick={() => void apply({ auto: true })}>
-              {busy && <Loader2 size={14} className="spin" />} Zurück auf automatisch
+              {busy && <Loader2 size={14} className="spin" />} {t('settings.backToAuto')}
             </button>
           </div>
         </>
@@ -650,11 +676,11 @@ function ModelPicker() {
                 <div className="row__title mono" style={{ fontSize: 13 }}>{m.id}</div>
                 <div className="row__sub">
                   {m.ownedBy}
-                  {m.params ? ` · ${m.params} Mrd. Parameter` : ''}
-                  {` · ${Math.round(m.contextWindow / 1024)}k Kontext`}
+                  {m.params ? ` · ${t('settings.paramsFull', { n: m.params })}` : ''}
+                  {` · ${t('settings.context', { n: Math.round(m.contextWindow / 1024) })}`}
                 </div>
               </div>
-              {ai.model === m.id && <span className="msg__tag">aktiv</span>}
+              {ai.model === m.id && <span className="msg__tag">{t('common.active')}</span>}
             </div>
           ))}
         </div>

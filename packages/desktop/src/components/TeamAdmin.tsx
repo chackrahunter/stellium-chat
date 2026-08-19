@@ -16,10 +16,10 @@ import { t } from '../i18n/index.js';
 import { relativeTime } from '../lib/format.js';
 
 const ROLLEN: { wert: MemberRole; label: string; hinweis: string }[] = [
-  { wert: 'owner',  label: 'Owner',    hinweis: t('role.ownerHint') },
-  { wert: 'admin',  label: 'Admin',    hinweis: t('role.adminHint') },
-  { wert: 'member', label: 'Mitglied', hinweis: 'Normale Nutzung' },
-  { wert: 'guest',  label: 'Gast',     hinweis: t('role.guestHint') },
+  { wert: 'owner',  label: t('admin.roleOwner'),  hinweis: t('role.ownerHint') },
+  { wert: 'admin',  label: t('admin.roleAdmin'),  hinweis: t('role.adminHint') },
+  { wert: 'member', label: t('admin.roleMember'), hinweis: t('role.memberHint') },
+  { wert: 'guest',  label: t('admin.roleGuest'),  hinweis: t('role.guestHint') },
 ];
 
 /* Nur die Kennungen — die Überschriften kommen aus dem Wörterbuch. */
@@ -225,7 +225,7 @@ export function TeamAdmin({ onClose }: { onClose: () => void }) {
                     <div style={{ fontSize: 17, fontWeight: 700 }}>{person.displayName}</div>
                     <div className="muted" style={{ fontSize: 12.5 }}>
                       @{person.handle} · {person.emailMasked}
-                      {person.lastSeenAt && ` · zuletzt ${relativeTime(person.lastSeenAt)}`}
+                      {person.lastSeenAt && ` · ${t('profile.lastSeen', { zeit: relativeTime(person.lastSeenAt) })}`}
                     </div>
                   </div>
                 </div>
@@ -238,7 +238,7 @@ export function TeamAdmin({ onClose }: { onClose: () => void }) {
                 )}
 
                 <div className="field">
-                  <label className="field__label">Rolle</label>
+                  <label className="field__label">{t('team.role')}</label>
                   <div className="hstack gap-2" style={{ flexWrap: 'wrap' }}>
                     {ROLLEN.map((r) => (
                       <button
@@ -345,14 +345,14 @@ export function TeamAdmin({ onClose }: { onClose: () => void }) {
                             <div className="row__main">
                               <div className="row__title">
                                 {p.labelDe}
-                                {abweichend && <span className="msg__tag" style={{ marginLeft: 7 }}>abweichend</span>}
+                                {abweichend && <span className="msg__tag" style={{ marginLeft: 7 }}>{t('admin.overridden')}</span>}
                               </div>
                               {p.hintDe && <div className="row__sub">{p.hintDe}</div>}
                             </div>
                             {abweichend && (
                               <button className="btn btn--ghost" style={{ height: 28, fontSize: 12 }} disabled={gesperrt}
                                 onClick={() => void mit(() => api.setUserPermission(person.id, p.key, null))}>
-                                zurücksetzen
+                                {t('admin.reset')}
                               </button>
                             )}
                             <button
@@ -430,7 +430,7 @@ function KontoAnlegen({ onClose, onFertig }: {
         onClick={(e) => e.stopPropagation()}>
         <div className="panel__head">
           <UserPlus size={18} />
-          <h2>Konto anlegen</h2>
+          <h2>{t('team.createAccount')}</h2>
           <button className="icon-btn" style={{ marginLeft: 'auto' }} onClick={onClose}><X size={17} /></button>
         </div>
         <div className="panel__body">
@@ -439,25 +439,25 @@ function KontoAnlegen({ onClose, onFertig }: {
           <p className="muted" style={{ marginTop: 0, fontSize: 13.5 }}>{t('team.oneTimeLead')}</p>
 
           <div className="field">
-            <label className="field__label">Name</label>
+            <label className="field__label">{t('team.name')}</label>
             <input className="input" value={name} autoFocus placeholder={t('team.fullName')}
               onChange={(e) => setName(e.target.value)} />
           </div>
 
           <div className="field">
-            <label className="field__label">Benutzername (optional)</label>
+            <label className="field__label">{t('admin.nameOptional')}</label>
             <input className="input" value={handle} placeholder={t('team.handleAuto')}
               onChange={(e) => setHandle(e.target.value.toLowerCase().replace(/[^a-z0-9._-]/g, ''))} />
           </div>
 
           <div className="field">
-            <label className="field__label">E-Mail (optional)</label>
-            <input className="input" type="email" value={email} placeholder="kollegin@firma.de"
+            <label className="field__label">{t('setup.email')}</label>
+            <input className="input" type="email" value={email} placeholder={t('team.emailPlaceholder')}
               onChange={(e) => setEmail(e.target.value)} />
           </div>
 
           <div className="field">
-            <label className="field__label">Rolle</label>
+            <label className="field__label">{t('team.role')}</label>
             <div className="hstack gap-2" style={{ flexWrap: 'wrap' }}>
               {ROLLEN.filter((r) => r.wert !== 'owner').map((r) => (
                 <button key={r.wert} className={`btn${rolle === r.wert ? ' btn--primary' : ''}`}
@@ -504,22 +504,21 @@ function ZugangAnzeigen({ credential, onClose }: { credential: OneTimeCredential
         onClick={(e) => e.stopPropagation()}>
         <div className="panel__head">
           <KeyRound size={18} />
-          <h2>Einmal-Passwort</h2>
+          <h2>{t('admin.oneTimePassword')}</h2>
           <button className="icon-btn" style={{ marginLeft: 'auto' }} onClick={onClose}><X size={17} /></button>
         </div>
         <div className="panel__body">
           <p className="muted" style={{ marginTop: 0, fontSize: 13.5 }}>
-            Für <b style={{ color: 'var(--tx-hi)' }}>{credential.displayName}</b>.
-            {t('team.handOverHint')}
+            {t('admin.oneTimeFor', { name: credential.displayName })}
           </p>
 
           <div className="zugang">
             <div className="zugang__zeile">
-              <span className="zugang__label">Benutzername</span>
+              <span className="zugang__label">{t('setup.username')}</span>
               <span className="zugang__wert mono">{credential.handle}</span>
             </div>
             <div className="zugang__zeile">
-              <span className="zugang__label">Einmal-Passwort</span>
+              <span className="zugang__label">{t('admin.oneTimePassword')}</span>
               <span className="zugang__wert zugang__wert--gross mono">{credential.oneTimePassword}</span>
             </div>
           </div>

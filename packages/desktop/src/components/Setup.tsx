@@ -76,7 +76,7 @@ export function Setup() {
 
         <div className="field">
           <label className="field__label">{t('setup.username')}</label>
-          <input className="input" value={handle} placeholder="z.B. don"
+          <input className="input" value={handle} placeholder={t('setup.usernamePlaceholder')}
             onChange={(e) => setHandle(e.target.value.toLowerCase().replace(/[^a-z0-9._-]/g, ''))} />
           <p className="field__hint">{t('setup.usernameHint', { handle: handle || '…' })}</p>
         </div>

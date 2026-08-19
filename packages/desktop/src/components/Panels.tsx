@@ -35,7 +35,7 @@ export function NewChannelDialog({ onClose }: { onClose: () => void }) {
           className="input"
           value={name}
           autoFocus
-          placeholder="z.B. produkt-launch"
+          placeholder={t('channel.namePlaceholder')}
           onChange={(e) => setName(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter') submit(); }}
         />
@@ -103,9 +103,14 @@ export function PeoplePanel({ onClose }: { onClose: () => void }) {
             <div className="result__main">
               <div className="result__title">
                 {u.displayName}
-                {u.id === self?.id && <span className="msg__tag" style={{ marginLeft: 8 }}>du</span>}
+                {u.id === self?.id && <span className="msg__tag" style={{ marginLeft: 8 }}>{t('common.you')}</span>}
                 {u.statusEmoji && <span style={{ marginLeft: 8 }}>{u.statusEmoji}</span>}
               </div>
+              {/* Die Meldung selbst, nicht nur ihr Zeichen. Ein 🍽️ allein neben
+                  dem Namen sagt niemandem „Mittagspause" — und genau dafür
+                  schreibt man sie. Ausgeschrieben stand sie bisher nur in der
+                  Profilkarte, die man erst öffnen muss. */}
+              {u.statusText && <div className="result__sub">{u.statusText}</div>}
               <div className="result__sub">
                 @{u.handle}{u.title ? ` · ${u.title}` : ''} · {languageInfo(u.language).flag} {languageInfo(u.language).native}
                 {time && ` · ${offHours ? '🌙' : '🕒'} ${time}`}
@@ -148,7 +153,7 @@ export function GlossaryPanel({ onClose }: { onClose: () => void }) {
       });
       setEntries(next);
       setTerm(''); setNote(''); setTranslations({});
-      useStore.getState().toast({ kind: 'ok', title: 'Begriff gespeichert' });
+      useStore.getState().toast({ kind: 'ok', title: t('glossary.saved') });
     } catch (err) {
       useStore.getState().toast({ kind: 'error', title: t('glossary.saveFailed'), body: (err as Error).message });
     }

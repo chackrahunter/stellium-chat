@@ -37,6 +37,26 @@ function woerterbuchLesen(datei) {
   while ((treffer = muster.exec(text))) {
     eintraege[treffer[1]] = treffer[2].replace(/\\'/g, "'").replace(/\\\\/g, '\\');
   }
+
+  /* Der Zähler oben versteht nur einfach gequotete Werte in genau zwei
+     Leerzeichen Einrückung. Alles andere — doppelte Anführungszeichen,
+     Backticks, eine andere Einrückung — hält er für nicht vorhanden, und
+     weil weiter unten aus den gelesenen Schlüsseln die ganze Datei neu
+     geschrieben wird, verschwindet es dann wirklich. Genau so sind in einer
+     Sitzung 53 Einträge abhandengekommen.
+
+     Deshalb wird gegengezählt: wie viele Zeilen sehen überhaupt nach einem
+     Eintrag aus? Weichen die Zahlen ab, versteht der Parser diese Datei
+     nicht vollständig, und dann darf niemand auf seiner Grundlage schreiben. */
+  const sieht_nach_eintrag_aus = (text.match(/^\s+(?:'[^']+'|"[^"]+"|[A-Za-z_$][\w$]*)\s*:/gm) ?? []).length;
+  if (sieht_nach_eintrag_aus > Object.keys(eintraege).length) {
+    throw new Error(
+      `${path.basename(datei)}: ${sieht_nach_eintrag_aus} Einträge stehen in der Datei, `
+      + `verstanden wurden nur ${Object.keys(eintraege).length}.\n`
+      + '  Auf dieser Grundlage neu zu schreiben würde die übrigen löschen.\n'
+      + "  Ursache ist fast immer ein Wert in doppelten Anführungszeichen — der Parser kennt nur einfache.",
+    );
+  }
   return eintraege;
 }
 
@@ -148,6 +168,7 @@ for (const sprache of ziele) {
     ? woerterbuchLesen(path.join(i18n, `${sprache.code}.ts`))
     : {};
   const ergebnis = { ...vorhanden };
+  let nichtUebersetzt = 0;
   const zuTun = nurNeue ? schluessel.filter((k) => !vorhanden[k]) : schluessel;
 
   if (!zuTun.length) { sag(` ${F.grau}nichts zu tun${F.aus}`); continue; }
@@ -162,13 +183,43 @@ for (const sprache of ziele) {
         break;
       } catch (err) {
         versuch += 1;
-        if (versuch >= 3) { process.stdout.write(`${F.rot}×${F.aus}`); fehlend += teil.length; break; }
+        /* `fehlend` gab es nie — der Zähler war ein Tippfehler und warf im
+           Fehlerpfad einen ReferenceError. Der trat nur auf, wenn die
+           Übersetzung dreimal hintereinander scheiterte, also genau dann, wenn
+           man eine brauchbare Fehlermeldung am nötigsten braucht. Jetzt wird
+           gezählt, was nicht durchkam, und am Ende genannt. */
+        if (versuch >= 3) {
+          process.stdout.write(`${F.rot}×${F.aus}`);
+          nichtUebersetzt += teil.length;
+          break;
+        }
         await new Promise((r) => setTimeout(r, 1500 * versuch));
       }
     }
   }
 
   const fehlt = schluessel.filter((k) => !ergebnis[k]).length;
+  if (nichtUebersetzt) {
+    console.error(`\n  ${sprache.code}: ${nichtUebersetzt} Einträge kamen nach drei Anläufen nicht durch.`);
+  }
+  /* Letzter Riegel vor dem Schreiben. `alsDatei` schreibt ausschließlich die
+     Schlüssel aus `schluessel` — also die von de.ts. Trägt die Zielsprache
+     etwas, das de.ts nicht (mehr) hat, fiele es beim Schreiben lautlos weg.
+     Ein Werkzeug, das Arbeit vernichtet, während es „Sprachen ergänzen" sagt,
+     ist schlimmer als eins, das gar nichts tut. Also: lieber abbrechen. */
+  const kaeme_weg = Object.keys(vorhanden).filter((k) => !schluessel.includes(k));
+  if (kaeme_weg.length) {
+    console.error(
+      `\n  ${sprache.code}.ts: ${kaeme_weg.length} Einträge würden beim Schreiben verschwinden,\n`
+      + `  weil de.ts sie nicht hat: ${kaeme_weg.slice(0, 8).join(', ')}`
+      + `${kaeme_weg.length > 8 ? ` … und ${kaeme_weg.length - 8} weitere` : ''}\n`
+      + '  Abgebrochen — nichts geschrieben. Entweder gehören sie nach de.ts,\n'
+      + '  oder sie sind Reste und müssen gezielt entfernt werden.',
+    );
+    process.exitCode = 1;
+    break;
+  }
+
   fs.writeFileSync(path.join(i18n, `${sprache.code}.ts`), alsDatei(sprache, ergebnis));
   sag(` ${F.gruen}✓${F.aus} ${schluessel.length - fehlt}/${schluessel.length}${fehlt ? ` ${F.grau}(${fehlt} auf Englisch belassen)${F.aus}` : ''}`);
 }

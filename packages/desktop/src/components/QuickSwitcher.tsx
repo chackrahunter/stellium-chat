@@ -57,7 +57,7 @@ export function QuickSwitcher({ onClose }: { onClose: () => void }) {
         run: () => { if (activeChannelId) store.runCatchup(activeChannelId); onClose(); },
       },
       {
-        id: 'act:search', kind: 'action', title: 'Nachrichten durchsuchen',
+        id: 'act:search', kind: 'action', title: t('quick.search'),
         sub: t('quick.searchHint'),
         icon: <Search size={16} className="muted" />,
         run: () => { store.setOverlay('search'); },

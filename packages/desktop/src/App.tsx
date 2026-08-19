@@ -27,9 +27,15 @@ import { CalendarPanel } from './components/CalendarPanel.jsx';
 import { FilesPanel } from './components/FilesPanel.jsx';
 import { ProtocolPanel } from './components/ProtocolPanel.jsx';
 import { IdeaBoard } from './components/IdeaBoard.jsx';
+import { DownloadPanel } from './components/DownloadPanel.jsx';
 import { UpdateBanner, UpdateWillkommen, ServerWartung } from './components/UpdateBanner.jsx';
 import { Toasts } from './components/Toasts.jsx';
+import { FreigabenDialog, VorfallDialog, WiederherstellungHinweis } from './components/Vertraulich.jsx';
 import { clsx } from './lib/format.js';
+/* Die Schlüsselarbeit für vertrauliche Kanäle hängt sich beim Laden selbst an
+   den Draht zum Server. Sie steht hier ausdrücklich, obwohl der Zustand sie
+   ohnehin lädt: wer diese Zeile streicht, soll merken, dass etwas fehlt. */
+import './lib/vertraulich.js';
 
 export function App() {
   const booted = useStore((s) => s.booted);
@@ -176,6 +182,7 @@ export function App() {
           {activeChannelId ? (
             <>
               <ChannelHeader channelId={activeChannelId} />
+              <WiederherstellungHinweis channelId={activeChannelId} />
               <MessageList channelId={activeChannelId} />
               <TypingBar channelId={activeChannelId} />
               <Composer channelId={activeChannelId} autoFocus />
@@ -185,8 +192,7 @@ export function App() {
               <div className="empty__orb" />
               <h2>{t('app.pickChannel')}</h2>
               <p>
-                Links geht es los. Mit {navigator.platform.includes('Mac') ? '⌘' : 'Strg'}+K springst du
-                direkt zu jedem Kanal oder Menschen.
+                {t('common.pickChannelHint', { shortcut: `${navigator.platform.includes('Mac') ? '⌘' : t('common.ctrlKey')}+K` })}
               </p>
             </div>
           )}
@@ -214,6 +220,7 @@ export function App() {
         {overlay === 'files' && <FilesPanel key="files" onClose={closeOverlay} />}
         {overlay === 'protocol' && <ProtocolPanel key="protocol" onClose={closeOverlay} />}
         {overlay === 'ideas' && <IdeaBoard key="ideas" onClose={closeOverlay} />}
+        {overlay === 'download' && <DownloadPanel key="download" onClose={closeOverlay} />}
       </AnimatePresence>
 
       <AnimatePresence>
@@ -223,6 +230,12 @@ export function App() {
         )}
         {overlay === 'poll' && activeChannelId && (
           <PollDialog key="poll" channelId={activeChannelId} onClose={closeOverlay} />
+        )}
+        {overlay === 'vorfall' && activeChannelId && (
+          <VorfallDialog key="vorfall" channelId={activeChannelId} onClose={closeOverlay} />
+        )}
+        {overlay === 'freigaben' && (
+          <FreigabenDialog key="freigaben" channelId={activeChannelId} onClose={closeOverlay} />
         )}
       </AnimatePresence>
 

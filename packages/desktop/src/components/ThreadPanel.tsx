@@ -19,7 +19,7 @@ export function ThreadPanel({ parentId }: { parentId: string }) {
       transition={{ duration: 0.24, ease: [0.16, 1, 0.3, 1] }}
     >
       <div className="thread__head">
-        <h2>Thread</h2>
+        <h2>{t('thread.title')}</h2>
         <span className="muted" style={{ fontSize: 12.5 }}>
           {Math.max(0, messages.length - 1)} {messages.length === 2 ? t('msg.reply') : t('msg.replies')}
         </span>
@@ -33,7 +33,7 @@ export function ThreadPanel({ parentId }: { parentId: string }) {
           <div key={msg.id}>
             <MessageItem message={msg} grouped={false} inThread />
             {i === 0 && messages.length > 1 && (
-              <div className="daybar"><span>{messages.length - 1} Antworten</span></div>
+              <div className="daybar"><span>{messages.length - 1} {t('msg.replies')}</span></div>
             )}
           </div>
         ))}

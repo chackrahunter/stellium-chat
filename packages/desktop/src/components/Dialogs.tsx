@@ -15,8 +15,11 @@ export function ForwardDialog({ message, onClose }: { message: Message; onClose:
   const [query, setQuery] = useState('');
   const [target, setTarget] = useState<string | null>(null);
 
+  /* Vertrauliche Kanäle sind kein Ziel: der Server setzt den weitergeleiteten
+     Text selbst zusammen und hat dort keinen Schlüssel — der Kommentar käme
+     offen in einem Kanal an, den jemand ausdrücklich geschlossen hat. */
   const list = Object.values(channels)
-    .filter((c) => !c.archived && c.id !== message.channelId)
+    .filter((c) => !c.archived && !c.vertraulich && c.id !== message.channelId)
     .filter((c) => {
       const label = c.kind === 'dm' ? users[c.dmPeerId ?? '']?.displayName ?? '' : c.name;
       return label.toLowerCase().includes(query.trim().toLowerCase());
@@ -24,16 +27,16 @@ export function ForwardDialog({ message, onClose }: { message: Message; onClose:
     .slice(0, 40);
 
   return (
-    <Frame title="Weiterleiten" icon={<Forward size={18} />} onClose={onClose} width={520}>
+    <Frame title={t('msg.forward')} icon={<Forward size={18} />} onClose={onClose} width={520}>
       <div className="forward-preview">{message.text.slice(0, 300) || `🎙️ ${t('msg.voiceNote')}`}</div>
 
       <div className="field">
-        <label className="field__label">Kommentar (optional)</label>
-        <input className="input" value={comment} placeholder="{t('forward.why')}" onChange={(e) => setComment(e.target.value)} />
+        <label className="field__label">{t('forward.comment')}</label>
+        <input className="input" value={comment} placeholder={t('forward.why')} onChange={(e) => setComment(e.target.value)} />
       </div>
 
       <div className="field">
-        <label className="field__label">Ziel</label>
+        <label className="field__label">{t('forward.target')}</label>
         <input className="input" value={query} autoFocus placeholder={t('forward.search')} onChange={(e) => setQuery(e.target.value)} />
       </div>
 
@@ -45,7 +48,7 @@ export function ForwardDialog({ message, onClose }: { message: Message; onClose:
               {c.kind === 'dm' ? <Avatar user={peer} size={24} />
                 : c.kind === 'private' ? <Lock size={15} className="muted" /> : <Hash size={15} className="muted" />}
               <div className="result__main">
-                <div className="result__title">{c.kind === 'dm' ? peer?.displayName ?? 'DM' : `#${c.name}`}</div>
+                <div className="result__title">{c.kind === 'dm' ? peer?.displayName ?? t('chat.dmShort') : `#${c.name}`}</div>
               </div>
             </button>
           );
@@ -57,7 +60,7 @@ export function ForwardDialog({ message, onClose }: { message: Message; onClose:
         disabled={!target}
         onClick={() => target && useStore.getState().forwardMessage(message.id, target, comment.trim() || undefined)}
       >
-        Weiterleiten
+        {t('msg.forward')}
       </button>
     </Frame>
   );
@@ -88,7 +91,7 @@ export function ReminderDialog({ message, onClose }: { message: Message; onClose
 
       <div className="field">
         <label className="field__label">{t('reminder.about')}</label>
-        <input className="input" value={note} autoFocus placeholder="z.B. Antwort an Sarah schreiben" onChange={(e) => setNote(e.target.value)} />
+        <input className="input" value={note} autoFocus placeholder={t('reminder.aboutPlaceholder')} onChange={(e) => setNote(e.target.value)} />
       </div>
 
       <div className="stack gap-2">
@@ -98,7 +101,7 @@ export function ReminderDialog({ message, onClose }: { message: Message; onClose
       </div>
 
       <div className="field" style={{ marginTop: 'var(--sp-4)' }}>
-        <label className="field__label">Eigener Zeitpunkt</label>
+        <label className="field__label">{t('schedule.ownTime')}</label>
         <div className="hstack gap-2">
           <input className="input" type="datetime-local" value={custom} onChange={(e) => setCustom(e.target.value)} />
           <button
@@ -108,7 +111,7 @@ export function ReminderDialog({ message, onClose }: { message: Message; onClose
               const ts = new Date(custom).getTime();
               if (Number.isFinite(ts) && ts > Date.now()) create(ts);
             }}
-          >Setzen</button>
+          >{t('auth.set')}</button>
         </div>
       </div>
     </Frame>
@@ -137,7 +140,7 @@ export function PollDialog({ channelId, onClose }: { channelId: string; onClose:
   return (
     <Frame title={t('poll.start')} icon={<BarChart3 size={18} />} onClose={onClose} width={520}>
       <div className="field">
-        <label className="field__label">Frage</label>
+        <label className="field__label">{t('poll.question')}</label>
         <input
           className="input"
           value={question}
@@ -155,7 +158,7 @@ export function PollDialog({ channelId, onClose }: { channelId: string; onClose:
               <input
                 className="input"
                 value={option}
-                placeholder={`Antwort ${i + 1}`}
+                placeholder={t('poll.option', { n: i + 1 })}
                 onChange={(e) => setOptions((prev) => prev.map((o, n) => (n === i ? e.target.value : o)))}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && i === options.length - 1 && options.length < 12) {
@@ -167,7 +170,7 @@ export function PollDialog({ channelId, onClose }: { channelId: string; onClose:
                 <button
                   className="icon-btn icon-btn--sm"
                   onClick={() => setOptions((prev) => prev.filter((_, n) => n !== i))}
-                  title="Entfernen"
+                  title={t('common.remove')}
                 ><Trash2 size={14} /></button>
               )}
             </div>
@@ -175,13 +178,13 @@ export function PollDialog({ channelId, onClose }: { channelId: string; onClose:
         </div>
         {options.length < 12 && (
           <button className="btn btn--ghost" style={{ marginTop: 8 }} onClick={() => setOptions((prev) => [...prev, ''])}>
-            <Plus size={14} /> Weitere Antwort
+            <Plus size={14} /> {t('poll.addOption')}
           </button>
         )}
       </div>
 
-      <Toggle title="Mehrfachwahl" sub="Man darf mehrere Antworten ankreuzen" value={multiple} onChange={setMultiple} />
-      <Toggle title="Anonym" sub={t('poll.anonymousHint')} value={anonymous} onChange={setAnonymous} />
+      <Toggle title={t('poll.multiple')} sub={t('poll.multipleHint')} value={multiple} onChange={setMultiple} />
+      <Toggle title={t('poll.anonymousTitle')} sub={t('poll.anonymousHint')} value={anonymous} onChange={setAnonymous} />
 
       <button
         className="btn btn--primary btn--block"

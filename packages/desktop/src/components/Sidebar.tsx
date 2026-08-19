@@ -1,8 +1,8 @@
 import { useMemo, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
-  Archive, Bell, BellOff, Bot, ChevronDown, EyeOff, Hash, Lock, LogOut, Plus,
-  Search, Settings2, Sparkles, Star, StarOff, Trash2, Users, UsersRound,
+  Archive, Bell, BellOff, Bot, ChevronDown, EyeOff, Hash, KeyRound, Lock, LogOut,
+  Plus, Search, Settings2, ShieldAlert, Sparkles, Star, StarOff, Trash2, Users, UsersRound,
 } from 'lucide-react';
 import type { Channel } from '@stellium/shared';
 import { useStore } from '../state/store.js';
@@ -73,11 +73,16 @@ export function Sidebar() {
           : channel.kind === 'private'
             ? <Lock size={15} className="chan__icon" />
             : <Hash size={15} className="chan__icon" />}
-        <span className="chan__name">{channel.kind === 'dm' ? peer?.displayName ?? 'Direktnachricht' : kanalName(channel)}</span>
+        <span className="chan__name">{channel.kind === 'dm' ? peer?.displayName ?? t('chat.directMessage') : kanalName(channel)}</span>
         {channel.kind !== 'dm' && channel.primaryLanguage && (
-          <span className="chan__lang" title={`Kanalsprache: ${languageInfo(channel.primaryLanguage).native}`}>
+          <span className="chan__lang" title={`${t('channel.language')}: ${languageInfo(channel.primaryLanguage).native}`}>
             {languageInfo(channel.primaryLanguage).flag}
           </span>
+        )}
+        {/* Vertrauliche Kanäle sind immer auch private — das Schloss vorne sagt
+            „nicht für alle", dieses hier „auch nicht für den Server". */}
+        {channel.vertraulich && (
+          <Lock size={11} className="chan__lang" style={{ color: 'var(--violet-soft)', opacity: 1 }} />
         )}
         {state?.starred && <Star size={11} className="chan__lang" style={{ color: 'var(--amber)' }} />}
         {state?.muted && <BellOff size={11} className="chan__lang" />}
@@ -116,6 +121,19 @@ export function Sidebar() {
         onClick: () => { openChannel(channelId); setOverlay('channelSettings'); },
       },
     ];
+
+    if (ch.vertraulich) {
+      eintraege.push({
+        id: 'vorfall', trenner: true,
+        label: t('vorfall.melden'), icon: <ShieldAlert size={14} />,
+        onClick: () => { openChannel(channelId); setOverlay('vorfall'); },
+      });
+      eintraege.push({
+        id: 'freigaben',
+        label: t('freigabe.titel'), icon: <KeyRound size={14} />,
+        onClick: () => { openChannel(channelId); setOverlay('freigaben'); },
+      });
+    }
 
     if (istDm) {
       eintraege.push({
@@ -159,7 +177,7 @@ export function Sidebar() {
         <button className="search-trigger no-drag" data-tour="search" onClick={() => setOverlay('quick')}>
           <Search size={14} />
           {t('nav.jumpTo')}
-          <kbd>{navigator.platform.includes('Mac') ? '⌘' : 'Strg'} K</kbd>
+          <kbd>{navigator.platform.includes('Mac') ? '⌘' : t('common.ctrlKey')} K</kbd>
         </button>
       </div>
 
@@ -246,7 +264,7 @@ export function Sidebar() {
                 onContextMenu={(e) => { e.preventDefault(); openDm(u.id); }}>
                 <Avatar user={u} size={20} showPresence />
                 <span className="chan__name">{u.displayName}</span>
-                <span className="chan__lang" title={offHours ? `Ortszeit ${time} — vermutlich Feierabend` : `Ortszeit ${time}`}>
+                <span className="chan__lang" title={offHours ? `${t('profile.localTime', { zeit: time })} — ${t('profile.offHours')}` : t('profile.localTime', { zeit: time })}>
                   {offHours ? '🌙' : languageInfo(u.language).flag}
                 </span>
               </button>
@@ -276,6 +294,7 @@ interface GroupProps {
 }
 
 function Group({ title, count, collapsed, onToggle, onAdd, children }: GroupProps) {
+  const t = useT();
   return (
     <div className="group">
       <div style={{ display: 'flex', alignItems: 'center' }}>
@@ -285,7 +304,7 @@ function Group({ title, count, collapsed, onToggle, onAdd, children }: GroupProp
           <span style={{ opacity: 0.6, fontWeight: 600 }}>{count}</span>
         </button>
         {onAdd && (
-          <button className="icon-btn icon-btn--sm group__add" onClick={onAdd} title={`${title} hinzufügen`}>
+          <button className="icon-btn icon-btn--sm group__add" onClick={onAdd} title={t('nav.addTo', { name: title })}>
             <Plus size={14} />
           </button>
         )}

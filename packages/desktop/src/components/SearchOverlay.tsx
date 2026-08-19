@@ -1,12 +1,14 @@
 import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Bookmark, Filter, Languages, Loader2, Search, X } from 'lucide-react';
+import { Bookmark, Filter, Languages, Loader2, Lock, Search, X } from 'lucide-react';
 import type { Message } from '@stellium/shared';
 import { useStore } from '../state/store.js';
 import { useT } from '../i18n/index.js';
 import { api } from '../net/api.js';
 import { Avatar } from './Avatar.jsx';
 import { dayLabel, timeOfDay } from '../lib/format.js';
+import { useKlartext } from './Vertraulich.jsx';
+import { nachrichtEntschluesseln } from '../lib/vertraulich.js';
 
 export function SearchOverlay({ onClose }: { onClose: () => void }) {
   const t = useT();
@@ -20,6 +22,47 @@ export function SearchOverlay({ onClose }: { onClose: () => void }) {
   const [scopeChannel, setScopeChannel] = useState(false);
   const [tab, setTab] = useState<'search' | 'saved'>('search');
   const [saved, setSaved] = useState<Message[]>([]);
+  const [lokal, setLokal] = useState<{ channelId: string; message: Message; text: string }[]>([]);
+  const takt = useStore((s) => s.vertraulichTakt);
+
+  /* Welche vertraulichen Kanäle diese Suche betrifft. Der Server liefert für
+     sie nichts — er hat dort keinen lesbaren Text und keinen Volltextindex. */
+  const vertraulicheKanaele = Object.values(channels).filter(
+    (c) => c.vertraulich && !c.archived && (!scopeChannel || c.id === activeChannelId),
+  );
+
+  /**
+   * Die Suche, die nur hier stattfindet.
+   *
+   * Sie durchsucht, was geladen ist, und nichts darüber hinaus — mehr geht
+   * nicht: ältere Nachrichten liegen als Chiffrat auf dem Server und müssten
+   * erst geholt und entschlüsselt werden. Das steht so im Hinweis darüber,
+   * damit niemand ein vollständiges Ergebnis vermutet, wo keines sein kann.
+   */
+  useEffect(() => {
+    if (tab !== 'search' || query.trim().length < 2 || !vertraulicheKanaele.length) {
+      setLokal([]);
+      return;
+    }
+    let gilt = true;
+    const suchen = query.trim().toLowerCase();
+    void (async () => {
+      const treffer: { channelId: string; message: Message; text: string }[] = [];
+      const alle = useStore.getState().messages;
+      for (const kanal of vertraulicheKanaele) {
+        for (const msg of alle[kanal.id] ?? []) {
+          if (msg.deletedAt || msg.systemKind) continue;
+          const klar = await nachrichtEntschluesseln(kanal.id, msg.text);
+          if (klar && klar.toLowerCase().includes(suchen)) {
+            treffer.push({ channelId: kanal.id, message: msg, text: klar });
+          }
+        }
+      }
+      if (gilt) setLokal(treffer.slice(-40).reverse());
+    })();
+    return () => { gilt = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query, scopeChannel, activeChannelId, tab, takt, vertraulicheKanaele.length]);
 
   useEffect(() => {
     if (tab !== 'search') return;
@@ -49,8 +92,8 @@ export function SearchOverlay({ onClose }: { onClose: () => void }) {
         onClick={(e) => e.stopPropagation()}
       >
         <div className="tabs">
-          <button className="tab" aria-selected={tab === 'search'} onClick={() => setTab('search')}>Suche</button>
-          <button className="tab" aria-selected={tab === 'saved'} onClick={() => setTab('saved')}>Gemerkt</button>
+          <button className="tab" aria-selected={tab === 'search'} onClick={() => setTab('search')}>{t('nav.search')}</button>
+          <button className="tab" aria-selected={tab === 'saved'} onClick={() => setTab('saved')}>{t('common.saved')}</button>
           <button className="icon-btn" style={{ marginLeft: 'auto', alignSelf: 'center' }} onClick={onClose}><X size={16} /></button>
         </div>
 
@@ -77,14 +120,43 @@ export function SearchOverlay({ onClose }: { onClose: () => void }) {
                 onClick={() => setScopeChannel((v) => !v)}
               >
                 <Filter size={12} />
-                {scopeChannel ? `Nur #${channels[activeChannelId ?? '']?.name ?? t('search.currentChannel')}` : t('search.allChannels')}
+                {scopeChannel ? t('search.onlyChannel', { kanal: channels[activeChannelId ?? '']?.name ?? t('search.currentChannel') }) : t('search.allChannels')}
               </button>
               <span className="muted" style={{ fontSize: 12, alignSelf: 'center' }}>
-                {query.length >= 2 && `${hits.length} Treffer`}
+                {query.length >= 2 && t('search.hits', { n: hits.length })}
               </span>
             </div>
 
             <div className="panel__body" style={{ paddingTop: 0 }}>
+              {vertraulicheKanaele.length > 0 && (
+                <div className="hinweis" style={{ alignItems: 'flex-start' }}>
+                  <Lock size={14} style={{ flex: 'none', marginTop: 2 }} />
+                  <div>{t('vertraulich.nurLokaleSuche')}</div>
+                </div>
+              )}
+
+              {lokal.map(({ channelId, message, text }) => {
+                const author = users[message.userId];
+                const channel = channels[channelId];
+                return (
+                  <button key={message.id} className="result" onClick={() => jumpTo(channelId)}>
+                    <Avatar user={author} size={30} />
+                    <div className="result__main">
+                      <div className="result__title">
+                        {author?.displayName}
+                        <span className="muted" style={{ fontWeight: 400, marginLeft: 8, fontSize: 12 }}>
+                          {channel?.kind === 'dm' ? '' : `#${channel?.name}`} · {dayLabel(message.createdAt)} {timeOfDay(message.createdAt)}
+                        </span>
+                        <span className="msg__tag" style={{ marginLeft: 8, color: 'var(--violet-soft)' }}>
+                          <Lock size={9} style={{ verticalAlign: -1 }} /> {t('vertraulich.abzeichen')}
+                        </span>
+                      </div>
+                      <div className="result__sub" style={{ whiteSpace: 'normal' }}>{text.slice(0, 220)}</div>
+                    </div>
+                  </button>
+                );
+              })}
+
               {query.length < 2 && (
                 <p className="muted" style={{ fontSize: 13.5 }}>
                   {t('search.minChars')}
@@ -98,13 +170,13 @@ export function SearchOverlay({ onClose }: { onClose: () => void }) {
                     <Avatar user={author} size={30} />
                     <div className="result__main">
                       <div className="result__title">
-                        {author?.displayName ?? 'Unbekannt'}
+                        {author?.displayName ?? t('common.unknown')}
                         <span className="muted" style={{ fontWeight: 400, marginLeft: 8, fontSize: 12 }}>
-                          {channel?.kind === 'dm' ? 'DM' : `#${channel?.name}`} · {dayLabel(hit.message.createdAt)} {timeOfDay(hit.message.createdAt)}
+                          {channel?.kind === 'dm' ? t('chat.dmShort') : `#${channel?.name}`} · {dayLabel(hit.message.createdAt)} {timeOfDay(hit.message.createdAt)}
                         </span>
                         {hit.matchedTranslation && (
                           <span className="msg__tag" style={{ marginLeft: 8 }}>
-                            <Languages size={9} style={{ verticalAlign: -1 }} /> Übersetzung
+                            <Languages size={9} style={{ verticalAlign: -1 }} /> {t('common.translation')}
                           </span>
                         )}
                       </div>
@@ -138,10 +210,10 @@ export function SearchOverlay({ onClose }: { onClose: () => void }) {
                     <div className="result__title">
                       {author?.displayName}
                       <span className="muted" style={{ fontWeight: 400, marginLeft: 8, fontSize: 12 }}>
-                        {channel?.kind === 'dm' ? 'DM' : `#${channel?.name}`}
+                        {channel?.kind === 'dm' ? t('chat.dmShort') : `#${channel?.name}`}
                       </span>
                     </div>
-                    <div className="result__sub" style={{ whiteSpace: 'normal' }}>{msg.text.slice(0, 220)}</div>
+                    <GemerkterText message={msg} />
                   </div>
                 </button>
               );
@@ -149,6 +221,17 @@ export function SearchOverlay({ onClose }: { onClose: () => void }) {
           </div>
         )}
       </motion.div>
+    </div>
+  );
+}
+
+/** Eine gemerkte Nachricht kann aus einem vertraulichen Kanal stammen. */
+function GemerkterText({ message }: { message: Message }) {
+  const t = useT();
+  const { text, unlesbar } = useKlartext(message.channelId, message.text);
+  return (
+    <div className="result__sub" style={{ whiteSpace: 'normal' }}>
+      {unlesbar ? t('vertraulich.nichtLesbar') : text.slice(0, 220)}
     </div>
   );
 }
