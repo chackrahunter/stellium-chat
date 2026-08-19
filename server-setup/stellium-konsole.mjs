@@ -205,7 +205,7 @@ function ablage() {
      Ablage darf nur bis zu einer festgelegten Größe wachsen, und genau die
      Grenze interessiert. Reicht die Platte darunter nicht mehr aus, gilt
      natürlich der kleinere der beiden Werte. */
-  const kontingent = Number(env('STORAGE_QUOTA_GB') ?? 100) * 1024 ** 3;
+  const kontingent = Number(env('STORAGE_QUOTA_GB') ?? 50) * 1024 ** 3;
   const RESERVE = 15 * 1024 ** 3;   // wie im Server: so viel bleibt der Platte
   const pl = platte(DATEN);
   const plattenrest = pl ? pl.gesamt - pl.belegt : null;

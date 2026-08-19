@@ -12,10 +12,10 @@ import { config } from '../config.js';
  * eine Nachricht daran hängt.
  */
 
-/* Wie viel die Dateiablage insgesamt fassen darf. Der Pi hat über 100 GB
-   frei — 20 GB waren eine vorsichtige Anfangsgröße, die niemand mehr braucht.
-   Über STORAGE_QUOTA_GB lässt sich das jederzeit anders setzen. */
-const KONTINGENT = Number(process.env.STORAGE_QUOTA_GB ?? 100) * 1024 ** 3;
+/* Wie viel die Dateiablage insgesamt fassen darf. 50 GB ist reichlich für ein
+   Team und lässt auf der 119-GB-Karte des Pi genug Luft für System, Datenbank
+   und Sicherungen. Über STORAGE_QUOTA_GB jederzeit änderbar. */
+const KONTINGENT = Number(process.env.STORAGE_QUOTA_GB ?? 50) * 1024 ** 3;
 
 function toFile(r: any): StoredFile {
   return {
