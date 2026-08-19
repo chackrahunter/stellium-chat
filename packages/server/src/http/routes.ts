@@ -22,7 +22,7 @@ import * as files from '../services/files.js';
 import * as releases from '../services/releases.js';
 import { downloadSeite, systemErkennen } from './download/seite.js';
 
-import { broadcastAll } from '../ws/gateway.js';
+import { broadcastAll, sitzungenBeenden } from '../ws/gateway.js';
 
 function bearer(req: FastifyRequest): string | null {
   const header = req.headers.authorization;
@@ -493,6 +493,9 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     if (id === userId) return reply.code(400).send({ error: 'Das eigene Konto lässt sich nicht löschen.' });
     try {
       users.deleteAccount(id);
+      // Wer gerade verbunden ist, fliegt sofort heraus — sonst liest das
+      // gelöschte Konto weiter mit, bis sein Token abläuft.
+      sitzungenBeenden(id);
       // Der Eintrag bleibt als "Ehemaliges Mitglied" bestehen; alle sollen das
       // sofort sehen, statt weiter einen aktiven Kontakt anzuzeigen.
       const person = store.getUser(id);

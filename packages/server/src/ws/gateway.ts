@@ -310,6 +310,18 @@ async function authenticate(session: Session, ev: Extract<ClientEvent, { t: 'aut
   const self = store.getSelf(userId);
   if (!self) { fail(session, 'unknown_user', 'Konto existiert nicht mehr'); session.socket.close(); return; }
 
+  /* Ein gültiges Token allein genügt nicht: Sperren und Löschen wirkten sonst
+     erst, wenn das Token nach 30 Tagen abläuft — bis dahin bliebe der Zugang
+     bestehen. Bei jeder Anmeldung wird deshalb der Kontostand mitgeprüft. */
+  const stand = database.get<{ deleted_at: number | null }>(
+    'SELECT deleted_at FROM users WHERE id = ?', userId,
+  );
+  if (stand?.deleted_at) {
+    fail(session, 'account_blocked', 'Dieses Konto ist nicht mehr aktiv.');
+    session.socket.close();
+    return;
+  }
+
   session.userId = userId;
   session.language = normalizeLang(self.language);
   session.autoTranslate = self.autoTranslate;
@@ -590,6 +602,8 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
 
     case 'message:pin': {
       if (!darf(session, 'message.pin')) return;
+      // Sonst ließe sich in fremden Kanälen anheften — sichtbar für alle dort.
+      if (!darfNachrichtSehen(userId, ev.messageId)) return;
       const msg = messages.setPinned(ev.messageId, ev.pinned);
       if (msg) broadcast({ t: 'message:updated', message: msg }, store.memberIds(msg.channelId));
       return;
@@ -660,6 +674,10 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
         theme: 'theme', density: 'density', composeTargetPreview: 'compose_target_preview',
         quietHoursStart: 'quiet_hours_start', quietHoursEnd: 'quiet_hours_end',
         displayName: 'display_name', title: 'title', timezone: 'timezone',
+        // Diese drei fehlten: die Oberfläche schickte sie, der Server warf sie
+        // weg — die Einstellung war nach dem nächsten Start wieder fort.
+        uiLanguage: 'ui_language', notificationSound: 'notification_sound',
+        translationSpeed: 'translation_speed',
       };
       const sets: string[] = [];
       const vals: any[] = [];
@@ -1574,6 +1592,22 @@ export function startBackgroundJobs(): () => void {
 /** Zu wem gehört die Erinnerung? Die Liste liefert sie ohne Besitzer mit. */
 function ownerOfReminder(reminderId: string): string {
   return database.get<{ user_id: string }>('SELECT user_id FROM reminders WHERE id = ?', reminderId)?.user_id ?? '';
+}
+
+/**
+ * Beendet alle offenen Verbindungen eines Kontos.
+ *
+ * Wird ein Konto gelöscht oder gesperrt, hilft die Prüfung beim Anmelden
+ * allein nicht: wer gerade verbunden ist, bleibt es — im schlimmsten Fall
+ * einen Monat lang, bis das Token abläuft. Also aktiv hinauswerfen.
+ */
+export function sitzungenBeenden(userId: string, grund = 'Dieses Konto ist nicht mehr aktiv.'): void {
+  for (const s of byUser.get(userId) ?? new Set<Session>()) {
+    try {
+      fail(s, 'account_blocked', grund);
+      s.socket.close();
+    } catch { /* schon zu — dann ist nichts zu tun */ }
+  }
 }
 
 export function onlineUserIds(): string[] {
