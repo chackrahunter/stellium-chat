@@ -10,6 +10,10 @@
 /* ── Reset ──────────────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; }
 html, body, #root { height: 100%; margin: 0; }
+/* Auf dem Startbildschirm reicht die Fläche bis unter die Home-Leiste. Ohne
+   eine Farbe an dieser Stelle bleibt dort ein schwarzer Streifen stehen — die
+   App hört auf, das Gerät zeigt seinen eigenen Grund. */
+html { background: var(--bg-void); }
 
 body {
   font-family: var(--font-ui);
@@ -49,7 +53,10 @@ a:hover { text-decoration: underline; }
 
 .cosmos {
   position: fixed;
-  inset: 0;
+  /* Bis in die Ecken, auch hinter Insel und Home-Leiste: der Hintergrund soll
+     das Gerät ausfüllen, nur der Inhalt hält Abstand. */
+  inset: calc(-1 * var(--sicher-oben)) calc(-1 * var(--sicher-rechts))
+         calc(-1 * var(--sicher-unten)) calc(-1 * var(--sicher-links));
   z-index: 0;
   overflow: hidden;
   /* Ohne diese Zeile misst Safari die Sternenleinwand mit ihrer eigenen Breite

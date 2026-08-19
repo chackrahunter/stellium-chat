@@ -56,7 +56,21 @@ export function getFile(id: string): (StoredFile & { path: string; encoding: str
    der Datenträger voll, kann SQLite nicht mehr schreiben, das Update nicht mehr
    entpacken und die nächtliche Sicherung nicht mehr anlegen — dann steht alles,
    nicht nur die Dateiablage. */
-const RESERVE = 15 * 1024 ** 3;
+const RESERVE_HOECHSTENS = 15 * 1024 ** 3;
+
+/**
+ * Wie viel auf der Platte freibleiben muss.
+ *
+ * Ein fester Wert war falsch: auf einem Rechner mit fünf Gigabyte frei wäre die
+ * ganze Ablage gesperrt, auch für eine Datei von zwölf Byte — der Prüflauf hat
+ * genau das aufgedeckt. Deshalb ein Zehntel dessen, was noch frei ist, nach
+ * oben auf fünfzehn Gigabyte gedeckelt. Auf dem Pi mit 101 GB frei bleiben so
+ * gut zehn Gigabyte Luft, auf einem knappen Entwicklungsrechner ein halbes —
+ * und die Ablage bleibt in beiden Fällen benutzbar.
+ */
+function reserve(frei: number): number {
+  return Math.min(RESERVE_HOECHSTENS, Math.floor(frei * 0.1));
+}
 
 /**
  * Wie viel die Ablage wirklich fassen darf.
@@ -70,9 +84,10 @@ function platzGrenze(belegt: number): number {
   try {
     const fs_ = fs.statfsSync(config.storageDir);
     const frei = fs_.bavail * fs_.bsize;
+
     // Was heute schon belegt ist, zählt zum Verfügbaren dazu — sonst schrumpfte
     // die Grenze mit jedem Upload doppelt.
-    const moeglich = Math.max(0, frei + belegt - RESERVE);
+    const moeglich = Math.max(0, frei + belegt - reserve(frei));
     return Math.min(KONTINGENT, moeglich);
   } catch {
     return KONTINGENT;         // ohne Auskunft bleibt es beim Kontingent
