@@ -5,6 +5,7 @@ import type {
 import { db, placeholders } from '../db/index.js';
 import { blindIndex, decryptField, maskEmail } from '../crypto/pii.js';
 import { entschluesseln } from '../crypto/nachrichten.js';
+import { huelleLesen } from '../crypto/dateien.js';
 import { overridesFor, permissionsFor } from './users.js';
 import { linkPreviewsFor } from './links.js';
 import { hiddenFor } from './messages.js';
@@ -229,7 +230,7 @@ function attachmentsFor(messageIds: string[]): Map<string, Attachment[]> {
   const out = new Map<string, Attachment[]>();
   if (!messageIds.length) return out;
   const rows = db.all<any>(
-    `SELECT id, message_id, name, mime, size, width, height FROM attachments
+    `SELECT id, message_id, name, mime, size, width, height, huelle FROM attachments
      WHERE message_id IN (${placeholders(messageIds.length)})`,
     ...messageIds,
   );
@@ -238,6 +239,11 @@ function attachmentsFor(messageIds: string[]): Map<string, Attachment[]> {
     list.push({
       id: r.id, messageId: r.message_id, name: r.name, mime: r.mime,
       size: r.size, url: `/files/${r.id}`, width: r.width ?? null, height: r.height ?? null,
+      /* Die Hülle geht mit hinaus, obwohl sie auch im Umschlag der Datei
+         steht. Ohne sie müsste die Oberfläche jede Datei erst holen, um zu
+         erfahren, ob sie sie überhaupt anzeigen darf — und ein `<img src>`
+         wäre bis dahin längst losgelaufen. */
+      huelle: huelleLesen(r.huelle),
     });
     out.set(r.message_id, list);
   }

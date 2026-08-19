@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
   Download, File as FileIcon, FileText, FolderOpen, Hash, Image as ImageIcon,
-  Loader2, Music, Pencil, Search, Trash2, Upload, Video,
+  Loader2, Lock, Music, Pencil, Search, Trash2, Unlock, Upload, Video,
 } from 'lucide-react';
 import type { StoredFile } from '@stellium/shared';
 import { useStore } from '../state/store.js';
@@ -10,6 +10,7 @@ import { useT } from '../i18n/index.js';
 import { Avatar } from './Avatar.jsx';
 import { Shell } from './Panels.jsx';
 import { dateiUrl } from '../net/api.js';
+import { dateiAnzeigen } from '../lib/vertraulich.js';
 import { clsx, relativeTime, restzeit } from '../lib/format.js';
 
 function groesse(bytes: number): string {
@@ -40,6 +41,11 @@ export function FilesPanel({ onClose }: { onClose: () => void }) {
 
   const [suche, setSuche] = useState('');
   const [ordner, setOrdner] = useState('');
+  /* Bewusst „öffentlich" als Vorgabe. Privat ist die stärkere Zusage, aber
+     auch die folgenreichere: an eine private Datei kommt außer der eigenen
+     Person niemand mehr, auch keine Vertretung im Urlaub. Wer sie will, soll
+     sie wählen. */
+  const [privat, setPrivat] = useState(false);
   const [laedt, setLaedt] = useState(false);
   const [stand, setStand] = useState<{ name: string; anteil: number; tempo?: number; rest?: number } | null>(null);
   const [ueberZone, setUeberZone] = useState(false);
@@ -73,7 +79,7 @@ export function FilesPanel({ onClose }: { onClose: () => void }) {
         setStand({ name: datei.name, anteil: 0 });
         await uploadFile(
           datei,
-          { folder: ordner && ordner !== '__root' ? ordner : undefined },
+          { folder: ordner && ordner !== '__root' ? ordner : undefined, privat },
           (anteil, bytes) => {
             const jetzt = performance.now();
             proben.push({ zeit: jetzt, bytes });
@@ -171,6 +177,29 @@ export function FilesPanel({ onClose }: { onClose: () => void }) {
         </select>
       </div>
 
+      {/* Die Wahl steht neben dem Hochladen und nicht in einer Rückfrage
+          danach: sie entscheidet, was den Rechner verlässt, und das lässt
+          sich hinterher nicht mehr ändern. */}
+      <div className="hstack gap-2" style={{ flexWrap: 'wrap', marginBottom: 'var(--sp-2)' }}>
+        <button
+          className={clsx('pill', !privat && 'pill--accent')}
+          onClick={() => setPrivat(false)}
+          disabled={laedt}
+        >
+          <Unlock size={13} /> {t('files.oeffentlich')}
+        </button>
+        <button
+          className={clsx('pill', privat && 'pill--accent')}
+          onClick={() => setPrivat(true)}
+          disabled={laedt}
+        >
+          <Lock size={13} /> {t('files.privat')}
+        </button>
+        <span className="muted" style={{ fontSize: 11 }}>
+          {privat ? t('files.privatHinweis') : t('files.oeffentlichHinweis')}
+        </span>
+      </div>
+
       <div
         className={clsx('dropzone', ueberZone && 'dropzone--over')}
         onDragOver={(e) => { e.preventDefault(); setUeberZone(true); }}
@@ -200,6 +229,37 @@ export function FilesPanel({ onClose }: { onClose: () => void }) {
     const kanal = file.channelId ? channels[file.channelId] : null;
     const eigene = file.uploadedBy === self?.id;
     const darf = eigene || self?.permissions['file.manage'];
+    const [holt, setHolt] = useState(false);
+
+    /**
+     * Eine private Datei herunterladen.
+     *
+     * Der Umweg über den Arbeitsspeicher ist unvermeidlich: entschlüsseln kann
+     * nur diese App, und der Browser speichert nur, was er in der Hand hat.
+     * Der echte Name kommt dabei aus dem Umschlag der Datei zurück und nicht
+     * aus der Liste — in der Liste steht, was der Server kennt.
+     */
+    const herunterladen = async (datei: StoredFile) => {
+      setHolt(true);
+      try {
+        const { kopf, url } = await dateiAnzeigen(datei.id, datei.url);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = kopf.name || datei.name;
+        /* Erst ins Dokument, dann klicken. Ein Klick auf einen Verweis, der
+           nirgends hängt, führt in manchen Browsern zu gar nichts — und dann
+           passiert beim Herunterladen scheinbar nichts. */
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+      } catch (err) {
+        useStore.getState().toast({
+          kind: 'error', title: t('files.downloadFehler'), body: (err as Error).message,
+        });
+      } finally {
+        setHolt(false);
+      }
+    };
 
     return (
       <motion.div
@@ -213,9 +273,13 @@ export function FilesPanel({ onClose }: { onClose: () => void }) {
         <span className="file-row__icon">{symbol(file.mime)}</span>
 
         <span className="file-row__main">
-          <span className="file-row__name">{file.name}</span>
+          <span className="file-row__name">
+            {file.privat && <Lock size={11} style={{ verticalAlign: -1, marginRight: 4, color: 'var(--violet-soft)' }} />}
+            {file.name}
+          </span>
           <span className="file-row__meta">
             {groesse(file.size)}
+            {file.privat && <> · {t('files.privat')}</>}
             {file.folder && <> · <FolderOpen size={10} /> {file.folder}</>}
             {kanal && <> · <Hash size={10} />{kanal.name}</>}
             {' · '}{t('files.uploadedBy', { name: wer?.displayName ?? '—' })}
@@ -225,15 +289,30 @@ export function FilesPanel({ onClose }: { onClose: () => void }) {
 
         {wer && <Avatar user={wer} size={22} />}
 
-        <a
-          className="icon-btn"
-          href={dateiUrl(file.url)}
-          target="_blank"
-          rel="noreferrer"
-          title={t('files.download')}
-        >
-          <Download size={15} />
-        </a>
+        {/* Eine private Datei kann der Server nicht herausgeben — bei ihm liegt
+            Chiffrat. Ein <a href> lieferte deshalb einen unbrauchbaren Klumpen.
+            Also holt die App sie, schließt sie auf und reicht sie erst dann
+            weiter. */}
+        {file.privat ? (
+          <button
+            className="icon-btn"
+            title={t('files.download')}
+            disabled={holt}
+            onClick={() => void herunterladen(file)}
+          >
+            {holt ? <Loader2 size={15} className="spin" /> : <Download size={15} />}
+          </button>
+        ) : (
+          <a
+            className="icon-btn"
+            href={dateiUrl(file.url)}
+            target="_blank"
+            rel="noreferrer"
+            title={t('files.download')}
+          >
+            <Download size={15} />
+          </a>
+        )}
 
         {darf && (
           <button

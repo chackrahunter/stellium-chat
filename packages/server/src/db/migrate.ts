@@ -47,6 +47,15 @@ const COLUMNS: { table: string; column: string; definition: string }[] = [
      wenn er hier ankommt — die Spalte sagt nur, dass man ihn nicht als
      Klartext ausliefern oder in eine Vorschau stecken darf. */
   { table: 'files', column: 'privat',                definition: 'INTEGER NOT NULL DEFAULT 0' },
+  /* Die Hülle einer verschlüsselten Datei: für welchen Kreis ihr Schlüssel
+     verpackt wurde. Sie steht ohnehin im Umschlag der Datei selbst — hier
+     liegt sie noch einmal, weil der Server sie bei jeder Nachricht braucht
+     und dafür nicht jedes Mal eine Datei aufmachen soll.
+
+     NULL heißt: unverschlüsselt. Das gilt für alles, was vor dieser Fassung
+     hochgeladen wurde, und für jeden Anhang in einem offenen Kanal. */
+  { table: 'attachments', column: 'huelle',          definition: 'TEXT' },
+  { table: 'files',       column: 'huelle',          definition: 'TEXT' },
 ];
 
 export function migrate(): void {

@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { abweisung } from '../util/abweisung.js';
 import path from 'node:path';
 import type { StorageUsage, StoredFile } from '@stellium/shared';
 import { db } from '../db/index.js';
@@ -35,12 +36,32 @@ function toFile(r: any): StoredFile {
   };
 }
 
-export function listFiles(filter: { channelId?: string | null; folder?: string } = {}): StoredFile[] {
+/**
+ * Die Ablage auflisten.
+ *
+ * `fuerUserId` entscheidet über die privaten Dateien: mit Konto kommen die
+ * eigenen mit, ohne Konto gar keine. Das strengere Verhalten ist bewusst der
+ * Vorgabefall — ein Aufrufer, der nicht sagt, für wen er fragt, bekommt
+ * garantiert nichts Privates, statt versehentlich alles.
+ *
+ * Eine private Datei kann außer ihrem Besitzer niemand öffnen; sie trotzdem
+ * jedem im Verzeichnis zu zeigen hieße, ihren Namen und ihre Größe zu
+ * verteilen, ohne dass jemand etwas davon hätte.
+ */
+export function listFiles(
+  filter: { channelId?: string | null; folder?: string; fuerUserId?: string } = {},
+): StoredFile[] {
   const bedingungen: string[] = [];
   const werte: any[] = [];
   if (filter.channelId === null) bedingungen.push('channel_id IS NULL');
   else if (filter.channelId) { bedingungen.push('channel_id = ?'); werte.push(filter.channelId); }
   if (filter.folder !== undefined) { bedingungen.push('folder = ?'); werte.push(filter.folder); }
+  if (filter.fuerUserId) {
+    bedingungen.push('(privat = 0 OR uploaded_by = ?)');
+    werte.push(filter.fuerUserId);
+  } else {
+    bedingungen.push('privat = 0');
+  }
 
   const where = bedingungen.length ? `WHERE ${bedingungen.join(' AND ')}` : '';
   return db.all<any>(
@@ -118,46 +139,73 @@ export function addFile(input: {
    * Privat heißt: was hier ankommt, ist bereits Chiffrat. Die App hat die
    * Datei verschlüsselt, bevor sie den Rechner verlassen hat — der Server
    * verwahrt sie und kann sie nicht öffnen, auch nicht mit dem Masterpasswort.
+   *
+   * Der Aufrufer entscheidet das nicht selbst, sondern liest es am Inhalt ab
+   * (siehe crypto/dateien.ts). Sonst wäre "privat" ein Etikett statt einer
+   * Tatsache.
    */
   privat?: boolean;
+  /** Für welchen Kreis der Dateischlüssel verpackt ist. Null = offen. */
+  huelle?: string | null;
 }): StoredFile {
   const belegt = usage();
   if (belegt.used + input.size > belegt.quota) {
-    throw new Error('Der Speicher ist voll. Bitte erst etwas löschen.');
+    throw abweisung('fehler.speicherVoll', 'Der Speicher ist voll. Bitte erst etwas löschen.');
   }
   const jetzt = Date.now();
   db.run(
-    `INSERT INTO files (id, name, mime, size, path, folder, channel_id, description, uploaded_by, privat, created_at, updated_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+    `INSERT INTO files (id, name, mime, size, path, folder, channel_id, description, uploaded_by, privat, huelle, created_at, updated_at)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     input.id, saubererName(input.name), input.mime, input.size, input.storedPath,
     normalisierterOrdner(input.folder ?? ''), input.channelId ?? null,
-    input.description?.trim() || null, input.uploadedBy, input.privat ? 1 : 0, jetzt, jetzt,
+    input.description?.trim() || null, input.uploadedBy, input.privat ? 1 : 0,
+    input.huelle ?? null, jetzt, jetzt,
   );
 
-  /* In den Blockspeicher übernehmen. Läuft nach dem Eintragen: die Datei ist
-     sofort benutzbar, und scheitert die Übernahme, bleibt sie schlicht als
-     ganze Datei liegen — niemand merkt etwas außer der Belegung.
+  /* Zur Übernahme in den Blockspeicher anmelden. Angemeldet, nicht
+     abgewartet: die Zerlegung ist durchweg synchron und dauert je nach Inhalt
+     Sekunden bis Minuten — auf dem Raspberry Pi gemessen 4 MB packbarer
+     CSV-Abzug in 18 Sekunden, in denen die Ereignisschleife stand und weder
+     eine Nachricht noch eine zweite Anfrage durchkam. Das gehört nicht in
+     einen Anfrage-Ablauf, und schon gar nicht in einen, der auch noch das
+     Kontingent im Blick behalten muss.
 
-     Private Dateien laufen bewusst durch denselben Weg. Der Blockspeicher
-     arbeitet über den Inhalt: gleiches Chiffrat wird zusammengelegt,
-     verschiedenes nicht. Ob das bei privaten Dateien je etwas einspart, hängt
-     daran, wie ihr Schlüssel zustande kommt — und genau das ist noch nicht
-     entschieden. Bis dahin ist der Weg hier für beide Antworten derselbe und
-     kostet im schlechteren Fall nur einen Durchlauf, der nichts findet. */
-  ablage.uebernehmen({ id: input.id, art: 'file', pfad: input.storedPath, mime: input.mime });
+     Läuft nach dem Eintragen: die Datei ist sofort benutzbar, sie wird bis
+     zum Ende der Zerlegung ganz von der Platte ausgeliefert, und scheitert
+     die Übernahme, bleibt sie schlicht als ganze Datei liegen — niemand merkt
+     etwas außer der Belegung.
+
+     Solange die Übernahme aussteht, bleibt `stored_size` leer, und die
+     Kontingentrechnung oben zählt die Zeile über `COALESCE(stored_size, size)`
+     mit ihrer vollen Größe. Das ist richtig so: bis die Blöcke stehen, liegt
+     die ganze Datei auf der Platte und kostet auch genau so viel.
+
+     Private Dateien gehen daran vorbei, und das ist eine Entscheidung und kein
+     Versehen: Privatsphäre vor Speicherplatz. Der Blockspeicher legt gleiche
+     Bytes nur einmal ab — dieselbe Datei zweimal hochgeladen kostet nichts.
+     Damit das bei verschlüsselten Dateien überhaupt greifen könnte, müsste
+     ihr Schlüssel aus ihrem Inhalt entstehen. Dann aber verriete genau diese
+     Ersparnis dem Server, was er verwahrt: er verschlüsselt eine verdächtige
+     Datei selbst und sieht nach, ob ihre Blöcke schon da sind. Deshalb ist der
+     Dateischlüssel Zufall (siehe lib/vertraulich.ts in der App), deshalb sieht
+     dasselbe Dokument beim zweiten Mal völlig anders aus, und deshalb hätte
+     ein Durchlauf hier nichts zu finden — außer Rechenzeit auf einem Pi. */
+  if (!input.privat) {
+    ablage.spaeterUebernehmen({ id: input.id, art: 'file', pfad: input.storedPath, mime: input.mime });
+  }
 
   return getFile(input.id)!;
 }
 
 export function updateFile(id: string, patch: { name?: string; description?: string | null; folder?: string }): StoredFile {
   const datei = getFile(id);
-  if (!datei) throw new Error('Datei nicht gefunden.');
+  if (!datei) throw abweisung('fehler.dateiNichtGefunden', 'Datei nicht gefunden.');
 
   const sets: string[] = [];
   const werte: any[] = [];
   if (patch.name !== undefined) {
     const name = saubererName(patch.name);
-    if (!name) throw new Error('Der Name darf nicht leer sein.');
+    if (!name) throw abweisung('fehler.nameLeer', 'Der Name darf nicht leer sein.');
     sets.push('name = ?'); werte.push(name);
   }
   if (patch.description !== undefined) { sets.push('description = ?'); werte.push(patch.description?.trim() || null); }
