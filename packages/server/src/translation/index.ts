@@ -537,3 +537,89 @@ export async function translatePoll(
 
   return { lang: target, ...daten, provider: provider.name };
 }
+
+/* ── Kanäle übersetzen ────────────────────────────────────────── */
+
+export interface ChannelView {
+  lang: string;
+  name: string | null;
+  topic: string | null;
+  purpose: string | null;
+  provider: string;
+}
+
+/** Bereits übersetzter Kanal aus dem Zwischenspeicher — ohne Netzzugriff. */
+export function cachedChannelView(channelId: string, targetLang: string): ChannelView | null {
+  const target = normalizeLang(targetLang);
+  const row = db.get<{ payload: string; provider: string }>(
+    'SELECT payload, provider FROM channel_translations WHERE channel_id = ? AND lang = ?',
+    channelId, target,
+  );
+  if (!row) return null;
+  try {
+    const daten = JSON.parse(row.payload) as Omit<ChannelView, 'lang' | 'provider'>;
+    return { lang: target, ...daten, provider: row.provider };
+  } catch { return null; }
+}
+
+/**
+ * Name, Thema und Zweck eines Kanals in einer Zielsprache.
+ *
+ * Der Name bleibt technisch, wie er ist — Erwähnungen wie #vertrieb müssen
+ * für alle dieselben bleiben, sonst zeigt ein Link ins Leere. Übersetzt wird
+ * nur, was angezeigt wird. Ein Name aus einem einzigen Wort wird dabei
+ * mitgenommen, ein Kürzel wie "q3-2026" bleibt stehen.
+ */
+export async function translateChannel(
+  channelId: string,
+  targetLang: string,
+  opts: { force?: boolean } = {},
+): Promise<ChannelView | null> {
+  const target = normalizeLang(targetLang);
+  const kanal = db.get<{ name: string; topic: string | null; purpose: string | null; kind: string }>(
+    'SELECT name, topic, purpose, kind FROM channels WHERE id = ?', channelId,
+  );
+  if (!kanal || kanal.kind === 'dm') return null;
+
+  const quelle = JSON.stringify([kanal.name, kanal.topic, kanal.purpose]);
+  const hash = sha1(quelle);
+
+  if (!opts.force) {
+    const cached = db.get<{ payload: string; source_hash: string; provider: string }>(
+      'SELECT payload, source_hash, provider FROM channel_translations WHERE channel_id = ? AND lang = ?',
+      channelId, target,
+    );
+    if (cached && cached.source_hash === hash && cached.provider === provider.name) {
+      const daten = JSON.parse(cached.payload) as Omit<ChannelView, 'lang' | 'provider'>;
+      return { lang: target, ...daten, provider: cached.provider };
+    }
+  }
+
+  const uebersetze = async (text: string | null): Promise<string | null> => {
+    if (!text?.trim()) return null;
+    const ergebnis = await translate({ text, targetLang: target, sourceLang: null });
+    return ergebnis.noop ? null : ergebnis.text;
+  };
+
+  // Namen mit Ziffern, Bindestrichen oder Punkten sind Kürzel und bleiben.
+  const nameUebersetzbar = /^[\p{L}][\p{L}\s-]{2,}$/u.test(kanal.name) && !/\d/.test(kanal.name);
+
+  const [name, topic, purpose] = await Promise.all([
+    nameUebersetzbar ? uebersetze(kanal.name) : Promise.resolve(null),
+    uebersetze(kanal.topic),
+    uebersetze(kanal.purpose),
+  ]);
+
+  if (!name && !topic && !purpose) return null;
+
+  const daten = { name, topic, purpose };
+  db.run(
+    `INSERT INTO channel_translations (channel_id, lang, payload, source_hash, provider, created_at)
+     VALUES (?,?,?,?,?,?)
+     ON CONFLICT(channel_id, lang) DO UPDATE SET
+       payload = excluded.payload, source_hash = excluded.source_hash,
+       provider = excluded.provider, created_at = excluded.created_at`,
+    channelId, target, JSON.stringify(daten), hash, provider.name, Date.now(),
+  );
+  return { lang: target, ...daten, provider: provider.name };
+}

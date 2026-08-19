@@ -104,7 +104,7 @@ ok "gebaut — Server und Oberfläche"
 
 # ── Helfer auffrischen ──────────────────────────────────────────
 schritt "Werkzeuge auffrischen"
-for werkzeug in stellium-zugang stellium-tunnel; do
+for werkzeug in stellium-zugang stellium-tunnel stellium-selbstupdate; do
   [[ -f "$ZIEL/server-setup/$werkzeug.sh" ]] \
     && install -m 755 "$ZIEL/server-setup/$werkzeug.sh" "/usr/local/bin/$werkzeug"
 done

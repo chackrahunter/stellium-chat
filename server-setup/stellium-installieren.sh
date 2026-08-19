@@ -871,7 +871,34 @@ chmod 755 /usr/local/lib/stellium/konsole.mjs
 install -m 755 "$ZIEL/server-setup/stellium-zugang.sh" /usr/local/bin/stellium-zugang
 install -m 755 "$ZIEL/server-setup/stellium-tunnel.sh" /usr/local/bin/stellium-tunnel
 install -m 755 "$ZIEL/server-setup/stellium-aktualisieren.sh" /usr/local/bin/stellium-update
-ok "stellium-zugang, stellium-tunnel und stellium-update eingerichtet"
+install -m 755 "$ZIEL/server-setup/stellium-selbstupdate.sh" /usr/local/bin/stellium-selbstupdate
+ok "stellium-zugang, stellium-tunnel, stellium-update, stellium-selbstupdate"
+
+# Stündlich nach einem neuen Serverstand sehen. Ohne hinterlegten Zugang
+# meldet das Skript sich mit einem Hinweis und tut sonst nichts.
+cat > /etc/systemd/system/stellium-selbstupdate.service <<'SU1'
+[Unit]
+Description=Stellium: nach einem neuen Serverstand sehen
+After=network-online.target stellium.service
+Wants=network-online.target
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/stellium-selbstupdate
+SU1
+cat > /etc/systemd/system/stellium-selbstupdate.timer <<'SU2'
+[Unit]
+Description=Stündlich nach einem neuen Serverstand sehen
+[Timer]
+OnBootSec=10min
+OnUnitActiveSec=1h
+RandomizedDelaySec=10min
+[Install]
+WantedBy=timers.target
+SU2
+systemctl daemon-reload
+systemctl enable --quiet stellium-selbstupdate.timer
+systemctl start stellium-selbstupdate.timer
+ok "sieht stündlich nach neuen Serverständen"
 
 cat > /usr/local/bin/stellium <<KONSOLE
 #!/usr/bin/env bash

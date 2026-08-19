@@ -8,7 +8,7 @@ import { overridesFor, permissionsFor } from './users.js';
 import { linkPreviewsFor } from './links.js';
 import { hiddenFor } from './messages.js';
 import { pollForMessage } from './polls.js';
-import { cachedPollView } from '../translation/index.js';
+import { cachedPollView, cachedChannelView } from '../translation/index.js';
 import { voiceNoteFor } from './voice.js';
 
 /* ── Nutzer ───────────────────────────────────────────────────── */
@@ -129,7 +129,15 @@ export function toChannel(r: any, viewerId?: string): Channel {
     createdAt: r.created_at,
     memberIds: members,
     dmPeerId: r.kind === 'dm' && viewerId ? members.find((m) => m !== viewerId) ?? null : null,
+    // Bereits übersetzt? Dann gleich mitschicken. Fehlt sie, kommt sie als
+    // eigenes Ereignis nach.
+    translation: viewerId && r.kind !== 'dm' ? kanalUebersetzung(r.id, viewerId) : null,
   };
+}
+
+function kanalUebersetzung(channelId: string, viewerId: string) {
+  const sprache = db.get<{ language: string }>('SELECT language FROM users WHERE id = ?', viewerId)?.language;
+  return sprache ? cachedChannelView(channelId, sprache) : null;
 }
 
 export function getChannel(id: string, viewerId?: string): Channel | null {

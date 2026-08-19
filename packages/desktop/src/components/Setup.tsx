@@ -39,7 +39,10 @@ export function Setup() {
         newPassword: passwort,
       });
       if (sprache !== user.language) {
-        useStore.getState().updatePrefs({ language: sprache, uiLanguage: sprache });
+        // Nur die Lesesprache festlegen. Die Oberfläche folgt weiter dem
+        // Rechner — wer das ändern will, tut es in den Einstellungen, und
+        // erst dann steht dort etwas Festes.
+        useStore.getState().updatePrefs({ language: sprache });
       }
       useStore.setState({ self: user });
     } catch (err) {

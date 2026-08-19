@@ -5,6 +5,7 @@
  *   node scripts/veroeffentlichen.mjs 1.2.0 "Was neu ist"
  *   node scripts/veroeffentlichen.mjs 1.2.0 --nur-mac
  *   node scripts/veroeffentlichen.mjs --nur-hochladen 1.2.0
+ *   node scripts/veroeffentlichen.mjs 1.2.0 --mit-server   auch den Server
  *
  * Server und Zugang kommen aus der Umgebung:
  *   STELLIUM_SERVER    https://chat.meinefirma.de
@@ -16,6 +17,7 @@
  */
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import readline from 'node:readline/promises';
 import { fileURLToPath } from 'node:url';
@@ -30,6 +32,8 @@ const raus = (t) => { sag(`\n${F.rot}✗ ${t}${F.aus}\n`); process.exit(1); };
 const args = process.argv.slice(2);
 const nurHochladen = args.includes('--nur-hochladen');
 const nurMac = args.includes('--nur-mac');
+const mitServer = args.includes('--mit-server') || args.includes('--nur-server');
+const nurServer = args.includes('--nur-server');
 const version = args.find((a) => /^\d+\.\d+\.\d+$/.test(a));
 const notizen = args.find((a) => !a.startsWith('--') && a !== version) ?? '';
 
@@ -71,10 +75,34 @@ if (!nurHochladen) {
 
 /* ── Dateien einsammeln ──────────────────────────────────────── */
 
+/* ── Serverpaket schnüren ────────────────────────────────────── */
+
+if (mitServer) {
+  schritt('Serverpaket schnüren');
+  const arbeit = path.join(os.tmpdir(), `stellium-server-${Date.now()}`);
+  fs.mkdirSync(arbeit, { recursive: true });
+  const ziel = path.join(arbeit, 'stellium-server');
+  fs.mkdirSync(ziel);
+
+  // Dasselbe Paket, das auch von Hand eingespielt wird — ohne node_modules,
+  // fertige Pakete und Daten.
+  lauf('bash', ['-c',
+    `tar -C ${JSON.stringify(wurzel)} --exclude=node_modules --exclude=.git `
+    + '--exclude=release --exclude=downloads --exclude=data --exclude=dist-electron '
+    + `--exclude=.DS_Store --exclude=screenshots -cf - . | tar -C ${JSON.stringify(ziel)} -xf -`]);
+
+  const paket = path.join(wurzel, 'downloads/stellium-server.tar.gz');
+  fs.mkdirSync(path.dirname(paket), { recursive: true });
+  fs.rmSync(paket, { force: true });
+  lauf('tar', ['-C', arbeit, '-czf', paket, 'stellium-server']);
+  fs.rmSync(arbeit, { recursive: true, force: true });
+  ok(`downloads/stellium-server.tar.gz (${(fs.statSync(paket).size / 1024 / 1024).toFixed(1)} MB)`);
+}
+
 const ordner = path.join(wurzel, 'packages/desktop/release');
 const suche = (muster) => fs.readdirSync(ordner).find((n) => muster.test(n) && n.includes(version));
 
-const dateien = {
+const dateien = nurServer ? {} : {
   darwin: suche(/universal\.dmg$/),
   win32: suche(/^Stellium-[\d.]+\.exe$/),
   linux: suche(/x86_64\.AppImage$/),
@@ -85,7 +113,8 @@ for (const [system, datei] of Object.entries(dateien)) {
   if (datei) ok(`${system.padEnd(8)} ${datei}`);
   else sag(`  ${F.grau}${system.padEnd(8)} keins${F.aus}`);
 }
-if (!Object.values(dateien).some(Boolean)) raus('Nichts zum Hochladen gefunden.');
+if (mitServer) ok('server   downloads/stellium-server.tar.gz');
+if (!Object.values(dateien).some(Boolean) && !mitServer) raus('Nichts zum Hochladen gefunden.');
 
 /* ── Hochladen ───────────────────────────────────────────────── */
 
@@ -105,9 +134,13 @@ const { token } = await anmeldung.json();
 ok(`als ${login}`);
 
 schritt('Hochladen');
-for (const [system, datei] of Object.entries(dateien)) {
-  if (!datei) continue;
-  const pfad = path.join(ordner, datei);
+const hochzuladen = Object.entries(dateien)
+  .filter(([, d]) => d)
+  .map(([system, datei]) => [system, path.join(ordner, datei)]);
+if (mitServer) hochzuladen.push(['server', path.join(wurzel, 'downloads/stellium-server.tar.gz')]);
+
+for (const [system, pfad] of hochzuladen) {
+  const datei = path.basename(pfad);
   const groesse = fs.statSync(pfad).size;
   sag(`  ${F.grau}${system} · ${(groesse / 1024 / 1024).toFixed(0)} MB …${F.aus}`);
 

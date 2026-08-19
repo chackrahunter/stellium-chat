@@ -62,3 +62,18 @@ export function localTimeFor(timezone: string): { time: string; offHours: boolea
 export function clsx(...parts: (string | false | null | undefined)[]): string {
   return parts.filter(Boolean).join(' ');
 }
+
+/**
+ * Angezeigter Name eines Kanals — übersetzt, falls vorhanden.
+ *
+ * Der technische Name bleibt davon unberührt: Erwähnungen wie #vertrieb
+ * müssen für alle dieselben sein, sonst zeigt ein Verweis ins Leere.
+ */
+export function kanalName(channel: { name: string; translation?: { name: string | null } | null }): string {
+  return channel.translation?.name || channel.name;
+}
+
+/** Thema eines Kanals in der Lesesprache. */
+export function kanalThema(channel: { topic: string | null; translation?: { topic: string | null } | null }): string | null {
+  return channel.translation?.topic || channel.topic;
+}

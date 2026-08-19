@@ -454,3 +454,15 @@ CREATE TABLE IF NOT EXISTS poll_translations (
   created_at  INTEGER NOT NULL,
   PRIMARY KEY (poll_id, lang)
 );
+
+-- Übersetzte Kanalangaben. Name, Thema und Zweck stehen in eigenen Spalten
+-- und kamen deshalb nie durch die Nachrichtenübersetzung.
+CREATE TABLE IF NOT EXISTS channel_translations (
+  channel_id  TEXT NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
+  lang        TEXT NOT NULL,
+  payload     TEXT NOT NULL,
+  source_hash TEXT NOT NULL,
+  provider    TEXT NOT NULL,
+  created_at  INTEGER NOT NULL,
+  PRIMARY KEY (channel_id, lang)
+);

@@ -1,56 +1,27 @@
-/** Sucht nach einem Schleier, der bleibt, obwohl nichts darauf zu sehen ist. */
 import { chromium } from 'playwright';
 const b = await chromium.launch({ headless: true });
-const p = await (await b.newContext({ viewport: { width: 1350, height: 870 }, locale: 'de-DE' })).newPage();
-p.on('pageerror', e => console.log('PAGEERROR', e.message.slice(0,240)));
+const p = await (await b.newContext({ viewport: { width: 1280, height: 860 }, locale: 'de-DE' })).newPage();
 await p.goto('http://localhost:5173');
 await p.evaluate(() => { localStorage.setItem('stellium.serverUrl','http://localhost:8787'); localStorage.setItem('stellium.tourGesehen','ja'); });
-await p.reload(); await p.waitForTimeout(1200);
+await p.reload(); await p.waitForTimeout(1000);
 if (await p.locator('.auth').count()) {
   await p.locator('.auth input').first().fill('don');
   await p.locator('.auth input[type="password"]').first().fill('MeinLangesPasswort-2026');
   await p.locator('.auth button[type="submit"]').first().click();
 }
-await p.waitForSelector('.app', { timeout: 20000 }); await p.waitForTimeout(1500);
-
-const pruefen = async (was) => {
-  const scrim = await p.locator('.scrim').count();
-  const tour = await p.locator('.tour').count();
-  if (!scrim && !tour) return;
-  const inhalt = await p.evaluate(() => {
-    const s = document.querySelector('.scrim') || document.querySelector('.tour');
-    if (!s) return null;
-    const sichtbar = [...s.children].filter((c) => c.getBoundingClientRect().width > 40);
-    return { kinder: s.children.length, sichtbar: sichtbar.length, text: (s.innerText||'').slice(0,60) };
-  });
-  if (inhalt && inhalt.sichtbar === 0) {
-    console.log(`LEERER SCHLEIER nach: ${was} ·`, JSON.stringify(inhalt));
-    await p.screenshot({ path: `/tmp/leer-${was.replace(/\W+/g,'-')}.png` });
-  }
-  await p.keyboard.press('Escape'); await p.waitForTimeout(450);
-};
-
-// Alles der Reihe nach durchklicken
-for (const t of ['ai','tasks','calendar','files','ideas','reminders','settings','team']) {
-  const k = p.locator(`[data-tour="${t}"]`);
-  if (await k.count()) { await k.click(); await p.waitForTimeout(1300); await pruefen(`Reiter ${t}`); }
-}
-for (const [taste, name] of [['Meta+k','Schnellsuche'],['Meta+f','Suche'],['Meta+Shift+n','Neuer Kanal'],
-                             ['Meta+Shift+t','Aufgaben'],['Meta+Shift+e','Kalender'],['Meta+Shift+d','Dateien'],
-                             ['Meta+Shift+i','Ideen'],['Meta+,','Einstellungen']]) {
-  await p.keyboard.press(taste); await p.waitForTimeout(1200); await pruefen(name);
-}
-// Die Kopfzeilen-Knöpfe
-await p.locator('.chan').filter({ hasText: 'allgemein' }).first().click(); await p.waitForTimeout(900);
-const knoepfe = await p.locator('.header__actions button').count();
-for (let i = 0; i < knoepfe; i++) {
-  await p.locator('.header__actions button').nth(i).click().catch(()=>{});
-  await p.waitForTimeout(1600);
-  await pruefen(`Kopfzeile ${i}`);
-}
-// Und das Tutorial
-await p.evaluate(() => localStorage.removeItem('stellium.tourGesehen'));
-await p.reload(); await p.waitForSelector('.app'); await p.waitForTimeout(2500);
-await pruefen('Einführung');
-console.log('durchgelaufen');
+await p.waitForSelector('.app', { timeout: 20000 }); await p.waitForTimeout(1200);
+// Auf Französisch stellen und sehen, was aus den Kanälen wird
+await p.locator('.rail [data-tour="settings"]').click();
+await p.waitForSelector('.panel--wide select');
+console.log('Oberflächensprachen zur Auswahl:', await p.locator('.panel--wide select').first().locator('option').count());
+await p.locator('.panel--wide select').first().selectOption('fr');
+await p.waitForTimeout(1500);
+console.log('Oberfläche jetzt:', (await p.locator('.panel--wide').innerText()).split('\n').slice(3,6).join(' | '));
+await p.locator('.panel--wide select').nth(1).selectOption('fr');
+await p.waitForTimeout(2000);
+await p.keyboard.press('Escape'); await p.waitForTimeout(500);
+console.log('Kanäle vorher:', await p.locator('.chan__name').allInnerTexts());
+await p.waitForTimeout(25000);
+console.log('Kanäle nachher:', await p.locator('.chan__name').allInnerTexts());
+console.log('Kopfzeile:', await p.locator('.header__topic').first().innerText().catch(()=>'—'));
 await b.close();

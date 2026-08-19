@@ -98,6 +98,13 @@ export interface Channel {
   memberIds: string[];
   /** Nur bei DMs gefüllt. */
   dmPeerId?: string | null;
+  /** Angezeigter Name, Thema und Zweck in der Lesesprache. */
+  translation?: {
+    lang: string;
+    name: string | null;
+    topic: string | null;
+    purpose: string | null;
+  } | null;
 }
 
 export interface ChannelState {
@@ -382,7 +389,8 @@ export interface CalendarEvent {
 
 /* ── App-Versionen ────────────────────────────────────────────── */
 
-export type ReleasePlatform = 'darwin' | 'win32' | 'linux';
+/** Auch der Server selbst bekommt seine Stände über denselben Weg. */
+export type ReleasePlatform = 'darwin' | 'win32' | 'linux' | 'server';
 
 export interface ReleaseInfo {
   platform: ReleasePlatform;

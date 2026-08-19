@@ -1,6 +1,27 @@
+import { LANGUAGES } from '@stellium/shared';
 import { useStore } from '../state/store.js';
 import { de } from './de.js';
 import { en } from './en.js';
+import { ar } from './ar.js';
+import { cs } from './cs.js';
+import { da } from './da.js';
+import { es } from './es.js';
+import { fi } from './fi.js';
+import { fr } from './fr.js';
+import { hi } from './hi.js';
+import { it } from './it.js';
+import { ja } from './ja.js';
+import { ko } from './ko.js';
+import { nl } from './nl.js';
+import { no } from './no.js';
+import { pl } from './pl.js';
+import { pt } from './pt.js';
+import { ro } from './ro.js';
+import { ru } from './ru.js';
+import { sv } from './sv.js';
+import { tr } from './tr.js';
+import { uk } from './uk.js';
+import { zh } from './zh.js';
 
 /**
  * Übersetzung der Oberfläche.
@@ -19,13 +40,14 @@ import { en } from './en.js';
 export type TranslationKey = keyof typeof de;
 export type Dictionary = Record<TranslationKey, string>;
 
-const WOERTERBUECHER: Record<string, Partial<Dictionary>> = { de, en };
+const WOERTERBUECHER: Record<string, Partial<Dictionary>> = { de, en, ar, cs, da, es, fi, fr, hi, it, ja, ko, nl, no, pl, pt, ro, ru, sv, tr, uk, zh };
 
-/** Sprachen, für die die Oberfläche vollständig vorliegt. */
-export const UI_LANGUAGES = [
-  { code: 'de', native: 'Deutsch', flag: '🇩🇪' },
-  { code: 'en', native: 'English', flag: '🇬🇧' },
-];
+/**
+ * Sprachen, in denen die Oberfläche vorliegt — dieselben, in die auch
+ * Nachrichten übersetzt werden. Reihenfolge und Namen kommen aus derselben
+ * Liste, damit beide Einstellungen nicht auseinanderlaufen.
+ */
+export const UI_LANGUAGES = LANGUAGES.filter((l) => l.code in WOERTERBUECHER);
 
 export function translate(sprache: string, key: TranslationKey, werte?: Record<string, string | number>): string {
   const kurz = sprache.toLowerCase().split(/[-_]/)[0];
@@ -59,9 +81,9 @@ export function t(key: TranslationKey, werte?: Record<string, string | number>):
 
 /**
  * Sprache des Rechners. In der App liefert Electron sie exakt; im Browser
- * bleibt die Spracheinstellung des Browsers. Ist sie nicht übersetzt, fällt
- * die Oberfläche auf Englisch zurück — nicht auf Deutsch, denn Englisch
- * versteht in einem internationalen Team schlicht die größere Hälfte.
+ * bleibt die Spracheinstellung des Browsers. Seit die Oberfläche in allen
+ * zweiundzwanzig Sprachen vorliegt, greift der Rückfall auf Englisch nur noch
+ * bei etwas, das gar nicht dabei ist.
  */
 export function spracheDesSystems(): string {
   const roh = (typeof window !== 'undefined' && window.stellium?.locale)

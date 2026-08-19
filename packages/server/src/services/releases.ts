@@ -17,7 +17,7 @@ import { config } from '../config.js';
  * lädt, kann damit feststellen, ob sie unterwegs verändert wurde.
  */
 
-export const PLATTFORMEN: ReleasePlatform[] = ['darwin', 'win32', 'linux'];
+export const PLATTFORMEN: ReleasePlatform[] = ['darwin', 'win32', 'linux', 'server'];
 
 function toRelease(r: any): ReleaseInfo {
   return {

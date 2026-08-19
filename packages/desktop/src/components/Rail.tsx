@@ -11,7 +11,7 @@ export function Rail() {
   const reminders = useStore((s) => s.reminders);
   const tasks = useStore((s) => s.tasks);
   const activeId = useStore((s) => s.activeChannelId);
-  const { istKi } = useKiKanaele();
+  const { istKi, chatId: kiChatId } = useKiKanaele();
   const { setOverlay } = useStore.getState();
 
   // Chat und KI sind zwei Reiter derselben Leiste — genau einer ist aktiv.
@@ -48,7 +48,7 @@ export function Rail() {
         className="rail-btn rail-btn--ki no-drag"
         data-tour="ai"
         aria-pressed={kiAktiv}
-        onClick={() => useStore.getState().openAiChat()}
+        onClick={() => (kiChatId ? useStore.getState().openChannel(kiChatId) : useStore.getState().openAiChat())}
         title={t('nav.aiChat')}
       >
         <Bot size={20} />

@@ -9,7 +9,7 @@ import { useStore } from '../state/store.js';
 import { useT } from '../i18n/index.js';
 import { Avatar } from './Avatar.jsx';
 import { ContextMenu, useContextMenu, type MenuEintrag } from './ContextMenu.jsx';
-import { clsx, languageInfo, localTimeFor } from '../lib/format.js';
+import { clsx, kanalName, languageInfo, localTimeFor } from '../lib/format.js';
 import { useKiKanaele } from '../lib/ai-channels.js';
 
 export function Sidebar() {
@@ -34,7 +34,7 @@ export function Sidebar() {
     const sortieren = (a: Channel, b: Channel) => {
       const aFest = states[a.id]?.starred ? 0 : 1;
       const bFest = states[b.id]?.starred ? 0 : 1;
-      return aFest - bFest || a.name.localeCompare(b.name, 'de');
+      return aFest - bFest || kanalName(a).localeCompare(kanalName(b));
     };
     return {
       publicChannels: list.filter((c) => c.kind === 'public' && c.id !== kiTeamId).sort(sortieren),
@@ -73,7 +73,7 @@ export function Sidebar() {
           : channel.kind === 'private'
             ? <Lock size={15} className="chan__icon" />
             : <Hash size={15} className="chan__icon" />}
-        <span className="chan__name">{channel.kind === 'dm' ? peer?.displayName ?? 'Direktnachricht' : channel.name}</span>
+        <span className="chan__name">{channel.kind === 'dm' ? peer?.displayName ?? 'Direktnachricht' : kanalName(channel)}</span>
         {channel.kind !== 'dm' && channel.primaryLanguage && (
           <span className="chan__lang" title={`Kanalsprache: ${languageInfo(channel.primaryLanguage).native}`}>
             {languageInfo(channel.primaryLanguage).flag}
@@ -169,7 +169,10 @@ export function Sidebar() {
             <button
               className={clsx('chan', (states[kiChatId ?? '']?.unreadCount ?? 0) > 0 && 'chan--unread')}
               aria-current={activeId === kiChatId}
-              onClick={() => useStore.getState().openAiChat()}
+              // Ist der Kanal schon bekannt, sofort hin — sonst hinge der
+              // Klick an einer Antwort des Servers und sähe aus, als täte er
+              // nichts.
+              onClick={() => (kiChatId ? openChannel(kiChatId) : useStore.getState().openAiChat())}
               onContextMenu={(e) => { if (kiChatId) menue.oeffnen(e, kiChatId); }}
             >
               <Bot size={15} className="chan__icon" style={{ color: 'var(--violet-soft)', opacity: 1 }} />
@@ -181,7 +184,7 @@ export function Sidebar() {
             <button
               className={clsx('chan', (states[kiTeamId ?? '']?.unreadCount ?? 0) > 0 && 'chan--unread')}
               aria-current={activeId === kiTeamId}
-              onClick={() => useStore.getState().openAiTeamChannel()}
+              onClick={() => (kiTeamId ? openChannel(kiTeamId) : useStore.getState().openAiTeamChannel())}
               onContextMenu={(e) => { if (kiTeamId) menue.oeffnen(e, kiTeamId); }}
             >
               <UsersRound size={15} className="chan__icon" style={{ color: 'var(--cyan)', opacity: 1 }} />

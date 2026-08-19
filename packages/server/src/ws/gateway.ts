@@ -6,7 +6,7 @@ import {
 import { verifyToken } from '../auth.js';
 import { db } from '../db/index.js';
 import { newId } from '../util/id.js';
-import { aiCapabilities, roundTrip, translate, translateMessage, translatePoll } from '../translation/index.js';
+import { aiCapabilities, roundTrip, translate, translateMessage, translatePoll, translateChannel } from '../translation/index.js';
 import * as ai from '../services/ai.js';
 import * as channels from '../services/channels.js';
 import * as messages from '../services/messages.js';
@@ -328,6 +328,15 @@ async function authenticate(session: Session, ev: Extract<ClientEvent, { t: 'aut
   });
 
   if (wasOffline) setStatus(userId, self.status === 'offline' ? 'online' : self.status);
+
+  // Kanalnamen und -themen in die Lesesprache bringen. Im Hintergrund, damit
+  // die Oberfläche sofort steht; die Übersetzungen kommen nach.
+  if (self.autoTranslate) {
+    for (const kanal of store.visibleChannels(userId)) {
+      if (kanal.kind === 'dm' || kanal.translation) continue;
+      void kanalUebersetzungNachreichen(kanal.id, userId);
+    }
+  }
 }
 
 /* ── Event-Dispatch ───────────────────────────────────────────── */
@@ -388,6 +397,8 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
       return;
 
     case 'channel:update': {
+      // Nach einer Änderung sind alte Übersetzungen hinfällig; die Prüfsumme
+      // sorgt dafür, dass sie beim nächsten Anfassen neu entstehen.
       if (!darf(session, ev.archived !== undefined ? 'channel.archive' : 'channel.manage')) return;
       const ch = channels.updateChannel(ev.channelId, {
         name: ev.name, topic: ev.topic, purpose: ev.purpose,
@@ -655,6 +666,14 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
         for (const m of list) {
           if (!m.poll) continue;
           void pollUebersetzungNachreichen(m.poll.id, userId, session.openChannelId);
+        }
+      }
+
+      // Dasselbe für die Kanäle selbst — Name, Thema, Zweck.
+      if (ev.patch.language) {
+        for (const kanal of store.visibleChannels(userId)) {
+          if (kanal.kind === 'dm') continue;
+          void kanalUebersetzungNachreichen(kanal.id, userId);
         }
       }
       return;
@@ -1168,6 +1187,22 @@ function broadcastPoll(pollId: string): void {
     // Die Übersetzung kommt nach, sobald sie da ist — auf sie zu warten würde
     // das Ergebnis einer Abstimmung für alle anderen verzögern.
     void pollUebersetzungNachreichen(pollId, uid, msg.channel_id);
+  }
+}
+
+/**
+ * Name, Thema und Zweck eines Kanals in die Lesesprache bringen. Läuft im
+ * Hintergrund; steht der Kanal schon in dieser Sprache, passiert nichts.
+ */
+async function kanalUebersetzungNachreichen(channelId: string, userId: string): Promise<void> {
+  const sprache = store.getSelf(userId)?.language;
+  if (!sprache) return;
+  try {
+    const sicht = await translateChannel(channelId, sprache);
+    const kanal = store.getChannel(channelId, userId);
+    if (kanal) sendToUser(userId, { t: 'channel:upsert', channel: { ...kanal, translation: sicht } });
+  } catch (err) {
+    console.error('[kanal]', (err as Error).message);
   }
 }
 

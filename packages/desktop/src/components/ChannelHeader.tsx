@@ -7,7 +7,7 @@ import { LANGUAGES, normalizeLang } from '@stellium/shared';
 import { useStore } from '../state/store.js';
 import { useT } from '../i18n/index.js';
 import { Avatar } from './Avatar.jsx';
-import { languageInfo, localTimeFor } from '../lib/format.js';
+import { kanalName, kanalThema, languageInfo, localTimeFor } from '../lib/format.js';
 import { useKiKanaele, KI_NAME } from '../lib/ai-channels.js';
 
 export function ChannelHeader({ channelId }: { channelId: string }) {
@@ -41,7 +41,7 @@ export function ChannelHeader({ channelId }: { channelId: string }) {
             ? <Avatar user={peer} size={28} showPresence />
             : channel.kind === 'private' ? <Lock size={17} className="muted" /> : <Hash size={17} className="muted" />}
         <h1>
-          {ki ? KI_NAME : channel.kind === 'dm' ? peer?.displayName ?? 'Direktnachricht' : channel.name}
+          {ki ? KI_NAME : channel.kind === 'dm' ? peer?.displayName ?? 'Direktnachricht' : kanalName(channel)}
         </h1>
         {ki && (
           <span className="header__topic">
@@ -59,7 +59,7 @@ export function ChannelHeader({ channelId }: { channelId: string }) {
             <Megaphone size={10} style={{ verticalAlign: -1 }} /> {t('channel.readOnly')}
           </span>
         )}
-        {channel.topic && <span className="header__topic">{channel.topic}</span>}
+        {kanalThema(channel) && <span className="header__topic">{kanalThema(channel)}</span>}
       </div>
 
       <div className="header__actions no-drag">

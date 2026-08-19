@@ -7,7 +7,7 @@ import { LANGUAGES, type GlossaryEntry } from '@stellium/shared';
 import { useStore } from '../state/store.js';
 import { api } from '../net/api.js';
 import { Avatar } from './Avatar.jsx';
-import { languageInfo, localTimeFor, relativeTime } from '../lib/format.js';
+import { kanalName, languageInfo, localTimeFor, relativeTime } from '../lib/format.js';
 
 /* ── Neuer Kanal ────────────────────────────────────────────── */
 
@@ -247,7 +247,7 @@ export function CatchupPanel({ onClose }: { onClose: () => void }) {
         <div className="stack gap-3">
           <p className="muted" style={{ margin: 0 }}>
             Fasst alles zusammen, was du seit deinem letzten Besuch in
-            {' '}<b>{channels[activeChannelId ?? '']?.name ? `#${channels[activeChannelId!].name}` : 'diesem Kanal'}</b>{' '}
+            {' '}<b>{channels[activeChannelId ?? ''] ? `#${kanalName(channels[activeChannelId!])}` : 'diesem Kanal'}</b>{' '}
             verpasst hast — in deiner Sprache, egal in welcher es geschrieben wurde.
           </p>
           <button

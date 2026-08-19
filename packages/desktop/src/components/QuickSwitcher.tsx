@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import { Hash, Lock, Search, Sparkles } from 'lucide-react';
 import { useStore } from '../state/store.js';
+import { kanalName } from '../lib/format.js';
 import { Avatar } from './Avatar.jsx';
 import { languageInfo } from '../lib/format.js';
 
@@ -30,7 +31,7 @@ export function QuickSwitcher({ onClose }: { onClose: () => void }) {
     for (const c of Object.values(channels)) {
       if (c.kind === 'dm') continue;
       out.push({
-        id: c.id, kind: 'channel', title: `#${c.name}`,
+        id: c.id, kind: 'channel', title: `#${kanalName(c)}`,
         sub: c.topic ?? (c.kind === 'private' ? 'Privater Kanal' : 'Öffentlicher Kanal'),
         icon: c.kind === 'private' ? <Lock size={16} className="muted" /> : <Hash size={16} className="muted" />,
         run: () => { store.openChannel(c.id); onClose(); },

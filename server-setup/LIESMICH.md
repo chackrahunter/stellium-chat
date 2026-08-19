@@ -231,5 +231,27 @@ Später genügt auch:
 sudo stellium-update
 ```
 
+### Von selbst
+
+Der Pi kann sich auch allein versorgen. Dafür braucht er einen eigenen Zugang
+zum Chat — leg in der App unter *Team verwalten* ein Konto an, etwa
+`serverupdate` mit der Rolle Administrator, und trage es ein:
+
+```bash
+sudo tee /etc/stellium-update.env >/dev/null <<'ENDE'
+STELLIUM_UPDATE_LOGIN=serverupdate
+STELLIUM_UPDATE_PASSWORT=das-passwort
+ENDE
+sudo chmod 600 /etc/stellium-update.env
+```
+
+Ab dann sieht er stündlich nach, ob ein neuer Serverstand hochgeladen wurde,
+lädt ihn, prüft die Prüfsumme und spielt ihn ein — mit derselben Rückfallebene
+wie von Hand. Nachsehen ohne einzuspielen:
+
+```bash
+sudo stellium-selbstupdate pruefen
+```
+
 Die Apps für Mac, Windows und Linux aktualisieren sich selbst, sobald du unter
 *Einstellungen → Aktualisierung* eine neue Version hochlädst.
