@@ -26,8 +26,8 @@
     "@types/react": "^19.0.7",
     "@types/react-dom": "^19.0.3",
     "@vitejs/plugin-react": "^4.3.4",
-    "electron": "^33.3.1",
-    "electron-builder": "^25.1.8",
+    "electron": "^43.4.1",
+    "electron-builder": "^26.15.3",
     "framer-motion": "^11.18.0",
     "lucide-react": "^0.471.1",
     "react": "^19.0.0",
@@ -53,7 +53,7 @@
     "mac": {
       "category": "public.app-category.business",
       "icon": "build/icon.icns",
-      "hardenedRuntime": true,
+      "hardenedRuntime": false,
       "gatekeeperAssess": false,
       "entitlements": "build/entitlements.mac.plist",
       "entitlementsInherit": "build/entitlements.mac.plist",
@@ -71,7 +71,7 @@
           ]
         }
       ],
-      "identity": null
+      "identity": "-"
     },
     "dmg": {
       "title": "Stellium ${version}"
@@ -131,7 +131,7 @@
       },
       "artifactName": "stellium_${version}_${arch}.${ext}"
     },
-    "electronVersion": "33.4.11",
+    "electronVersion": "43.4.1",
     "npmRebuild": false,
     "nodeGypRebuild": false,
     "buildDependenciesFromSource": false,
@@ -140,6 +140,18 @@
       {
         "from": "build/icon.png",
         "to": "icon.png"
+      },
+      {
+        "from": "build/tray.png",
+        "to": "tray.png"
+      },
+      {
+        "from": "build/tray@2x.png",
+        "to": "tray@2x.png"
+      },
+      {
+        "from": "build/abzeichen.png",
+        "to": "abzeichen.png"
       }
     ]
   },
