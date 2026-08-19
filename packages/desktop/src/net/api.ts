@@ -84,6 +84,12 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   return res.status === 204 ? (undefined as T) : ((await res.json()) as T);
 }
 
+/** Was der Server nach einem Upload über die Datei zurückgibt. */
+export interface Anhang {
+  id: string; messageId: string | null; name: string; mime: string; size: number;
+  url: string; width: number | null; height: number | null;
+}
+
 export const api = {
   health: () => request<{ ok: boolean; workspace: string; ai: AiCapabilities }>('/api/health'),
 
@@ -155,18 +161,100 @@ export const api = {
       method: 'POST', body: JSON.stringify(input),
     }),
 
+  /** Anbieter umstellen — auch auf ein Modell im eigenen Netz. */
+  selectProvider: (input: { anbieter: string | null; baseUrl?: string; model?: string; fastModel?: string }) =>
+    request<{ ai: AiCapabilities; selection: AiModelSelection | null }>('/api/ai/provider', {
+      method: 'POST', body: JSON.stringify(input),
+    }),
+
+  /** Nachsehen, ob unter der Adresse ein Modell antwortet. */
+  checkLocal: (baseUrl: string) =>
+    request<{ erreichbar: boolean; modelle: string[]; fehler: string | null }>('/api/ai/local-check', {
+      method: 'POST', body: JSON.stringify({ baseUrl }),
+    }),
+
   glossary: () => request<{ entries: GlossaryEntry[] }>('/api/glossary'),
   addGlossary: (input: { term: string; translations: Record<string, string> | null; note?: string }) =>
     request<{ entries: GlossaryEntry[] }>('/api/glossary', { method: 'POST', body: JSON.stringify(input) }),
   removeGlossary: (id: string) =>
     request<{ entries: GlossaryEntry[] }>(`/api/glossary/${id}`, { method: 'DELETE' }),
 
+  /**
+   * Hochladen. Große Dateien gehen in mehreren Strömen gleichzeitig.
+   *
+   * Ein einzelner Strom bleibt auf einer Leitung mit Laufzeit weit unter dem,
+   * was möglich ist — jede Bestätigung kostet eine halbe Runde, und das Fenster
+   * wächst nur langsam. Vier Teile parallel füllen die Leitung deutlich besser.
+   */
+  uploadSchnell: async (
+    file: File,
+    onProgress?: (fraction: number, bytes: number) => void,
+  ): Promise<{ attachment: Anhang }> => {
+    const GRENZE = 8 * 1024 * 1024;      // darunter lohnt der Aufwand nicht
+    const TEILGROESSE = 4 * 1024 * 1024;
+    const GLEICHZEITIG = 4;
+
+    if (file.size <= GRENZE) {
+      return api.upload(file, (anteil) => onProgress?.(anteil, Math.round(anteil * file.size)));
+    }
+
+    const teile = Math.ceil(file.size / TEILGROESSE);
+    const { uploadId } = await request<{ uploadId: string }>('/api/uploads/start', {
+      method: 'POST',
+      body: JSON.stringify({ name: file.name, mime: file.type, size: file.size, parts: teile }),
+    });
+
+    /* Fortschritt über alle Teile zusammen. Jeder Teil meldet für sich; die
+       Summe ergibt den Balken. */
+    const erledigt = new Array<number>(teile).fill(0);
+    const melden = () => {
+      const bytes = erledigt.reduce((a, b) => a + b, 0);
+      onProgress?.(Math.min(1, bytes / file.size), bytes);
+    };
+
+    let naechster = 0;
+    const arbeiter = async () => {
+      for (;;) {
+        const nummer = naechster++;
+        if (nummer >= teile) return;
+        const von = nummer * TEILGROESSE;
+        const stueck = file.slice(von, Math.min(von + TEILGROESSE, file.size));
+        await new Promise<void>((fertig, schief) => {
+          const xhr = new XMLHttpRequest();
+          xhr.open('PUT', `${serverUrl()}/api/uploads/${uploadId}/part/${nummer}`);
+          const t = token();
+          if (t) xhr.setRequestHeader('authorization', `Bearer ${t}`);
+          xhr.setRequestHeader('content-type', 'application/octet-stream');
+          xhr.upload.onprogress = (e) => {
+            if (!e.lengthComputable) return;
+            erledigt[nummer] = e.loaded;
+            melden();
+          };
+          xhr.onload = () => {
+            if (xhr.status >= 200 && xhr.status < 300) {
+              erledigt[nummer] = stueck.size;
+              melden();
+              fertig();
+            } else {
+              schief(new ApiError(`Teil ${nummer} fehlgeschlagen (${xhr.status})`, xhr.status));
+            }
+          };
+          xhr.onerror = () => schief(new ApiError(`Teil ${nummer}: keine Verbindung`, 0));
+          xhr.send(stueck);
+        });
+      }
+    };
+
+    await Promise.all(Array.from({ length: Math.min(GLEICHZEITIG, teile) }, arbeiter));
+    return request<{ attachment: Anhang }>(`/api/uploads/${uploadId}/finish`, { method: 'POST' });
+  },
+
   upload: async (file: File, onProgress?: (fraction: number) => void) => {
     const form = new FormData();
     form.append('file', file);
 
     // XHR statt fetch, weil nur XHR den Upload-Fortschritt meldet.
-    return new Promise<{ attachment: { id: string; name: string; mime: string; size: number; url: string; width: number | null; height: number | null } }>((resolve, reject) => {
+    return new Promise<{ attachment: Anhang }>((resolve, reject) => {
       const xhr = new XMLHttpRequest();
       xhr.open('POST', `${serverUrl()}/api/uploads`);
       const t = token();

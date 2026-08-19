@@ -1,62 +1,17 @@
-import { LANGUAGES } from '@stellium/shared';
+/**
+ * Oberflächensprache mit Anbindung an den Zustand.
+ *
+ * Die Wörterbücher und das Einsetzen der Platzhalter liegen in kern.ts — ohne
+ * Zugriff auf den Zustand. Nur so kann auch der Zustand selbst übersetzen,
+ * ohne dass sich die beiden Module gegenseitig laden.
+ */
 import { useStore } from '../state/store.js';
-import { de } from './de.js';
-import { en } from './en.js';
-import { ar } from './ar.js';
-import { cs } from './cs.js';
-import { da } from './da.js';
-import { es } from './es.js';
-import { fi } from './fi.js';
-import { fr } from './fr.js';
-import { hi } from './hi.js';
-import { it } from './it.js';
-import { ja } from './ja.js';
-import { ko } from './ko.js';
-import { nl } from './nl.js';
-import { no } from './no.js';
-import { pl } from './pl.js';
-import { pt } from './pt.js';
-import { ro } from './ro.js';
-import { ru } from './ru.js';
-import { sv } from './sv.js';
-import { tr } from './tr.js';
-import { uk } from './uk.js';
-import { zh } from './zh.js';
+import { spracheDesSystems, translate, type TranslationKey } from './kern.js';
 
-/**
- * Übersetzung der Oberfläche.
- *
- * Bewusst getrennt von der Nachrichtenübersetzung: Bedienelemente gehören in
- * feste Wörterbücher, nicht durch ein Sprachmodell. Sie müssen bei jedem Start
- * identisch sein, sofort da und dürfen nichts kosten.
- *
- * Deutsch ist die Ausgangssprache. Fehlt ein Eintrag in einer anderen Sprache,
- * fällt die Anzeige darauf zurück — nie auf einen leeren Text oder den Schlüssel.
- */
-
-/** Die Schlüssel kommen aus dem deutschen Wörterbuch, die Werte sind Text.
- *  Ohne diese Aufweitung würde "as const" jeden deutschen Satz zu einem
- *  eigenen Typ machen und keine Übersetzung wäre zuweisbar. */
-export type TranslationKey = keyof typeof de;
-export type Dictionary = Record<TranslationKey, string>;
-
-const WOERTERBUECHER: Record<string, Partial<Dictionary>> = { de, en, ar, cs, da, es, fi, fr, hi, it, ja, ko, nl, no, pl, pt, ro, ru, sv, tr, uk, zh };
-
-/**
- * Sprachen, in denen die Oberfläche vorliegt — dieselben, in die auch
- * Nachrichten übersetzt werden. Reihenfolge und Namen kommen aus derselben
- * Liste, damit beide Einstellungen nicht auseinanderlaufen.
- */
-export const UI_LANGUAGES = LANGUAGES.filter((l) => l.code in WOERTERBUECHER);
-
-export function translate(sprache: string, key: TranslationKey, werte?: Record<string, string | number>): string {
-  const kurz = sprache.toLowerCase().split(/[-_]/)[0];
-  const wb = WOERTERBUECHER[kurz];
-  const roh = (wb?.[key] as string | undefined) ?? de[key] ?? key;
-  if (!werte) return roh;
-  // Platzhalter der Form {name} einsetzen.
-  return roh.replace(/\{(\w+)\}/g, (ganz, name) => String(werte[name] ?? ganz));
-}
+export {
+  coverage, spracheDesSystems, translate, UI_LANGUAGES,
+  type Dictionary, type TranslationKey,
+} from './kern.js';
 
 /**
  * Übersetzungsfunktion für Komponenten.
@@ -77,27 +32,4 @@ export function currentUiLanguage(): string {
 
 export function t(key: TranslationKey, werte?: Record<string, string | number>): string {
   return translate(currentUiLanguage(), key, werte);
-}
-
-/**
- * Sprache des Rechners. In der App liefert Electron sie exakt; im Browser
- * bleibt die Spracheinstellung des Browsers. Seit die Oberfläche in allen
- * zweiundzwanzig Sprachen vorliegt, greift der Rückfall auf Englisch nur noch
- * bei etwas, das gar nicht dabei ist.
- */
-export function spracheDesSystems(): string {
-  const roh = (typeof window !== 'undefined' && window.stellium?.locale)
-    || (typeof navigator !== 'undefined' ? navigator.language : '')
-    || 'en';
-  const kurz = roh.split(/[-_]/)[0].toLowerCase();
-  return WOERTERBUECHER[kurz] ? kurz : 'en';
-}
-
-/** Wie vollständig ist eine Sprache übersetzt? Für die Einstellungen. */
-export function coverage(sprache: string): number {
-  const wb = WOERTERBUECHER[sprache.toLowerCase().split(/[-_]/)[0]];
-  if (!wb) return 0;
-  const gesamt = Object.keys(de).length;
-  const da = Object.keys(wb).filter((k) => (wb as any)[k]).length;
-  return Math.round((da / gesamt) * 100);
 }

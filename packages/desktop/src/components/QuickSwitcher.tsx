@@ -63,7 +63,7 @@ export function QuickSwitcher({ onClose }: { onClose: () => void }) {
         run: () => { store.setOverlay('search'); },
       },
       {
-        id: 'act:glossary', kind: 'action', title: 'Glossar öffnen',
+        id: 'act:glossary', kind: 'action', title: t('quick.glossary'),
         sub: t('quick.glossaryHint'),
         icon: <Sparkles size={16} className="muted" />,
         run: () => { store.setOverlay('glossary'); },
@@ -118,7 +118,7 @@ export function QuickSwitcher({ onClose }: { onClose: () => void }) {
           onKeyDown={onKeyDown}
         />
         <div className="panel__body" ref={listRef} style={{ paddingTop: 0 }}>
-          {filtered.length === 0 && <p className="muted" style={{ padding: 'var(--sp-4)' }}>Nichts gefunden.</p>}
+          {filtered.length === 0 && <p className="muted" style={{ padding: 'var(--sp-4)' }}>{t('quick.nothingFound')}</p>}
           {filtered.map((item, i) => (
             <button
               key={item.id}
@@ -136,7 +136,7 @@ export function QuickSwitcher({ onClose }: { onClose: () => void }) {
           ))}
         </div>
         <div className="panel__foot">
-          <span>↑↓ navigieren</span><span>·</span><span>↵ öffnen</span><span>·</span><span>Esc schließen</span>
+          <span>{t('quick.navigate')}</span><span>·</span><span>{t('quick.open')}</span><span>·</span><span>{t('quick.close')}</span>
         </div>
       </motion.div>
     </div>

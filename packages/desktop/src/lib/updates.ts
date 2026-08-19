@@ -1,4 +1,10 @@
 import { useStore } from '../state/store.js';
+import { spracheDesSystems, translate, type TranslationKey } from '../i18n/kern.js';
+
+/** Meldungen in der Sprache der angemeldeten Person. */
+function t(key: TranslationKey, werte?: Record<string, string | number>): string {
+  return translate(useStore.getState().self?.uiLanguage || spracheDesSystems(), key, werte);
+}
 
 /**
  * Meldungen des Hauptprozesses in den Zustand übernehmen.
@@ -32,8 +38,8 @@ export function updatesVerbinden(): () => void {
         useStore.setState({ update: { zustand: 'bereit', version: d.version, notes: d.notes ?? null } });
         useStore.getState().toast({
           kind: 'ok',
-          title: `Version ${d.version} ist bereit`,
-          body: 'In den Einstellungen kannst du sie jetzt installieren.',
+          title: t('update.readyTitle', { version: d.version ?? '' }),
+          body: t('update.readyBody'),
         });
         break;
       case 'deadline': {

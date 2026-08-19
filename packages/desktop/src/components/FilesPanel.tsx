@@ -10,7 +10,7 @@ import { useT } from '../i18n/index.js';
 import { Avatar } from './Avatar.jsx';
 import { Shell } from './Panels.jsx';
 import { dateiUrl } from '../net/api.js';
-import { clsx, relativeTime } from '../lib/format.js';
+import { clsx, relativeTime, restzeit } from '../lib/format.js';
 
 function groesse(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -41,6 +41,7 @@ export function FilesPanel({ onClose }: { onClose: () => void }) {
   const [suche, setSuche] = useState('');
   const [ordner, setOrdner] = useState('');
   const [laedt, setLaedt] = useState(false);
+  const [stand, setStand] = useState<{ name: string; anteil: number; tempo?: number; rest?: number } | null>(null);
   const [ueberZone, setUeberZone] = useState(false);
   const dateiFeld = useRef<HTMLInputElement>(null);
 
@@ -66,10 +67,31 @@ export function FilesPanel({ onClose }: { onClose: () => void }) {
     try {
       // Nacheinander, damit das Kontingent sauber geprüft wird.
       for (const datei of Array.from(liste)) {
-        await uploadFile(datei, { folder: ordner && ordner !== '__root' ? ordner : undefined });
+        /* Tempo über ein gleitendes Fenster — bisher stand hier nur "lädt…",
+           und bei einer großen Datei wusste niemand, ob es vorangeht. */
+        const proben: { zeit: number; bytes: number }[] = [{ zeit: performance.now(), bytes: 0 }];
+        setStand({ name: datei.name, anteil: 0 });
+        await uploadFile(
+          datei,
+          { folder: ordner && ordner !== '__root' ? ordner : undefined },
+          (anteil, bytes) => {
+            const jetzt = performance.now();
+            proben.push({ zeit: jetzt, bytes });
+            while (proben.length > 2 && jetzt - proben[0].zeit > 3000) proben.shift();
+            const sekunden = (jetzt - proben[0].zeit) / 1000;
+            const tempo = sekunden > 0.25 ? (bytes - proben[0].bytes) / sekunden : undefined;
+            setStand({
+              name: datei.name,
+              anteil,
+              tempo,
+              rest: tempo && tempo > 0 ? (datei.size - bytes) / tempo : undefined,
+            });
+          },
+        );
       }
     } finally {
       setLaedt(false);
+      setStand(null);
     }
   };
 
@@ -91,6 +113,7 @@ export function FilesPanel({ onClose }: { onClose: () => void }) {
           {laedt ? <Loader2 size={13} className="spin" /> : <Upload size={13} />}
           {laedt ? t('files.uploading') : t('files.upload')}
         </button>
+
       }
     >
       <input
@@ -100,6 +123,24 @@ export function FilesPanel({ onClose }: { onClose: () => void }) {
         hidden
         onChange={(e) => { void hochladen(e.target.files); e.target.value = ''; }}
       />
+
+      {stand && (
+        <div className="upload-stand">
+          <div className="upload-stand__kopf">
+            <span className="truncate">{stand.name}</span>
+            <span className="muted">
+              {[
+                `${Math.round(stand.anteil * 100)} %`,
+                stand.tempo ? `${(stand.tempo / 1048576).toFixed(1)} MB/s` : null,
+                stand.rest && stand.rest > 1 ? restzeit(stand.rest) : null,
+              ].filter(Boolean).join(' · ')}
+            </span>
+          </div>
+          <span className="upload-stand__balken">
+            <span style={{ width: `${Math.round(stand.anteil * 100)}%` }} />
+          </span>
+        </div>
+      )}
 
       {usage && (
         <div className="quota">

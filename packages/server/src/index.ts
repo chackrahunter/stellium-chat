@@ -11,7 +11,9 @@ import statisch from '@fastify/static';
 import { registerRoutes } from './http/routes.js';
 import { registerKonsole } from './http/konsole.js';
 import { handleConnection, startBackgroundJobs } from './ws/gateway.js';
-import { aiCapabilities, dropForeignTranslations, warmUpModels } from './translation/index.js';
+import {
+  aiCapabilities, anbieterAusEinstellungen, dropForeignTranslations, warmUpModels,
+} from './translation/index.js';
 import { ensureSeed } from './seed.js';
 import { ensureAssistant, repairAssistantChats } from './services/assistant.js';
 
@@ -23,6 +25,10 @@ const app = Fastify({
 async function main(): Promise<void> {
   initDb();
   await ensureSeed();
+
+  // Was in den Einstellungen gewählt wurde, gilt vor der Umgebung — sonst
+  // wäre ein Wechsel auf ein lokales Modell nach jedem Neustart weg.
+  await anbieterAusEinstellungen();
 
   // Übersetzungen eines früheren Anbieters wegräumen, bevor jemand sie sieht.
   dropForeignTranslations();
@@ -38,6 +44,14 @@ async function main(): Promise<void> {
   await app.register(cors, { origin: true, credentials: true });
   await app.register(multipart, { limits: { fileSize: config.maxUploadBytes, files: 1 } });
   await app.register(websocket, { options: { maxPayload: 4 * 1024 * 1024 } });
+
+  /* Rohe Datenströme durchlassen, ohne sie vorher in den Speicher zu ziehen.
+     Ohne diesen Parser lehnt Fastify die Teile eines großen Uploads mit
+     "Unsupported Media Type" ab — er kennt den Typ sonst nicht. */
+  app.addContentTypeParser(
+    'application/octet-stream',
+    (_req, nutzlast, fertig) => { fertig(null, nutzlast); },
+  );
 
   await registerRoutes(app);
   await registerKonsole(app);

@@ -118,7 +118,7 @@ export function Settings({ onClose }: { onClose: () => void }) {
               </div>
 
               <div className="ai-card" style={{ marginTop: 'var(--sp-4)' }}>
-                <div className="ai-card__head"><Sparkles size={12} /> Übersetzungs-Dienst</div>
+                <div className="ai-card__head"><Sparkles size={12} /> {t('settings.aiService')}</div>
                 <div style={{ fontSize: 14, marginBottom: ai?.model ? 8 : 0 }}>
                   <b>{ai?.provider ?? 'unbekannt'}</b>
                 </div>
@@ -126,12 +126,12 @@ export function Settings({ onClose }: { onClose: () => void }) {
                 {ai?.model && (
                   <div className="stack gap-1" style={{ fontSize: 13 }}>
                     <div className="hstack gap-2">
-                      <span className="muted" style={{ minWidth: 148 }}>Übersetzung, Zusammenfassung</span>
+                      <span className="muted" style={{ minWidth: 148 }}>{t('settings.forTranslation')}</span>
                       <span className="mono">{ai.model}</span>
                     </div>
                     {ai.fastModel && ai.fastModel !== ai.model && (
                       <div className="hstack gap-2">
-                        <span className="muted" style={{ minWidth: 148 }}>Antwortvorschläge</span>
+                        <span className="muted" style={{ minWidth: 148 }}>{t('settings.forSuggestions')}</span>
                         <span className="mono">{ai.fastModel}</span>
                       </div>
                     )}
@@ -177,7 +177,7 @@ export function Settings({ onClose }: { onClose: () => void }) {
                 <select className="select" value={self.timezone} onChange={(e) => updatePrefs({ timezone: e.target.value })}>
                   {TIMEZONES.map((tz) => <option key={tz} value={tz}>{tz}</option>)}
                 </select>
-                <p className="field__hint">Kolleg:innen sehen dann deine Ortszeit — hilfreich, bevor jemand um 23 Uhr schreibt.</p>
+                <p className="field__hint">{t('settings.timezoneHint')}</p>
               </div>
               <button className="btn btn--danger" onClick={() => { logout(); onClose(); }}>
                 <LogOut size={15} /> {t('settings.logout')}
@@ -185,7 +185,7 @@ export function Settings({ onClose }: { onClose: () => void }) {
             </>
           )}
 
-          {tab === 'modelle' && <ModelPicker />}
+          {tab === 'modelle' && <><AnbieterWahl /><ModelPicker /></>}
 
           {tab === 'benachrichtigungen' && (
             <>
@@ -234,10 +234,7 @@ export function Settings({ onClose }: { onClose: () => void }) {
                     onClick={() => updatePrefs({ quietHoursStart: null, quietHoursEnd: null })}
                   >{t('settings.off')}</button>
                 </div>
-                <p className="field__hint">
-                  In dieser Zeit bleibt es still. Direkte Erwähnungen kommen trotzdem durch —
-                  damit dich niemand im Notfall nicht erreicht.
-                </p>
+                <p className="field__hint">{t('settings.quietHint')}</p>
               </div>
             </>
           )}
@@ -291,10 +288,7 @@ export function Settings({ onClose }: { onClose: () => void }) {
               <div className="field">
                 <label className="field__label">{t('settings.serverAddress')}</label>
                 <input className="input" value={server} onChange={(e) => setServer(e.target.value)} placeholder="http://localhost:8787" />
-                <p className="field__hint">
-                  Nach dem Ändern meldet sich die App neu an. Für den Firmenbetrieb zeigt das auf euren
-                  eigenen Stellium-Server.
-                </p>
+                <p className="field__hint">{t('settings.serverHint')}</p>
               </div>
               <button
                 className="btn btn--primary"
@@ -365,6 +359,131 @@ const TIMEZONES = [
 
 /* ── Modellauswahl ────────────────────────────────────────────── */
 
+/**
+ * Woher die KI kommt: ein Dienst im Netz oder ein Modell auf der eigenen
+ * Maschine.
+ *
+ * Steht bewusst vor der Modellwahl und außerhalb ihrer Sperre: wer keinen
+ * Schlüssel hat, will genau hier auf ein lokales Modell umstellen können.
+ */
+function AnbieterWahl() {
+  const t = useT();
+  const self = useStore((s) => s.self);
+  const ai = useStore((s) => s.ai);
+  const { selectProvider, toast } = useStore.getState();
+
+  const [anbieter, setAnbieter] = useState(ai?.provider ?? 'groq');
+  const [adresse, setAdresse] = useState(ai?.lokaleAdresse ?? '');
+  const [modelle, setModelle] = useState<string[]>([]);
+  const [modell, setModell] = useState(ai?.model ?? '');
+  const [pruefend, setPruefend] = useState(false);
+  const [umstellend, setUmstellend] = useState(false);
+
+  const darf = self?.role === 'owner' || self?.role === 'admin';
+  const lokal = anbieter === 'ollama' || anbieter === 'llamacpp';
+  // Beide Dienste hören auf verschiedenen Ports — die Vorgabe zeigt, welcher.
+  const vorgabe = anbieter === 'llamacpp' ? 'http://127.0.0.1:8080/v1' : 'http://127.0.0.1:11434/v1';
+
+  const pruefen = async () => {
+    setPruefend(true);
+    try {
+      const r = await api.checkLocal(adresse.trim() || vorgabe);
+      setModelle(r.modelle);
+      if (r.erreichbar && r.modelle.length) {
+        if (!modell || !r.modelle.includes(modell)) setModell(r.modelle[0]);
+        toast({ kind: 'ok', title: t('settings.localFound', { n: r.modelle.length }), body: r.modelle.slice(0, 4).join(', ') });
+      } else {
+        toast({ kind: 'error', title: t('settings.localNothing'), body: r.fehler ?? undefined });
+      }
+    } catch (err) {
+      toast({ kind: 'error', title: t('settings.localNothing'), body: (err as Error).message });
+    } finally {
+      setPruefend(false);
+    }
+  };
+
+  const uebernehmen = async () => {
+    setUmstellend(true);
+    const ok = await selectProvider({
+      anbieter,
+      baseUrl: lokal ? (adresse.trim() || vorgabe) : undefined,
+      model: lokal ? (modell || undefined) : undefined,
+      fastModel: lokal ? (modell || undefined) : undefined,
+    });
+    setUmstellend(false);
+    if (ok) toast({ kind: 'ok', title: t('settings.providerChanged'), body: modell || anbieter });
+  };
+
+  if (!darf) {
+    return (
+      <p className="muted" style={{ marginTop: 0, fontSize: 13.5 }}>
+        {t('settings.providerOnlyLead', { anbieter: ai?.provider ?? '—' })}
+      </p>
+    );
+  }
+
+  return (
+    <div className="field">
+      <label className="field__label">{t('settings.providerTitle')}</label>
+      <p className="field__hint" style={{ marginBottom: 9 }}>{t('settings.providerHint')}</p>
+
+      <select className="select" value={anbieter} onChange={(e) => { setAnbieter(e.target.value); setModelle([]); }}>
+        <option value="groq">Groq {t('settings.providerCloud')}</option>
+        <option value="openai">OpenAI {t('settings.providerCloud')}</option>
+        <option value="ollama">Ollama {t('settings.providerLocal')}</option>
+        <option value="llamacpp">llama.cpp {t('settings.providerLocal')}</option>
+      </select>
+
+      {lokal && (
+        <div className="stack gap-2" style={{ marginTop: 10 }}>
+          <div>
+            <label className="field__label">{t('settings.localAddress')}</label>
+            <div className="hstack gap-2">
+              <input
+                className="input"
+                value={adresse}
+                placeholder={vorgabe}
+                onChange={(e) => setAdresse(e.target.value)}
+              />
+              <button className="btn" onClick={pruefen} disabled={pruefend}>
+                {pruefend ? <Loader2 size={14} className="spin" /> : <Sparkles size={14} />}
+                {t('settings.localCheck')}
+              </button>
+            </div>
+            <p className="field__hint">{t('settings.localAddressHint')}</p>
+          </div>
+
+          {modelle.length > 0 && (
+            <div>
+              <label className="field__label">{t('settings.localModel')}</label>
+              <select className="select" value={modell} onChange={(e) => setModell(e.target.value)}>
+                {modelle.map((m) => <option key={m} value={m}>{m}</option>)}
+              </select>
+              <p className="field__hint">{t('settings.localModelHint')}</p>
+            </div>
+          )}
+
+          {!ai?.transcription && (
+            <p className="field__hint">{t('settings.localNoVoice')}</p>
+          )}
+        </div>
+      )}
+
+      <div className="hstack gap-2" style={{ marginTop: 10 }}>
+        <button
+          className="btn btn--primary"
+          onClick={uebernehmen}
+          disabled={umstellend || (anbieter === ai?.provider && !lokal)}
+        >
+          {umstellend ? <Loader2 size={14} className="spin" /> : null}
+          {t('settings.providerApply')}
+        </button>
+        {ai?.lokal && <span className="muted" style={{ fontSize: 12.5 }}>{t('settings.localActive', { adresse: ai.lokaleAdresse ?? '' })}</span>}
+      </div>
+    </div>
+  );
+}
+
 function ModelPicker() {
   const self = useStore((s) => s.self);
   const ai = useStore((s) => s.ai);
@@ -394,7 +513,7 @@ function ModelPicker() {
   if (!ai?.assistant) {
     return (
       <p className="muted" style={{ fontSize: 13.5 }}>
-        Für die Modellwahl braucht der Server einen Groq-Schlüssel.
+        {t('settings.modelNeedsKey')}
         {ai?.note ? ` ${ai.note}` : ''}
       </p>
     );
@@ -402,21 +521,17 @@ function ModelPicker() {
 
   return (
     <>
-      <p className="muted" style={{ marginTop: 0, fontSize: 13.5 }}>
-        Die Übersetzung macht ein Sprachmodell — kein separater Übersetzungsdienst.
-        Welches Modell das ist, entscheidet der Server normalerweise selbst.
-        Hier kannst du es festlegen.
-      </p>
+      <p className="muted" style={{ marginTop: 0, fontSize: 13.5 }}>{t('settings.modelLead')}</p>
 
       <div className="ai-card">
-        <div className="ai-card__head"><Sparkles size={12} /> Aktuell im Einsatz</div>
+        <div className="ai-card__head"><Sparkles size={12} /> {t('settings.inUse')}</div>
         <div className="stack gap-1" style={{ fontSize: 13 }}>
           <div className="hstack gap-2">
-            <span className="muted" style={{ minWidth: 152 }}>Übersetzung, Zusammenfassung</span>
+            <span className="muted" style={{ minWidth: 152 }}>{t('settings.forTranslation')}</span>
             <span className="mono">{ai.model ?? '—'}</span>
           </div>
           <div className="hstack gap-2">
-            <span className="muted" style={{ minWidth: 152 }}>Antwortvorschläge</span>
+            <span className="muted" style={{ minWidth: 152 }}>{t('settings.forSuggestions')}</span>
             <span className="mono">{ai.fastModel ?? '—'}</span>
           </div>
           {ai.transcription && (
@@ -436,7 +551,7 @@ function ModelPicker() {
 
       {!mayChange && (
         <p className="muted" style={{ fontSize: 12.5 }}>
-          Ändern darf das nur die Team-Leitung — es gilt für alle im Arbeitsbereich.
+          {t('settings.modelOnlyLead2')}
         </p>
       )}
 
@@ -450,7 +565,7 @@ function ModelPicker() {
               disabled={busy || loading}
               onChange={(e) => void apply(e.target.value ? { quality: e.target.value } : { auto: true })}
             >
-              <option value="">Automatisch wählen (empfohlen)</option>
+              <option value="">{t('settings.modelAuto')}</option>
               {usable.map((m) => (
                 <option key={m.id} value={m.id}>
                   {m.id}{m.params ? ` — ${m.params} Mrd.` : ''} · {Math.round(m.contextWindow / 1024)}k Kontext
@@ -458,8 +573,7 @@ function ModelPicker() {
               ))}
             </select>
             <p className="field__hint">
-              Größere Modelle übersetzen feiner, kleinere antworten schneller.
-              Für Chat-Sätze reicht meist das automatisch gewählte.
+              {t('settings.modelSizeHint2')}
             </p>
           </div>
 
@@ -471,7 +585,7 @@ function ModelPicker() {
         </>
       )}
 
-      {loading && <div className="hstack gap-2 muted" style={{ marginTop: 'var(--sp-4)' }}><Loader2 size={14} className="spin" /> Modelle werden geladen…</div>}
+      {loading && <div className="hstack gap-2 muted" style={{ marginTop: 'var(--sp-4)' }}><Loader2 size={14} className="spin" /> {t('settings.modelsLoading')}</div>}
 
       {usable.length > 0 && (
         <div style={{ marginTop: 'var(--sp-5)' }}>

@@ -557,6 +557,24 @@ a:hover { text-decoration: underline; }
 .att-file__name { font-size: 13px; font-weight: 600; }
 .att-file__size { font-size: 11px; color: var(--tx-lo); }
 
+/* Schmaler Balken unter dem Namen — der Prozentwert allein sagt zu wenig
+   darüber, ob es noch vorangeht. */
+.att-file__balken {
+  display: block;
+  height: 3px;
+  margin-top: 4px;
+  border-radius: 2px;
+  background: var(--bg-sunken);
+  overflow: hidden;
+}
+.att-file__balken > span {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  background: var(--violet);
+  transition: width 0.2s linear;
+}
+
 /* ── Reaktionen ─────────────────────────────────────────────── */
 
 .reactions { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; }
@@ -1466,10 +1484,23 @@ button.msg__author:hover { color: var(--violet-soft); text-decoration: underline
   :root { --sidebar-w: 232px; --thread-w: 360px; }
 }
 
-/* Ist ein Thread offen, weicht zuerst die Kanalliste. */
+/* Ist ein Thread offen, weicht zuerst die Kanalliste.
+ *
+ * Wichtig: die Liste wird schmal, aber nicht ausgeblendet. Mit "display: none"
+ * fällt sie aus dem Raster heraus — dann rutscht jedes folgende Kind eine
+ * Spalte nach links, der Nachrichtenbereich landet in der Nullspalte und der
+ * Thread an seiner Stelle. Genau so sah der Fehler aus: ein Thread, der quer
+ * über den Verlauf lag und dessen Kopfzeile in eine zeichenschmale Spalte
+ * gequetscht wurde. */
 @media (max-width: 1080px) {
   .app--thread { grid-template-columns: var(--rail-w) 0 minmax(0, 1fr) var(--thread-w); }
-  .app--thread .sidebar { display: none; }
+  .app--thread .sidebar {
+    width: 0;
+    min-width: 0;
+    overflow: hidden;
+    border-right: none;
+    pointer-events: none;
+  }
 }
 
 /* Darunter verschwindet die Kanalliste ganz, der Thread legt sich darüber. */
@@ -2622,4 +2653,36 @@ button.msg__author:hover { color: var(--violet-soft); text-decoration: underline
   border-radius: 999px;
   background: var(--amber);
   transition: width 1s linear;
+}
+
+
+/* Fortschritt beim Ablegen einer Datei — Tempo und Restzeit inklusive. */
+.upload-stand {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-top: 9px;
+  padding: 9px 11px;
+  border-radius: var(--r-sm);
+  background: var(--bg-sunken);
+}
+.upload-stand__kopf {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 12px;
+}
+.upload-stand__balken {
+  display: block;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--bg-panel);
+  overflow: hidden;
+}
+.upload-stand__balken > span {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  background: var(--grad-nebula);
+  transition: width 0.2s linear;
 }

@@ -211,6 +211,10 @@ export interface AiCapabilities {
   modelsAvailable: number | null;
   translation: boolean;
   assistant: boolean;
+  /** Läuft das Modell im eigenen Netz (Ollama, llama.cpp)? */
+  lokal: boolean;
+  /** Adresse des lokalen Dienstes — nur zur Anzeige. */
+  lokaleAdresse: string | null;
   /** Menschenlesbarer Hinweis, wenn KI deaktiviert ist. */
   note: string | null;
 }

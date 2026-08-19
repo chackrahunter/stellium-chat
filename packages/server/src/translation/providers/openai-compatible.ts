@@ -1,4 +1,4 @@
-import { config } from '../../config.js';
+import { aktiverAnbieter, config, lokaleEinstellung } from '../../config.js';
 import { languageInfo } from '@stellium/shared';
 import { ModelRegistry } from './model-registry.js';
 import {
@@ -37,7 +37,9 @@ export class OpenAICompatibleProvider implements TranslationProvider, AssistantP
         method: 'POST',
         headers: {
           'content-type': 'application/json',
-          authorization: `Bearer ${this.ep.apiKey}`,
+          // Ohne Schlüssel keinen leeren Bearer schicken: ein lokaler Dienst
+          // lehnt das je nach Fassung ab.
+          ...(this.ep.apiKey ? { authorization: `Bearer ${this.ep.apiKey}` } : {}),
         },
         body: JSON.stringify({ ...body, model: modelId }),
         signal: ctrl.signal,
@@ -204,6 +206,31 @@ export function createGroqProvider(): OpenAICompatibleProvider {
     fallbackFast: 'llama-3.1-8b-instant',
   });
   return new OpenAICompatibleProvider({ name: 'groq', apiKey: config.ai.groq.apiKey, baseUrl }, registry);
+}
+
+/**
+ * Ein Modell auf der eigenen Maschine — Ollama oder llama.cpp.
+ *
+ * Beide bieten dieselbe Schnittstelle wie OpenAI an, deshalb genügt hier eine
+ * andere Adresse und kein Schlüssel. Was nicht geht: Sprachnachrichten
+ * abtippen — dafür braucht es Whisper, und das läuft nicht über diesen Weg.
+ */
+export function createLokalProvider(): OpenAICompatibleProvider {
+  const name = aktiverAnbieter() === 'llamacpp' ? 'llamacpp' : 'ollama';
+  const { baseUrl, model, fastModel } = lokaleEinstellung();
+  const registry = new ModelRegistry({
+    name,
+    baseUrl,
+    apiKey: '',
+    ohneSchluessel: true,
+    unbewertet: true,
+    pinnedQuality: model || undefined,
+    pinnedFast: fastModel || undefined,
+    // Weit verbreitet und klein genug für einen Einplatinenrechner.
+    fallbackQuality: 'gemma3:4b',
+    fallbackFast: 'gemma3:4b',
+  });
+  return new OpenAICompatibleProvider({ name, apiKey: '', baseUrl }, registry);
 }
 
 export function createOpenAIProvider(): OpenAICompatibleProvider {

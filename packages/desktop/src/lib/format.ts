@@ -55,6 +55,16 @@ export function sameDay(a: number, b: number): boolean {
   return x.getFullYear() === y.getFullYear() && x.getMonth() === y.getMonth() && x.getDate() === y.getDate();
 }
 
+/** Restzeit knapp: "12 s", "3:20". Über eine Stunde interessiert die Zahl nicht mehr. */
+export function restzeit(sekunden: number): string {
+  if (!Number.isFinite(sekunden) || sekunden <= 0) return '';
+  if (sekunden > 3600) return '> 1 h';
+  if (sekunden < 60) return `${Math.round(sekunden)} s`;
+  const min = Math.floor(sekunden / 60);
+  const sek = Math.round(sekunden % 60);
+  return `${min}:${String(sek).padStart(2, '0')}`;
+}
+
 export function fileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 ** 2) return `${(bytes / 1024).toFixed(0)} KB`;

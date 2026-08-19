@@ -28,9 +28,9 @@ export function NewChannelDialog({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    <Shell title="Neuer Kanal" icon={<Hash size={18} />} onClose={onClose} width={480}>
+    <Shell title={t('channel.newTitle')} icon={<Hash size={18} />} onClose={onClose} width={480}>
       <div className="field">
-        <label className="field__label">Name</label>
+        <label className="field__label">{t('channel.name')}</label>
         <input
           className="input"
           value={name}
@@ -43,36 +43,33 @@ export function NewChannelDialog({ onClose }: { onClose: () => void }) {
       </div>
 
       <div className="field">
-        <label className="field__label">Thema (optional)</label>
-        <input className="input" value={topic} placeholder="Worum geht es hier?" onChange={(e) => setTopic(e.target.value)} />
+        <label className="field__label">{t('channel.topicOptional')}</label>
+        <input className="input" value={topic} placeholder={t('channel.topicPlaceholder')} onChange={(e) => setTopic(e.target.value)} />
       </div>
 
       <div className="field">
-        <label className="field__label">Kanalsprache</label>
+        <label className="field__label">{t('channel.language')}</label>
         <select className="select" value={lang} onChange={(e) => setLang(e.target.value)}>
-          <option value="">Automatisch erkennen</option>
+          <option value="">{t('channel.autoDetect')}</option>
           {LANGUAGES.map((l) => <option key={l.code} value={l.code}>{l.flag} {l.native}</option>)}
         </select>
-        <p className="field__hint">
-          Legt fest, in welcher Sprache dir beim Schreiben die Vorschau angezeigt wird.
-          Gelesen wird trotzdem jede:r in der eigenen Sprache.
-        </p>
+        <p className="field__hint">{t('channel.languageHint')}</p>
       </div>
 
       <div className="field">
-        <label className="field__label">Sichtbarkeit</label>
+        <label className="field__label">{t('channel.visibility')}</label>
         <div className="hstack gap-2">
           <button className={`btn${kind === 'public' ? ' btn--primary' : ''}`} onClick={() => setKind('public')}>
-            <Hash size={14} /> Öffentlich
+            <Hash size={14} /> {t('channel.public')}
           </button>
           <button className={`btn${kind === 'private' ? ' btn--primary' : ''}`} onClick={() => setKind('private')}>
-            <Lock size={14} /> Privat
+            <Lock size={14} /> {t('channel.private')}
           </button>
         </div>
       </div>
 
       <button className="btn btn--primary btn--block" onClick={submit} disabled={!name.trim()}>
-        Kanal anlegen
+        {t('channel.create')}
       </button>
     </Shell>
   );
@@ -93,7 +90,7 @@ export function PeoplePanel({ onClose }: { onClose: () => void }) {
   });
 
   return (
-    <Shell title="Team" icon={<Users size={18} />} onClose={onClose} width={560}>
+    <Shell title={t('people.title')} icon={<Users size={18} />} onClose={onClose} width={560}>
       {list.map((u) => {
         const { time, offHours } = localTimeFor(u.timezone);
         return (
@@ -137,7 +134,7 @@ export function GlossaryPanel({ onClose }: { onClose: () => void }) {
   useEffect(() => {
     api.glossary()
       .then((r) => setEntries(r.entries))
-      .catch(() => useStore.getState().toast({ kind: 'error', title: 'Glossar konnte nicht geladen werden' }))
+      .catch(() => useStore.getState().toast({ kind: 'error', title: t('glossary.loadFailed') }))
       .finally(() => setLoading(false));
   }, []);
 
@@ -153,7 +150,7 @@ export function GlossaryPanel({ onClose }: { onClose: () => void }) {
       setTerm(''); setNote(''); setTranslations({});
       useStore.getState().toast({ kind: 'ok', title: 'Begriff gespeichert' });
     } catch (err) {
-      useStore.getState().toast({ kind: 'error', title: 'Speichern fehlgeschlagen', body: (err as Error).message });
+      useStore.getState().toast({ kind: 'error', title: t('glossary.saveFailed'), body: (err as Error).message });
     }
   };
 
@@ -165,24 +162,21 @@ export function GlossaryPanel({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    <Shell title="Glossar" icon={<Sparkles size={18} />} onClose={onClose} width={620}>
-      <p className="muted" style={{ marginTop: 0, fontSize: 13.5 }}>
-        Begriffe, die die Übersetzung nicht anfassen darf — Produktnamen, interne Kürzel, Eigennamen.
-        Wahlweise mit fester Übersetzung je Sprache.
-      </p>
+    <Shell title={t('glossary.title')} icon={<Sparkles size={18} />} onClose={onClose} width={620}>
+      <p className="muted" style={{ marginTop: 0, fontSize: 13.5 }}>{t('glossary.lead')}</p>
 
       <div style={{ padding: 'var(--sp-3)', borderRadius: 'var(--r-md)', border: '1px solid var(--line)', marginBottom: 'var(--sp-4)' }}>
         <div className="hstack gap-2" style={{ marginBottom: 'var(--sp-2)' }}>
-          <input className="input" placeholder="Begriff, z.B. Sternenkarte" value={term} onChange={(e) => setTerm(e.target.value)} />
+          <input className="input" placeholder={t('glossary.termPlaceholder')} value={term} onChange={(e) => setTerm(e.target.value)} />
           <button className="btn btn--primary" onClick={() => void add()} disabled={!term.trim()}>
-            <Plus size={15} /> Hinzufügen
+            <Plus size={15} /> {t('glossary.add')}
           </button>
         </div>
-        <input className="input" placeholder="Notiz (optional)" value={note} onChange={(e) => setNote(e.target.value)} style={{ marginBottom: 'var(--sp-2)' }} />
+        <input className="input" placeholder={t('glossary.notePlaceholder')} value={note} onChange={(e) => setNote(e.target.value)} style={{ marginBottom: 'var(--sp-2)' }} />
         <div className="row" style={{ borderBottom: 0, paddingBottom: 0 }}>
           <div className="row__main">
-            <div className="row__title">Unverändert lassen</div>
-            <div className="row__sub">Der Begriff bleibt in jeder Sprache exakt gleich</div>
+            <div className="row__title">{t('glossary.keepAsIs')}</div>
+            <div className="row__sub">{t('glossary.keepAsIsHint')}</div>
           </div>
           <button className="switch" role="switch" aria-checked={keepAsIs} onClick={() => setKeepAsIs((v) => !v)} />
         </div>
@@ -210,14 +204,14 @@ export function GlossaryPanel({ onClose }: { onClose: () => void }) {
           <div className="row__main">
             <div className="row__title">
               {entry.term}
-              {!entry.translations && <span className="msg__tag" style={{ marginLeft: 8 }}>unverändert</span>}
+              {!entry.translations && <span className="msg__tag" style={{ marginLeft: 8 }}>{t('glossary.unchanged')}</span>}
             </div>
             <div className="row__sub">
               {entry.note ?? ''}
               {entry.translations && ` · ${Object.entries(entry.translations).map(([k, v]) => `${languageInfo(k).flag} ${v}`).join('  ')}`}
             </div>
           </div>
-          <button className="icon-btn" onClick={() => void remove(entry.id)} title="Entfernen">
+          <button className="icon-btn" onClick={() => void remove(entry.id)} title={t('glossary.remove')}>
             <Trash2 size={15} />
           </button>
         </div>
@@ -237,10 +231,10 @@ export function CatchupPanel({ onClose }: { onClose: () => void }) {
   const ai = useStore((s) => s.ai);
 
   return (
-    <Shell title="Was habe ich verpasst?" icon={<Sparkles size={18} />} onClose={onClose} width={640}>
+    <Shell title={t('catchup.title')} icon={<Sparkles size={18} />} onClose={onClose} width={640}>
       {!ai?.assistant && (
         <p className="muted">
-          Für Zusammenfassungen braucht der Server einen Groq-Schlüssel.
+          {t('catchup.needsKey')}
           {ai?.note ? ` ${ai.note}` : ''}
         </p>
       )}
@@ -248,16 +242,18 @@ export function CatchupPanel({ onClose }: { onClose: () => void }) {
       {ai?.assistant && !summary && !loading && (
         <div className="stack gap-3">
           <p className="muted" style={{ margin: 0 }}>
-            Fasst alles zusammen, was du seit deinem letzten Besuch in
-            {' '}<b>{channels[activeChannelId ?? ''] ? `#${kanalName(channels[activeChannelId!])}` : 'diesem Kanal'}</b>{' '}
-            verpasst hast — in deiner Sprache, egal in welcher es geschrieben wurde.
+            {t('catchup.lead', {
+              kanal: channels[activeChannelId ?? '']
+                ? `#${kanalName(channels[activeChannelId!])}`
+                : t('catchup.thisChannel'),
+            })}
           </p>
           <button
             className="btn btn--primary"
             onClick={() => activeChannelId && useStore.getState().runCatchup(activeChannelId)}
             disabled={!activeChannelId}
           >
-            <Sparkles size={15} /> Zusammenfassen
+            <Sparkles size={15} /> {t('catchup.run')}
           </button>
         </div>
       )}
@@ -272,22 +268,26 @@ export function CatchupPanel({ onClose }: { onClose: () => void }) {
       {summary && (
         <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
           <div className="ai-card">
-            <div className="ai-card__head"><Sparkles size={12} /> {summary.messageCount} Nachrichten</div>
-            <h3>{summary.headline}</h3>
+            <div className="ai-card__head">
+              <Sparkles size={12} /> {t('catchup.messages', { n: summary.messageCount })}
+            </div>
+            {/* Bei nichts Neuem den eigenen Text nehmen: die Überschrift vom
+                Server ist in diesem Fall nicht übersetzt. */}
+            <h3>{summary.messageCount === 0 ? t('catchup.nothing') : summary.headline}</h3>
             {summary.bullets.length > 0 && (
               <ul className="ai-list">{summary.bullets.map((b, i) => <li key={i}>{b}</li>)}</ul>
             )}
 
             {summary.decisions.length > 0 && (
               <div className="ai-section">
-                <div className="ai-section__title">Entscheidungen</div>
+                <div className="ai-section__title">{t('catchup.decisions')}</div>
                 <ul className="ai-list">{summary.decisions.map((d, i) => <li key={i}>{d}</li>)}</ul>
               </div>
             )}
 
             {summary.actionItems.length > 0 && (
               <div className="ai-section">
-                <div className="ai-section__title">Aufgaben</div>
+                <div className="ai-section__title">{t('catchup.tasks')}</div>
                 {summary.actionItems.map((a, i) => (
                   <div key={i} className="ai-task">
                     <CheckCircle2 size={15} style={{ color: 'var(--mint)', flex: 'none', marginTop: 1 }} />
@@ -305,7 +305,7 @@ export function CatchupPanel({ onClose }: { onClose: () => void }) {
             )}
           </div>
           <p className="muted" style={{ fontSize: 11.5 }}>
-            Automatisch erstellt — bei wichtigen Details lieber im Verlauf nachlesen.
+            {t('catchup.disclaimer')}
           </p>
         </motion.div>
       )}

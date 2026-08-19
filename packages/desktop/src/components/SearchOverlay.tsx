@@ -3,11 +3,13 @@ import { motion } from 'framer-motion';
 import { Bookmark, Filter, Languages, Loader2, Search, X } from 'lucide-react';
 import type { Message } from '@stellium/shared';
 import { useStore } from '../state/store.js';
+import { useT } from '../i18n/index.js';
 import { api } from '../net/api.js';
 import { Avatar } from './Avatar.jsx';
 import { dayLabel, timeOfDay } from '../lib/format.js';
 
 export function SearchOverlay({ onClose }: { onClose: () => void }) {
+  const t = useT();
   const hits = useStore((s) => s.searchHits);
   const searching = useStore((s) => s.searching);
   const channels = useStore((s) => s.channels);
@@ -59,7 +61,7 @@ export function SearchOverlay({ onClose }: { onClose: () => void }) {
               <input
                 className="omni-input"
                 style={{ padding: 'var(--sp-4) 0' }}
-                placeholder="Nachrichten durchsuchen — auch in Übersetzungen…"
+                placeholder={t('search.placeholder')}
                 value={query}
                 autoFocus
                 onChange={(e) => setQuery(e.target.value)}
@@ -85,8 +87,7 @@ export function SearchOverlay({ onClose }: { onClose: () => void }) {
             <div className="panel__body" style={{ paddingTop: 0 }}>
               {query.length < 2 && (
                 <p className="muted" style={{ fontSize: 13.5 }}>
-                  Mindestens zwei Zeichen. Die Suche findet auch Nachrichten, die ursprünglich in einer
-                  anderen Sprache geschrieben wurden — sofern sie schon einmal übersetzt wurden.
+                  {t('search.minChars')}
                 </p>
               )}
               {hits.map((hit) => {
@@ -124,8 +125,7 @@ export function SearchOverlay({ onClose }: { onClose: () => void }) {
           <div className="panel__body">
             {saved.length === 0 && (
               <p className="muted" style={{ fontSize: 13.5 }}>
-                <Bookmark size={14} style={{ verticalAlign: -2 }} /> Noch nichts gemerkt.
-                Über das Menü einer Nachricht kannst du sie für später ablegen.
+                <Bookmark size={14} style={{ verticalAlign: -2 }} /> {t('search.nothingSaved')}
               </p>
             )}
             {saved.map((msg) => {

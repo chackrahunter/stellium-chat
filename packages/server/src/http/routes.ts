@@ -10,11 +10,15 @@ import { PERMISSIONS, type MemberRole, type PermissionKey } from '@stellium/shar
 import { config } from '../config.js';
 import { db } from '../db/index.js';
 import { newId } from '../util/id.js';
-import { addGlossaryEntry, aiCapabilities, chooseModels, listGlossary, modelRegistry, removeGlossaryEntry } from '../translation/index.js';
+import {
+  addGlossaryEntry, aiCapabilities, anbieterWaehlen, chooseModels, listGlossary, lokalePruefung,
+  modelRegistry, removeGlossaryEntry,
+} from '../translation/index.js';
 import { search } from '../services/search.js';
 import * as store from '../services/store.js';
 import * as files from '../services/files.js';
 import * as releases from '../services/releases.js';
+import { downloadSeite, systemErkennen } from './download/seite.js';
 
 import { broadcastAll } from '../ws/gateway.js';
 
@@ -97,6 +101,33 @@ function versucheZuruecksetzen(herkunft: string): void {
   versuche.delete(herkunft);
 }
 
+/**
+ * Angefangene Teil-Uploads. Bewusst nur im Speicher: bricht der Server ab,
+ * fängt der Client neu an — das ist besser, als Reste in der Datenbank zu
+ * führen, die niemand mehr abholt.
+ */
+const teilUploads = new Map<string, {
+  userId: string; name: string; mime: string; size: number; parts: number;
+  da: Set<number>; begonnen: number;
+}>();
+
+async function teileAufraeumen(id: string, anzahl: number): Promise<void> {
+  for (let i = 0; i < anzahl; i += 1) {
+    await fs.promises.rm(path.join(config.uploadDir, `${id}.teil${i}`), { force: true }).catch(() => {});
+  }
+}
+
+/* Liegengebliebenes wegräumen: wer anfängt und nicht fertig wird, soll keine
+   halben Dateien hinterlassen. */
+setInterval(() => {
+  const grenze = Date.now() - 60 * 60 * 1000;
+  for (const [id, auftrag] of teilUploads) {
+    if (auftrag.begonnen > grenze) continue;
+    teilUploads.delete(id);
+    void teileAufraeumen(id, auftrag.parts);
+  }
+}, 15 * 60 * 1000).unref();
+
 export async function registerRoutes(app: FastifyInstance): Promise<void> {
   app.get('/api/health', async () => ({
     ok: true,
@@ -137,6 +168,65 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     }
     chooseModels(body.quality ?? null, body.fast ?? body.quality ?? null, userId);
     return { selection: registry.current, ai: aiCapabilities() };
+  });
+
+  /**
+   * Anbieter umstellen — auf ein Modell im eigenen Netz oder zurück.
+   * Wie die Modellwahl eine Sache für die Team-Leitung.
+   */
+  app.post('/api/ai/provider', async (req, reply) => {
+    const userId = requireUser(req);
+    const self = store.getSelf(userId);
+    if (self?.role !== 'owner' && self?.role !== 'admin') {
+      return reply.code(403).send({ error: 'Den KI-Anbieter darf nur die Team-Leitung ändern.' });
+    }
+
+    const body = req.body as {
+      anbieter?: string | null; baseUrl?: string; model?: string; fastModel?: string;
+    };
+    const erlaubt = ['groq', 'openai', 'ollama', 'llamacpp', 'deepl', 'libre', 'demo'];
+    const anbieter = body.anbieter ? String(body.anbieter) : null;
+    if (anbieter && !erlaubt.includes(anbieter)) {
+      return reply.code(400).send({ error: `Unbekannter Anbieter "${anbieter}".` });
+    }
+
+    // Bei einem lokalen Dienst zuerst nachsehen, ob dort überhaupt etwas
+    // antwortet. Sonst stellt man auf einen Anbieter um, der nichts kann,
+    // und merkt es erst an der nächsten Nachricht.
+    if (anbieter === 'ollama' || anbieter === 'llamacpp') {
+      const adresse = (body.baseUrl || '').trim()
+        || (anbieter === 'llamacpp' ? config.ai.llamacpp.baseUrl : config.ai.ollama.baseUrl);
+      const probe = await lokalePruefung(adresse);
+      if (!probe.erreichbar) {
+        return reply.code(400).send({ error: `Unter ${adresse} antwortet nichts (${probe.fehler}).` });
+      }
+      if (body.model && probe.modelle.length && !probe.modelle.includes(body.model)) {
+        return reply.code(400).send({
+          error: `Dort ist "${body.model}" nicht geladen. Vorhanden: ${probe.modelle.slice(0, 6).join(', ')}.`,
+        });
+      }
+    }
+
+    await anbieterWaehlen({
+      anbieter: anbieter as never,
+      baseUrl: body.baseUrl,
+      model: body.model,
+      fastModel: body.fastModel,
+      userId,
+    });
+    return { ai: aiCapabilities(), selection: modelRegistry()?.current ?? null };
+  });
+
+  /** Nachsehen, was ein lokaler Dienst anbietet — ohne etwas umzustellen. */
+  app.post('/api/ai/local-check', async (req, reply) => {
+    const userId = requireUser(req);
+    const self = store.getSelf(userId);
+    if (self?.role !== 'owner' && self?.role !== 'admin') {
+      return reply.code(403).send({ error: 'Dafür fehlt dir das Recht.' });
+    }
+    const body = req.body as { baseUrl?: string };
+    const adresse = (body.baseUrl || '').trim() || config.ai.ollama.baseUrl;
+    return lokalePruefung(adresse);
   });
 
   /** Was der Anbieter anbietet und was davon gerade benutzt wird. */
@@ -469,6 +559,124 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     };
   });
 
+  /* ── Große Dateien in Teilen ────────────────────────────────
+   *
+   * Ein einzelner Datenstrom füllt eine Leitung mit Laufzeit nicht aus: das
+   * Fenster wächst langsam, und jede Bestätigung kostet eine halbe Runde.
+   * Mehrere Teile gleichzeitig holen deutlich mehr heraus — dieselbe Datei
+   * kommt in Stücken, die der Server am Ende wieder zusammensetzt.
+   */
+
+  /** Anfangen: legt fest, was kommt, und gibt eine Kennung zurück. */
+  app.post('/api/uploads/start', async (req, reply) => {
+    const userId = requireUser(req);
+    const body = req.body as { name?: string; mime?: string; size?: number; parts?: number };
+    const groesse = Number(body.size ?? 0);
+    if (!Number.isFinite(groesse) || groesse <= 0) {
+      return reply.code(400).send({ error: 'Größe fehlt.' });
+    }
+    if (groesse > config.maxUploadBytes) {
+      return reply.code(413).send({ error: `Datei überschreitet ${Math.round(config.maxUploadBytes / 1024 / 1024)} MB` });
+    }
+    const teile = Number(body.parts ?? 0);
+    // Obergrenze, damit niemand mit hunderttausend Teilen das Verzeichnis flutet.
+    if (!Number.isInteger(teile) || teile < 1 || teile > 2000) {
+      return reply.code(400).send({ error: 'Ungültige Anzahl Teile.' });
+    }
+
+    const id = newId('up_');
+    teilUploads.set(id, {
+      userId,
+      name: path.basename(body.name || 'datei').replace(/[^\p{L}\p{N}._ -]/gu, '_').slice(0, 120),
+      mime: body.mime || 'application/octet-stream',
+      size: groesse,
+      parts: teile,
+      da: new Set(),
+      begonnen: Date.now(),
+    });
+    return { uploadId: id };
+  });
+
+  /** Ein Teil. Der Rumpf ist der rohe Inhalt, ohne Umschlag. */
+  app.put('/api/uploads/:id/part/:index', async (req, reply) => {
+    const userId = requireUser(req);
+    const { id, index } = req.params as { id: string; index: string };
+    const auftrag = teilUploads.get(id);
+    if (!auftrag || auftrag.userId !== userId) return reply.code(404).send({ error: 'Unbekannter Upload.' });
+
+    const nummer = Number.parseInt(index, 10);
+    if (!Number.isInteger(nummer) || nummer < 0 || nummer >= auftrag.parts) {
+      return reply.code(400).send({ error: 'Ungültige Teilnummer.' });
+    }
+
+    const ziel = path.join(config.uploadDir, `${id}.teil${nummer}`);
+    try {
+      await pipeline(req.raw, fs.createWriteStream(ziel, { highWaterMark: 1024 * 1024 }));
+    } catch (err) {
+      await fs.promises.rm(ziel, { force: true });
+      return reply.code(500).send({ error: `Teil ${nummer} fehlgeschlagen: ${(err as Error).message}` });
+    }
+    auftrag.da.add(nummer);
+    return { ok: true, teil: nummer };
+  });
+
+  /** Fertig: Teile in der richtigen Reihenfolge zusammenlegen. */
+  app.post('/api/uploads/:id/finish', async (req, reply) => {
+    const userId = requireUser(req);
+    const { id } = req.params as { id: string };
+    const auftrag = teilUploads.get(id);
+    if (!auftrag || auftrag.userId !== userId) return reply.code(404).send({ error: 'Unbekannter Upload.' });
+
+    const fehlend = [];
+    for (let i = 0; i < auftrag.parts; i += 1) if (!auftrag.da.has(i)) fehlend.push(i);
+    if (fehlend.length) {
+      return reply.code(400).send({ error: `Es fehlen Teile: ${fehlend.slice(0, 10).join(', ')}` });
+    }
+
+    const anhangId = newId('at_');
+    const ziel = path.join(config.uploadDir, anhangId);
+    const schreiber = fs.createWriteStream(ziel, { highWaterMark: 1024 * 1024 });
+    try {
+      for (let i = 0; i < auftrag.parts; i += 1) {
+        const teil = path.join(config.uploadDir, `${id}.teil${i}`);
+        await pipeline(fs.createReadStream(teil, { highWaterMark: 1024 * 1024 }), schreiber, { end: false });
+      }
+      await new Promise<void>((fertig, schief) => {
+        schreiber.end((err?: Error | null) => (err ? schief(err) : fertig()));
+      });
+    } catch (err) {
+      schreiber.destroy();
+      await fs.promises.rm(ziel, { force: true });
+      await teileAufraeumen(id, auftrag.parts);
+      teilUploads.delete(id);
+      return reply.code(500).send({ error: `Zusammensetzen fehlgeschlagen: ${(err as Error).message}` });
+    }
+
+    await teileAufraeumen(id, auftrag.parts);
+    teilUploads.delete(id);
+
+    const size = (await fs.promises.stat(ziel)).size;
+    if (size !== auftrag.size) {
+      await fs.promises.rm(ziel, { force: true });
+      return reply.code(400).send({ error: `Unvollständig: ${size} statt ${auftrag.size} Bytes.` });
+    }
+
+    const dims = auftrag.mime.startsWith('image/') ? await imageSize(ziel) : null;
+    db.run(
+      `INSERT INTO attachments (id, message_id, uploader_id, name, mime, size, path, width, height, created_at)
+       VALUES (?, NULL, ?,?,?,?,?,?,?,?)`,
+      anhangId, userId, auftrag.name, auftrag.mime, size, ziel,
+      dims?.width ?? null, dims?.height ?? null, Date.now(),
+    );
+
+    return {
+      attachment: {
+        id: anhangId, messageId: null, name: auftrag.name, mime: auftrag.mime, size,
+        url: `/files/${anhangId}`, width: dims?.width ?? null, height: dims?.height ?? null,
+      },
+    };
+  });
+
   /* ── Team-Ablage ───────────────────────────────────────────── */
 
   app.post('/api/files', async (req, reply) => {
@@ -586,6 +794,38 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     requirePermission(userId, 'user.manage');
     releases.removeRelease((req.params as { platform: string }).platform);
     return { releases: releases.listReleases() };
+  });
+
+  /**
+   * Die Seite zum Herunterladen — ohne Anmeldung erreichbar.
+   *
+   * Wer eine App braucht, hat noch keine, und oft auch noch kein Konto. Die
+   * Installationsdateien sind nichts Geheimes: hinein kommt trotzdem nur, wer
+   * Zugangsdaten hat.
+   */
+  app.get('/download', async (req, reply) => {
+    const ua = String((req.headers['user-agent'] ?? ''));
+    return reply.type('text/html; charset=utf-8').send(downloadSeite({
+      releases: releases.listReleases(),
+      erkannt: systemErkennen(ua),
+      arbeitsbereich: config.workspaceName,
+    }));
+  });
+
+  /** Die Datei selbst, ebenfalls ohne Anmeldung. */
+  app.get('/download/:platform', async (req, reply) => {
+    const { platform } = req.params as { platform: string };
+    // Das Serverpaket gehört nicht auf die öffentliche Seite.
+    if (platform === 'server') return reply.code(404).send({ error: 'Nicht gefunden' });
+    const vorhanden = releases.getRelease(platform);
+    if (!vorhanden || !fs.existsSync(vorhanden.path)) {
+      return reply.code(404).send({ error: 'Für dieses System liegt nichts bereit.' });
+    }
+    reply.header('content-type', 'application/octet-stream');
+    reply.header('content-length', String(vorhanden.size));
+    reply.header('content-disposition', `attachment; filename*=UTF-8''${encodeURIComponent(vorhanden.fileName)}`);
+    reply.header('x-stellium-sha256', vorhanden.sha256);
+    return reply.send(fs.createReadStream(vorhanden.path));
   });
 
   app.get('/releases/:platform/download', async (req, reply) => {

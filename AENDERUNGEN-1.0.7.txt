@@ -1,0 +1,10 @@
+Antworten im Thread: der Bereich lag bei mittleren Fensterbreiten quer über dem Verlauf statt daneben.
+"Übersetzt aus {language}" stand wörtlich da — der Platzhalter wurde nie gefüllt.
+Die Oberfläche ist jetzt vollständig übersetzt: 681 Texte in 22 Sprachen, keiner mehr fest im Code.
+Neue Seite zum Herunterladen der Apps unter /download — mit Vorschlag passend zum System und immer der neuesten Fassung.
+Die Vorschau beim Schreiben erscheint jetzt auch in Direktnachrichten — dort fehlte sie ganz.
+"Was habe ich verpasst?" fand nie etwas, weil es den bereits vorgerückten Lesestand als Grenze nahm.
+Fotos werden vor dem Hochladen verkleinert — aus 2,7 MB werden rund 0,65 MB, das Original bleibt unangetastet.
+Beim Hochladen stehen jetzt Tempo in MB/s, Restzeit und ein Balken; mehrere Dateien gehen gleichzeitig.
+Ein Modell auf der eigenen Maschine ist wählbar: Ollama oder llama.cpp, einstellbar unter KI-Modell.
+Sprachnachrichten zeigen ihre Beschriftung in der eingestellten Sprache statt immer auf Deutsch.

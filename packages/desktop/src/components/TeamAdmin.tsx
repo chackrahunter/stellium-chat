@@ -65,7 +65,7 @@ export function TeamAdmin({ onClose }: { onClose: () => void }) {
   useEffect(() => {
     api.adminUsers()
       .then((r) => setListe(r.users))
-      .catch((e) => useStore.getState().toast({ kind: 'error', title: 'Konten nicht abrufbar', body: (e as Error).message }))
+      .catch((e) => useStore.getState().toast({ kind: 'error', title: t('team.loadFailed'), body: (e as Error).message }))
       .finally(() => setLaden(false));
   }, []);
 
@@ -86,7 +86,7 @@ export function TeamAdmin({ onClose }: { onClose: () => void }) {
       if (erfolg) useStore.getState().toast({ kind: 'ok', title: erfolg });
       return r;
     } catch (err) {
-      useStore.getState().toast({ kind: 'error', title: 'Nicht möglich', body: (err as Error).message });
+      useStore.getState().toast({ kind: 'error', title: t('team.notPossible'), body: (err as Error).message });
       return null;
     } finally {
       setBusy(false);
@@ -105,11 +105,11 @@ export function TeamAdmin({ onClose }: { onClose: () => void }) {
       >
         <div className="panel__head">
           <ShieldCheck size={18} />
-          <h2>Team verwalten</h2>
-          <span className="muted" style={{ fontSize: 12.5 }}>{liste.length} Konten</span>
+          <h2>{t('team.title')}</h2>
+          <span className="muted" style={{ fontSize: 12.5 }}>{t('team.accounts', { n: liste.length })}</span>
           {darfAnlegen && (
             <button className="pill pill--accent" style={{ marginLeft: 'auto' }} onClick={() => setAnlegen(true)}>
-              <UserPlus size={13} /> Konto anlegen
+              <UserPlus size={13} /> {t('team.createAccount')}
             </button>
           )}
           <button className="icon-btn" style={{ marginLeft: darfAnlegen ? 0 : 'auto' }} onClick={onClose}>
@@ -122,10 +122,10 @@ export function TeamAdmin({ onClose }: { onClose: () => void }) {
             <div className="hstack gap-2" style={{ padding: '0 0 var(--sp-3)' }}>
               <Search size={14} className="muted" />
               <input className="input" style={{ padding: '6px 10px', fontSize: 13 }}
-                placeholder="Person suchen…" value={suche} onChange={(e) => setSuche(e.target.value)} />
+                placeholder={t('team.searchPerson')} value={suche} onChange={(e) => setSuche(e.target.value)} />
             </div>
 
-            {laden && <div className="hstack gap-2 muted"><Loader2 size={14} className="spin" /> lädt…</div>}
+            {laden && <div className="hstack gap-2 muted"><Loader2 size={14} className="spin" /> {t('team.loading')}</div>}
 
             {gefiltert.map((u) => (
               <button
@@ -138,8 +138,8 @@ export function TeamAdmin({ onClose }: { onClose: () => void }) {
                 <div className="result__main">
                   <div className="result__title">
                     {u.displayName}
-                    {u.disabled && <span className="msg__tag" style={{ marginLeft: 6 }}>gesperrt</span>}
-                    {u.mustChangePassword && <span className="msg__tag" style={{ marginLeft: 6 }}>neu</span>}
+                    {u.disabled && <span className="msg__tag" style={{ marginLeft: 6 }}>{t('team.blocked')}</span>}
+                    {u.mustChangePassword && <span className="msg__tag" style={{ marginLeft: 6 }}>{t('team.new')}</span>}
                   </div>
                   <div className="result__sub">@{u.handle} · {ROLLEN.find((r) => r.wert === u.role)?.label}</div>
                 </div>
@@ -170,7 +170,7 @@ export function TeamAdmin({ onClose }: { onClose: () => void }) {
                 {person.mustChangePassword && (
                   <div className="hinweis">
                     <AlertTriangle size={14} />
-                    Hat sich noch nicht mit einem eigenen Passwort angemeldet.
+                    {t('team.neverLoggedIn')}
                   </div>
                 )}
 
@@ -187,9 +187,7 @@ export function TeamAdmin({ onClose }: { onClose: () => void }) {
                       >{r.label}</button>
                     ))}
                   </div>
-                  <p className="field__hint">
-                    Die Rolle setzt die Vorgaben. Einzelne Rechte kannst du darunter abweichend setzen.
-                  </p>
+                  <p className="field__hint">{t('team.roleHint')}</p>
                 </div>
 
                 <div className="hstack gap-2" style={{ marginBottom: 'var(--sp-4)', flexWrap: 'wrap' }}>
@@ -342,11 +340,7 @@ function KontoAnlegen({ onClose, onFertig }: {
         <div className="panel__body">
           {fehler && <div className="auth__error">{fehler}</div>}
 
-          <p className="muted" style={{ marginTop: 0, fontSize: 13.5 }}>
-            Du bekommst gleich ein Einmal-Passwort. Gib es der Person weiter — beim
-            ersten Login legt sie ihr eigenes Passwort, ihren Benutzernamen und ihre
-            E-Mail selbst fest.
-          </p>
+          <p className="muted" style={{ marginTop: 0, fontSize: 13.5 }}>{t('team.oneTimeLead')}</p>
 
           <div className="field">
             <label className="field__label">Name</label>
@@ -377,7 +371,7 @@ function KontoAnlegen({ onClose, onFertig }: {
           </div>
 
           <div className="field">
-            <label className="field__label">Sprache</label>
+            <label className="field__label">{t('team.language')}</label>
             <select className="select" value={sprache} onChange={(e) => setSprache(e.target.value)}>
               {LANGUAGES.map((l) => <option key={l.code} value={l.code}>{l.flag} {l.native}</option>)}
             </select>
@@ -386,7 +380,7 @@ function KontoAnlegen({ onClose, onFertig }: {
           <button className="btn btn--primary btn--block" disabled={name.trim().length < 2 || busy}
             onClick={() => void anlegen()}>
             {busy ? <Loader2 size={16} className="spin" /> : <Plus size={16} />}
-            Anlegen und Einmal-Passwort erzeugen
+            {t('team.createAndGenerate')}
           </button>
         </div>
       </motion.div>
@@ -420,7 +414,7 @@ function ZugangAnzeigen({ credential, onClose }: { credential: OneTimeCredential
         <div className="panel__body">
           <p className="muted" style={{ marginTop: 0, fontSize: 13.5 }}>
             Für <b style={{ color: 'var(--tx-hi)' }}>{credential.displayName}</b>.
-            Gib beides persönlich weiter — danach ist es hier nicht mehr abrufbar.
+            {t('team.handOverHint')}
           </p>
 
           <div className="zugang">
@@ -436,11 +430,11 @@ function ZugangAnzeigen({ credential, onClose }: { credential: OneTimeCredential
 
           <button className="btn btn--primary btn--block" onClick={kopieren}>
             {kopiert ? <Check size={16} /> : <Copy size={16} />}
-            {kopiert ? 'Kopiert' : 'Beides kopieren'}
+            {kopiert ? t('team.copied') : t('team.copyBoth')}
           </button>
 
           <p className="field__hint" style={{ marginTop: 'var(--sp-3)' }}>
-            Gültig 14 Tage. Beim ersten Login muss ein eigenes Passwort gesetzt werden.
+            {t('team.validHint')}
           </p>
         </div>
       </motion.div>

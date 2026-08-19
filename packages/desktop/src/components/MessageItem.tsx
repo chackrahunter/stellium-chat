@@ -181,7 +181,7 @@ export const MessageItem = memo(function MessageItem({ message, grouped, inThrea
             {translating && !hasTranslation && (
               <div className="tr-pending">
                 <Sparkles size={11} className="spark" />
-                <span>übersetze…</span>
+                <span>{t('msg.translating')}</span>
                 <span className="tr-pending__bar" />
               </div>
             )}
@@ -195,10 +195,9 @@ export const MessageItem = memo(function MessageItem({ message, grouped, inThrea
                 >
                   <Languages size={11} className="spark" />
                   {showOriginal
-                    ? t('msg.original', { sprache: languageInfo(message.sourceLang).native })
+                    ? t('msg.original')
                     : t('msg.translatedFrom', {
-                      sprache: languageInfo(message.sourceLang).native,
-                      modell: translation!.provider,
+                      language: languageInfo(message.sourceLang).native,
                     })}
                 </button>
 

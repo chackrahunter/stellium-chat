@@ -3,6 +3,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { Languages, Loader2, Pause, Play, RefreshCw, Sparkles } from 'lucide-react';
 import type { VoiceNote } from '@stellium/shared';
 import { useStore } from '../state/store.js';
+import { useT } from '../i18n/index.js';
 import { fileUrl } from '../net/api.js';
 import { languageInfo } from '../lib/format.js';
 
@@ -19,6 +20,7 @@ const BARS = [0.3, 0.55, 0.4, 0.8, 0.65, 1, 0.75, 0.45, 0.9, 0.6, 0.35, 0.7,
               0.5, 0.85, 0.55, 0.4, 0.75, 0.6, 0.3, 0.65, 0.45, 0.8, 0.5, 0.35];
 
 export function VoiceMessage({ voice, messageId, translatedText, showOriginal }: Props) {
+  const t = useT();
   const audioRef = useRef<HTMLAudioElement>(null);
   const [playing, setPlaying] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -105,15 +107,15 @@ export function VoiceMessage({ voice, messageId, translatedText, showOriginal }:
             <div className="voice__transcript-head">
               {translated ? <Languages size={10} /> : <Sparkles size={10} />}
               {translated
-                ? `Transkript, übersetzt aus ${languageInfo(voice.transcriptLang).native}`
-                : `Transkript · ${languageInfo(voice.transcriptLang).native}`}
+                ? t('voice.transcriptTranslated', { language: languageInfo(voice.transcriptLang).native })
+                : t('voice.transcript', { language: languageInfo(voice.transcriptLang).native })}
             </div>
             {text}
           </motion.div>
         ) : ai?.transcription ? (
           <motion.div key="wait" className="voice__pending" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
             <Loader2 size={11} className="spin" />
-            Wird transkribiert…
+            {t('voice.transcribing')}
           </motion.div>
         ) : (
           <motion.button
@@ -122,10 +124,10 @@ export function VoiceMessage({ voice, messageId, translatedText, showOriginal }:
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             onClick={() => useStore.getState().retranscribe(messageId)}
-            title="Transkription erneut versuchen"
+            title={t('voice.retry')}
           >
             <RefreshCw size={11} />
-            Kein Transkript — Groq-Schlüssel fehlt
+            {t('voice.noTranscript')}
           </motion.button>
         )}
       </AnimatePresence>

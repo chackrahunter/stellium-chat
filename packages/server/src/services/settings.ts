@@ -20,3 +20,9 @@ export function setSetting(key: string, value: string | null, userId: string): v
 
 export const SETTING_MODEL_QUALITY = 'ai.model.quality';
 export const SETTING_MODEL_FAST = 'ai.model.fast';
+
+/* Welcher Anbieter gilt — und wo ein lokales Modell erreichbar ist. */
+export const SETTING_AI_PROVIDER = 'ai.provider';
+export const SETTING_LOCAL_URL = 'ai.local.url';
+export const SETTING_LOCAL_MODEL = 'ai.local.model';
+export const SETTING_LOCAL_FAST = 'ai.local.fast';

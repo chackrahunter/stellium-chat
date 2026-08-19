@@ -137,6 +137,18 @@ export interface RegistryOptions {
   fallbackQuality: string;
   fallbackFast: string;
   timeoutMs?: number;
+  /** Dienste im eigenen Netz brauchen keinen Schlüssel. */
+  ohneSchluessel?: boolean;
+  /**
+   * Liste unbewertet übernehmen.
+   *
+   * Die Bewertung ist auf die Namen der großen Anbieter zugeschnitten — sie
+   * liest die Parameterzahl aus "llama-3.1-8b-instant" heraus. Bei einem
+   * lokalen Dienst steht dort, was jemand geladen hat ("gemma3:4b"), und eine
+   * Bewertung würde eher aussortieren als helfen. Genommen wird dann die
+   * Reihenfolge, in der der Dienst die Modelle nennt.
+   */
+  unbewertet?: boolean;
 }
 
 export class ModelRegistry {
@@ -171,7 +183,8 @@ export class ModelRegistry {
   }
 
   async refresh(): Promise<void> {
-    if (this.fullyPinned || !this.opts.apiKey) return;
+    if (this.fullyPinned) return;
+    if (!this.opts.apiKey && !this.opts.ohneSchluessel) return;
     if (this.inflight) return this.inflight;
     this.inflight = this.doRefresh().finally(() => { this.inflight = null; });
     return this.inflight;
@@ -182,7 +195,7 @@ export class ModelRegistry {
     const timer = setTimeout(() => ctrl.abort(), this.opts.timeoutMs ?? 10_000);
     try {
       const res = await fetch(`${this.opts.baseUrl}/models`, {
-        headers: { authorization: `Bearer ${this.opts.apiKey}` },
+        headers: this.opts.apiKey ? { authorization: `Bearer ${this.opts.apiKey}` } : {},
         signal: ctrl.signal,
       });
       if (!res.ok) {
@@ -192,7 +205,9 @@ export class ModelRegistry {
       const list = Array.isArray(body.data) ? body.data : [];
       if (!list.length) throw new ProviderError(`${this.opts.name}: Modell-Liste ist leer`);
 
-      this.models = list.map(evaluate).sort((a, b) => b.score - a.score);
+      this.models = this.opts.unbewertet
+        ? list.map((eintrag) => ({ ...evaluate(eintrag), rejected: null, score: 0 }))
+        : list.map(evaluate).sort((a, b) => b.score - a.score);
       this.select();
     } catch (err) {
       // Nicht schlimm: die vorherige Auswahl bleibt gültig.
@@ -229,6 +244,17 @@ export class ModelRegistry {
     if (!usable.length) return;
 
     const quality = this.opts.pinnedQuality || usable[0].id;
+
+    /* Unbewertet: es gibt keine Parameterzahlen, nach denen sich ein
+       Schnellmodell aussuchen ließe. Dasselbe Modell für beides ist bei einem
+       lokalen Dienst ohnehin der Normalfall — geladen ist meist genau eines. */
+    if (this.opts.unbewertet) {
+      const fast = this.opts.pinnedFast
+        || usable.find((m) => /1b|2b|3b|4b|mini|small|tiny/i.test(m.id))?.id
+        || quality;
+      this.selection = { quality, fast, source: this.opts.pinnedQuality ? 'pinned' : 'auto', refreshedAt: Date.now() };
+      return;
+    }
 
     // Schnellmodell: das kleinste, das noch etwas taugt. Unter 3 Mrd.
     // Parametern wird die Qualität für Antwortvorschläge zu dünn, über 30 Mrd.

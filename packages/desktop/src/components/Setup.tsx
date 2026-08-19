@@ -83,7 +83,7 @@ export function Setup() {
 
         <div className="field">
           <label className="field__label">{t('setup.email')}</label>
-          <input className="input" type="email" value={email} placeholder="du@firma.de"
+          <input className="input" type="email" value={email} placeholder={t('setup.emailPlaceholder')}
             onChange={(e) => setEmail(e.target.value)} />
           <p className="field__hint">{t('setup.emailHint')}</p>
         </div>

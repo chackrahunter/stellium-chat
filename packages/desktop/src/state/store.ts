@@ -233,7 +233,11 @@ interface StoreState {
   deleteEvent: (eventId: string) => void;
 
   loadFiles: (filter?: { channelId?: string; folder?: string }) => void;
-  uploadFile: (file: File, meta?: { folder?: string; channelId?: string | null; description?: string }) => Promise<void>;
+  uploadFile: (
+    file: File,
+    meta?: { folder?: string; channelId?: string | null; description?: string },
+    onProgress?: (anteil: number, bytes: number) => void,
+  ) => Promise<void>;
   updateFile: (fileId: string, patch: { name?: string; folder?: string; description?: string | null }) => void;
   deleteFile: (fileId: string) => void;
   openAiTeamChannel: () => void;
@@ -241,6 +245,7 @@ interface StoreState {
 
   /* Modellwahl */
   selectModels: (input: { quality?: string | null; fast?: string | null; auto?: boolean }) => Promise<void>;
+  selectProvider: (input: { anbieter: string | null; baseUrl?: string; model?: string; fastModel?: string }) => Promise<boolean>;
 
   setProfileUser: (userId: string | null) => void;
   jumpToMessage: (channelId: string, messageId: string) => void;
@@ -311,6 +316,18 @@ function upsertMessage(list: Message[] | undefined, msg: Message): Message[] {
   while (i > 0 && arr[i - 1].createdAt > msg.createdAt) i--;
   arr.splice(i, 0, msg);
   return arr;
+}
+
+import { translate, spracheDesSystems, type TranslationKey } from '../i18n/kern.js';
+
+/**
+ * Meldungen aus dem Zustand in der Sprache der angemeldeten Person.
+ *
+ * Bewusst über den Kern statt über i18n/index: der lädt den Zustand, und ein
+ * Ringschluss zwischen beiden wäre nur eine Frage der Zeit.
+ */
+function ts(key: TranslationKey, werte?: Record<string, string | number>): string {
+  return translate(useStore.getState().self?.uiLanguage || spracheDesSystems(), key, werte);
 }
 
 export const useStore = create<StoreState>((set, get) => ({
@@ -481,7 +498,7 @@ export const useStore = create<StoreState>((set, get) => ({
       parentId: parentId ?? null, attachmentIds,
     });
     if (!delivered) {
-      get().toast({ kind: 'info', title: 'Offline', body: 'Die Nachricht geht raus, sobald die Verbindung steht.' });
+      get().toast({ kind: 'info', title: ts('toast.offline'), body: ts('toast.offlineBody') });
     }
   },
 
@@ -578,7 +595,7 @@ export const useStore = create<StoreState>((set, get) => ({
 
   runCatchup: (channelId) => {
     if (!get().ai?.assistant) {
-      get().toast({ kind: 'error', title: 'KI nicht aktiv', body: get().ai?.note ?? 'Setze GROQ_API_KEY auf dem Server.' });
+      get().toast({ kind: 'error', title: ts('toast.aiOff'), body: get().ai?.note ?? ts('toast.aiOffBody') });
       return;
     }
     const requestId = uid();
@@ -587,9 +604,13 @@ export const useStore = create<StoreState>((set, get) => ({
       .then((summary) => set({ catchup: summary, catchupLoading: false }))
       .catch((err: Error) => {
         set({ catchupLoading: false });
-        get().toast({ kind: 'error', title: 'Zusammenfassung fehlgeschlagen', body: err.message });
+        get().toast({ kind: 'error', title: ts('toast.summaryFailed'), body: err.message });
       });
-    socket.send({ t: 'ai:catchup', requestId, channelId });
+    /* Die Grenze mitschicken, die beim Öffnen galt.
+       Ohne sie nahm der Server den Lesestand — und der ist, sobald man den
+       Kanal ansieht, schon auf der neuesten Nachricht. Die Zusammenfassung
+       hatte damit nie etwas zu berichten, egal wie viel aufgelaufen war. */
+    socket.send({ t: 'ai:catchup', requestId, channelId, sinceMessageId: get().readMarkers[channelId] ?? null });
   },
 
   loadSmartReplies: (channelId, parentId) => {
@@ -600,7 +621,7 @@ export const useStore = create<StoreState>((set, get) => ({
       .then((replies) => set({ smartReplies: replies, smartRepliesLoading: false }))
       .catch((err: Error) => {
         set({ smartReplies: [], smartRepliesLoading: false });
-        get().toast({ kind: 'error', title: 'Keine Vorschläge', body: err.message });
+        get().toast({ kind: 'error', title: ts('toast.noSuggestions'), body: err.message });
       });
     socket.send({ t: 'ai:smart-replies', requestId, channelId, parentId: parentId ?? null });
   },
@@ -629,7 +650,7 @@ export const useStore = create<StoreState>((set, get) => ({
       set({ searchHits: hits, searching: false });
     } catch (err) {
       set({ searchHits: [], searching: false });
-      get().toast({ kind: 'error', title: 'Suche fehlgeschlagen', body: (err as Error).message });
+      get().toast({ kind: 'error', title: ts('toast.searchFailed'), body: (err as Error).message });
     }
   },
 
@@ -650,14 +671,20 @@ export const useStore = create<StoreState>((set, get) => ({
   forwardMessage: (messageId, toChannelId, comment) => {
     socket.send({ t: 'message:forward', clientId: uid(), messageId, toChannelId, comment });
     set({ forwarding: null });
-    get().toast({ kind: 'ok', title: 'Weitergeleitet' });
+    get().toast({ kind: 'ok', title: ts('toast.forwarded') });
   },
 
   startReminder: (message) => set({ remindingAbout: message }),
   createReminder: (input) => {
     socket.send({ t: 'reminder:create', ...input, messageId: input.messageId ?? null, note: input.note ?? null });
     set({ remindingAbout: null });
-    get().toast({ kind: 'ok', title: 'Erinnerung gesetzt', body: `Ich melde mich am ${new Date(input.remindAt).toLocaleString('de-DE', { weekday: 'short', hour: '2-digit', minute: '2-digit' })}.` });
+    get().toast({ kind: 'ok', title: ts('toast.reminderSet'),
+      body: ts('toast.reminderBody', {
+        zeit: new Date(input.remindAt).toLocaleString(
+          useStore.getState().self?.uiLanguage || spracheDesSystems(),
+          { weekday: 'short', hour: '2-digit', minute: '2-digit' },
+        ),
+      }) });
   },
   cancelReminder: (id) => socket.send({ t: 'reminder:cancel', reminderId: id }) as unknown as void,
 
@@ -683,7 +710,7 @@ export const useStore = create<StoreState>((set, get) => ({
 
   openAiChat: () => {
     if (!get().ai?.assistant) {
-      get().toast({ kind: 'error', title: 'KI nicht aktiv', body: get().ai?.note ?? 'Setze GROQ_API_KEY auf dem Server.' });
+      get().toast({ kind: 'error', title: ts('toast.aiOff'), body: get().ai?.note ?? ts('toast.aiOffBody') });
       return;
     }
     socket.send({ t: 'ai:open-chat' });
@@ -714,7 +741,7 @@ export const useStore = create<StoreState>((set, get) => ({
 
   extractTasks: (channelId) => {
     if (!get().ai?.assistant) {
-      get().toast({ kind: 'error', title: 'KI nicht aktiv', body: get().ai?.note ?? undefined });
+      get().toast({ kind: 'error', title: ts('toast.aiOff'), body: get().ai?.note ?? undefined });
       return;
     }
     set({ extractingTasks: true, extractErgebnis: null });
@@ -728,7 +755,7 @@ export const useStore = create<StoreState>((set, get) => ({
 
   loadProtocol: (channelId) => {
     if (!get().ai?.assistant) {
-      get().toast({ kind: 'error', title: 'KI nicht aktiv', body: get().ai?.note ?? undefined });
+      get().toast({ kind: 'error', title: ts('toast.aiOff'), body: get().ai?.note ?? undefined });
       return;
     }
     set({ protocolLoading: true, protocol: null });
@@ -768,17 +795,17 @@ export const useStore = create<StoreState>((set, get) => ({
 
   loadFiles: (filter) => socket.send({ t: 'file:list', ...filter }) as unknown as void,
 
-  uploadFile: async (file, meta) => {
+  uploadFile: async (file, meta, onProgress) => {
     const form = new FormData();
     form.append('file', file);
     if (meta?.folder) form.append('folder', meta.folder);
     if (meta?.channelId) form.append('channelId', meta.channelId);
     if (meta?.description) form.append('description', meta.description);
     try {
-      await api.uploadToLibrary(form);
+      await api.uploadToLibrary(form, (anteil) => onProgress?.(anteil, Math.round(anteil * file.size)));
       get().loadFiles(meta?.channelId ? { channelId: meta.channelId } : undefined);
     } catch (err) {
-      get().toast({ kind: 'error', title: 'Hochladen fehlgeschlagen', body: (err as Error).message });
+      get().toast({ kind: 'error', title: ts('toast.uploadFailed'), body: (err as Error).message });
     }
   },
   updateFile: (fileId, patch) => socket.send({ t: 'file:update', fileId, ...patch }) as unknown as void,
@@ -786,13 +813,24 @@ export const useStore = create<StoreState>((set, get) => ({
 
   openAiTeamChannel: () => {
     if (!get().ai?.assistant) {
-      get().toast({ kind: 'error', title: 'KI nicht aktiv', body: get().ai?.note ?? undefined });
+      get().toast({ kind: 'error', title: ts('toast.aiOff'), body: get().ai?.note ?? undefined });
       return;
     }
     socket.send({ t: 'ai:open-team-channel' });
   },
 
   setAiMode: (channelId, mode) => socket.send({ t: 'ai:set-mode', channelId, mode }) as unknown as void,
+
+  selectProvider: async (input) => {
+    try {
+      const { ai } = await api.selectProvider(input);
+      set({ ai });
+      return true;
+    } catch (err) {
+      get().toast({ kind: 'error', title: (err as Error).message });
+      return false;
+    }
+  },
 
   selectModels: async (input) => {
     try {
@@ -804,7 +842,7 @@ export const useStore = create<StoreState>((set, get) => ({
         body: ai.model ?? undefined,
       });
     } catch (err) {
-      get().toast({ kind: 'error', title: 'Modellwechsel fehlgeschlagen', body: (err as Error).message });
+      get().toast({ kind: 'error', title: ts('toast.modelFailed'), body: (err as Error).message });
     }
   },
 
@@ -1127,7 +1165,7 @@ socket.onEvent((ev: ServerEvent) => {
         },
       });
       if (!ev.tasks.length) {
-        store.toast({ kind: 'info', title: 'Nichts gefunden', body: 'In diesem Verlauf steckt gerade keine offene Aufgabe.' });
+        store.toast({ kind: 'info', title: ts('toast.nothingFound'), body: ts('toast.noOpenTask') });
       }
       break;
 
@@ -1235,7 +1273,7 @@ socket.onEvent((ev: ServerEvent) => {
 
     case 'error':
       if (ev.requestId) settle(ev.requestId, null, new Error(ev.message));
-      else store.toast({ kind: 'error', title: 'Serverfehler', body: ev.message });
+      else store.toast({ kind: 'error', title: ts('toast.serverError'), body: ev.message });
       break;
   }
 });
@@ -1306,3 +1344,9 @@ window.setInterval(() => {
   }
   if (changed) useStore.setState({ typing });
 }, 2000);
+
+/* Im Entwicklungsmodus greifbar, damit die Prüfläufe den Zustand ansehen
+   können. In der gebauten App fällt dieser Block weg. */
+if (import.meta.env.DEV) {
+  (window as unknown as { __stelliumStore?: typeof useStore }).__stelliumStore = useStore;
+}

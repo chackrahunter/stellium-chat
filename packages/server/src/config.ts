@@ -116,7 +116,7 @@ function secret(envName: string, vaultName: string): string {
   return openVault()[vaultName] ?? '';
 }
 
-export type AiProvider = 'groq' | 'openai' | 'deepl' | 'libre' | 'demo';
+export type AiProvider = 'groq' | 'openai' | 'ollama' | 'llamacpp' | 'deepl' | 'libre' | 'demo';
 
 /**
  * Welcher Stand hier gerade läuft.
@@ -194,6 +194,26 @@ export const config = {
       baseUrl: str('LIBRE_URL', 'http://localhost:5000'),
       apiKey: str('LIBRE_API_KEY'),
     },
+
+    /**
+     * Ein Modell auf der eigenen Maschine — über Ollama oder llama.cpp.
+     *
+     * Beide sprechen dieselbe Schnittstelle wie OpenAI, deshalb genügt eine
+     * andere Adresse. Ein Schlüssel gehört dazu nicht: der Dienst läuft im
+     * eigenen Netz, und nichts verlässt das Haus.
+     */
+    ollama: {
+      baseUrl: str('OLLAMA_BASE_URL', 'http://127.0.0.1:11434/v1'),
+      model: str('OLLAMA_MODEL'),
+      fastModel: str('OLLAMA_FAST_MODEL'),
+    },
+
+    /** llama.cpp — dasselbe Prinzip, nur ein anderer Standardport. */
+    llamacpp: {
+      baseUrl: str('LLAMACPP_BASE_URL', 'http://127.0.0.1:8080/v1'),
+      model: str('LLAMACPP_MODEL'),
+      fastModel: str('LLAMACPP_FAST_MODEL'),
+    },
     memoryCacheSize: int('TRANSLATION_MEMORY_CACHE', 5000),
     requestTimeoutMs: int('AI_TIMEOUT_MS', 25_000),
   },
@@ -206,14 +226,66 @@ export function aiConfigured(): boolean {
     case 'openai': return Boolean(config.ai.openai.apiKey);
     case 'deepl': return Boolean(config.ai.deepl.apiKey);
     case 'libre': return Boolean(config.ai.libre.baseUrl);
+    // Lokal braucht es keinen Schlüssel — nur eine erreichbare Adresse.
+    case 'ollama':
+    case 'llamacpp': return Boolean(lokaleEinstellung().baseUrl);
     default: return false;
   }
 }
 
 /** Kann der Provider mehr als übersetzen (Zusammenfassungen, Smart Replies)? */
 export function assistantAvailable(): boolean {
-  return (config.ai.provider === 'groq' && Boolean(config.ai.groq.apiKey)) ||
-         (config.ai.provider === 'openai' && Boolean(config.ai.openai.apiKey));
+  return (aktiverAnbieter() === 'groq' && Boolean(config.ai.groq.apiKey)) ||
+         (aktiverAnbieter() === 'openai' && Boolean(config.ai.openai.apiKey)) ||
+         istLokal(aktiverAnbieter());
+}
+
+/** Läuft das Modell im eigenen Netz? */
+export function istLokal(anbieter: AiProvider = aktiverAnbieter()): boolean {
+  return anbieter === 'ollama' || anbieter === 'llamacpp';
+}
+
+/**
+ * Was zur Laufzeit eingestellt wurde.
+ *
+ * Der Anbieter stand bisher nur in der Umgebung und damit bis zum nächsten
+ * Neustart fest. Für die Umschaltung in den Einstellungen liegt er zusätzlich
+ * hier — gesetzt wird er beim Start aus der Datenbank.
+ */
+const laufzeit: { anbieter: AiProvider | null; baseUrl: string; model: string; fastModel: string } = {
+  anbieter: null,
+  baseUrl: '',
+  model: '',
+  fastModel: '',
+};
+
+/** Der Anbieter, der gerade gilt: Einstellung vor Umgebung. */
+export function aktiverAnbieter(): AiProvider {
+  return laufzeit.anbieter ?? config.ai.provider;
+}
+
+/**
+ * Adresse und Modelle des lokalen Dienstes, Einstellung vor Umgebung.
+ * Welcher Standardport gilt, hängt am Anbieter: Ollama hört auf 11434,
+ * llama.cpp auf 8080.
+ */
+export function lokaleEinstellung(): { baseUrl: string; model: string; fastModel: string } {
+  const vorgabe = aktiverAnbieter() === 'llamacpp' ? config.ai.llamacpp : config.ai.ollama;
+  return {
+    baseUrl: (laufzeit.baseUrl || vorgabe.baseUrl).replace(/\/+$/, ''),
+    model: laufzeit.model || vorgabe.model,
+    fastModel: laufzeit.fastModel || vorgabe.fastModel,
+  };
+}
+
+/** Aus den Einstellungen übernehmen. Leere Werte heißen "wie in der Umgebung". */
+export function laufzeitSetzen(werte: {
+  anbieter?: AiProvider | null; baseUrl?: string; model?: string; fastModel?: string;
+}): void {
+  if (werte.anbieter !== undefined) laufzeit.anbieter = werte.anbieter;
+  if (werte.baseUrl !== undefined) laufzeit.baseUrl = werte.baseUrl.trim();
+  if (werte.model !== undefined) laufzeit.model = werte.model.trim();
+  if (werte.fastModel !== undefined) laufzeit.fastModel = werte.fastModel.trim();
 }
 
 

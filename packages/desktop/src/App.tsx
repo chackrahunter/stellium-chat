@@ -158,8 +158,8 @@ export function App() {
           {connection !== 'open' && (
             <div className={clsx('conn-banner', connection === 'failed' && 'conn-banner--error')}>
               {connection === 'failed'
-                ? <><WifiOff size={14} /> Verbindung verloren — bitte neu anmelden</>
-                : <><Loader2 size={14} className="spin" /> Verbinde mit dem Server{connectionDetail ? ` · ${connectionDetail}` : '…'}</>}
+                ? <><WifiOff size={14} /> {t('conn.lost')}</>
+                : <><Loader2 size={14} className="spin" /> {t('conn.connecting')}{connectionDetail ? ` · ${connectionDetail}` : '…'}</>}
             </div>
           )}
 

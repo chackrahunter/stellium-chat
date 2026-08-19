@@ -106,7 +106,7 @@ export function MessageList({ channelId }: Props) {
     <div className="stream" ref={scrollRef}>
       {hasMore && (
         <div style={{ textAlign: 'center', padding: 'var(--sp-3)' }}>
-          <span className="muted" style={{ fontSize: 12 }}>Ältere Nachrichten werden geladen…</span>
+          <span className="muted" style={{ fontSize: 12 }}>{t('msg.loadingOlder')}</span>
         </div>
       )}
       {!hasMore && messages.length > 0 && <ChannelIntro channelId={channelId} />}
@@ -125,7 +125,7 @@ export function MessageList({ channelId }: Props) {
         return (
           <div key={msg.id}>
             {showDay && <div className="daybar"><span>{dayLabel(msg.createdAt)}</span></div>}
-            {showUnread && <div className="unread-line"><span>Neu</span></div>}
+            {showUnread && <div className="unread-line"><span>{t('msg.unreadLine')}</span></div>}
             <MessageItem message={msg} grouped={grouped} />
           </div>
         );

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Loader2, Star } from 'lucide-react';
+import { Loader2, Star, Download } from 'lucide-react';
 import { useStore } from '../state/store.js';
 import { api, serverUrl, setServerUrl } from '../net/api.js';
 import { useT } from '../i18n/index.js';
@@ -80,6 +80,21 @@ export function Login() {
         </form>
 
         <div className="auth__demo">{t('auth.noAccount')}</div>
+
+        {/* Nur im Browser: wer schon in der App ist, braucht sie nicht noch einmal. */}
+        {!window.stellium && (
+          <div style={{ marginTop: 'var(--sp-3)', textAlign: 'center' }}>
+            <a
+              className="btn btn--ghost"
+              style={{ height: 'auto', padding: 4, fontSize: 12, textDecoration: 'none' }}
+              href={`${serverUrl().replace(/\/+$/, '')}/download`}
+              target="_blank"
+              rel="noreferrer"
+            >
+              <Download size={13} /> {t('auth.getApp')}
+            </a>
+          </div>
+        )}
 
         <div style={{ marginTop: 'var(--sp-3)', textAlign: 'center' }}>
           <button

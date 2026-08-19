@@ -3,7 +3,7 @@ import { motion } from 'framer-motion';
 import { BarChart3, Bell, Forward, Hash, Lock, Plus, Trash2, X } from 'lucide-react';
 import type { Message } from '@stellium/shared';
 import { useStore } from '../state/store.js';
-import { useT, t } from '../i18n/index.js';
+import { useT, t , currentUiLanguage } from '../i18n/index.js';
 import { Avatar } from './Avatar.jsx';
 
 /* ── Weiterleiten ─────────────────────────────────────────────── */
@@ -25,7 +25,7 @@ export function ForwardDialog({ message, onClose }: { message: Message; onClose:
 
   return (
     <Frame title="Weiterleiten" icon={<Forward size={18} />} onClose={onClose} width={520}>
-      <div className="forward-preview">{message.text.slice(0, 300) || '🎙️ Sprachnachricht'}</div>
+      <div className="forward-preview">{message.text.slice(0, 300) || `🎙️ ${t('msg.voiceNote')}`}</div>
 
       <div className="field">
         <label className="field__label">Kommentar (optional)</label>
@@ -70,11 +70,11 @@ export function ReminderDialog({ message, onClose }: { message: Message; onClose
   const [custom, setCustom] = useState('');
 
   const presets = [
-    { label: 'In 20 Minuten', ms: 20 * 60_000 },
-    { label: 'In einer Stunde', ms: 3600_000 },
+    { label: t('reminder.in20'), ms: 20 * 60_000 },
+    { label: t('reminder.in1h'), ms: 3600_000 },
     { label: t('reminder.tonight'), ms: msUntilHour(18) },
-    { label: 'Morgen früh, 9:00', ms: msUntilHour(9, 1) },
-    { label: 'Nächste Woche', ms: 7 * 86_400_000 },
+    { label: t('schedule.tomorrow9'), ms: msUntilHour(9, 1) },
+    { label: t('reminder.nextWeek'), ms: 7 * 86_400_000 },
   ];
 
   const create = (remindAt: number) => useStore.getState().createReminder({
@@ -83,8 +83,8 @@ export function ReminderDialog({ message, onClose }: { message: Message; onClose
   });
 
   return (
-    <Frame title="Später erinnern" icon={<Bell size={18} />} onClose={onClose} width={460}>
-      <div className="forward-preview">{message.text.slice(0, 220) || '🎙️ Sprachnachricht'}</div>
+    <Frame title={t('reminder.title')} icon={<Bell size={18} />} onClose={onClose} width={460}>
+      <div className="forward-preview">{message.text.slice(0, 220) || `🎙️ ${t('msg.voiceNote')}`}</div>
 
       <div className="field">
         <label className="field__label">{t('reminder.about')}</label>
@@ -148,7 +148,7 @@ export function PollDialog({ channelId, onClose }: { channelId: string; onClose:
       </div>
 
       <div className="field">
-        <label className="field__label">Antwortmöglichkeiten</label>
+        <label className="field__label">{t('poll.options')}</label>
         <div className="stack gap-2">
           {options.map((option, i) => (
             <div key={i} className="hstack gap-2">
@@ -205,27 +205,27 @@ export function RemindersPanel({ onClose }: { onClose: () => void }) {
   const { cancelReminder, jumpToMessage } = useStore.getState();
 
   return (
-    <Frame title="Erinnerungen" icon={<Bell size={18} />} onClose={onClose} width={520}>
+    <Frame title={t('reminder.listTitle')} icon={<Bell size={18} />} onClose={onClose} width={520}>
       {reminders.length === 0 && (
         <p className="muted" style={{ fontSize: 13.5, marginTop: 0 }}>
-          Nichts geplant. Über das Menü einer Nachricht kannst du dich später daran erinnern lassen.
+          {t('reminder.nothing')}
         </p>
       )}
       {reminders.map((r) => (
         <div key={r.id} className="row">
           <div className="row__main">
-            <div className="row__title">{r.note || 'Erinnerung'}</div>
+            <div className="row__title">{r.note || t('reminder.one')}</div>
             <div className="row__sub">
-              {new Date(r.remindAt).toLocaleString('de-DE', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+              {new Date(r.remindAt).toLocaleString(currentUiLanguage(), { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
               {channels[r.channelId] && ` · #${channels[r.channelId].name}`}
             </div>
           </div>
           {r.messageId && (
             <button className="btn btn--ghost" onClick={() => { jumpToMessage(r.channelId, r.messageId!); onClose(); }}>
-              Anzeigen
+              {t('reminder.show')}
             </button>
           )}
-          <button className="icon-btn" onClick={() => cancelReminder(r.id)} title="Löschen"><Trash2 size={15} /></button>
+          <button className="icon-btn" onClick={() => cancelReminder(r.id)} title={t('reminder.delete')}><Trash2 size={15} /></button>
         </div>
       ))}
     </Frame>

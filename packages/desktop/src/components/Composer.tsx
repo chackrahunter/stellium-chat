@@ -12,7 +12,8 @@ import { api } from '../net/api.js';
 import { EmojiPicker } from './EmojiPicker.jsx';
 import { Avatar } from './Avatar.jsx';
 import { VoiceRecorder } from './VoiceRecorder.jsx';
-import { clsx, fileSize, languageInfo } from '../lib/format.js';
+import { clsx, fileSize, languageInfo, restzeit } from '../lib/format.js';
+import { bildVerkleinern } from '../lib/bilder.js';
 
 interface Props {
   channelId: string;
@@ -21,15 +22,18 @@ interface Props {
   autoFocus?: boolean;
 }
 
-type PendingAttachment = Pick<Attachment, 'id' | 'name' | 'mime' | 'size'> & { progress: number };
+type PendingAttachment = Pick<Attachment, 'id' | 'name' | 'mime' | 'size'> & {
+  progress: number;
+  /** Wie viele Bytes das Verkleinern gespart hat. */
+  gespart?: number;
+  /** Wie schnell es gerade läuft, in Byte pro Sekunde. */
+  tempo?: number;
+  /** Geschätzte Restzeit in Sekunden. */
+  rest?: number;
+};
 
-const TONES: { id: RewriteTone; label: string }[] = [
-  { id: 'polish', label: 'Korrigieren' },
-  { id: 'formal', label: 'Förmlicher' },
-  { id: 'friendly', label: 'Freundlicher' },
-  { id: 'concise', label: 'Kürzen' },
-  { id: 'bullets', label: 'Stichpunkte' },
-];
+/* Nur die Kennungen — die Beschriftung kommt aus dem Wörterbuch. */
+const TONES: RewriteTone[] = ['polish', 'formal', 'friendly', 'concise', 'bullets'];
 
 export function Composer({ channelId, parentId = null, placeholder, autoFocus }: Props) {
   const t = useT();
@@ -77,14 +81,43 @@ export function Composer({ channelId, parentId = null, placeholder, autoFocus }:
     setPreview(null);
   }, [channelId, parentId]);
 
-  /* Compose-Vorschau: so kommt die Nachricht bei den anderen an */
-  const targetLang = channel?.primaryLanguage ? normalizeLang(channel.primaryLanguage) : null;
-  const needsPreview = Boolean(
-    self?.composeTargetPreview && targetLang && self && normalizeLang(self.language) !== targetLang && ai?.translation,
-  );
+  /* Compose-Vorschau: so kommt die Nachricht bei den anderen an.
+     Die Sprache hing allein an der Kanalsprache — die ist in einer
+     Direktnachricht aber nicht gesetzt, und dort gab es deshalb nie eine
+     Vorschau. Gefragt ist ohnehin die Sprache der Gegenseite. */
+  const zielsprache = (): string | null => {
+    if (!channel || !self) return null;
+    const meine = normalizeLang(self.language);
+
+    if (channel.kind === 'dm') {
+      const gegenueber = users[channel.dmPeerId ?? ''];
+      const seine = gegenueber?.language ? normalizeLang(gegenueber.language) : null;
+      return seine && seine !== meine ? seine : null;
+    }
+
+    if (channel.primaryLanguage) {
+      const kanal = normalizeLang(channel.primaryLanguage);
+      return kanal !== meine ? kanal : null;
+    }
+
+    /* Ohne festgelegte Kanalsprache die häufigste unter den anderen nehmen —
+       besser eine Vorschau in der Sprache der Mehrheit als keine. */
+    const zaehler = new Map<string, number>();
+    for (const id of channel.memberIds) {
+      if (id === self.id) continue;
+      const sprache = users[id]?.language ? normalizeLang(users[id].language) : null;
+      if (!sprache || sprache === meine) continue;
+      zaehler.set(sprache, (zaehler.get(sprache) ?? 0) + 1);
+    }
+    return [...zaehler.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+  };
+
+  const targetLang = zielsprache();
+  const needsPreview = Boolean(self?.composeTargetPreview && targetLang && ai?.translation);
 
   useEffect(() => {
-    if (!needsPreview || text.trim().length < 12) { setPreview(null); return; }
+    // Vier Zeichen: "okay" soll man sich ansehen können, ein "o" nicht.
+    if (!needsPreview || text.trim().length < 4) { setPreview(null); return; }
     const timer = window.setTimeout(() => {
       setPreviewing(true);
       useStore.getState().composePreview(text, targetLang!, channelId)
@@ -174,19 +207,59 @@ export function Composer({ channelId, parentId = null, placeholder, autoFocus }:
 
   /* Dateien */
   const uploadFiles = async (files: FileList | File[]) => {
-    for (const file of Array.from(files)) {
-      const temp: PendingAttachment = { id: `tmp_${Math.random()}`, name: file.name, mime: file.type, size: file.size, progress: 0 };
+    /* Mehrere Dateien gingen bisher eine nach der anderen — bei fünf Bildern
+       wartete man fünfmal hintereinander. Drei gleichzeitig ist ein guter
+       Kompromiss: schneller, ohne die Leitung zu verstopfen. */
+    const liste = Array.from(files);
+    const GLEICHZEITIG = 3;
+
+    const einzeln = async (roh: File) => {
+      const temp: PendingAttachment = {
+        id: `tmp_${Math.random()}`, name: roh.name, mime: roh.type, size: roh.size, progress: 0,
+      };
       setAttachments((prev) => [...prev, temp]);
+
+      /* Erst kleiner machen, dann hochladen. Bei einem Foto vom Telefon ist
+         das der Unterschied zwischen vier Megabyte und vierhundert Kilobyte —
+         daran hängt beim Hochladen mehr als an jedem Übertragungstrick. */
+      const { datei: file, vorher, nachher } = await bildVerkleinern(roh);
+      if (nachher < vorher) {
+        setAttachments((prev) => prev.map((a) => a.id === temp.id
+          ? { ...a, size: nachher, mime: file.type, gespart: vorher - nachher }
+          : a));
+      }
+
+      /* Tempo über ein gleitendes Fenster: der Momentanwert springt zu stark,
+         um ihn ablesen zu können. */
+      const proben: { zeit: number; bytes: number }[] = [{ zeit: performance.now(), bytes: 0 }];
+
       try {
-        const { attachment } = await api.upload(file, (fraction) => {
-          setAttachments((prev) => prev.map((a) => a.id === temp.id ? { ...a, progress: fraction } : a));
+        const { attachment } = await api.uploadSchnell(file, (anteil, bytes) => {
+          const jetzt = performance.now();
+          proben.push({ zeit: jetzt, bytes });
+          while (proben.length > 2 && jetzt - proben[0].zeit > 3000) proben.shift();
+          const erste = proben[0];
+          const sekunden = (jetzt - erste.zeit) / 1000;
+          const tempo = sekunden > 0.25 ? (bytes - erste.bytes) / sekunden : undefined;
+          const rest = tempo && tempo > 0 ? (file.size - bytes) / tempo : undefined;
+          setAttachments((prev) => prev.map((a) => a.id === temp.id ? { ...a, progress: anteil, tempo, rest } : a));
         });
         setAttachments((prev) => prev.map((a) => a.id === temp.id ? { ...attachment, progress: 1 } : a));
       } catch (err) {
         setAttachments((prev) => prev.filter((a) => a.id !== temp.id));
-        useStore.getState().toast({ kind: 'error', title: 'Upload fehlgeschlagen', body: (err as Error).message });
+        useStore.getState().toast({ kind: 'error', title: t('composer.uploadFailed'), body: (err as Error).message });
       }
-    }
+    };
+
+    let naechste = 0;
+    const arbeiter = async () => {
+      for (;;) {
+        const i = naechste++;
+        if (i >= liste.length) return;
+        await einzeln(liste[i]);
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(GLEICHZEITIG, liste.length) }, arbeiter));
   };
 
   const submit = () => {
@@ -310,8 +383,23 @@ export function Composer({ channelId, parentId = null, placeholder, autoFocus }:
                 <div className="stack" style={{ minWidth: 0 }}>
                   <span className="att-file__name truncate" style={{ maxWidth: 180 }}>{a.name}</span>
                   <span className="att-file__size">
-                    {a.progress < 1 ? `${Math.round(a.progress * 100)} %` : fileSize(a.size)}
+                    {a.progress < 1
+                      ? [
+                          `${Math.round(a.progress * 100)} %`,
+                          // Tempo und Restzeit: dann sieht man, ob es hängt
+                          // oder ob die Leitung einfach schmal ist.
+                          a.tempo ? `${(a.tempo / 1048576).toFixed(1)} MB/s` : null,
+                          a.rest && a.rest > 1 ? restzeit(a.rest) : null,
+                        ].filter(Boolean).join(' · ')
+                      : a.gespart
+                        ? `${fileSize(a.size)} · ${t('composer.saved', { menge: fileSize(a.gespart) })}`
+                        : fileSize(a.size)}
                   </span>
+                  {a.progress < 1 && (
+                    <span className="att-file__balken">
+                      <span style={{ width: `${Math.round(a.progress * 100)}%` }} />
+                    </span>
+                  )}
                 </div>
                 <button className="icon-btn icon-btn--sm" onClick={() => setAttachments((p) => p.filter((x) => x.id !== a.id))}>
                   <X size={13} />
@@ -439,14 +527,14 @@ export function Composer({ channelId, parentId = null, placeholder, autoFocus }:
                     }}
                     onMouseLeave={() => setToneOpen(false)}
                   >
-                    {TONES.map((t) => (
+                    {TONES.map((ton) => (
                       <button
-                        key={t.id}
-                        onClick={() => void applyTone(t.id)}
+                        key={ton}
+                        onClick={() => void applyTone(ton)}
                         style={{ display: 'block', width: '100%', padding: '7px 10px', borderRadius: 6, textAlign: 'left', fontSize: 13.5 }}
                         onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; }}
                         onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
-                      >{t.label}</button>
+                      >{t(`tone.${ton}` as never)}</button>
                     ))}
                   </motion.div>
                 )}
@@ -580,7 +668,7 @@ function handleSlashCommand(text: string, channelId: string): SlashResult {
     case 'sprache':
       if (arg) {
         store.updatePrefs({ language: normalizeLang(arg) });
-        store.toast({ kind: 'ok', title: 'Sprache geändert', body: t('composer.languageSet', { sprache: languageInfo(arg).native }) });
+        store.toast({ kind: 'ok', title: t('composer.languageChanged'), body: t('composer.languageSet', { sprache: languageInfo(arg).native }) });
       }
       return { handled: true };
     case 'dnd':
@@ -615,10 +703,10 @@ function handleSlashCommand(text: string, channelId: string): SlashResult {
 
 function ScheduleDialog({ onClose, onPick }: { onClose: () => void; onPick: (sendAt: number) => void }) {
   const presets = [
-    { label: 'In 30 Minuten', ms: 30 * 60_000 },
-    { label: 'In 2 Stunden', ms: 2 * 3600_000 },
-    { label: 'Morgen früh, 9:00', ms: msUntilTomorrow(9) },
-    { label: 'Montag, 9:00', ms: msUntilNextMonday(9) },
+    { label: t('schedule.in30'), ms: 30 * 60_000 },
+    { label: t('schedule.in2h'), ms: 2 * 3600_000 },
+    { label: t('schedule.tomorrow9'), ms: msUntilTomorrow(9) },
+    { label: t('schedule.monday9'), ms: msUntilNextMonday(9) },
   ];
   const [custom, setCustom] = useState('');
 
@@ -632,12 +720,12 @@ function ScheduleDialog({ onClose, onPick }: { onClose: () => void; onPick: (sen
       >
         <div className="panel__head">
           <Clock size={18} />
-          <h2>Später senden</h2>
+          <h2>{t('schedule.title')}</h2>
           <button className="icon-btn" style={{ marginLeft: 'auto' }} onClick={onClose}><X size={16} /></button>
         </div>
         <div className="panel__body">
           <p className="muted" style={{ marginTop: 0, fontSize: 13 }}>
-            Praktisch über Zeitzonen hinweg — die Nachricht erreicht die anderen zur Arbeitszeit.
+            {t('schedule.lead')}
           </p>
           <div className="stack gap-2">
             {presets.map((p) => (

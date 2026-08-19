@@ -152,8 +152,8 @@ export function VoiceRecorder({ channelId, parentId, onDone }: Props) {
       )}
       {state === 'fertig' && (
         <>
-          <button className="icon-btn" onClick={onDone} title="Verwerfen"><Trash2 size={16} /></button>
-          <button className="send-btn" onClick={() => void send()} title="Sprachnachricht senden">
+          <button className="icon-btn" onClick={onDone} title={t('voice.discard')}><Trash2 size={16} /></button>
+          <button className="send-btn" onClick={() => void send()} title={t('voice.send')}>
             <Send size={16} />
           </button>
         </>

@@ -2,34 +2,68 @@ import {
   detectLanguage, maskText, normalizeLang, placeholdersIntact,
   translatableLength, unmaskText, type TranslationView,
 } from '@stellium/shared';
-import { config, aiConfigured } from '../config.js';
-import { getSetting, setSetting, SETTING_MODEL_FAST, SETTING_MODEL_QUALITY } from '../services/settings.js';
+import {
+  config, aiConfigured, aktiverAnbieter, istLokal, laufzeitSetzen, lokaleEinstellung, type AiProvider,
+} from '../config.js';
+import {
+  getSetting, setSetting, SETTING_AI_PROVIDER, SETTING_LOCAL_FAST, SETTING_LOCAL_MODEL,
+  SETTING_LOCAL_URL, SETTING_MODEL_FAST, SETTING_MODEL_QUALITY,
+} from '../services/settings.js';
 import { db, reindexMessage } from '../db/index.js';
 import { newId, sha1 } from '../util/id.js';
 import { entschluesseln, verschluesseln } from '../crypto/nachrichten.js';
 import { DeepLProvider } from './providers/deepl.js';
 import { DemoProvider } from './providers/demo.js';
 import { LibreProvider } from './providers/libre.js';
-import { createGroqProvider, createOpenAIProvider, OpenAICompatibleProvider } from './providers/openai-compatible.js';
+import {
+  createGroqProvider, createLokalProvider, createOpenAIProvider, OpenAICompatibleProvider,
+} from './providers/openai-compatible.js';
 import { ProviderError, type AssistantProvider, type TranslationProvider } from './providers/types.js';
 
 /* ── Provider-Auswahl ─────────────────────────────────────────── */
 
 function build(): TranslationProvider {
   if (!aiConfigured()) {
-    console.warn(`[ai] Kein Schlüssel für "${config.ai.provider}" gefunden — Demo-Provider aktiv (keine echte Übersetzung).`);
+    console.warn(`[ai] Kein Schlüssel für "${aktiverAnbieter()}" gefunden — Demo-Provider aktiv (keine echte Übersetzung).`);
     return new DemoProvider();
   }
-  switch (config.ai.provider) {
+  switch (aktiverAnbieter()) {
     case 'groq': return createGroqProvider();
     case 'openai': return createOpenAIProvider();
+    case 'ollama':
+    case 'llamacpp': return createLokalProvider();
     case 'deepl': return new DeepLProvider();
     case 'libre': return new LibreProvider();
     default: return new DemoProvider();
   }
 }
 
-export const provider: TranslationProvider = build();
+let aktiv: TranslationProvider = build();
+
+/**
+ * Der Anbieter lässt sich im Betrieb wechseln.
+ *
+ * Alles im Server greift auf `provider` zu; wäre das eine feste Bindung, wäre
+ * ein Wechsel erst nach einem Neustart sichtbar. Der Stellvertreter hier leitet
+ * jeden Zugriff an den gerade gültigen Anbieter weiter — so bleibt jede
+ * bestehende Verwendung gültig und die Umschaltung wirkt sofort.
+ */
+export const provider: TranslationProvider = new Proxy({} as TranslationProvider, {
+  get(_ziel, name) {
+    const wert = (aktiv as unknown as Record<string | symbol, unknown>)[name];
+    return typeof wert === 'function' ? wert.bind(aktiv) : wert;
+  },
+  // instanceof muss weiter funktionieren — daran hängt, ob der Assistent kann.
+  getPrototypeOf() { return Object.getPrototypeOf(aktiv); },
+  has(_ziel, name) { return name in (aktiv as object); },
+});
+
+/** Nach einer Änderung in den Einstellungen neu aufbauen. */
+export async function providerNeuAufbauen(): Promise<void> {
+  aktiv = build();
+  await warmUpModels();
+  console.log(`[ai] Anbieter gewechselt auf "${aktiv.name}"${aktiv.model ? ` (${aktiv.model})` : ''}.`);
+}
 
 export function assistant(): AssistantProvider | null {
   return provider instanceof OpenAICompatibleProvider ? provider : null;
@@ -53,6 +87,69 @@ export function dropForeignTranslations(): void {
 }
 
 /** Modell-Liste beim Anbieter holen, damit die Auswahl aktuell ist. */
+/**
+ * Die gespeicherte Anbieterwahl übernehmen — beim Start, bevor gebaut wird.
+ *
+ * Ohne diesen Schritt gälte nach jedem Neustart wieder das, was in der
+ * Umgebung steht, und die Einstellung wäre nur bis zum Neustart wirksam.
+ */
+export async function anbieterAusEinstellungen(): Promise<void> {
+  const gewaehlt = getSetting(SETTING_AI_PROVIDER) as AiProvider | null;
+  laufzeitSetzen({
+    anbieter: gewaehlt,
+    baseUrl: getSetting(SETTING_LOCAL_URL) ?? '',
+    model: getSetting(SETTING_LOCAL_MODEL) ?? '',
+    fastModel: getSetting(SETTING_LOCAL_FAST) ?? '',
+  });
+  if (gewaehlt && gewaehlt !== config.ai.provider) await providerNeuAufbauen();
+}
+
+/**
+ * Anbieter umstellen und dauerhaft merken.
+ * Ein leerer Wert heißt: wieder das nehmen, was in der Umgebung steht.
+ */
+export async function anbieterWaehlen(input: {
+  anbieter: AiProvider | null; baseUrl?: string; model?: string; fastModel?: string; userId: string;
+}): Promise<void> {
+  setSetting(SETTING_AI_PROVIDER, input.anbieter, input.userId);
+  if (input.baseUrl !== undefined) setSetting(SETTING_LOCAL_URL, input.baseUrl || null, input.userId);
+  if (input.model !== undefined) setSetting(SETTING_LOCAL_MODEL, input.model || null, input.userId);
+  if (input.fastModel !== undefined) setSetting(SETTING_LOCAL_FAST, input.fastModel || null, input.userId);
+
+  laufzeitSetzen({
+    anbieter: input.anbieter,
+    baseUrl: input.baseUrl ?? '',
+    model: input.model ?? '',
+    fastModel: input.fastModel ?? '',
+  });
+  await providerNeuAufbauen();
+}
+
+/**
+ * Erreichbarkeit eines lokalen Dienstes prüfen, ohne etwas umzustellen.
+ * Damit man in den Einstellungen sieht, ob die Adresse stimmt und welche
+ * Modelle dort geladen sind — vor dem Umschalten, nicht danach.
+ */
+export async function lokalePruefung(baseUrl: string): Promise<{
+  erreichbar: boolean; modelle: string[]; fehler: string | null;
+}> {
+  const adresse = baseUrl.replace(/\/+$/, '');
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 6000);
+  try {
+    const res = await fetch(`${adresse}/models`, { signal: ctrl.signal });
+    if (!res.ok) return { erreichbar: false, modelle: [], fehler: `${res.status} ${res.statusText}` };
+    const body = await res.json() as { data?: { id?: string }[] };
+    const modelle = (body.data ?? []).map((m) => String(m.id ?? '')).filter(Boolean);
+    return { erreichbar: true, modelle, fehler: modelle.length ? null : 'Dort ist kein Modell geladen.' };
+  } catch (err) {
+    const grund = (err as Error).name === 'AbortError' ? 'keine Antwort' : (err as Error).message;
+    return { erreichbar: false, modelle: [], fehler: grund };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export async function warmUpModels(): Promise<void> {
   if (!(provider instanceof OpenAICompatibleProvider)) return;
   await provider.registry.refresh();
@@ -71,12 +168,19 @@ export function chooseModels(quality: string | null, fast: string | null, userId
   modelRegistry()?.applyManualChoice(quality, fast);
 }
 
-/** Kann der Anbieter Sprachnachrichten transkribieren? */
+/**
+ * Kann jemand Sprachnachrichten abtippen?
+ *
+ * Das hängt am Groq-Schlüssel, nicht am gewählten Anbieter: Ollama und
+ * llama.cpp können kein Whisper. Wer auf ein lokales Modell umstellt, soll
+ * deshalb nicht stillschweigend die Sprachnachrichten verlieren — liegt ein
+ * Schlüssel vor, wird weiter darüber transkribiert.
+ */
 export function transcriptionAvailable(): boolean {
-  return provider.name === 'groq' && Boolean(config.ai.groq.apiKey);
+  return Boolean(config.ai.groq.apiKey);
 }
 
-/** Das beste Whisper-Modell, das der Anbieter gerade führt. */
+/** Das beste Whisper-Modell, das Groq gerade führt. */
 export function transcriptionModel(): string | null {
   if (!transcriptionAvailable()) return null;
   const whisper = modelRegistry()?.discovered.filter((m) => /whisper/i.test(m.id)) ?? [];
@@ -103,11 +207,15 @@ export function aiCapabilities() {
     transcriptionModel: transcriptionModel(),
     translation: provider.name !== 'demo',
     assistant: a !== null,
+    lokal: istLokal(),
+    lokaleAdresse: istLokal() ? lokaleEinstellung().baseUrl : null,
     note: provider.name === 'demo'
-      ? 'Kein API-Schlüssel gesetzt. Trage GROQ_API_KEY in die .env ein, um Übersetzung und KI zu aktivieren.'
+      ? 'Kein API-Schlüssel gesetzt. Trage GROQ_API_KEY in die .env ein oder stelle auf ein lokales Modell um.'
       : a === null
-        ? `${provider.name} übersetzt, kann aber keine KI-Zusammenfassungen. Für alle Funktionen AI_PROVIDER=groq setzen.`
-        : null,
+        ? `${provider.name} übersetzt, kann aber keine KI-Zusammenfassungen. Für alle Funktionen Groq, OpenAI oder ein lokales Modell wählen.`
+        : istLokal() && !transcriptionAvailable()
+          ? 'Lokales Modell — Sprachnachrichten lassen sich damit nicht abtippen. Dafür bräuchte es einen Groq-Schlüssel.'
+          : null,
   };
 }
 
