@@ -1,0 +1,2 @@
+Ein Server mit AI_PROVIDER=local behält sein lokales Modell — vorher wäre die KI beim Update still auf den Demo-Anbieter zurückgefallen.
+Adresse und Modell werden auch aus LOCAL_* und AI_* gelesen, nicht nur aus OLLAMA_*.

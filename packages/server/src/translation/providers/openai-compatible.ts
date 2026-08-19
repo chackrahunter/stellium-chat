@@ -216,7 +216,7 @@ export function createGroqProvider(): OpenAICompatibleProvider {
  * abtippen — dafür braucht es Whisper, und das läuft nicht über diesen Weg.
  */
 export function createLokalProvider(): OpenAICompatibleProvider {
-  const name = aktiverAnbieter() === 'llamacpp' ? 'llamacpp' : 'ollama';
+  const name = aktiverAnbieter();
   const { baseUrl, model, fastModel } = lokaleEinstellung();
   const registry = new ModelRegistry({
     name,

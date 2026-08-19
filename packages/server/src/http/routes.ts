@@ -184,7 +184,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const body = req.body as {
       anbieter?: string | null; baseUrl?: string; model?: string; fastModel?: string;
     };
-    const erlaubt = ['groq', 'openai', 'ollama', 'llamacpp', 'deepl', 'libre', 'demo'];
+    const erlaubt = ['groq', 'openai', 'ollama', 'llamacpp', 'local', 'deepl', 'libre', 'demo'];
     const anbieter = body.anbieter ? String(body.anbieter) : null;
     if (anbieter && !erlaubt.includes(anbieter)) {
       return reply.code(400).send({ error: `Unbekannter Anbieter "${anbieter}".` });
@@ -193,9 +193,11 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     // Bei einem lokalen Dienst zuerst nachsehen, ob dort überhaupt etwas
     // antwortet. Sonst stellt man auf einen Anbieter um, der nichts kann,
     // und merkt es erst an der nächsten Nachricht.
-    if (anbieter === 'ollama' || anbieter === 'llamacpp') {
+    if (anbieter === 'ollama' || anbieter === 'llamacpp' || anbieter === 'local') {
       const adresse = (body.baseUrl || '').trim()
-        || (anbieter === 'llamacpp' ? config.ai.llamacpp.baseUrl : config.ai.ollama.baseUrl);
+        || (anbieter === 'llamacpp' ? config.ai.llamacpp.baseUrl
+          : anbieter === 'local' ? (config.ai.lokal.baseUrl || config.ai.ollama.baseUrl)
+            : config.ai.ollama.baseUrl);
       const probe = await lokalePruefung(adresse);
       if (!probe.erreichbar) {
         return reply.code(400).send({ error: `Unter ${adresse} antwortet nichts (${probe.fehler}).` });

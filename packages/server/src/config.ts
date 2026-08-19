@@ -116,7 +116,13 @@ function secret(envName: string, vaultName: string): string {
   return openVault()[vaultName] ?? '';
 }
 
-export type AiProvider = 'groq' | 'openai' | 'ollama' | 'llamacpp' | 'deepl' | 'libre' | 'demo';
+export type AiProvider =
+  | 'groq' | 'openai'
+  /* Modell auf eigener Hardware. "local" ist der ältere Name und bleibt
+     gültig: er steht bereits in Einrichtungen im Betrieb, und ein Update darf
+     eine laufende KI nicht stillschweigend auf den Demo-Anbieter zurückwerfen. */
+  | 'ollama' | 'llamacpp' | 'local'
+  | 'deepl' | 'libre' | 'demo';
 
 /**
  * Welcher Stand hier gerade läuft.
@@ -214,6 +220,18 @@ export const config = {
       model: str('LLAMACPP_MODEL'),
       fastModel: str('LLAMACPP_FAST_MODEL'),
     },
+
+    /**
+     * Allgemeine Namen für ein Modell im eigenen Netz.
+     *
+     * Bestehende Einrichtungen benutzen teils LOCAL_*, teils AI_*. Beides wird
+     * gelesen, damit ein Update keine laufende Installation stilllegt.
+     */
+    lokal: {
+      baseUrl: str('LOCAL_BASE_URL') || str('AI_BASE_URL') || str('LOCAL_URL'),
+      model: str('LOCAL_MODEL') || str('AI_MODEL'),
+      fastModel: str('LOCAL_FAST_MODEL') || str('AI_FAST_MODEL'),
+    },
     memoryCacheSize: int('TRANSLATION_MEMORY_CACHE', 5000),
     requestTimeoutMs: int('AI_TIMEOUT_MS', 25_000),
   },
@@ -228,7 +246,8 @@ export function aiConfigured(): boolean {
     case 'libre': return Boolean(config.ai.libre.baseUrl);
     // Lokal braucht es keinen Schlüssel — nur eine erreichbare Adresse.
     case 'ollama':
-    case 'llamacpp': return Boolean(lokaleEinstellung().baseUrl);
+    case 'llamacpp':
+    case 'local': return Boolean(lokaleEinstellung().baseUrl);
     default: return false;
   }
 }
@@ -242,7 +261,7 @@ export function assistantAvailable(): boolean {
 
 /** Läuft das Modell im eigenen Netz? */
 export function istLokal(anbieter: AiProvider = aktiverAnbieter()): boolean {
-  return anbieter === 'ollama' || anbieter === 'llamacpp';
+  return anbieter === 'ollama' || anbieter === 'llamacpp' || anbieter === 'local';
 }
 
 /**
@@ -270,11 +289,21 @@ export function aktiverAnbieter(): AiProvider {
  * llama.cpp auf 8080.
  */
 export function lokaleEinstellung(): { baseUrl: string; model: string; fastModel: string } {
-  const vorgabe = aktiverAnbieter() === 'llamacpp' ? config.ai.llamacpp : config.ai.ollama;
+  const anbieter = aktiverAnbieter();
+  const vorgabe = anbieter === 'llamacpp' ? config.ai.llamacpp
+    : anbieter === 'local' ? config.ai.lokal
+      : config.ai.ollama;
+
+  /* Unter "local" ist keine Adresse vorgegeben — dort zählt, was eingetragen
+     wurde. Fehlt auch das, greift der übliche Ollama-Port, damit eine
+     halbfertige Einrichtung wenigstens irgendwo anklopft. */
+  const adresse = laufzeit.baseUrl || vorgabe.baseUrl
+    || (anbieter === 'local' ? config.ai.ollama.baseUrl : '');
+
   return {
-    baseUrl: (laufzeit.baseUrl || vorgabe.baseUrl).replace(/\/+$/, ''),
-    model: laufzeit.model || vorgabe.model,
-    fastModel: laufzeit.fastModel || vorgabe.fastModel,
+    baseUrl: adresse.replace(/\/+$/, ''),
+    model: laufzeit.model || vorgabe.model || config.ai.lokal.model,
+    fastModel: laufzeit.fastModel || vorgabe.fastModel || config.ai.lokal.fastModel,
   };
 }
 

@@ -31,7 +31,8 @@ function build(): TranslationProvider {
     case 'groq': return createGroqProvider();
     case 'openai': return createOpenAIProvider();
     case 'ollama':
-    case 'llamacpp': return createLokalProvider();
+    case 'llamacpp':
+    case 'local': return createLokalProvider();
     case 'deepl': return new DeepLProvider();
     case 'libre': return new LibreProvider();
     default: return new DemoProvider();
