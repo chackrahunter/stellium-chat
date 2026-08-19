@@ -633,14 +633,14 @@ a:hover { text-decoration: underline; }
 .thread-link__faces { display: flex; }
 .thread-link__faces > * { margin-inline-end: -6px; box-shadow: 0 0 0 2px var(--bg-deep); }
 
-/* ── Composer ───────────────────────────────────────────────── */
-
 /* Knöpfe, die nur mit dem Finger Sinn ergeben. Wer eine Maus hat, braucht
    keinen Knopf zum Einfahren der Tastatur — dort ist ohnehin keine. */
 .nur-beruehrung { display: none; }
 @media (pointer: coarse) {
   .nur-beruehrung { display: inline-flex; }
 }
+
+/* ── Composer ───────────────────────────────────────────────── */
 
 .composer-wrap {
   flex: 0 0 auto;
@@ -1638,14 +1638,7 @@ button.msg__author:hover { color: var(--violet-soft); text-decoration: underline
   }
 
   .msg { padding-inline-start: var(--sp-4); padding-inline-end: var(--sp-4); }
-  /* Knöpfe, die nur mit dem Finger Sinn ergeben. Wer eine Maus hat, braucht
-   keinen Knopf zum Einfahren der Tastatur — dort ist ohnehin keine. */
-.nur-beruehrung { display: none; }
-@media (pointer: coarse) {
-  .nur-beruehrung { display: inline-flex; }
-}
-
-.composer-wrap { padding-inline-start: var(--sp-4); padding-inline-end: var(--sp-4); }
+  .composer-wrap { padding-inline-start: var(--sp-4); padding-inline-end: var(--sp-4); }
   .header { padding: 0 var(--sp-3); }
   .header__topic { display: none; }
   .att-img { max-width: 100%; }
@@ -1712,14 +1705,7 @@ button.msg__author:hover { color: var(--violet-soft); text-decoration: underline
   /* Nichts darf breiter sein als das Gerät. Eine einzige zu breite Zeile
      zwingt den ganzen Bildschirm ins seitliche Scrollen. */
   html, body, .rahmen, .app { max-width: 100vw; overflow-x: hidden; }
-  .app > *, .main, .stream, .msg, /* Knöpfe, die nur mit dem Finger Sinn ergeben. Wer eine Maus hat, braucht
-   keinen Knopf zum Einfahren der Tastatur — dort ist ohnehin keine. */
-.nur-beruehrung { display: none; }
-@media (pointer: coarse) {
-  .nur-beruehrung { display: inline-flex; }
-}
-
-.composer-wrap { min-width: 0; }
+  .app > *, .main, .stream, .msg, .composer-wrap { min-width: 0; }
 
   /* Zehn Symbole passen auf ein kurzes Telefon nicht untereinander. Statt
      welche zu verstecken darf die Leiste rollen — sonst wären einzelne
@@ -1751,14 +1737,10 @@ button.msg__author:hover { color: var(--violet-soft); text-decoration: underline
   .msg__body { font-size: 15px; }
   .stream { padding-inline-start: 0; padding-inline-end: 0; }
 
-  /* Knöpfe, die nur mit dem Finger Sinn ergeben. Wer eine Maus hat, braucht
-   keinen Knopf zum Einfahren der Tastatur — dort ist ohnehin keine. */
-.nur-beruehrung { display: none; }
-@media (pointer: coarse) {
-  .nur-beruehrung { display: inline-flex; }
-}
-
-.composer-wrap { padding: 0 8px 8px; }
+  /* Enger an den Seiten — unten bleibt der Abstand zur Wischleiste stehen.
+     Vorher setzte diese Zeile ihn zurück, und genau daher kam der schwarze
+     Streifen unter dem Eingabefeld auf dem iPhone. */
+  .composer-wrap { padding: 0 8px calc(8px + var(--sicher-unten)); }
   /* 16 Pixel: darunter zoomt iOS beim Antippen von selbst hinein. */
   .composer__input { font-size: 16px; }
   /* Umgebrochen belegte die Werkzeugleiste drei Zeilen und drückte den
