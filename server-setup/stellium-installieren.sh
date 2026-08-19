@@ -1024,6 +1024,13 @@ HINWEIS
 ls -1t "$ZIEL"/stellium-*.db.gz 2>/dev/null | tail -n +4 | xargs -r rm -f
 SICHERUNG
 chmod 755 /usr/local/bin/stellium-sichern
+
+# Die Konsole läuft unter dem Konto der Person am Gerät und muss die Stände
+# zählen können — sonst behauptet sie "noch keine", obwohl welche da sind.
+# Die Datenbank darin ist verschlüsselt; Lesen genügt und schadet nicht.
+install -d -m 750 -o "$BENUTZER" -g "$BENUTZER" /var/lib/stellium/sicherungen
+chmod g+rx /var/lib/stellium /var/lib/stellium/sicherungen
+[[ -n "${SUDO_USER:-}" ]] && usermod -aG "$BENUTZER" "$SUDO_USER" 2>/dev/null || true
 apt-get install -y -qq sqlite3 >/dev/null
 
 cat > /etc/systemd/system/stellium-sicherung.service <<'DIENST'
