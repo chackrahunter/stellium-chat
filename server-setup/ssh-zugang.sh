@@ -19,8 +19,26 @@ TIMER=/etc/systemd/system/stellium-ssh-port.timer
 command -v natpmpc >/dev/null || { apt-get update -qq && apt-get install -y natpmpc; }
 
 echo "→ SSH-Dienst sicherstellen"
-systemctl enable --now ssh >/dev/null 2>&1 || systemctl enable --now sshd
-ss -ltn | grep -q ":$INNEN " || { echo "FEHLER: auf Port $INNEN lauscht nichts."; exit 1; }
+# Raspberry Pi OS liefert den SSH-Dienst gesperrt aus: die Einheit ist maskiert,
+# bis man ihn ausdrücklich freischaltet. Deshalb reicht "enable --now" allein
+# nicht — erst entsperren, notfalls nachinstallieren.
+dpkg -s openssh-server >/dev/null 2>&1 || { apt-get update -qq; apt-get install -y openssh-server; }
+if command -v raspi-config >/dev/null; then
+  raspi-config nonint do_ssh 0 >/dev/null 2>&1 || true
+fi
+systemctl unmask ssh ssh.socket >/dev/null 2>&1 || true
+systemctl enable --now ssh >/dev/null 2>&1 || systemctl enable --now sshd >/dev/null 2>&1 || true
+# Neuere Debian-Fassungen starten den Dienst erst bei der ersten Verbindung.
+systemctl is-active --quiet ssh || systemctl start ssh.socket >/dev/null 2>&1 || true
+
+lauscht() { ss -ltn 2>/dev/null | grep -qE "[^0-9]$INNEN[[:space:]]"; }
+for _ in 1 2 3 4 5 6 7 8 9 10; do lauscht && break; sleep 1; done
+if ! lauscht; then
+  echo "FEHLER: auf Port $INNEN lauscht nichts. Was der Dienst sagt:"
+  systemctl status ssh --no-pager -l 2>&1 | head -14
+  exit 1
+fi
+echo "  SSH lauscht."
 command -v ufw >/dev/null && ufw allow "$INNEN"/tcp >/dev/null 2>&1 || true
 
 echo "→ alte Zuordnungen aufräumen"
