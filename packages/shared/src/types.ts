@@ -1,6 +1,7 @@
 /** Domänenmodelle — von Server und Desktop-Client geteilt. */
 
 import type { MemberRoleName, PermissionKey } from './permissions.js';
+import type { DateiHuelle } from './vertraulich.js';
 
 export type UserStatus = 'online' | 'away' | 'dnd' | 'offline';
 export type ChannelKind = 'public' | 'private' | 'dm';
@@ -160,6 +161,15 @@ export interface Attachment {
   url: string;                 // relativ zum Server: /files/<id>
   width: number | null;
   height: number | null;
+  /**
+   * Für welchen Kreis der Dateischlüssel verpackt ist — null heißt: offen.
+   *
+   * Die Oberfläche braucht das, bevor sie irgendetwas anzeigt: bei einer
+   * verschlossenen Datei sind `name` und `mime` nur Platzhalter, die echten
+   * stehen im Umschlag der Datei. Ein `<img src>` darauf ergäbe ein kaputtes
+   * Bild — geholt, aufgeschlossen und angezeigt wird sie in der App.
+   */
+  huelle: DateiHuelle | null;
 }
 
 export interface Reaction {
@@ -176,6 +186,14 @@ export interface TranslationView {
   /** 0..1 — Heuristik aus Round-Trip-Ähnlichkeit bzw. Provider-Angabe. */
   confidence: number | null;
   cached: boolean;
+  /**
+   * true heißt: es gibt keine Übersetzung, `text` ist das Original.
+   *
+   * Der Anbieter hat entweder den Eingabetext zurückgegeben oder gar nicht
+   * geantwortet. Die Oberfläche muss das dann als Original ausweisen — ein
+   * „Übersetzt aus …" an unübersetztem Text ist eine Falschauskunft.
+   */
+  unuebersetzt?: boolean;
 }
 
 export interface Message {

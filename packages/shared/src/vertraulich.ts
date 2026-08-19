@@ -24,6 +24,109 @@ export const E2E_PREFIX = 'e1:';
 /** Dasselbe für Dateien. Eigene Kennung, weil das Format ein anderes ist. */
 export const E2E_DATEI_PREFIX = 'd1:';
 
+/* ── Verschlüsselte Dateien ───────────────────────────────────── */
+
+/**
+ * Wem der Schlüssel einer Datei gehört.
+ *
+ * Das ist die Entscheidung, um die sich bei Dateien alles dreht. Der
+ * Dateischlüssel ist **immer Zufall** und wird nie aus dem Inhalt abgeleitet
+ * (siehe `dateiVerschluesseln` in der App). Die Frage ist deshalb nicht,
+ * woraus er entsteht, sondern womit er verschlossen wird — und damit, wer ihn
+ * öffnen kann:
+ *
+ *   `kanal`  Verschlossen mit dem Kanalschlüssel einer bestimmten Fassung.
+ *            Öffnen kann ihn genau der Kreis, der auch die Nachrichten des
+ *            Kanals liest. Für Anhänge in vertraulichen Kanälen.
+ *
+ *   `konto`  Verschlossen mit einem Schlüssel, den nur das eigene
+ *            Schlüsselpaar hergibt. Öffnen kann ihn niemand sonst — auch kein
+ *            anderes Mitglied. Für private Dateien in der Ablage.
+ *
+ * Die Angabe steht offen im Umschlag, weil sie kein Geheimnis ist, sondern
+ * eine Wegbeschreibung: ohne sie wüsste eine App nicht, welchen Schlüssel sie
+ * überhaupt probieren soll. Der Server liest sie mit und nutzt sie, um zu
+ * prüfen, dass ein Anhang wirklich für **diesen** Kanal verschlossen wurde.
+ */
+export type DateiHuelle =
+  | { art: 'kanal'; channelId: string; fassung: number }
+  | { art: 'konto'; userId: string };
+
+/**
+ * Der offene Umschlag einer verschlüsselten Datei.
+ *
+ * Er steht als eine Zeile am Anfang der Datei — `d1:<b64u(JSON)>\n` —, danach
+ * kommen die Stücke. Alles darin ist entweder öffentlich (welche Hülle, wie
+ * groß ein Stück) oder selbst verschlossen (der Dateischlüssel, der Kopf mit
+ * Name und Typ).
+ *
+ * Warum der Umschlag mit in die Datei gehört und nicht in eine Spalte: eine
+ * Datei ohne ihren Umschlag ist ein Haufen Bytes, den niemand mehr öffnen
+ * kann. Läge er in der Datenbank, hinge die Lesbarkeit an einer Zeile, die bei
+ * jedem Umzug, jeder Sicherung und jeder Nachrüstung mitwandern müsste. So
+ * trägt die Datei alles bei sich, was zu ihr gehört — bis auf den einen
+ * Schlüssel, den der Server nie hat.
+ */
+export interface DateiUmschlag {
+  /** Immer "aes-gcm". Steht dabei, damit ein späterer Wechsel des Verfahrens
+   *  alte Dateien nicht unlesbar macht, sondern erkennbar. */
+  alg: 'aes-gcm';
+  /** Stückgröße im Klartext. Der Leser braucht sie nicht, der Mensch schon:
+   *  an ihr sieht man, wie eine Datei zerlegt wurde. */
+  stueck: number;
+  huelle: DateiHuelle;
+  /** Der Dateischlüssel, verschlossen mit der Hülle. */
+  schluesselIv: string;
+  schluessel: string;
+  /** Name, Typ und Größe — verschlossen mit dem Dateischlüssel.
+   *  Sie stehen nicht offen da, weil "Kündigung Meier.pdf" den Inhalt verrät,
+   *  ohne dass jemand die Datei öffnen müsste. */
+  kopfIv: string;
+  kopf: string;
+}
+
+/** DateiUmschlag → "d1:<b64u(JSON)>". Ohne den Zeilenumbruch dahinter. */
+export function umschlagSchreiben(u: DateiUmschlag, b64u: (s: string) => string): string {
+  return `${E2E_DATEI_PREFIX}${b64u(JSON.stringify(u))}`;
+}
+
+/**
+ * Umkehrung — und zugleich die Prüfung, ob hier wirklich ein Umschlag steht.
+ *
+ * Gibt null zurück, sobald irgendetwas nicht stimmt. Das ist der Grund, warum
+ * diese Funktion mehr tut als nur zu parsen: der Server entscheidet an ihrem
+ * Ergebnis, ob eine hochgeladene Datei als verschlüsselt gilt. Eine Zusage,
+ * die sich auf "der Client hat es behauptet" stützt, wäre keine — deshalb wird
+ * am Inhalt selbst nachgesehen, genau wie bei `istE2EChiffrat` für Texte.
+ *
+ * `unb64u` kommt von außen, weil diese Datei auch im Browser läuft und dort
+ * kein Buffer zur Verfügung steht.
+ */
+export function umschlagLesen(
+  zeile: string | null | undefined,
+  unb64u: (s: string) => string,
+): DateiUmschlag | null {
+  if (!zeile || !zeile.startsWith(E2E_DATEI_PREFIX)) return null;
+  try {
+    const roh = JSON.parse(unb64u(zeile.slice(E2E_DATEI_PREFIX.length))) as DateiUmschlag;
+    if (!roh || roh.alg !== 'aes-gcm') return null;
+    if (!Number.isInteger(roh.stueck) || roh.stueck <= 0) return null;
+    if (!roh.schluessel || !roh.schluesselIv || !roh.kopf || !roh.kopfIv) return null;
+    const h = roh.huelle;
+    if (!h) return null;
+    if (h.art === 'kanal') {
+      if (!h.channelId || !Number.isInteger(h.fassung) || h.fassung < 1) return null;
+    } else if (h.art === 'konto') {
+      if (!h.userId) return null;
+    } else {
+      return null;
+    }
+    return roh;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Ist das ein Ende-zu-Ende-Chiffrat?
  *
