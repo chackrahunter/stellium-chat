@@ -9,6 +9,7 @@ als Schloss: wer hier steht, soll sehen können, was aus der Ferne geschieht.
 Läuft auf dem Desktop des Pi, ohne Zusatzpakete außer python3-tk.
 """
 import os
+import json
 import queue
 import subprocess
 import threading
@@ -27,6 +28,9 @@ FARBEN = {
     "leise": "#9aa0bd",
     "gut": "#34d399",
     "warn": "#fbbf24",
+    "zeit": "#5c6384",     # Uhrzeit tritt zurück
+    "strich": "#3a3f5c",   # die senkrechte Linie einer Sitzung
+    "datei": "#60a5fa",
 }
 
 
@@ -179,12 +183,16 @@ class Fenster:
         self.text = tk.Text(
             self.rahmen, bg="#070912", fg=FARBEN["tinte"], font=eng,
             insertbackground=FARBEN["tinte"], relief="flat", padx=10, pady=8,
-            wrap="none", state="disabled",
+            wrap="none", state="disabled", spacing1=1,
         )
         self.text.pack(fill="both", expand=True, padx=1, pady=1)
         self.text.tag_config("befehl", foreground=FARBEN["tinte"])
         self.text.tag_config("beginn", foreground=FARBEN["gut"])
         self.text.tag_config("ende", foreground=FARBEN["warn"])
+        self.text.tag_config("zeit", foreground=FARBEN["zeit"])
+        self.text.tag_config("strich", foreground=FARBEN["strich"])
+        self.text.tag_config("datei", foreground=FARBEN["datei"])
+        self.text.tag_config("leise", foreground=FARBEN["leise"])
 
         self.fuss = tk.Label(
             self.wurzel,
@@ -271,23 +279,33 @@ class Fenster:
             self.journal_lesen()
 
     def journal_lesen(self):
+        """Das Journal als JSON lesen.
+
+        Die Textausgabe von journalctl bricht lange Befehle über mehrere Zeilen
+        um und stellt Rechnernamen davor — beides müsste man wieder auseinander
+        pflücken. Als JSON kommt jede Meldung genau einmal und im Ganzen.
+        """
         while True:
             try:
                 lauf = subprocess.Popen(
-                    ["journalctl", "-t", "stellium-ssh", "-f", "-n", "40",
-                     "-o", "short-iso", "--no-pager"],
+                    ["journalctl", "-t", "stellium-ssh", "-f", "-n", "60",
+                     "-o", "json", "--output-fields=MESSAGE,__REALTIME_TIMESTAMP"],
                     stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True,
                 )
                 for zeile in lauf.stdout:
-                    # Der Zeitstempel darf bleiben, der Rechnername nicht —
-                    # er steht auf jeder Zeile und sagt nichts Neues.
-                    teile = zeile.rstrip("\n").split(" ", 2)
-                    if len(teile) == 3 and "stellium-ssh" in teile[2]:
-                        rest = teile[2].split(": ", 1)
-                        text = rest[1] if len(rest) == 2 else teile[2]
-                        self.warteschlange.put(f"{teile[0][11:19]}  {text}")
-                    else:
-                        self.warteschlange.put(zeile.rstrip("\n"))
+                    try:
+                        satz = json.loads(zeile)
+                    except ValueError:
+                        continue
+                    text = satz.get("MESSAGE") or ""
+                    if isinstance(text, list):        # Journal darf Bytes liefern
+                        text = bytes(text).decode("utf-8", "replace")
+                    roh = satz.get("__REALTIME_TIMESTAMP") or "0"
+                    try:
+                        uhr = time.strftime("%H:%M:%S", time.localtime(int(roh) / 1e6))
+                    except ValueError:
+                        uhr = "        "
+                    self.warteschlange.put((uhr, text))
             except FileNotFoundError:
                 return                      # kein journalctl — dann eben nichts
             except Exception:
@@ -302,7 +320,7 @@ class Fenster:
                     while True:
                         zeile = f.readline()
                         if zeile:
-                            self.warteschlange.put(zeile.rstrip("\n"))
+                            self.warteschlange.put(("", zeile.rstrip("\n")))
                         else:
                             time.sleep(0.4)
                             if not os.path.exists(LOG):
@@ -314,20 +332,57 @@ class Fenster:
 
     def abarbeiten(self):
         while not self.warteschlange.empty():
-            zeile = self.warteschlange.get()
-            marke = "befehl"
-            if " öffnet " in zeile or "ÖFFNET" in zeile:
-                marke = "beginn"
-            elif " schließt " in zeile or "SCHLIESST" in zeile:
-                marke = "ende"
-            self.text.config(state="normal")
-            self.text.insert("end", zeile + "\n", marke)
-            # Nicht endlos wachsen lassen.
-            if int(self.text.index("end-1c").split(".")[0]) > ZEILEN:
-                self.text.delete("1.0", "2.0")
-            self.text.see("end")
-            self.text.config(state="disabled")
+            uhr, text = self.warteschlange.get()
+            self.zeigen(uhr, text)
         self.wurzel.after(300, self.abarbeiten)
+
+    def schreiben(self, stuecke):
+        """Eine Zeile aus mehreren gefärbten Stücken setzen."""
+        self.text.config(state="normal")
+        for inhalt, marke in stuecke:
+            self.text.insert("end", inhalt, marke)
+        self.text.insert("end", "\n")
+        # Nicht endlos wachsen lassen.
+        if int(self.text.index("end-1c").split(".")[0]) > ZEILEN:
+            self.text.delete("1.0", "2.0")
+        self.text.see("end")
+        self.text.config(state="disabled")
+
+    def zeigen(self, uhr, text):
+        """Eine Meldung einordnen und passend setzen.
+
+        Der Aufbau folgt dem Verlauf einer Sitzung: sie beginnt, es geschieht
+        etwas, sie endet. Die senkrechte Linie hält zusammen, was dazugehört —
+        so sieht man auf einen Blick, welche Befehle zu welchem Besuch gehören.
+        """
+        zeit = (uhr + "  ") if uhr else ""
+        if text.startswith("ÖFFNET"):
+            wer = text[6:].strip()
+            self.schreiben([(zeit, "zeit"), ("┌ ", "strich"), ("Verbindung geöffnet", "beginn"),
+                            (f"  ·  {wer}" if wer else "", "leise")])
+            self.offen = True
+            self.zaehler = 0
+        elif text.startswith("SCHLIESST"):
+            anzahl = getattr(self, "zaehler", 0)
+            hinweis = (f"  ·  {anzahl} Befehl" + ("e" if anzahl != 1 else "")) if anzahl else ""
+            self.schreiben([(zeit, "zeit"), ("└ ", "strich"), ("Verbindung beendet", "ende"),
+                            (hinweis, "leise")])
+            self.offen = False
+            self.schreiben([("", "leise")])
+        elif text.startswith("DATEIEN"):
+            self.schreiben([(zeit, "zeit"), ("│ ", "strich"), ("Dateiübertragung", "datei"),
+                            (f"  ·  {text[7:].strip()}", "leise")])
+        else:
+            self.zaehler = getattr(self, "zaehler", 0) + 1
+            zeilen = [z for z in text.splitlines() if z.strip()]
+            if not zeilen:
+                return
+            balken = "│ " if getattr(self, "offen", False) else "  "
+            self.schreiben([(zeit, "zeit"), (balken, "strich"), (zeilen[0].strip(), "befehl")])
+            # Mehrzeiliges eingerückt darunter, damit es zusammenhängend bleibt.
+            for weiter in zeilen[1:]:
+                self.schreiben([(" " * len(zeit), "zeit"), (balken, "strich"),
+                                ("  " + weiter.strip(), "leise")])
 
 
 if __name__ == "__main__":
