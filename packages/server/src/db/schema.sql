@@ -474,3 +474,26 @@ CREATE TABLE IF NOT EXISTS channel_translations (
   created_at  INTEGER NOT NULL,
   PRIMARY KEY (channel_id, lang)
 );
+
+/* Blockspeicher: derselbe Inhalt wird nur einmal abgelegt.
+   `groesse` ist die Länge des Blocks, `belegt` was er nach dem Packen auf der
+   Platte kostet, `verweise` wie viele Dateien ihn benutzen. */
+CREATE TABLE IF NOT EXISTS bloecke (
+  summe       TEXT PRIMARY KEY,
+  groesse     INTEGER NOT NULL,
+  belegt      INTEGER NOT NULL,
+  verfahren   TEXT,
+  verweise    INTEGER NOT NULL DEFAULT 0,
+  erstellt_am INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_bloecke_verweise ON bloecke(verweise);
+
+/* Welche Blöcke eine Datei ausmachen, in der richtigen Reihenfolge. */
+CREATE TABLE IF NOT EXISTS datei_bloecke (
+  datei_id  TEXT NOT NULL,
+  art       TEXT NOT NULL,      -- 'file' oder 'attachment'
+  nummer    INTEGER NOT NULL,
+  summe     TEXT NOT NULL,
+  PRIMARY KEY (art, datei_id, nummer)
+);
+CREATE INDEX IF NOT EXISTS idx_datei_bloecke_summe ON datei_bloecke(summe);

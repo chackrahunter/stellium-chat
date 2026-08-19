@@ -24,10 +24,19 @@ function transcript(rows: TranscriptRow[]): string {
   }).join('\n');
 }
 
-function fetchMessages(channelId: string, sinceMessageId: string | null, limit: number): TranscriptRow[] {
+function fetchMessages(
+  channelId: string,
+  sinceMessageId: string | null,
+  limit: number,
+  ohneUserId?: string | null,
+): TranscriptRow[] {
   const params: any[] = [channelId];
   let where = 'm.channel_id = ? AND m.deleted_at IS NULL AND m.system_kind IS NULL';
   if (sinceMessageId) { where += ' AND m.id > ?'; params.push(sinceMessageId); }
+  /* Die eigenen Nachrichten gehören nicht in "Was habe ich verpasst?" — man
+     hat sie ja selbst geschrieben. Sie stehen dort nur im Weg und verdrängen
+     das, worum es geht: was die anderen inzwischen gesagt haben. */
+  if (ohneUserId) { where += ' AND m.user_id <> ?'; params.push(ohneUserId); }
   return db.all<TranscriptRow>(
     `SELECT m.id, m.user_id, m.text, m.created_at, m.parent_id, u.handle, u.display_name
      FROM messages m JOIN users u ON u.id = m.user_id
@@ -41,11 +50,13 @@ function fetchMessages(channelId: string, sinceMessageId: string | null, limit: 
 
 export async function catchUp(input: {
   channelId: string; sinceMessageId: string | null; language: string; channelName: string;
+  /** Wessen eigene Nachrichten übersprungen werden. */
+  fuerUserId?: string | null;
 }): Promise<AiSummary> {
   const ai = assistant();
   if (!ai) throw new AiUnavailable();
 
-  const rows = fetchMessages(input.channelId, input.sinceMessageId, 300);
+  const rows = fetchMessages(input.channelId, input.sinceMessageId, 300, input.fuerUserId ?? null);
   const lang = languageInfo(input.language);
 
   if (rows.length === 0) {

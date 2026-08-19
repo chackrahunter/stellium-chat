@@ -23,6 +23,7 @@ import * as releases from '../services/releases.js';
 import { downloadSeite, systemErkennen } from './download/seite.js';
 
 import { broadcastAll, sitzungenBeenden } from '../ws/gateway.js';
+import * as ablage from '../services/ablage.js';
 
 function bearer(req: FastifyRequest): string | null {
   const header = req.headers.authorization;
@@ -605,6 +606,11 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       dims?.width ?? null, dims?.height ?? null, summe, Date.now(),
     );
 
+    /* Ab in den Blockspeicher. Das läuft bewusst nach dem Eintragen: die
+       Datei ist ab sofort benutzbar, und wenn die Übernahme scheitert, liegt
+       sie weiterhin ganz normal auf der Platte. */
+    ablage.uebernehmen({ id, art: 'attachment', pfad: target, mime: file.mimetype || '' });
+
     return {
       attachment: {
         id, messageId: null, name: safeName, mime: file.mimetype, size,
@@ -955,7 +961,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const userId = requireLeser(req);
     const { id } = req.params as { id: string };
     const datei = files.getFile(id);
-    if (!datei || !fs.existsSync(datei.path)) return reply.code(404).send({ error: 'Datei nicht gefunden' });
+    if (!datei) return reply.code(404).send({ error: 'Datei nicht gefunden' });
 
     // Hängt die Datei an einem Kanal, gilt dessen Mitgliederkreis. Sonst
     // käme jeder mit der Kennung an Anhänge aus fremden Kanälen.
@@ -966,7 +972,12 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const inline = /^(image|video|audio)\//.test(datei.mime) || datei.mime === 'application/pdf';
     reply.header('content-type', datei.mime);
     reply.header('content-disposition', `${inline ? 'inline' : 'attachment'}; filename*=UTF-8''${encodeURIComponent(datei.name)}`);
-    return reply.send(fs.createReadStream(datei.path));
+
+    const strom = ablage.oeffnen({
+      id: datei.id, art: 'file', pfad: datei.path, encoding: datei.encoding,
+    });
+    if (!strom) return reply.code(404).send({ error: 'Datei nicht gefunden' });
+    return reply.send(strom);
   });
 
   /**
@@ -982,10 +993,13 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     if (!leser) return reply.code(401).send({ error: 'Nicht angemeldet' });
 
     const { id } = req.params as { id: string };
-    const row = db.get<{ path: string; mime: string; name: string; message_id: string | null; uploader_id: string }>(
-      'SELECT path, mime, name, message_id, uploader_id FROM attachments WHERE id = ?', id,
+    const row = db.get<{
+      path: string; mime: string; name: string; message_id: string | null;
+      uploader_id: string; encoding: string | null;
+    }>(
+      'SELECT path, mime, name, message_id, uploader_id, encoding FROM attachments WHERE id = ?', id,
     );
-    if (!row || !fs.existsSync(row.path)) return reply.code(404).send({ error: 'Datei nicht gefunden' });
+    if (!row) return reply.code(404).send({ error: 'Datei nicht gefunden' });
 
     if (row.message_id) {
       const msg = db.get<{ channel_id: string }>(
@@ -1005,7 +1019,10 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     reply.header('content-type', row.mime);
     reply.header('content-disposition', `${inline ? 'inline' : 'attachment'}; filename*=UTF-8''${encodeURIComponent(row.name)}`);
     reply.header('cache-control', 'private, max-age=31536000, immutable');
-    return reply.send(fs.createReadStream(row.path));
+
+    const strom = ablage.oeffnen({ id, art: 'attachment', pfad: row.path, encoding: row.encoding });
+    if (!strom) return reply.code(404).send({ error: 'Datei nicht gefunden' });
+    return reply.send(strom);
   });
 }
 

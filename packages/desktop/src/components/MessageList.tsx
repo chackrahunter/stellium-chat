@@ -40,6 +40,7 @@ export function MessageList({ channelId }: Props) {
   const mehrImSpeicher = alle.length > messages.length;
   const hasMore = useStore((s) => s.hasMore[channelId] ?? false);
   const readMarker = useStore((s) => s.readMarkers[channelId] ?? null);
+  const selfId = useStore((s) => s.self?.id ?? null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const stickToBottom = useRef(true);
@@ -152,7 +153,11 @@ export function MessageList({ channelId }: Props) {
       {messages.map((msg, i) => {
         const prev = messages[i - 1];
         const showDay = !prev || !sameDay(prev.createdAt, msg.createdAt);
-        const showUnread = readMarker != null && prev?.id === readMarker;
+        /* Die eigene Nachricht ist für einen selbst nie neu. Vorher zog der
+           Strich „NEU" auch unter das, was man gerade eben getippt hatte —
+           der Lesestand rückt erst nach, wenn der Server ihn bestätigt. */
+        const showUnread = readMarker != null && prev?.id === readMarker
+          && msg.userId !== selfId;
         const grouped = Boolean(
           prev && !showDay && !showUnread &&
           prev.userId === msg.userId &&

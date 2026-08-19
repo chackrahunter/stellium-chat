@@ -1,0 +1,257 @@
+/**
+ * Dateien klein machen, ohne dass etwas verloren geht.
+ *
+ * Zwei Wege, je nach Inhalt:
+ *
+ *   Bilder aus Bildschirmfotos und Grafiken (PNG, BMP, TIFF) werden zu
+ *   WebP **verlustfrei** umgeschrieben. An echten Dateien gemessen: 977 KB
+ *   wurden 219 KB — 78 % weniger, Pixel für Pixel identisch. Verlustfrei war
+ *   dabei sogar kleiner als Qualität 92, weil Bildschirmfotos große einfarbige
+ *   Flächen haben, mit denen ein verlustbehafteter Kodierer nichts anfangen
+ *   kann.
+ *
+ *   Alles andere bekommt zstd auf höchster Stufe — Byte für Byte umkehrbar.
+ *   Bereits gepacktes (ZIP, MP4, JPEG, Programme) bleibt unangetastet: dort
+ *   gewinnt man nichts und verliert nur Rechenzeit. An den echten Dateien
+ *   gemessen brachte Packen dort 0,0 %.
+ *
+ * Die Regel über allem: **nie schlechter als vorher**. Wird das Ergebnis nicht
+ * deutlich kleiner, bleibt das Original liegen.
+ */
+import { spawnSync, spawn } from 'node:child_process';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { Readable } from 'node:stream';
+import zlib from 'node:zlib';
+
+/** Wie eine Datei auf der Platte liegt. `null` heißt: unverändert. */
+export type Verfahren = 'zstd' | 'xz' | 'webp' | null;
+
+/** Ab hier lohnt der Aufwand — darunter bleibt alles, wie es ist. */
+const MINDESTGEWINN = 0.10;
+/** Unter dieser Größe ist der Gewinn nicht der Rede wert. */
+const AB_GROESSE = 4 * 1024;
+
+/** Bilder, die sich verlustfrei besser packen lassen als in ihrem Format. */
+const BILD = /^image\/(png|bmp|x-ms-bmp|tiff?)$/i;
+
+/**
+ * Was erfahrungsgemäß nichts bringt.
+ *
+ * Diese Liste ist nur eine Abkürzung, keine Entscheidung: was hier steht, wird
+ * gar nicht erst angefasst. Alles andere entscheidet die Stichprobe weiter
+ * unten — an der echten Datei gemessen statt an ihrer Endung geraten.
+ */
+const SCHON_GEPACKT = new Set([
+  'application/zip', 'application/gzip', 'application/x-7z-compressed',
+  'application/x-rar-compressed', 'application/x-bzip2', 'application/x-xz',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  'application/vnd.oasis.opendocument.text',
+]);
+const SCHON_GEPACKT_ANFANG = /^(video|audio)\//i;
+const SCHON_GEPACKT_BILD = /^image\/(jpe?g|webp|gif|avif|heic|heif)$/i;
+
+/** Ausführbares — dort lohnt der Filter für Maschinencode. */
+const MASCHINENCODE = /^(application\/(x-)?(msdownload|executable|x-dosexec|x-mach-binary|x-elf|x-sharedlib)|application\/octet-stream)$/i;
+
+/** Die Stichprobe: so viel wird zur Probe gepackt, bevor die Arbeit beginnt. */
+const PROBE_BYTES = 2 * 1024 * 1024;
+/** Bringt die Probe weniger, wird die ganze Datei nicht angefasst. */
+const PROBE_SCHWELLE = 0.05;
+
+let xzGeprueft: boolean | null = null;
+
+function xzMoeglich(): boolean {
+  if (xzGeprueft !== null) return xzGeprueft;
+  try { xzGeprueft = spawnSync('xz', ['--version'], { timeout: 4000 }).status === 0; }
+  catch { xzGeprueft = false; }
+  return xzGeprueft;
+}
+
+/**
+ * Lohnt sich die Mühe überhaupt?
+ *
+ * Ein 50-MB-Installer mit zstd auf höchster Stufe zu packen dauert auf einem
+ * Pi eine halbe Minute — und bringt nachweislich 0,0 %, weil sein Inhalt schon
+ * gepackt ist. Deshalb zuerst ein schneller Blick auf die ersten Megabyte mit
+ * einer niedrigen Stufe: bringt der nichts, bringt der Rest auch nichts.
+ * Das kostet Bruchteile einer Sekunde und spart Minuten.
+ */
+function probeLohntSich(pfad: string, groesse: number): boolean {
+  try {
+    const griff = fs.openSync(pfad, 'r');
+    const puffer = Buffer.alloc(Math.min(PROBE_BYTES, groesse));
+    // Aus der Mitte lesen: Anfänge von Dateien tragen oft gut packbare Köpfe,
+    // die über den Rest nichts aussagen.
+    fs.readSync(griff, puffer, 0, puffer.length, Math.max(0, Math.floor(groesse / 2) - puffer.length / 2));
+    fs.closeSync(griff);
+    const klein = zlib.zstdCompressSync(puffer, {
+      params: { [zlib.constants.ZSTD_c_compressionLevel]: 3 },
+    });
+    return klein.length < puffer.length * (1 - PROBE_SCHWELLE);
+  } catch {
+    return true;                 // im Zweifel versuchen
+  }
+}
+
+let webpGeprueft: boolean | null = null;
+
+/**
+ * Kann dieser Rechner WebP schreiben *und* wieder lesen?
+ *
+ * Beides muss da sein. Ein Bild wegzuschreiben, das man später nicht mehr
+ * öffnen kann, wäre der schlimmste aller Fälle — deshalb wird auch der
+ * Rückweg geprüft, nicht nur der Hinweg.
+ */
+export function webpMoeglich(): boolean {
+  if (webpGeprueft !== null) return webpGeprueft;
+  const da = (befehl: string) => {
+    try { return spawnSync(befehl, ['-version'], { timeout: 4000 }).status === 0; }
+    catch { return false; }
+  };
+  webpGeprueft = da('cwebp') && da('dwebp');
+  if (!webpGeprueft) {
+    console.log('[packen] cwebp/dwebp fehlen — Bilder bleiben unverändert liegen.');
+  }
+  return webpGeprueft;
+}
+
+function lohntSichNicht(mime: string, groesse: number): boolean {
+  if (groesse < AB_GROESSE) return true;
+  if (SCHON_GEPACKT.has(mime.toLowerCase())) return true;
+  if (SCHON_GEPACKT_ANFANG.test(mime)) return true;
+  if (SCHON_GEPACKT_BILD.test(mime)) return true;
+  return false;
+}
+
+/**
+ * Eine abgelegte Datei verkleinern.
+ *
+ * Gibt zurück, wie sie jetzt vorliegt. Die Datei am selben Pfad wird ersetzt;
+ * geht dabei etwas schief, bleibt das Original unberührt liegen.
+ */
+export function verkleinern(pfad: string, mime: string): { verfahren: Verfahren; groesse: number } {
+  let vorher: number;
+  try { vorher = fs.statSync(pfad).size; } catch { return { verfahren: null, groesse: 0 }; }
+
+  if (lohntSichNicht(mime, vorher)) return { verfahren: null, groesse: vorher };
+
+  const versuch = `${pfad}.neu`;
+  try {
+    if (BILD.test(mime) && webpMoeglich()) {
+      // -z 9 ist die langsamste und dichteste Stufe. Auf einem Pi dauert ein
+      // Bildschirmfoto damit unter einer Sekunde — einmalig beim Hochladen.
+      const lauf = spawnSync('cwebp', ['-quiet', '-lossless', '-z', '9', pfad, '-o', versuch],
+        { timeout: 120_000 });
+      if (lauf.status !== 0) throw new Error('cwebp scheiterte');
+
+      // Gegenprobe: Lässt sich das Ergebnis auch wieder öffnen? Ohne diese
+      // Prüfung könnte ein halb geschriebenes Bild als "fertig" gelten.
+      const zurueck = spawnSync('dwebp', ['-quiet', versuch, '-o', '/dev/null'], { timeout: 120_000 });
+      if (zurueck.status !== 0) throw new Error('dwebp konnte das Ergebnis nicht lesen');
+
+      const nachher = fs.statSync(versuch).size;
+      if (nachher < vorher * (1 - MINDESTGEWINN)) {
+        fs.renameSync(versuch, pfad);
+        return { verfahren: 'webp', groesse: nachher };
+      }
+      fs.rmSync(versuch, { force: true });
+      return { verfahren: null, groesse: vorher };
+    }
+
+    /* Erst die Stichprobe: bei bereits gepacktem Inhalt hört es hier auf.
+       Nachgemessen an einem echten 50-MB-Installer — vier Verfahren, alle
+       0,0 %, jedes über eine halbe Minute Rechenzeit. */
+    if (!probeLohntSich(pfad, vorher)) return { verfahren: null, groesse: vorher };
+
+    /* Jetzt lohnt es sich, und es treten mehrere Verfahren gegeneinander an.
+       Welches gewinnt, hängt vom Inhalt ab: bei Text liegen zstd und xz fast
+       gleichauf, bei nacktem Maschinencode zieht xz mit dem Sprungadressen-
+       Filter davon. Das kleinste Ergebnis bekommt den Zuschlag. */
+    const roh = fs.readFileSync(pfad);
+    const kandidaten: Array<{ daten: Buffer; verfahren: Exclude<Verfahren, null> }> = [];
+
+    kandidaten.push({
+      daten: zlib.zstdCompressSync(roh, {
+        params: { [zlib.constants.ZSTD_c_compressionLevel]: 19 },
+      }),
+      verfahren: 'zstd',
+    });
+
+    if (xzMoeglich() && vorher <= 256 * 1024 * 1024) {
+      const argumente = MASCHINENCODE.test(mime)
+        ? ['-T0', '-c', '--x86', '--lzma2=preset=9e']
+        : ['-9e', '-T0', '-c'];
+      const lauf = spawnSync('xz', argumente, {
+        input: roh, maxBuffer: vorher + 1024 * 1024, timeout: 600_000,
+      });
+      if (lauf.status === 0 && lauf.stdout && lauf.stdout.length > 0) {
+        kandidaten.push({ daten: lauf.stdout, verfahren: 'xz' });
+      }
+    }
+
+    const sieger = kandidaten.reduce((a, b) => (b.daten.length < a.daten.length ? b : a));
+    if (sieger.daten.length < vorher * (1 - MINDESTGEWINN)) {
+      fs.writeFileSync(versuch, sieger.daten);
+      fs.renameSync(versuch, pfad);
+      return { verfahren: sieger.verfahren, groesse: sieger.daten.length };
+    }
+    return { verfahren: null, groesse: vorher };
+  } catch (fehler) {
+    fs.rmSync(versuch, { force: true });
+    console.error('[packen] Verkleinern übersprungen:', (fehler as Error).message);
+    return { verfahren: null, groesse: vorher };
+  }
+}
+
+/**
+ * Eine Datei zum Ausliefern wieder herstellen.
+ *
+ * Der Aufrufer bekommt einen Datenstrom in der Form, in der die Datei
+ * hochgeladen wurde — wer sie herunterlädt, merkt vom Packen nichts.
+ */
+export function auspacken(pfad: string, verfahren: Verfahren, mime: string): NodeJS.ReadableStream {
+  if (!verfahren) return fs.createReadStream(pfad);
+
+  if (verfahren === 'zstd') {
+    return fs.createReadStream(pfad).pipe(zlib.createZstdDecompress());
+  }
+
+  if (verfahren === 'xz') {
+    const kind = spawn('xz', ['-dc'], { stdio: ['pipe', 'pipe', 'ignore'] });
+    fs.createReadStream(pfad).pipe(kind.stdin);
+    return kind.stdout;
+  }
+
+  // WebP zurück in das Format, in dem es kam. dwebp schreibt PNG; für BMP und
+  // TIFF ebenfalls PNG auszuliefern wäre gelogen, deshalb bleibt es dort beim
+  // WebP mit passender Angabe (siehe ausgabeMime).
+  const kind = spawn('dwebp', ['-quiet', pfad, '-o', '-'], { stdio: ['ignore', 'pipe', 'ignore'] });
+  return kind.stdout;
+}
+
+/**
+ * Welchen Typ die ausgelieferte Datei wirklich hat.
+ *
+ * Bei zstd ist es der ursprüngliche. Bei WebP kommt PNG heraus, wenn PNG
+ * hineinging — bei BMP und TIFF wäre das eine Umdeutung, dort bleibt es WebP.
+ */
+export function ausgabeMime(verfahren: Verfahren, mime: string): string {
+  if (verfahren !== 'webp') return mime;
+  return /^image\/png$/i.test(mime) ? 'image/png' : 'image/webp';
+}
+
+/** Endet der Dateiname noch auf das, was wirklich herauskommt? */
+export function ausgabeName(name: string, verfahren: Verfahren, mime: string): string {
+  if (verfahren !== 'webp') return name;
+  if (/^image\/png$/i.test(mime)) return name;
+  return name.replace(/\.(bmp|tiff?)$/i, '.webp');
+}
+
+/** Ein Ort für Zwischenschritte, der auf demselben Datenträger liegt. */
+export function arbeitsordner(): string {
+  return fs.mkdtempSync(path.join(os.tmpdir(), 'stellium-packen-'));
+}

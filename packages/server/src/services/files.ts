@@ -3,6 +3,7 @@ import path from 'node:path';
 import type { StorageUsage, StoredFile } from '@stellium/shared';
 import { db } from '../db/index.js';
 import { config } from '../config.js';
+import * as ablage from './ablage.js';
 
 /**
  * Dateiablage, unabhängig von Nachrichten.
@@ -46,9 +47,9 @@ export function listFiles(filter: { channelId?: string | null; folder?: string }
   ).map(toFile);
 }
 
-export function getFile(id: string): (StoredFile & { path: string }) | null {
+export function getFile(id: string): (StoredFile & { path: string; encoding: string | null }) | null {
   const r = db.get<any>('SELECT * FROM files WHERE id = ?', id);
-  return r ? { ...toFile(r), path: r.path } : null;
+  return r ? { ...toFile(r), path: r.path, encoding: r.encoding ?? null } : null;
 }
 
 /* Was auf der Platte frei bleiben muss, egal was das Kontingent sagt. Läuft
@@ -79,8 +80,13 @@ function platzGrenze(belegt: number): number {
 }
 
 export function usage(): StorageUsage {
-  const r = db.get<{ n: number; s: number | null }>('SELECT COUNT(*) n, SUM(size) s FROM files');
-  const anhaenge = db.get<{ s: number | null }>('SELECT SUM(size) s FROM attachments');
+  /* Gezählt wird, was auf der Platte liegt — nicht, was hochgeladen wurde.
+     Eine Datei, die gepackt ein Fünftel belegt, soll das Kontingent auch nur
+     zu einem Fünftel beanspruchen; genau dafür wurde gepackt. */
+  const r = db.get<{ n: number; s: number | null }>(
+    'SELECT COUNT(*) n, SUM(COALESCE(stored_size, size)) s FROM files');
+  const anhaenge = db.get<{ s: number | null }>(
+    'SELECT SUM(COALESCE(stored_size, size)) s FROM attachments');
   const used = (r?.s ?? 0) + (anhaenge?.s ?? 0);
   return {
     used,
@@ -105,6 +111,12 @@ export function addFile(input: {
     normalisierterOrdner(input.folder ?? ''), input.channelId ?? null,
     input.description?.trim() || null, input.uploadedBy, jetzt, jetzt,
   );
+
+  /* In den Blockspeicher übernehmen. Läuft nach dem Eintragen: die Datei ist
+     sofort benutzbar, und scheitert die Übernahme, bleibt sie schlicht als
+     ganze Datei liegen — niemand merkt etwas außer der Belegung. */
+  ablage.uebernehmen({ id: input.id, art: 'file', pfad: input.storedPath, mime: input.mime });
+
   return getFile(input.id)!;
 }
 
@@ -130,6 +142,8 @@ export function updateFile(id: string, patch: { name?: string; description?: str
 export function deleteFile(id: string): void {
   const datei = getFile(id);
   if (!datei) return;
+  // Zuerst die Blöcke freigeben, solange die Verweise noch stehen.
+  ablage.loeschen(id, 'file');
   db.run('DELETE FROM files WHERE id = ?', id);
   // Erst der Eintrag, dann die Datei: bricht das Löschen ab, ist höchstens
   // eine verwaiste Datei übrig — nie ein Eintrag ohne Inhalt.

@@ -89,6 +89,8 @@ export async function probeserver({ mitSchluessel = false } = {}) {
     passwort: PASSWORT,
     kopf: { 'content-type': 'application/json', authorization: `Bearer ${angemeldet.token}` },
     ausgabe: () => ausgabe,
+    /** Wo die Datenbank liegt — für Prüfungen, die hineinsehen müssen. */
+    datenbank: `${daten}/stellium.db`,
     stop() {
       try { kind.kill(); } catch { /* schon weg */ }
       fs.rmSync(ordner, { recursive: true, force: true });

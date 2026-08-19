@@ -771,6 +771,7 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
         sinceMessageId: ev.sinceMessageId ?? state?.lastReadMessageId ?? null,
         language: session.language,
         channelName: channels.channelLabel(ch, userId, (id) => store.getUser(id)?.displayName ?? 'Unbekannt'),
+        fuerUserId: userId,
       });
       send(session, { t: 'ai:catchup', requestId: ev.requestId, summary });
       return;

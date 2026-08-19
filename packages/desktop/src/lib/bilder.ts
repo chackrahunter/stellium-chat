@@ -13,7 +13,11 @@
  */
 
 const GEEIGNET = /^image\/(jpe?g|png|webp)$/i;
-const AB_GROESSE = 1_500_000;   // darunter lohnt es nicht
+/* Ab wann verkleinert wird. Früher lagen hier 1,5 MB — dadurch gingen genau
+   die Dateien unangetastet durch, bei denen am meisten zu holen ist:
+   Bildschirmfotos wiegen meist 200–900 KB und schrumpfen als WebP um rund
+   drei Viertel. Unter 150 KB lohnt der Aufwand dann wirklich nicht mehr. */
+const AB_GROESSE = 150_000;
 const MAX_KANTE = 2560;
 const QUALITAET = 0.82;
 

@@ -20,6 +20,13 @@ const COLUMNS: { table: string; column: string; definition: string }[] = [
   { table: 'users', column: 'deleted_at',           definition: 'INTEGER' },
   // Prüfsumme des Inhalts: damit muss dieselbe Datei nur einmal übertragen werden.
   { table: 'attachments', column: 'sha256',        definition: 'TEXT' },
+  /* Wie die Datei auf der Platte liegt und wie viel Platz sie dort belegt.
+     `size` bleibt die Größe, die der Mensch hochgeladen hat und wiederbekommt —
+     `stored_size` ist, was das Kontingent wirklich kostet. */
+  { table: 'attachments', column: 'encoding',      definition: 'TEXT' },
+  { table: 'attachments', column: 'stored_size',   definition: 'INTEGER' },
+  { table: 'files',       column: 'encoding',      definition: 'TEXT' },
+  { table: 'files',       column: 'stored_size',   definition: 'INTEGER' },
   // Schublade in der Verwaltung; leer heißt "von selbst einsortieren".
   { table: 'users', column: 'kategorie',            definition: 'TEXT' },
   { table: 'users', column: 'ui_language',          definition: "TEXT" },
