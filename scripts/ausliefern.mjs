@@ -91,11 +91,12 @@ if (!notizen) {
     const marke = () => {
       try { return lauf('git', ['describe', '--tags', '--abbrev=0']).trim(); } catch { return ''; }
     };
+    /* Immer erst holen: die Marken entstehen beim Veröffentlichen auf GitHub.
+       Wer sie nur beim ersten Fehlversuch nachlädt, bekommt beim nächsten Mal
+       eine Liste, die bis zur vorletzten Fassung zurückreicht — und damit
+       Punkte doppelt, die längst draußen sind. */
+    try { lauf('git', ['fetch', '--tags', '--quiet']); } catch { /* ohne Netz eben nicht */ }
     let letzterStand = marke();
-    if (!letzterStand) {
-      try { lauf('git', ['fetch', '--tags', '--quiet']); } catch { /* ohne Netz eben nicht */ }
-      letzterStand = marke();
-    }
     // Immer noch nichts: dann ab dem Commit, der die Version zuletzt anhob.
     if (!letzterStand) {
       letzterStand = lauf('git', ['log', '-1', '--format=%H', '--', 'packages/desktop/package.json']).trim();
