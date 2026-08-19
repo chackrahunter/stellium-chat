@@ -35,7 +35,7 @@ F = {
     "kopf1": "#191d33",
     "kopf2": "#0b0d16",
 }
-BREIT, HOCH, KOPFHOCH = 940, 700, 84
+BREIT, HOCH, KOPFHOCH = 1020, 720, 84
 
 
 def mischen(von, nach, anteil):
@@ -65,40 +65,79 @@ def dauer(sekunden):
     return f"{minuten} Min"
 
 
-class Balken(tk.Canvas):
-    """Ein Messwert als Streifen — mit Bewegung, damit man Änderungen sieht."""
+class Tacho(tk.Canvas):
+    """Ein Messwert als Bogen.
 
-    def __init__(self, eltern, **kw):
-        super().__init__(eltern, height=8, bd=0, highlightthickness=0,
-                         bg=F["karte"], **kw)
+    Zwei Dinge machen den Unterschied zu einem Balken: der Wert steht groß in
+    der Mitte, und der Zeiger wandert weich statt zu springen — so sieht man
+    Bewegung auch aus zwei Metern Abstand.
+    """
+
+    GROESSE = 132
+    DICKE = 11
+    ANFANG = 210          # oben links …
+    WEITE = -240          # … im Uhrzeigersinn bis unten rechts
+
+    def __init__(self, eltern, titel):
+        super().__init__(eltern, width=self.GROESSE, height=self.GROESSE - 18,
+                         bd=0, highlightthickness=0, bg=F["karte"])
         self.anteil = 0.0
         self.ziel = 0.0
-        self.bind("<Configure>", lambda _e: self.malen())
+        self.titel = titel
+        self.unten = ""
+        self.zahl_text = "—"
+        self.malen()
         self.laufen()
 
-    def setzen(self, anteil):
+    def setzen(self, anteil, zahl=None, unten=""):
         self.ziel = max(0.0, min(1.0, anteil or 0.0))
+        self.zahl_text = zahl if zahl is not None else f"{round(self.ziel * 100)}%"
+        self.unten = unten
 
     def laufen(self):
-        if abs(self.anteil - self.ziel) > 0.002:
-            self.anteil += (self.ziel - self.anteil) * 0.2
+        if abs(self.anteil - self.ziel) > 0.003:
+            # Weiche Annäherung: große Sprünge schnell, das letzte Stück ruhig.
+            self.anteil += (self.ziel - self.anteil) * 0.18
             self.malen()
         self.after(40, self.laufen)
 
+    def farbe(self):
+        if self.anteil > 0.88:
+            return F["schlecht"]
+        if self.anteil > 0.72:
+            return F["warn"]
+        return F["gut"]
+
     def malen(self):
         self.delete("all")
-        breite = max(self.winfo_width(), 1)
-        self.create_rectangle(0, 1, breite, 7, fill=F["linie"], outline="")
-        farbe = (F["schlecht"] if self.anteil > 0.9
-                 else F["warn"] if self.anteil > 0.75 else F["gut"])
-        voll = int(breite * self.anteil)
-        if voll > 0:
-            # Der Streifen wird zum Ende hin heller — das wirkt lebendiger.
-            schritte = max(voll // 6, 1)
-            for i in range(0, voll, schritte):
-                self.create_rectangle(
-                    i, 1, min(i + schritte, voll), 7, outline="",
-                    fill=mischen(mischen(farbe, F["tief"], 0.45), farbe, i / max(voll, 1)))
+        rand = self.DICKE / 2 + 6
+        kasten = (rand, rand, self.GROESSE - rand, self.GROESSE - rand)
+
+        # Der Grundbogen zeigt, wie weit es überhaupt gehen kann.
+        self.create_arc(*kasten, start=self.ANFANG, extent=self.WEITE, style="arc",
+                        width=self.DICKE, outline=F["linie"])
+
+        weite = self.WEITE * self.anteil
+        if abs(weite) > 0.6:
+            self.create_arc(*kasten, start=self.ANFANG, extent=weite, style="arc",
+                            width=self.DICKE, outline=self.farbe())
+            # Ein Punkt am Ende des Bogens — das liest sich wie ein Zeiger.
+            mitte = self.GROESSE / 2
+            halb = (self.GROESSE - 2 * rand) / 2
+            winkel = math.radians(self.ANFANG + weite)
+            px = mitte + halb * math.cos(winkel)
+            py = mitte - halb * math.sin(winkel)
+            self.create_oval(px - 4, py - 4, px + 4, py + 4,
+                             fill=self.farbe(), outline=F["karte"], width=2)
+
+        self.create_text(self.GROESSE / 2, self.GROESSE / 2 - 4, text=self.zahl_text,
+                         fill=F["tinte"],
+                         font=tkfont.Font(family="DejaVu Sans", size=15, weight="bold"))
+        self.create_text(self.GROESSE / 2, self.GROESSE / 2 + 16, text=self.titel,
+                         fill=F["zeit"], font=tkfont.Font(family="DejaVu Sans", size=8))
+        if self.unten:
+            self.create_text(self.GROESSE / 2, self.GROESSE - 12, text=self.unten,
+                             fill=F["leise"], font=tkfont.Font(family="DejaVu Sans", size=8))
 
 
 class Karte(tk.Frame):
@@ -115,7 +154,7 @@ class Karte(tk.Frame):
         self.inhalt = tk.Frame(self, bg=F["karte"])
         self.inhalt.pack(fill="both", expand=True, padx=16, pady=(0, 12))
         self.zeilen = {}
-        self.balken = {}
+        self.tachos = {}
 
     def feld(self, name, wert, farbe=None):
         if name not in self.zeilen:
@@ -131,21 +170,16 @@ class Karte(tk.Frame):
             self.zeilen[name] = rechts
         self.zeilen[name].config(text=wert, fg=farbe or F["tinte"])
 
-    def messwert(self, name, anteil, rechts):
-        if name not in self.balken:
-            reihe = tk.Frame(self.inhalt, bg=F["karte"])
-            reihe.pack(fill="x", pady=3)
-            tk.Label(reihe, text=name, bg=F["karte"], fg=F["zeit"], anchor="w", width=16,
-                     font=tkfont.Font(family="DejaVu Sans", size=10)).pack(side="left")
-            strich = Balken(reihe, width=220)
-            strich.pack(side="left", padx=(0, 12))
-            zahl = tk.Label(reihe, text="", bg=F["karte"], fg=F["leise"], anchor="w",
-                            font=tkfont.Font(family="DejaVu Sans Mono", size=9))
-            zahl.pack(side="left")
-            self.balken[name] = (strich, zahl)
-        strich, zahl = self.balken[name]
-        strich.setzen(anteil)
-        zahl.config(text=rechts)
+    def tacho(self, name, anteil, zahl=None, unten=""):
+        """Einen Messwert als Bogen zeigen — vier passen nebeneinander."""
+        if not hasattr(self, "tacho_reihe"):
+            self.tacho_reihe = tk.Frame(self.inhalt, bg=F["karte"])
+            self.tacho_reihe.pack(fill="x", pady=(2, 8))
+        if name not in self.tachos:
+            t = Tacho(self.tacho_reihe, name)
+            t.pack(side="left", padx=(0, 6))
+            self.tachos[name] = t
+        self.tachos[name].setzen(anteil, zahl, unten)
 
 
 class Konsole:
@@ -332,23 +366,26 @@ class Konsole:
 
         # ── Leistung
         L = d.get("leistung", {})
-        self.k_leistung.messwert("Prozessor", L.get("cpu"),
-                                 f"{L.get('kerne', '?')} Kerne"
-                                 + (f" · {L['mhz']} MHz" if L.get("mhz") else ""))
-        self.k_leistung.messwert("Arbeitsspeicher", L.get("ramAnteil"),
-                                 f"{groesse(L.get('ramBelegt'))} von {groesse(L.get('ramGesamt'))}")
-        if L.get("swap"):
-            sw = L["swap"]
-            self.k_leistung.messwert("Auslagerung", sw["belegt"] / max(sw["gesamt"], 1),
-                                     f"{groesse(sw['belegt'])} von {groesse(sw['gesamt'])}")
+        self.k_leistung.tacho("Prozessor", L.get("cpu"),
+                              unten=f"{L.get('kerne', '?')} Kerne"
+                                    + (f" · {round(L['mhz'] / 1000, 1)} GHz" if L.get("mhz") else ""))
+        self.k_leistung.tacho("Speicher", L.get("ramAnteil"),
+                              unten=f"{groesse(L.get('ramBelegt'))} / {groesse(L.get('ramGesamt'))}")
         if L.get("platte"):
             pl = L["platte"]
-            self.k_leistung.messwert("Speicherplatz", pl["belegt"] / max(pl["gesamt"], 1),
-                                     f"{groesse(pl['gesamt'] - pl['belegt'])} frei")
-        for t in L.get("temperaturen", [])[:2]:
-            self.k_leistung.feld("Temperatur", f"{t['grad']} °C",
-                                 F["schlecht"] if t["grad"] > 78
-                                 else F["warn"] if t["grad"] > 65 else F["gut"])
+            self.k_leistung.tacho("Platte", pl["belegt"] / max(pl["gesamt"], 1),
+                                  unten=f"{groesse(pl['gesamt'] - pl['belegt'])} frei")
+        temperaturen = L.get("temperaturen", [])
+        if temperaturen:
+            grad = temperaturen[0]["grad"]
+            # 40 °C ist kühl, 85 °C die Grenze — dazwischen wird der Bogen voll.
+            self.k_leistung.tacho("Temperatur", max(0.0, min(1.0, (grad - 40) / 45)),
+                                  zahl=f"{round(grad)}°", unten="Prozessor")
+
+        if L.get("swap") and L["swap"]["belegt"] > 0:
+            sw = L["swap"]
+            self.k_leistung.feld("Auslagerung",
+                                 f"{groesse(sw['belegt'])} von {groesse(sw['gesamt'])}", F["warn"])
         if L.get("netz"):
             self.k_leistung.feld("Netz", f"{groesse(L['netz']['rein'])} empfangen"
                                          f"  ·  {groesse(L['netz']['raus'])} gesendet")
