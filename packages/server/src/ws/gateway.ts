@@ -55,6 +55,23 @@ export function broadcastAll(ev: ServerEvent): void {
   broadcast(ev);
 }
 
+/**
+ * Darf diese Person die Nachricht überhaupt sehen?
+ *
+ * Mehrere Ereignisse nehmen eine Nachrichtenkennung entgegen und antworten mit
+ * deren Inhalt — übersetzen, Thread öffnen, merken. Ohne diese Prüfung genügte
+ * eine bekannte Kennung, um an Nachrichten aus fremden Kanälen und
+ * Direktchats zu kommen. Kennungen sind zufällig, aber sie wandern: durch
+ * Weiterleitungen, Zitate, Protokolle.
+ */
+function darfNachrichtSehen(userId: string, messageId: string): boolean {
+  const msg = database.get<{ channel_id: string }>(
+    'SELECT channel_id FROM messages WHERE id = ?', messageId,
+  );
+  if (!msg) return false;
+  return store.memberIds(msg.channel_id).includes(userId);
+}
+
 function broadcast(ev: ServerEvent, userIds?: Iterable<string>): void {
   if (userIds) { for (const uid of userIds) sendToUser(uid, ev); return; }
   for (const s of sessions.values()) if (s.userId) send(s, ev);
@@ -239,7 +256,18 @@ export function handleConnection(socket: WebSocket): void {
   socket.on('message', (raw: Buffer | string) => {
     const ev = decode<ClientEvent>(raw.toString());
     if (!ev || typeof ev.t !== 'string') return;
-    if (ev.t === 'auth') { clearTimeout(authTimer); void authenticate(session, ev); return; }
+    if (ev.t === 'auth') {
+      clearTimeout(authTimer);
+      // Ohne dieses catch würde ein Fehler beim Anmelden — eine hakende
+      // Datenbank genügt — als unbehandelte Zurückweisung den ganzen Server
+      // mitreißen, mitsamt allen anderen Verbindungen.
+      void authenticate(session, ev).catch((err) => {
+        console.error('[ws] Anmeldung:', (err as Error).message);
+        fail(session, 'auth_failed', 'Anmeldung fehlgeschlagen. Bitte noch einmal versuchen.');
+        session.socket.close();
+      });
+      return;
+    }
     if (!session.userId) { fail(session, 'unauthorized', 'Bitte zuerst anmelden'); return; }
     void handleEvent(session, ev).catch((err) => {
       console.error('[ws]', ev.t, (err as Error).message);
@@ -532,6 +560,9 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
     }
 
     case 'message:save':
+      if (!darfNachrichtSehen(userId, ev.messageId)) {
+        return fail(session, 'forbidden', 'Zu dieser Nachricht hast du keinen Zugang.');
+      }
       messages.setSaved(ev.messageId, userId, ev.saved);
       return;
 
@@ -552,6 +583,9 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
       return;
 
     case 'thread:open': {
+      if (!darfNachrichtSehen(userId, ev.messageId)) {
+        return fail(session, 'forbidden', 'Zu dieser Nachricht hast du keinen Zugang.');
+      }
       const list = store.threadHistory(ev.messageId, userId);
       if (!list.length) return fail(session, 'not_found', 'Thread nicht gefunden');
       const missing = session.autoTranslate ? fillCachedTranslations(list, session.language) : [];
@@ -627,6 +661,10 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
     }
 
     case 'translate:request': {
+      if (!darf(session, 'ai.translate')) return;
+      if (!darfNachrichtSehen(userId, ev.messageId)) {
+        return fail(session, 'forbidden', 'Zu dieser Nachricht hast du keinen Zugang.');
+      }
       const view = await translateMessage(ev.messageId, ev.targetLang, { force: ev.force });
       if (view) send(session, { t: 'translation', messageId: ev.messageId, translation: view });
       else fail(session, 'no_translation', 'Keine Übersetzung nötig oder möglich');
@@ -634,6 +672,10 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
     }
 
     case 'translate:roundtrip': {
+      if (!darf(session, 'ai.translate')) return;
+      if (!darfNachrichtSehen(userId, ev.messageId)) {
+        return fail(session, 'forbidden', 'Zu dieser Nachricht hast du keinen Zugang.');
+      }
       const result = await roundTrip(ev.messageId, ev.targetLang);
       if (!result) return fail(session, 'no_translation', 'Für diese Nachricht liegt keine Übersetzung vor');
       send(session, { t: 'roundtrip', messageId: ev.messageId, targetLang: ev.targetLang, ...result });
@@ -641,6 +683,7 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
     }
 
     case 'compose:preview': {
+      if (!darf(session, 'ai.translate')) return;
       const outcome = await translate({
         text: ev.text, targetLang: ev.targetLang, context: channelContext(ev.channelId),
       });
@@ -714,6 +757,14 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
     }
 
     case 'poll:vote': {
+      // Eine Umfrage hängt an einer Nachricht — wer die nicht sehen darf,
+      // stimmt auch nicht mit ab.
+      const zugehoerig = database.get<{ message_id: string }>(
+        'SELECT message_id FROM polls WHERE id = ?', ev.pollId,
+      );
+      if (!zugehoerig || !darfNachrichtSehen(userId, zugehoerig.message_id)) {
+        return fail(session, 'forbidden', 'Zu dieser Umfrage hast du keinen Zugang.');
+      }
       polls.vote(ev.pollId, userId, ev.optionIds);
       broadcastPoll(ev.pollId);
       return;
@@ -794,7 +845,7 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
       });
       messages.markRead(ch.id, userId, msg.id);
       deliverMessage(msg, ev.clientId);
-      void runTranscription(msg.id, ev.attachmentId);
+      void runTranscription(msg.id, ev.attachmentId).catch((err) => console.error('[ws] Umschrift:', (err as Error).message));
       return;
     }
 
@@ -1083,7 +1134,7 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
     case 'voice:retranscribe': {
       const voice = voiceNoteFor(ev.messageId);
       if (!voice) return fail(session, 'not_found', 'Keine Aufnahme an dieser Nachricht');
-      void runTranscription(ev.messageId, voice.attachmentId);
+      void runTranscription(ev.messageId, voice.attachmentId).catch((err) => console.error('[ws] Umschrift:', (err as Error).message));
       return;
     }
 

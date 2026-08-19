@@ -24,6 +24,33 @@ function bearer(req: FastifyRequest): string | null {
   return verifyToken(header.slice(7));
 }
 
+/**
+ * Anmeldung für Abrufe, die ein Browser selbst auslöst.
+ *
+ * Ein <a href> und ein <img src> schicken keine Kopfzeilen mit. Für
+ * Downloads und Vorschaubilder muss der Nachweis deshalb in die Adresse —
+ * sonst bliebe der Knopf "Herunterladen" wirkungslos, was er bis eben war.
+ *
+ * Nur für lesende Abrufe, nie für etwas, das etwas verändert: Adressen
+ * landen in Verläufen und Protokollen.
+ */
+function bearerOderAdresse(req: FastifyRequest): string | null {
+  const ausKopf = bearer(req);
+  if (ausKopf) return ausKopf;
+  const roh = (req.query as { token?: string } | undefined)?.token;
+  return roh ? verifyToken(roh) : null;
+}
+
+function requireLeser(req: FastifyRequest): string {
+  const id = bearerOderAdresse(req);
+  if (!id) {
+    const err = new Error('Nicht angemeldet') as Error & { statusCode?: number };
+    err.statusCode = 401;
+    throw err;
+  }
+  return id;
+}
+
 function requireUser(req: FastifyRequest): string {
   const id = bearer(req);
   if (!id) {
@@ -35,6 +62,40 @@ function requireUser(req: FastifyRequest): string {
 }
 
 const HANDLE_RE = /^[a-z0-9][a-z0-9._-]{1,31}$/;
+
+/* ── Bremse gegen das Durchprobieren von Passwörtern ───────────── */
+
+/**
+ * Gezählt wird je Herkunft *und* Benutzername. Nur nach Herkunft zu zählen
+ * wäre falsch: in einer Firma teilen sich alle eine Adresse, und die
+ * Tippfehler einer Person sperrten das ganze Büro aus.
+ */
+const versuche = new Map<string, { anzahl: number; bis: number }>();
+const GRENZE = 8;
+const FENSTER = 60_000;
+
+function zuVieleVersuche(herkunft: string): boolean {
+  const eintrag = versuche.get(herkunft);
+  if (!eintrag) return false;
+  if (Date.now() > eintrag.bis) { versuche.delete(herkunft); return false; }
+  return eintrag.anzahl >= GRENZE;
+}
+
+function versuchGezaehlt(herkunft: string): void {
+  const jetzt = Date.now();
+  const eintrag = versuche.get(herkunft);
+  if (!eintrag || jetzt > eintrag.bis) versuche.set(herkunft, { anzahl: 1, bis: jetzt + FENSTER });
+  else eintrag.anzahl += 1;
+
+  // Die Liste darf nicht unbegrenzt wachsen; abgelaufene Einträge fliegen raus.
+  if (versuche.size > 5000) {
+    for (const [schluessel, wert] of versuche) if (jetzt > wert.bis) versuche.delete(schluessel);
+  }
+}
+
+function versucheZuruecksetzen(herkunft: string): void {
+  versuche.delete(herkunft);
+}
 
 export async function registerRoutes(app: FastifyInstance): Promise<void> {
   app.get('/api/health', async () => ({
@@ -112,6 +173,15 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const { login, password } = req.body as { login?: string; password?: string };
     if (!login || !password) return reply.code(400).send({ error: 'Zugangsdaten fehlen' });
 
+    // Wer es zu oft falsch versucht, wartet. scrypt macht jeden Versuch
+    // ohnehin teuer, aber eine Bremse gehört an die Tür, nicht ins Schloss.
+    const herkunft = `${req.ip}|${login.toLowerCase()}`;
+    if (zuVieleVersuche(herkunft)) {
+      return reply.code(429).send({
+        error: 'Zu viele Versuche. Bitte eine Minute warten.',
+      });
+    }
+
     const row = users.findByLogin(login);
     // Auch bei unbekanntem Konto das Passwort prüfen, damit die Antwortzeit
     // nicht verrät, ob es den Benutzernamen gibt.
@@ -120,8 +190,10 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       : verifyPassword(password, '$scrypt$16384$8$1$AAAA$AAAA');
 
     if (!row || !gueltig) {
+      versuchGezaehlt(herkunft);
       return reply.code(401).send({ error: 'Benutzername oder Passwort stimmt nicht' });
     }
+    versucheZuruecksetzen(herkunft);
     if (row.disabled) {
       return reply.code(403).send({ error: 'Dieses Konto ist gesperrt. Wende dich an die Team-Leitung.' });
     }
@@ -517,7 +589,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   });
 
   app.get('/releases/:platform/download', async (req, reply) => {
-    requireUser(req);
+    requireLeser(req);
     const vorhanden = releases.getRelease((req.params as { platform: string }).platform);
     if (!vorhanden || !fs.existsSync(vorhanden.path)) {
       return reply.code(404).send({ error: 'Für diese Plattform liegt nichts bereit.' });
@@ -530,10 +602,16 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   });
 
   app.get('/storage/:id', async (req, reply) => {
-    requireUser(req);
+    const userId = requireLeser(req);
     const { id } = req.params as { id: string };
     const datei = files.getFile(id);
     if (!datei || !fs.existsSync(datei.path)) return reply.code(404).send({ error: 'Datei nicht gefunden' });
+
+    // Hängt die Datei an einem Kanal, gilt dessen Mitgliederkreis. Sonst
+    // käme jeder mit der Kennung an Anhänge aus fremden Kanälen.
+    if (datei.channelId && !store.memberIds(datei.channelId).includes(userId)) {
+      return reply.code(404).send({ error: 'Datei nicht gefunden' });
+    }
 
     const inline = /^(image|video|audio)\//.test(datei.mime) || datei.mime === 'application/pdf';
     reply.header('content-type', datei.mime);

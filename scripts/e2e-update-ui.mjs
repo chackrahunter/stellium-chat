@@ -39,7 +39,7 @@ await p.evaluate((s) => { localStorage.setItem('stellium.serverUrl', s); localSt
 await p.reload(); await p.waitForTimeout(1000);
 if (await p.locator('.auth').count()) {
   await p.locator('.auth input').first().fill('don');
-  await p.locator('.auth input[type="password"]').first().fill('MeinLangesPasswort-2026');
+  await p.locator('.auth input[type="password"]').first().fill(process.env.STELLIUM_TEST_PASSWORT ?? 'MeinLangesPasswort-2026');
   await p.locator('.auth button[type="submit"]').first().click();
 }
 await p.waitForSelector('.app', { timeout: 20000 });

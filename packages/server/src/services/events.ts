@@ -62,7 +62,7 @@ export function createEvent(input: {
   location?: string | null; channelId?: string | null;
   attendeeIds?: string[]; createdBy: string;
 }): CalendarEvent {
-  const title = input.title.trim();
+  const title = input.title.trim().slice(0, 300);
   if (title.length < 2) throw new Error('Der Termin braucht einen Titel.');
   if (input.endsAt <= input.startsAt) throw new Error('Das Ende muss nach dem Beginn liegen.');
   if (input.endsAt - input.startsAt > 366 * 86_400_000) throw new Error('Ein Termin darf höchstens ein Jahr dauern.');
@@ -76,9 +76,9 @@ export function createEvent(input: {
       `INSERT INTO events (id, title, description, kind, starts_at, ends_at, all_day,
                            location, channel_id, created_by, created_at, updated_at)
        VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
-      id, title, input.description?.trim() || null, kind,
+      id, title, input.description?.trim().slice(0, 8000) || null, kind,
       input.startsAt, input.endsAt, input.allDay ? 1 : 0,
-      input.location?.trim() || null, input.channelId ?? null,
+      input.location?.trim().slice(0, 300) || null, input.channelId ?? null,
       input.createdBy, jetzt, jetzt,
     );
     // Wer einlädt, ist selbst dabei — und hat automatisch zugesagt.

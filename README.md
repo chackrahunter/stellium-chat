@@ -312,6 +312,7 @@ Windows mit Code-Signing-Zertifikat.
 
 ```bash
 npm run e2e            # 29 Prüfungen des Chat-Kerns
+node scripts/e2e-sicherheit.mjs   #  8 Prüfungen der Zugangsregeln
 node scripts/e2e-neu.mjs          # 22 Prüfungen: Einführung, Aufgaben, Kalender, Dateien, Ideen
 node scripts/e2e-grenzfaelle.mjs  # 14 Grenzfälle
 node scripts/e2e-update.mjs       #  8 Prüfungen der Versionsverteilung
@@ -319,7 +320,7 @@ node scripts/e2e-sprache.mjs      #  2 Prüfungen der Systemsprache
 node scripts/e2e-admin.mjs <einmal-passwort> [benutzername]  # 9 Prüfungen der Kontoverwaltung
 ```
 
-**75 Prüfungen** insgesamt. Ein echter Chromium klickt sich durch: Anmeldung,
+**106 Prüfungen** insgesamt. Ein echter Chromium klickt sich durch: Anmeldung,
 Layout, Senden, Reaktionen, Erwähnungen, Antwortvorschläge, Umformulieren,
 Live-Übersetzung, Umfragen, Suche, Profilkarten, Weiterleiten, Erinnerungen,
 Threads, Einstellungen, Modellwahl, Themawechsel, Aufgabenbrett, Kalender,
@@ -330,6 +331,12 @@ anmelden, zwei Fenster gleichzeitig, Netzausfall mit Wiederverbinden,
 ungültiger Token, leere und sehr lange Eingaben, Sonderzeichen und
 `<script>`-Versuche, ein Kanal der gelöscht wird während jemand darin sitzt,
 hastiges Mehrfachklicken beim Abstimmen, Termine über Mitternacht.
+
+Die Sicherheitsprüfungen legen eine zweite Person an, die in nichts drin ist,
+und versuchen mit ihr, was ihr nicht zusteht: eine Nachricht aus einem privaten
+Kanal übersetzen lassen, deren Thread öffnen, sie merken, den Kanal betreten,
+eine Datei ohne Nachweis laden, Passwörter durchprobieren, eine neue
+App-Version veröffentlichen. Jeder dieser Wege muss verschlossen sein.
 
 Fehlschläge landen als Screenshot in `scripts/screenshots/`. Die Suiten legen
 sich ihre Testdaten selbst an — es gibt keine Demo-Konten.

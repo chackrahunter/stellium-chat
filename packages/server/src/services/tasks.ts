@@ -112,7 +112,8 @@ export function createTask(input: {
   status?: TaskStatus;
   createdBy: string;
 }): Task {
-  const title = input.title.trim();
+  // Ohne Grenze ließe sich die Datenbank mit einer einzigen Aufgabe fluten.
+  const title = input.title.trim().slice(0, 300);
   if (title.length < 2) throw new Error('Die Aufgabe braucht einen Titel.');
   if (title.length > 300) throw new Error('Titel zu lang (max. 300 Zeichen).');
 
@@ -135,7 +136,7 @@ export function createTask(input: {
       `INSERT INTO tasks (id, title, description, status, priority, assignee_id, channel_id,
                           message_id, due_at, created_by, created_at, updated_at, position)
        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-      id, title, input.description?.trim() || null, status, priority,
+      id, title, input.description?.trim().slice(0, 8000) || null, status, priority,
       input.assigneeId ?? null, input.channelId ?? null, input.messageId ?? null,
       input.dueAt ?? null, input.createdBy, jetzt, jetzt, position,
     );
@@ -169,7 +170,7 @@ export function updateTask(id: string, patch: TaskPatch, userId: string): Task {
   const notieren: (() => void)[] = [];
 
   if (patch.title !== undefined) {
-    const titel = patch.title.trim();
+    const titel = patch.title.trim().slice(0, 300);
     if (titel.length < 2) throw new Error('Die Aufgabe braucht einen Titel.');
     sets.push('title = ?'); werte.push(titel);
     notieren.push(() => protokoll(id, userId, 'title', alt.title, titel));

@@ -87,6 +87,17 @@ async function main(): Promise<void> {
     try { db.close(); } catch { /* ignore */ }
     process.exit(0);
   };
+  /* Ein Fehler an einer Stelle darf nicht alle anderen mitreißen. Node beendet
+     sich bei einer unbehandelten Zurückweisung von sich aus — für einen
+     Chat-Server, an dem ein ganzes Team hängt, ist das die falsche Antwort.
+     Aufschreiben und weiterlaufen ist hier richtiger. */
+  process.on('unhandledRejection', (grund) => {
+    console.error('[server] Unbehandelte Zurückweisung:', grund instanceof Error ? grund.stack : grund);
+  });
+  process.on('uncaughtException', (fehler) => {
+    console.error('[server] Unbehandelter Fehler:', fehler.stack ?? fehler.message);
+  });
+
   process.on('SIGINT', () => void shutdown('SIGINT'));
   process.on('SIGTERM', () => void shutdown('SIGTERM'));
 

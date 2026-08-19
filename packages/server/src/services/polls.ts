@@ -6,9 +6,12 @@ export function createPoll(input: {
   messageId: string; question: string; options: string[];
   multiple: boolean; anonymous: boolean; closesAt?: number | null; userId: string;
 }): string {
-  const clean = input.options.map((o) => o.trim()).filter(Boolean).slice(0, 12);
+  // Länge begrenzen: eine Umfrage soll auf einen Blick lesbar sein, und ohne
+  // Grenze könnte jemand die Datenbank mit einer einzigen Frage vollschreiben.
+  const clean = input.options.map((o) => o.trim().slice(0, 200)).filter(Boolean).slice(0, 12);
   if (clean.length < 2) throw new Error('Eine Umfrage braucht mindestens zwei Antwortmöglichkeiten');
-  if (!input.question.trim()) throw new Error('Die Frage fehlt');
+  const frage = input.question.trim().slice(0, 500);
+  if (!frage) throw new Error('Die Frage fehlt');
 
   const id = newId('pl_');
   const at = Date.now();
@@ -16,7 +19,7 @@ export function createPoll(input: {
     db.run(
       `INSERT INTO polls (id, message_id, question, multiple, anonymous, closed, closes_at, created_by, created_at)
        VALUES (?,?,?,?,?,0,?,?,?)`,
-      id, input.messageId, input.question.trim(), input.multiple ? 1 : 0,
+      id, input.messageId, frage, input.multiple ? 1 : 0,
       input.anonymous ? 1 : 0, input.closesAt ?? null, input.userId, at,
     );
     clean.forEach((text, position) => {

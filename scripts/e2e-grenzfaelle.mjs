@@ -10,8 +10,8 @@ const S = 'http://localhost:8787';
 const SHOTS = '/Users/don-calvinkuhn/Developer/Chat-Team-GUI/scripts/screenshots';
 fs.mkdirSync(SHOTS, { recursive: true });
 
-const LOGIN = 'don-calvinkuhn';
-const PW = 'MeinLangesPasswort-2026';
+const LOGIN = process.env.STELLIUM_TEST_LOGIN ?? 'don';
+const PW = process.env.STELLIUM_TEST_PASSWORT ?? 'MeinLangesPasswort-2026';
 
 const ergebnisse = [];
 async function pruefe(name, fn) {

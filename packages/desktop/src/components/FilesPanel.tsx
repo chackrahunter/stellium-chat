@@ -9,7 +9,7 @@ import { useStore } from '../state/store.js';
 import { useT } from '../i18n/index.js';
 import { Avatar } from './Avatar.jsx';
 import { Shell } from './Panels.jsx';
-import { serverUrl } from '../net/api.js';
+import { dateiUrl } from '../net/api.js';
 import { clsx, relativeTime } from '../lib/format.js';
 
 function groesse(bytes: number): string {
@@ -186,7 +186,7 @@ export function FilesPanel({ onClose }: { onClose: () => void }) {
 
         <a
           className="icon-btn"
-          href={`${serverUrl()}${file.url}`}
+          href={dateiUrl(file.url)}
           target="_blank"
           rel="noreferrer"
           title={t('files.download')}

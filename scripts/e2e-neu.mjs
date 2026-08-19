@@ -7,9 +7,9 @@ const APP = 'http://localhost:5173';
 const SHOTS = '/private/tmp/claude-501/-Users-don-calvinkuhn-Documents-Projekte/ed07e87c-fec9-446f-b57e-d0359eadaf24/scratchpad/shots';
 fs.mkdirSync(SHOTS, { recursive: true });
 
-const LOGIN = 'don-calvinkuhn';
+const LOGIN = process.env.STELLIUM_TEST_LOGIN ?? 'don';
 const EINMAL = process.env.STELLIUM_OTP ?? 'KY4D-3FKZ-9EBC-UQRZ';
-const PASSWORT = 'MeinLangesPasswort-2026';
+const PASSWORT = process.env.STELLIUM_TEST_PASSWORT ?? 'MeinLangesPasswort-2026';
 
 const ergebnisse = [];
 let seite;
@@ -126,15 +126,21 @@ await pruefe('Aufgabenbrett öffnet sich', async () => {
   await seite.waitForTimeout(400);
 });
 
+// Eigener Titel je Lauf — sonst greift der Test auf Aufgaben früherer Läufe.
+const AUFGABE = `Angebot für Nordwind prüfen ${Date.now().toString(36).slice(-5)}`;
+
 await pruefe('Aufgabe anlegen', async () => {
   await seite.locator('.panel__head .pill--accent').click();
   await seite.waitForTimeout(400);
-  await seite.locator('.panel input.input').first().fill('Angebot für Nordwind prüfen');
+  await seite.locator('.panel input.input').first().fill(AUFGABE);
   await seite.locator('.panel__foot .btn--primary').last().click();
   await seite.waitForTimeout(900);
   const text = await seite.locator('.board').innerText();
-  if (!text.includes('Nordwind')) throw new Error('Aufgabe nicht auf dem Brett');
+  if (!text.includes(AUFGABE)) throw new Error('Aufgabe nicht auf dem Brett');
 });
+
+/** Genau die eben angelegte Aufgabe. */
+const meineAufgabe = () => seite.locator('.task-card').filter({ hasText: AUFGABE }).first();
 
 await pruefe('Aufgabe hat fünf Spalten', async () => {
   const n = await seite.locator('.board__col').count();
@@ -142,7 +148,7 @@ await pruefe('Aufgabe hat fünf Spalten', async () => {
 });
 
 await pruefe('Aufgabe öffnen und Status ändern', async () => {
-  await seite.locator('.task-card').first().click();
+  await meineAufgabe().click();
   await seite.waitForTimeout(500);
   // Der zweite .panel ist die Einzelansicht über dem Brett.
   const auswahl = seite.locator('.panel').last().locator('select').first();
@@ -152,7 +158,7 @@ await pruefe('Aufgabe öffnen und Status ändern', async () => {
   await seite.waitForTimeout(500);
   if (!(await seite.locator('.board').count())) throw new Error('Escape hat auch das Brett geschlossen');
   const spalte = seite.locator('.board__col').nth(1);
-  if (!(await spalte.innerText()).includes('Nordwind')) throw new Error('nicht verschoben');
+  if (!(await spalte.innerText()).includes(AUFGABE)) throw new Error('nicht verschoben');
 });
 
 await zu();

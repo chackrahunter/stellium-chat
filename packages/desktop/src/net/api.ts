@@ -33,6 +33,17 @@ export function setToken(value: string | null): void {
   else localStorage.removeItem(STORAGE_TOKEN);
 }
 
+/**
+ * Adresse für einen Abruf, den der Browser selbst macht — Bild, Download.
+ * Solche Abrufe können keine Kopfzeilen mitschicken, deshalb geht der
+ * Nachweis hier ausnahmsweise mit in die Adresse.
+ */
+export function dateiUrl(pfad: string): string {
+  const t = token();
+  const basis = `${serverUrl()}${pfad}`;
+  return t ? `${basis}${pfad.includes('?') ? '&' : '?'}token=${encodeURIComponent(t)}` : basis;
+}
+
 export function wsUrl(): string {
   const http = serverUrl();
   return `${http.replace(/^http/, 'ws')}/ws`;
