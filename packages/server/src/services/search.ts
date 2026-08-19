@@ -22,7 +22,13 @@ export function search(query: SearchQuery): SearchHit[] {
   if (q.length < 2) return [];
 
   const limit = Math.min(query.limit ?? 40, 100);
-  const allowed = visibleChannels(query.userId).map((c) => c.id);
+  /* Vertrauliche Kanäle fallen heraus, bevor überhaupt gesucht wird.
+     Sie zu durchsuchen wäre nicht gefährlich, sondern sinnlos: der Server hat
+     dort nur Chiffrat. Aber ein Suchlauf, der einen Kanal stillschweigend
+     übergeht, sieht aus wie einer, der dort nichts gefunden hat. Deshalb
+     bekommt die Oberfläche die Kanäle gar nicht erst in den Bereich — und
+     kann sagen, dass hier nur die App selbst sucht. */
+  const allowed = visibleChannels(query.userId).filter((c) => !c.vertraulich).map((c) => c.id);
   if (!allowed.length) return [];
 
   const scope = query.channelId && allowed.includes(query.channelId) ? [query.channelId] : allowed;

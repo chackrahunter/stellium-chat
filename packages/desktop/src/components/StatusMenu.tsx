@@ -67,7 +67,9 @@ interface Eintrag {
 const EINTRAEGE: Eintrag[] = [
   { status: 'online', name: 'status.online', note: 'status.onlineNote' },
   { status: 'away', name: 'status.away', note: 'status.awayNote' },
-  { status: 'dnd', name: 'status.dnd', note: 'status.dndNote' },
+  /* „Bitte nicht stören" stand als 'user.dnd' schon in allen 22 Sprachen —
+     ein zweiter Schlüssel daneben liefe irgendwann auseinander. */
+  { status: 'dnd', name: 'user.dnd', note: 'status.dndNote' },
   { status: 'offline', name: 'status.invisible', note: 'status.invisibleNote' },
 ];
 

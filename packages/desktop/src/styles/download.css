@@ -27,7 +27,10 @@
   transition: border-color var(--t-fast), background var(--t-fast);
 }
 
-.dl-karte:hover {
+/* Die große Karte ist bewusst ausgenommen: ihr Rand ist ein Farbverlauf, und
+   der lebt von zwei übereinanderliegenden Hintergründen. Eine schlichte Farbe
+   beim Überfahren würde beide ersetzen und den Rand verschwinden lassen. */
+.dl-karte:not(.dl-karte--gross):hover {
   border-color: var(--line-strong);
   background: var(--bg-panel-2);
 }
@@ -35,22 +38,26 @@
 /* Die Karte für das erkannte System.
    Sie ist nicht nur größer, sie trägt auch den Farbverlauf der App als Rand —
    damit das Auge sie vor der Liste darunter findet, ohne dass irgendwo
-   „hier klicken" stehen muss. */
+   „hier klicken" stehen muss. Der Rand entsteht aus gestapelten Hintergründen:
+   der Verlauf füllt die Randfläche, die Lagen darüber decken alles innerhalb
+   davon wieder ab. Ein echter Rand kann keinen Verlauf tragen.
+
+   Die deckende Lage aus --bg-elevated muss sein: die Flächenfarben der App
+   sind durchscheinend, und allein damit läge der Verlauf unter dem ganzen
+   Feld statt nur unter dem Rand — die Angaben in gedämpftem Grau stünden dann
+   auf Cyan und wären kaum noch zu lesen. */
 .dl-karte--gross {
   margin-bottom: var(--sp-4);
   padding: var(--sp-4);
-  border-color: transparent;
+  border: 1px solid transparent;
   background:
     linear-gradient(var(--bg-panel-2), var(--bg-panel-2)) padding-box,
+    linear-gradient(var(--bg-elevated), var(--bg-elevated)) padding-box,
     var(--grad-nebula) border-box;
-  border: 1px solid transparent;
   box-shadow: var(--shadow-sm);
 }
 
-.dl-karte--gross:hover {
-  border-color: transparent;
-  filter: brightness(1.04);
-}
+.dl-karte--gross:hover { filter: brightness(1.04); }
 
 .dl-karte__symbol {
   display: grid;

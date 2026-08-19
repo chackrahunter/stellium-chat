@@ -34,6 +34,11 @@ export function tourZuruecksetzen(): void {
   localStorage.removeItem(SPEICHER);
 }
 
+type Seite = 'rechts' | 'links' | 'oben' | 'unten';
+
+/** Alle Ausweichrichtungen. Welche zum Zug kommt, entscheidet der Platz. */
+const SEITEN: Seite[] = ['rechts', 'links', 'unten', 'oben'];
+
 interface Schritt {
   id: string;
   /** Ziel in der echten Oberfläche. Fehlt es, steht die Karte mittig. */
@@ -42,7 +47,7 @@ interface Schritt {
   titel: TranslationKey;
   text: TranslationKey;
   /** Bevorzugte Seite der Sprechblase. */
-  seite?: 'rechts' | 'links' | 'oben' | 'unten';
+  seite?: Seite;
 }
 
 const SCHRITTE: Schritt[] = [
@@ -111,9 +116,14 @@ export function Tour({ onClose }: { onClose: () => void }) {
   /* Höhe der Karte messen. Die Texte sind unterschiedlich lang; ohne die
      echte Höhe könnte die Karte unten aus dem Fenster rutschen. Bewusst in
      einem Effekt statt im ref-Aufruf — sonst liefe ein setState mitten in
-     der Darstellungsphase einer anderen Komponente. */
+     der Darstellungsphase einer anderen Komponente.
+
+     offsetHeight statt des Rechtecks, weil die Karte beim Einblenden noch
+     kleingerechnet ist: das Rechteck lieferte die geschrumpfte Höhe, und weil
+     das Ende der Animation kein neues Rendern auslöst, blieb dieser zu kleine
+     Wert stehen — die Karte rückte dem Ziel dichter auf den Leib als geplant. */
   useLayoutEffect(() => {
-    const h = karte.current?.getBoundingClientRect().height;
+    const h = karte.current?.offsetHeight;
     if (h && Math.abs(h - kartenHoehe) > 2) setKartenHoehe(h);
   });
 
@@ -242,46 +252,105 @@ export function Tour({ onClose }: { onClose: () => void }) {
   );
 }
 
+interface Platz { top: number; left: number }
+
 /**
- * Legt die Karte neben das Ziel — und dreht sie um, wenn sie sonst aus dem
- * Fenster ragen würde. Ohne Ziel steht sie mittig.
+ * Legt die Karte neben den Scheinwerfer — niemals darüber.
+ *
+ * Die Karte erklärt, was der Scheinwerfer zeigt. Deckt sie ihn zu, erklärt sie
+ * ins Leere: man liest über die Kanalliste und sieht sie dabei nicht. Deshalb
+ * entscheidet hier nicht die Wunschseite allein, sondern der freie Platz.
+ * Klebt das Ziel am linken Rand, ist rechts davon am meisten Luft, und dorthin
+ * geht die Karte; sitzt es oben, geht sie nach unten. Reicht es auf keiner
+ * Seite, zieht sie sich in die Ecke zurück, die vom Licht am wenigsten
+ * berührt wird.
+ *
+ * Früher wurde nur geprüft, ob die Karte überhaupt ins Fenster passt, und die
+ * fertige Stelle danach in den sichtbaren Bereich geschoben. Genau dieses
+ * Schieben trug sie in flachen Fenstern zurück auf das Ziel.
  */
 function kartenPosition(
   ziel: Rechteck | null,
   KARTE_HOCH: number,
-  seite: Schritt['seite'] = 'rechts',
-): { top: number; left: number } {
+  seite: Seite = 'rechts',
+): Platz {
   const breite = window.innerWidth;
   const hoehe = window.innerHeight;
   const rand = 16;
+  /* Auf schmalen Fenstern schrumpft die Karte per CSS mit. Ohne dasselbe
+     Maß hier rechneten wir mit einer Breite, die es auf dem Schirm nicht gibt. */
+  const kartenBreite = Math.min(KARTE_BREIT, breite - rand * 2);
+
+  const imFensterX = (x: number) => Math.min(Math.max(rand, x), breite - kartenBreite - rand);
+  const imFensterY = (y: number) => Math.min(Math.max(rand, y), hoehe - KARTE_HOCH - rand);
 
   if (!ziel) {
-    return { top: Math.max(rand, (hoehe - KARTE_HOCH) / 2), left: (breite - KARTE_BREIT) / 2 };
+    return { top: Math.max(rand, (hoehe - KARTE_HOCH) / 2), left: (breite - kartenBreite) / 2 };
   }
 
+  /* Der Scheinwerfer ist das Ziel samt der Luft ringsum — Aussparung und Ring
+     sind genau so groß gezeichnet. Ausweichen muss die Karte dieser Fläche,
+     nicht dem nackten Ziel. */
+  const licht = {
+    links: ziel.left - LUFT,
+    oben: ziel.top - LUFT,
+    rechts: ziel.left + ziel.width + LUFT,
+    unten: ziel.top + ziel.height + LUFT,
+  };
+  const mitteX = (licht.links + licht.rechts) / 2;
+  const mitteY = (licht.oben + licht.unten) / 2;
+
   const abstand = 18;
-  const kandidaten: Record<string, { top: number; left: number }> = {
-    rechts: { top: ziel.top + ziel.height / 2 - KARTE_HOCH / 2, left: ziel.left + ziel.width + abstand },
-    links: { top: ziel.top + ziel.height / 2 - KARTE_HOCH / 2, left: ziel.left - KARTE_BREIT - abstand },
-    unten: { top: ziel.top + ziel.height + abstand, left: ziel.left + ziel.width / 2 - KARTE_BREIT / 2 },
-    oben: { top: ziel.top - KARTE_HOCH - abstand, left: ziel.left + ziel.width / 2 - KARTE_BREIT / 2 },
+  /* Je Richtung steht eine Achse fest — sie hält die Karte neben dem Licht,
+     was auch immer auf der anderen Achse passiert. Die darf dafür gleiten:
+     ohne das Gleiten fiele ausgerechnet die fast fensterhohe Kanalliste durch,
+     weil eine an ihrer Mitte ausgerichtete Karte oben und unten herausragt,
+     obwohl rechts daneben das halbe Fenster frei ist. */
+  const kandidaten: Record<Seite, Platz> = {
+    rechts: { left: licht.rechts + abstand, top: imFensterY(mitteY - KARTE_HOCH / 2) },
+    links: { left: licht.links - abstand - kartenBreite, top: imFensterY(mitteY - KARTE_HOCH / 2) },
+    unten: { top: licht.unten + abstand, left: imFensterX(mitteX - kartenBreite / 2) },
+    oben: { top: licht.oben - abstand - KARTE_HOCH, left: imFensterX(mitteX - kartenBreite / 2) },
   };
 
-  const gegenteil: Record<string, string> = { rechts: 'links', links: 'rechts', oben: 'unten', unten: 'oben' };
-  const passt = (p: { top: number; left: number }) =>
-    p.left >= rand && p.top >= rand
-    && p.left + KARTE_BREIT <= breite - rand
-    && p.top + KARTE_HOCH <= hoehe - rand;
-
-  const gewaehlt = passt(kandidaten[seite])
-    ? kandidaten[seite]
-    : passt(kandidaten[gegenteil[seite]])
-      ? kandidaten[gegenteil[seite]]
-      : Object.values(kandidaten).find(passt) ?? kandidaten[seite];
-
-  // Auch der Notfall darf nicht aus dem Bild laufen.
-  return {
-    top: Math.min(Math.max(rand, gewaehlt.top), hoehe - KARTE_HOCH - rand),
-    left: Math.min(Math.max(rand, gewaehlt.left), breite - KARTE_BREIT - rand),
+  /* Wie viel Fenster jede Richtung neben dem Licht übrig lässt. */
+  const freiraum: Record<Seite, number> = {
+    rechts: breite - rand - licht.rechts,
+    links: licht.links - rand,
+    unten: hoehe - rand - licht.unten,
+    oben: licht.oben - rand,
   };
+
+  /* Die feste Achse eines Kandidaten kann aus dem Fenster zeigen; die gleitende
+     ist schon eingepasst. Ein halber Pixel Nachsicht, weil die Maße aus
+     gebrochenen Rechtecken stammen. */
+  const passt = (p: Platz) =>
+    p.left >= rand - 0.5 && p.top >= rand - 0.5
+    && p.left + kartenBreite <= breite - rand + 0.5
+    && p.top + KARTE_HOCH <= hoehe - rand + 0.5;
+
+  const reihenfolge: Seite[] = [
+    seite,
+    ...SEITEN.filter((s) => s !== seite).sort((a, b) => freiraum[b] - freiraum[a]),
+  ];
+  const gewaehlt = reihenfolge.map((s) => kandidaten[s]).find(passt);
+  if (gewaehlt) return gewaehlt;
+
+  /* Keine Richtung hat Platz — dann in die freieste Ecke. Füllt der
+     Scheinwerfer beinahe das ganze Fenster, ist ein Rest Überdeckung nicht zu
+     vermeiden; dann soll es wenigstens der kleinstmögliche sein, und bei
+     gleicher Überdeckung die Ecke am weitesten weg vom Licht. */
+  const ueberdeckung = (p: Platz) =>
+    Math.max(0, Math.min(p.left + kartenBreite, licht.rechts) - Math.max(p.left, licht.links))
+    * Math.max(0, Math.min(p.top + KARTE_HOCH, licht.unten) - Math.max(p.top, licht.oben));
+  const wegVomLicht = (p: Platz) =>
+    Math.abs(p.left + kartenBreite / 2 - mitteX) + Math.abs(p.top + KARTE_HOCH / 2 - mitteY);
+
+  const x2 = Math.max(rand, breite - kartenBreite - rand);
+  const y2 = Math.max(rand, hoehe - KARTE_HOCH - rand);
+  const ecken: Platz[] = [
+    { left: rand, top: rand }, { left: x2, top: rand },
+    { left: rand, top: y2 }, { left: x2, top: y2 },
+  ];
+  return ecken.sort((a, b) => ueberdeckung(a) - ueberdeckung(b) || wegVomLicht(b) - wegVomLicht(a))[0];
 }

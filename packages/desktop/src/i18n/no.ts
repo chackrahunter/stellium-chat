@@ -796,4 +796,15 @@ export const no = {
   'download.checksumHint': 'Sammenlign den etter nedlastingen — da vet du at fila kom uendret fram.',
   'download.checksumCopy': 'Kopier kontrollsum',
   'download.checksumCopied': 'Kopiert',
+
+  'status.title': 'Min status',
+  'status.online': 'Pålogget',
+  'status.away': 'Borte',
+  'status.invisible': 'Usynlig',
+  'status.onlineNote': 'Tilgjengelig',
+  'status.awayNote': 'Ikke ved plassen akkurat nå',
+  'status.dndNote': 'Ingen varsler',
+  'status.invisibleNote': 'Vises som frakoblet for alle',
+  'status.holds': 'Gjelder i {stunden} timer, deretter teller tilstedeværelsen igjen.',
+  'status.openSettings': 'Åpne innstillinger',
 };

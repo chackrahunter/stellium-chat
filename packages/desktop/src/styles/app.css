@@ -30,7 +30,11 @@ body {
   font-size: 14.5px;
   line-height: 1.55;
   color: var(--tx-hi);
-  background: var(--bg-void);
+  /* Bewusst KEINE Hintergrundfarbe: der Verlauf liegt auf der Seite selbst
+     (html). Eine flache Farbe hier malte ihn wieder zu — und genau dadurch
+     blieb unten der dunkle Streifen stehen, obwohl der Verlauf längst gesetzt
+     war. Der Sternenhimmel liegt als eigene Fläche darüber. */
+  background: transparent;
   overflow: hidden;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;

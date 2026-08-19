@@ -796,4 +796,15 @@ export const zh = {
   'download.checksumHint': '下载后进行比对——就能确认文件未被改动。',
   'download.checksumCopy': '复制校验和',
   'download.checksumCopied': '已复制',
+
+  'status.title': '我的状态',
+  'status.online': '在线',
+  'status.away': '离开',
+  'status.invisible': '隐身',
+  'status.onlineNote': '可以联系',
+  'status.awayNote': '暂时不在座位上',
+  'status.dndNote': '不接收通知',
+  'status.invisibleNote': '所有人都会看到你离线',
+  'status.holds': '有效 {stunden} 小时，之后重新按在线情况显示。',
+  'status.openSettings': '打开设置',
 };

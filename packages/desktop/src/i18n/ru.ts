@@ -796,4 +796,15 @@ export const ru = {
   'download.checksumHint': 'Сравните её после загрузки — так вы убедитесь, что файл дошёл без изменений.',
   'download.checksumCopy': 'Скопировать контрольную сумму',
   'download.checksumCopied': 'Скопировано',
+
+  'status.title': 'Мой статус',
+  'status.online': 'В сети',
+  'status.away': 'Отошёл',
+  'status.invisible': 'Невидимый',
+  'status.onlineNote': 'Доступен',
+  'status.awayNote': 'Сейчас не на месте',
+  'status.dndNote': 'Без уведомлений',
+  'status.invisibleNote': 'Для всех вы будете не в сети',
+  'status.holds': 'Действует {stunden} часов, потом снова учитывается присутствие.',
+  'status.openSettings': 'Открыть настройки',
 };

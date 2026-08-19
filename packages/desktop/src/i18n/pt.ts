@@ -796,4 +796,15 @@ export const pt = {
   'download.checksumHint': 'Compare depois de baixar — assim você sabe que o arquivo chegou sem alterações.',
   'download.checksumCopy': 'Copiar a soma de verificação',
   'download.checksumCopied': 'Copiado',
+
+  'status.title': 'Meu estado',
+  'status.online': 'Online',
+  'status.away': 'Ausente',
+  'status.invisible': 'Invisível',
+  'status.onlineNote': 'Disponível',
+  'status.awayNote': 'Neste momento não estou no lugar',
+  'status.dndNote': 'Sem notificações',
+  'status.invisibleNote': 'Os outros veem você como offline',
+  'status.holds': 'Vale durante {stunden} horas; depois volta a contar a presença.',
+  'status.openSettings': 'Abrir configurações',
 };

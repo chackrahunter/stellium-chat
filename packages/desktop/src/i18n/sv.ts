@@ -796,4 +796,15 @@ export const sv = {
   'download.checksumHint': 'Jämför den efter hämtningen — då vet du att filen kom fram oförändrad.',
   'download.checksumCopy': 'Kopiera kontrollsumman',
   'download.checksumCopied': 'Kopierad',
+
+  'status.title': 'Min status',
+  'status.online': 'Online',
+  'status.away': 'Borta',
+  'status.invisible': 'Osynlig',
+  'status.onlineNote': 'Nåbar',
+  'status.awayNote': 'Inte på plats just nu',
+  'status.dndNote': 'Inga aviseringar',
+  'status.invisibleNote': 'Visas som offline för alla',
+  'status.holds': 'Gäller i {stunden} timmar, sedan räknas närvaron igen.',
+  'status.openSettings': 'Öppna inställningar',
 };

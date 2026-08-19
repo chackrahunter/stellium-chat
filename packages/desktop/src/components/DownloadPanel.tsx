@@ -115,7 +115,9 @@ export function DownloadPanel({ onClose }: { onClose: () => void }) {
       .catch(() => { setFassungen([]); setFehler(true); });
   };
 
-  useEffect(laden, []);
+  // Nur im Browser überhaupt fragen: in der App bleibt der Bereich leer, und
+  // eine Anfrage, deren Antwort niemand sieht, gehört nicht gestellt.
+  useEffect(() => { if (imBrowser()) laden(); }, []);
 
   /* Doppelt gesichert: die Leiste zeigt den Knopf ohnehin nur im Browser, aber
      die Regel soll nicht allein an einer fremden Datei hängen. Die Prüfung
@@ -195,7 +197,7 @@ export function DownloadPanel({ onClose }: { onClose: () => void }) {
             sorgt die Kopfzeile des Servers dafür, dass gespeichert statt
             angezeigt wird. */}
         <a
-          className={clsx('btn', gross ? 'btn--primary' : 'btn--ghost', 'dl-knopf')}
+          className={clsx('btn', gross && 'btn--primary', 'dl-knopf')}
           href={dateiUrl(r.url)}
           download={r.fileName}
           target="_blank"

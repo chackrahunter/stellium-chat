@@ -1,5 +1,5 @@
 import {
-  detectLanguage, extractMentions, mentionsEveryone, normalizeLang,
+  detectLanguage, extractMentions, istE2EChiffrat, mentionsEveryone, normalizeLang,
   withinDeleteWindow, withinEditWindow, type DeleteScope, type Message,
 } from '@stellium/shared';
 import { db, reindexMessage, removeFromIndex } from '../db/index.js';
@@ -29,13 +29,32 @@ export interface CreateMessageInput {
 export function createMessage(input: CreateMessageInput): Message {
   const text = input.text.trim();
   if (!text && !(input.attachmentIds?.length)) throw new Error('Leere Nachricht');
-  if (text.length > 12_000) throw new Error('Nachricht zu lang (max. 12.000 Zeichen)');
+
+  /* Ende-zu-Ende verschlüsselte Nachrichten sind länger als ihr Klartext:
+     Base64 kostet ein Drittel, dazu Zähler und Prüfsumme. Dieselbe Grenze für
+     beide hieße, dass in einem vertraulichen Kanal weniger Text passt als in
+     einem gewöhnlichen — ausgerechnet dort, wo man es nicht erklären kann. */
+  const verschlossen = istE2EChiffrat(text);
+  const grenze = verschlossen ? 20_000 : 12_000;
+  if (text.length > grenze) {
+    throw new Error(verschlossen
+      ? 'Nachricht zu lang (max. 12.000 Zeichen)'
+      : `Nachricht zu lang (max. ${grenze / 1000}.000 Zeichen)`);
+  }
 
   const id = newId('m_');
   const at = Date.now();
-  // Bei unsicherer Erkennung lieber nichts eintragen: das Übersetzungsmodell
-  // erkennt die Sprache zuverlässiger und das Ergebnis wird zurückgeschrieben.
-  const erkannt = input.sourceLang ? { lang: normalizeLang(input.sourceLang), confidence: 1 } : detectLanguage(text);
+  /* Bei unsicherer Erkennung lieber nichts eintragen: das Übersetzungsmodell
+     erkennt die Sprache zuverlässiger und das Ergebnis wird zurückgeschrieben.
+
+     Bei einem Chiffrat wird gar nicht erst geraten. Die Erkennung liefe über
+     Base64-Zeichen und käme mit einiger Sicherheit zu einem Ergebnis — einem
+     falschen, das dann als Ausgangssprache in der Datenbank stünde und die
+     Nachricht in Statistiken und Filtern einer Sprache zuschlüge, mit der sie
+     nichts zu tun hat. */
+  const erkannt = verschlossen
+    ? { lang: 'unknown', confidence: 0 }
+    : input.sourceLang ? { lang: normalizeLang(input.sourceLang), confidence: 1 } : detectLanguage(text);
   const sourceLang = erkannt.lang === 'unknown' || erkannt.confidence < 0.35 ? null : erkannt.lang;
 
   db.transaction(() => {
@@ -58,9 +77,14 @@ export function createMessage(input: CreateMessageInput): Message {
       input.systemKind ?? null, input.kind ?? 'text', input.forwardedFrom ?? null, at,
     );
 
-    // Erwähnungen nur eintragen, wenn das Recht dafür da ist. Ohne Eintrag
-    // gibt es keine Benachrichtigung und keine Hervorhebung.
-    if (input.mayMention !== false) {
+    /* Erwähnungen nur eintragen, wenn das Recht dafür da ist. Ohne Eintrag
+       gibt es keine Benachrichtigung und keine Hervorhebung.
+
+       Aus einem Chiffrat kommt hier nichts heraus — das ist kein Mangel,
+       sondern die Folge: wer erwähnt wurde, weiß nur, wer entschlüsseln kann.
+       Die App der empfangenden Person erkennt die Erwähnung im Klartext und
+       hebt sie hervor; der Server zählt sie nicht mit. */
+    if (input.mayMention !== false && !verschlossen) {
       for (const handle of extractMentions(text)) {
         const user = getUserByHandle(handle);
         if (user) db.run('INSERT OR IGNORE INTO message_mentions (message_id, user_id) VALUES (?,?)', id, user.id);
@@ -68,7 +92,7 @@ export function createMessage(input: CreateMessageInput): Message {
     }
 
     // @alle betrifft jede Person im Kanal außer der schreibenden.
-    if (input.mayMentionEveryone && mentionsEveryone(text)) {
+    if (input.mayMentionEveryone && !verschlossen && mentionsEveryone(text)) {
       const mitglieder = db.all<{ user_id: string }>(
         'SELECT user_id FROM channel_members WHERE channel_id = ? AND user_id <> ?',
         input.channelId, input.userId,
@@ -104,14 +128,15 @@ export function editMessage(messageId: string, userId: string, text: string, may
   const clean = text.trim();
   if (!clean) throw new Error('Leere Nachricht');
 
-  const detected = detectLanguage(clean).lang;
+  const verschlossen = istE2EChiffrat(clean);
+  const detected = verschlossen ? 'unknown' : detectLanguage(clean).lang;
   db.transaction(() => {
     db.run(
       'UPDATE messages SET text = ?, source_lang = ?, edited_at = ? WHERE id = ?',
       verschluesseln(clean), detected === 'unknown' ? null : detected, Date.now(), messageId,
     );
     db.run('DELETE FROM message_mentions WHERE message_id = ?', messageId);
-    if (mayMention) {
+    if (mayMention && !verschlossen) {
       for (const handle of extractMentions(clean)) {
         const user = getUserByHandle(handle);
         if (user) db.run('INSERT OR IGNORE INTO message_mentions (message_id, user_id) VALUES (?,?)', messageId, user.id);

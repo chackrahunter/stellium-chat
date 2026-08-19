@@ -796,4 +796,15 @@ export const tr = {
   'download.checksumHint': 'İndirdikten sonra karşılaştırın — böylece dosyanın değişmeden geldiğinden emin olursunuz.',
   'download.checksumCopy': 'Sağlama toplamını kopyala',
   'download.checksumCopied': 'Kopyalandı',
+
+  'status.title': 'Durumum',
+  'status.online': 'Çevrimiçi',
+  'status.away': 'Uzakta',
+  'status.invisible': 'Görünmez',
+  'status.onlineNote': 'Ulaşılabilir',
+  'status.awayNote': 'Şu anda yerimde değilim',
+  'status.dndNote': 'Bildirim yok',
+  'status.invisibleNote': 'Herkese çevrimdışı görünürsün',
+  'status.holds': '{stunden} saat geçerli, sonra yine bulunma durumu sayılır.',
+  'status.openSettings': 'Ayarları aç',
 };

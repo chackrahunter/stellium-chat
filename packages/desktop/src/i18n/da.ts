@@ -796,4 +796,15 @@ export const da = {
   'download.checksumHint': 'Sammenlign den efter download — så ved du, at filen kom uændret frem.',
   'download.checksumCopy': 'Kopiér kontrolsum',
   'download.checksumCopied': 'Kopieret',
+
+  'status.title': 'Min status',
+  'status.online': 'Online',
+  'status.away': 'Ikke til stede',
+  'status.invisible': 'Usynlig',
+  'status.onlineNote': 'Kan kontaktes',
+  'status.awayNote': 'Ikke ved skrivebordet lige nu',
+  'status.dndNote': 'Ingen notifikationer',
+  'status.invisibleNote': 'Vises som offline for alle',
+  'status.holds': 'Gælder i {stunden} timer, derefter tæller tilstedeværelsen igen.',
+  'status.openSettings': 'Åbn indstillinger',
 };

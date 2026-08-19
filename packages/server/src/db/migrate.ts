@@ -130,6 +130,10 @@ function bestehendeTexteVerschluesseln(): void {
     { tabelle: 'poll_translations', spalte: 'payload', schluessel: 'rowid' },
     { tabelle: 'translation_memory', spalte: 'source_text', schluessel: 'key' },
     { tabelle: 'translation_memory', spalte: 'target_text', schluessel: 'key' },
+    /* Der Grund einer Freigabe steht in der Systemnachricht im Kanal und ist
+       damit ohnehin sichtbar — in der Datenbank hat er trotzdem nichts im
+       Klartext zu suchen, wie jeder andere geschriebene Satz auch. */
+    { tabelle: 'vertraulich_freigaben', spalte: 'grund', schluessel: 'id' },
   ];
 
   let gesamt = 0;

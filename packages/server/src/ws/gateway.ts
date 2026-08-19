@@ -24,6 +24,8 @@ import * as tasks from '../services/tasks.js';
 import * as settings from '../services/settings.js';
 import * as releases from '../services/releases.js';
 import { entschluesseln, verschluesseln } from '../crypto/nachrichten.js';
+import * as vertraulich from '../services/vertraulich.js';
+import { istE2EChiffrat } from '@stellium/shared';
 import * as events from '../services/events.js';
 import * as files from '../services/files.js';
 import * as ideas from '../services/ideas.js';
@@ -131,6 +133,82 @@ function isOnline(userId: string): boolean {
   return (byUser.get(userId)?.size ?? 0) > 0;
 }
 
+/* ── Vertrauliche Kanäle ──────────────────────────────────────── */
+
+/**
+ * Alles abweisen, was Klartext braucht.
+ *
+ * Übersetzung, Zusammenfassungen, Antwortvorschläge, Aufgabenerkennung und der
+ * Assistent haben eines gemeinsam: sie lesen den Nachrichtentext. In einem
+ * vertraulichen Kanal hat der Server keinen — er hätte also nur Base64 an ein
+ * fremdes Modell zu schicken und bekäme Unsinn zurück.
+ *
+ * Der Aufruf steht deshalb an jeder dieser Stellen einzeln, statt einmal
+ * zentral: eine Prüfung, die man beim Hinzufügen einer neuen KI-Funktion
+ * vergessen kann, ist keine Prüfung. Wer eine neue Funktion baut und sie hier
+ * nicht einträgt, merkt es am fehlenden Eintrag in VERTRAULICH_ABGESCHALTET.
+ */
+function klartextNoetig(session: Session, channelId: string | null | undefined): boolean {
+  if (!channelId || !vertraulich.istVertraulich(channelId)) return false;
+  fail(session, 'vertraulich',
+    'In einem vertraulichen Kanal geht das nicht — der Server sieht dort nur Chiffrat. '
+    + 'Übersetzung, KI-Hilfen und die serverseitige Suche sind hier bewusst abgeschaltet.');
+  return true;
+}
+
+/** Dasselbe für Nachrichten, deren Kanal man erst nachschlagen muss. */
+function klartextNoetigFuerNachricht(session: Session, messageId: string): boolean {
+  const row = database.get<{ channel_id: string }>(
+    'SELECT channel_id FROM messages WHERE id = ?', messageId,
+  );
+  return klartextNoetig(session, row?.channel_id);
+}
+
+/**
+ * Systemnachricht in den Kanal, wenn sich am Zugang etwas ändert.
+ *
+ * Sie ist der Kern der Freigabe-Regelung: eine Freigabe, von der die
+ * Betroffenen nichts erfahren, wäre genau die stille Hintertür, gegen die
+ * diese Verschlüsselung gebaut ist. Deshalb erzeugt der Server sie selbst und
+ * nicht die App der meldenden Person — sonst könnte man sie weglassen.
+ *
+ * Der Text steht bewusst im Klartext, obwohl der Kanal vertraulich ist: er
+ * muss auch dann lesbar sein, wenn jemandem der Schlüssel fehlt, und er ist
+ * kein Gesprächsinhalt, sondern eine Auskunft über den Kanal selbst.
+ */
+function zugangsMeldung(channelId: string, userId: string, text: string, art: string): void {
+  try {
+    const msg = messages.createMessage({
+      channelId, userId, text, systemKind: art,
+      mayMention: false, mayMentionEveryone: false,
+    });
+    deliverMessage(msg);
+  } catch (err) {
+    console.error('[vertraulich] Systemnachricht:', (err as Error).message);
+  }
+}
+
+/**
+ * Den Mitgliedern sagen, dass ein Schlüssel fehlt oder gewechselt werden muss.
+ *
+ * Der Server kann beides nicht selbst erledigen — er hat den Kanalschlüssel
+ * nicht. Er kann nur fragen, und zwar alle, die ihn haben. Wer zuerst
+ * antwortet, hat verpackt; die übrigen Antworten laufen ins Leere. Das ist
+ * billiger als eine Absprache darüber, wer zuständig ist, und es funktioniert
+ * auch dann noch, wenn die eine zuständige Person gerade im Urlaub ist.
+ */
+function schluesselarbeitAnstossen(channelId: string): void {
+  if (!vertraulich.istVertraulich(channelId)) return;
+  const fassung = vertraulich.aktuelleFassung(channelId);
+  const fehlend = vertraulich.fehlendePakete(channelId, fassung);
+  if (!fehlend.length) return;
+  for (const uid of store.memberIds(channelId)) {
+    if (fehlend.includes(uid)) continue;          // wer selbst wartet, kann nicht helfen
+    if (!vertraulich.kannLesen(channelId, uid)) continue;
+    sendToUser(uid, { t: 'vertraulich:pakete-fehlen', channelId, fassung, userIds: fehlend });
+  }
+}
+
 /* ── Übersetzung für Empfänger ────────────────────────────────── */
 
 /** Füllt Übersetzungen aus dem Cache und meldet, was noch fehlt. */
@@ -139,6 +217,8 @@ function fillCachedTranslations(list: Message[], lang: string): Message[] {
   const need: Message[] = [];
   for (const m of list) {
     if (!m.text || m.deletedAt) continue;
+    // Ein Chiffrat zu übersetzen ergäbe ein übersetztes Chiffrat.
+    if (istE2EChiffrat(m.text)) continue;
     if ((m.sourceLang ?? 'unknown') === target) continue;
     const row = db.get<{ text: string; provider: string; model: string | null; confidence: number | null }>(
       'SELECT text, provider, model, confidence FROM message_translations WHERE message_id = ? AND lang = ?',
@@ -202,6 +282,12 @@ function deliverMessage(message: Message, senderClientId?: string): void {
     const state = store.channelState(message.channelId, uid);
     if (state) sendToUser(uid, { t: 'channel:state', state });
   }
+
+  /* Ende hier, wenn der Text verschlüsselt ist. Alles Folgende — Zielsprachen
+     sammeln, übersetzen, Umfragen nachziehen — arbeitet am Klartext, und den
+     gibt es nicht. Die App der empfangenden Person entschlüsselt selbst; eine
+     Übersetzung gibt es in vertraulichen Kanälen bewusst nicht. */
+  if (istE2EChiffrat(message.text)) return;
 
   // Zielsprachen einsammeln (nur für Leute, die auto-translate anhaben)
   const sourceLang = message.sourceLang ?? 'unknown';
@@ -393,6 +479,10 @@ export function handleConnection(socket: WebSocket): void {
       set?.delete(session);
       if (set && set.size === 0) {
         byUser.delete(session.userId);
+        /* Der Merker darf nicht überleben: käme dieselbe Person morgen wieder,
+           läse der Leerlaufwächter einen uralten Zeitpunkt und stellte sie
+           sofort auf abwesend. */
+        letzteAktion.delete(session.userId);
         setStatus(session.userId, 'offline');
       }
     }
@@ -464,7 +554,20 @@ async function authenticate(session: Session, ev: Extract<ClientEvent, { t: 'aut
     });
   }
 
-  if (wasOffline) setStatus(userId, self.status === 'offline' ? 'online' : self.status);
+  /* Ohne diese Zeile hielte der Leerlaufwächter unten den Zeitpunkt 0 für die
+     letzte Handlung und stellte jeden sofort nach dem Anmelden auf abwesend. */
+  letzteAktion.set(userId, Date.now());
+
+  if (wasOffline) {
+    /*
+     * Ein selbst gesetzter Status übersteht den Verbindungsabriss, solange
+     * seine Frist läuft. Vorher wurde hier stur „offline" zu „online" — und
+     * damit war „unsichtbar" nach dem ersten Netzwackler aufgehoben, ohne
+     * dass die Person etwas davon merkte. Läuft keine Frist mehr, ist online
+     * der ehrliche Wert: die App ist ja gerade wieder da.
+     */
+    setStatus(userId, statusHaelt(userId) ? self.status : 'online');
+  }
 
   // Kanalnamen und -themen in die Lesesprache bringen. Im Hintergrund, damit
   // die Oberfläche sofort steht; die Übersetzungen kommen nach.
@@ -480,6 +583,10 @@ async function authenticate(session: Session, ev: Extract<ClientEvent, { t: 'aut
 
 async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
   const userId = session.userId!;
+
+  /* Ein Ereignis von hier ist der einzige Hinweis, den der Server darauf hat,
+     dass jemand tatsächlich am Rechner sitzt. */
+  if (MENSCHLICHE_EREIGNISSE.has(ev.t)) aktivitaetMerken(userId);
 
   switch (ev.t) {
     case 'ping':
@@ -501,6 +608,18 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
       const missing = session.autoTranslate ? fillCachedTranslations(list, session.language) : [];
       send(session, { t: 'channel:history', channelId: ch.id, messages: list, hasMore });
       if (missing.length) translateInBackground(missing, session.language, userId, channelContext(ch.id));
+      /* Beim Öffnen gleich mitschicken, was zum Entschlüsseln nötig ist —
+         sonst müsste die App erst merken, dass sie nichts lesen kann, und
+         dann nachfragen. Das sähe für einen Wimpernschlag aus wie ein
+         kaputter Kanal. */
+      if (ch.vertraulich) {
+        send(session, {
+          t: 'vertraulich:paket', channelId: ch.id,
+          fassung: vertraulich.aktuelleFassung(ch.id),
+          pakete: vertraulich.paketeFuer(ch.id, userId),
+        });
+        schluesselarbeitAnstossen(ch.id);
+      }
       return;
     }
 
@@ -531,10 +650,24 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
       return;
     }
 
-    case 'channel:leave':
+    case 'channel:leave': {
+      const warVertraulich = vertraulich.istVertraulich(ev.channelId);
       channels.leaveChannel(ev.channelId, userId);
       sendToUser(userId, { t: 'channel:removed', channelId: ev.channelId });
+      /* Wer geht, nimmt den Kanalschlüssel auf seinem Gerät mit. Ohne Wechsel
+         läse er alles Neue weiter mit — er müsste den Kanal dafür nicht einmal
+         sehen, ein mitgeschriebenes Chiffrat genügte. */
+      if (warVertraulich) {
+        for (const uid of store.memberIds(ev.channelId)) {
+          if (!vertraulich.kannLesen(ev.channelId, uid)) continue;
+          sendToUser(uid, {
+            t: 'vertraulich:wechsel-noetig', channelId: ev.channelId,
+            grund: 'Jemand hat den Kanal verlassen.',
+          });
+        }
+      }
       return;
+    }
 
     case 'channel:update': {
       // Nach einer Änderung sind alte Übersetzungen hinfällig; die Prüfsumme
@@ -574,6 +707,24 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
       }
       for (const uid of ev.remove ?? []) {
         if (!ch.memberIds.includes(uid)) sendToUser(uid, { t: 'channel:removed', channelId: ch.id });
+      }
+
+      /* Vertrauliche Kanäle: Aufnahme heißt verpacken, Entfernen heißt
+         wechseln. Beides kann nur eine App erledigen, die den Kanalschlüssel
+         hat — der Server bittet lediglich darum. Der Wechsel steht zuerst,
+         weil er der dringendere ist: bis er passiert, liest die entfernte
+         Person alles Neue weiter mit. */
+      if (ch.vertraulich) {
+        if ((ev.remove ?? []).length) {
+          for (const uid of ch.memberIds) {
+            if (!vertraulich.kannLesen(ch.id, uid)) continue;
+            sendToUser(uid, {
+              t: 'vertraulich:wechsel-noetig', channelId: ch.id,
+              grund: 'Jemand hat den Kanal verlassen.',
+            });
+          }
+        }
+        schluesselarbeitAnstossen(ch.id);
       }
       return;
     }
@@ -627,6 +778,16 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
         return fail(session, 'forbidden', 'In diesen Kanal schreibt nur die Kanalverwaltung.');
       }
 
+      /* In einem vertraulichen Kanal nimmt der Server keinen Klartext an.
+         Das ist die Stelle, an der die Zusage steht oder fällt: eine App mit
+         altem Stand — oder eine selbstgebaute — würde sonst munter unverschlüsselt
+         hineinschreiben, und niemandem im Kanal fiele es auf. Lieber eine
+         abgewiesene Nachricht als eine, die stillschweigend offen liegt. */
+      if (ch.vertraulich && !istE2EChiffrat(ev.text)) {
+        return fail(session, 'vertraulich_noetig',
+          'Dieser Kanal ist vertraulich. Diese App kann noch nicht verschlüsseln — bitte aktualisieren.');
+      }
+
       // Wer einen Chat ausgeblendet hat, soll ihn bei neuer Aktivität wiedersehen.
       channels.unhideForAll(ch.id);
 
@@ -657,6 +818,15 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
       if (!darf(session, 'message.edit_own')) return;
       if (!may(userId, 'mention.user') && extractMentions(ev.text).length > 0) {
         return fail(session, 'forbidden', 'Dafür fehlt dir das Recht "Personen erwähnen".');
+      }
+      /* Dieselbe Zusage wie beim Senden: eine Bearbeitung darf eine
+         verschlüsselte Nachricht nicht in eine offene verwandeln. */
+      const kanalDerNachricht = database.get<{ channel_id: string }>(
+        'SELECT channel_id FROM messages WHERE id = ?', ev.messageId,
+      )?.channel_id;
+      if (kanalDerNachricht && vertraulich.istVertraulich(kanalDerNachricht) && !istE2EChiffrat(ev.text)) {
+        return fail(session, 'vertraulich_noetig',
+          'Dieser Kanal ist vertraulich. Diese App kann noch nicht verschlüsseln — bitte aktualisieren.');
       }
       const msg = messages.editMessage(ev.messageId, userId, ev.text);
       broadcast({ t: 'message:updated', message: msg }, store.memberIds(msg.channelId));
@@ -740,6 +910,11 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
       if (!store.getChannel(ev.channelId, userId) || !store.isMember(ev.channelId, userId)) {
         return fail(session, 'forbidden', 'Kein Zugriff auf diesen Kanal');
       }
+      if (vertraulich.istVertraulich(ev.channelId) && !istE2EChiffrat(ev.text)) {
+        return fail(session, 'vertraulich_noetig',
+          'Dieser Kanal ist vertraulich. Eine geplante Nachricht muss schon beim Planen verschlüsselt sein — '
+          + 'sonst läge sie bis zum Absenden offen auf dem Server.');
+      }
       const id = messages.scheduleMessage({
         channelId: ev.channelId, userId, text: ev.text, sendAt: ev.sendAt, parentId: ev.parentId ?? null,
       });
@@ -781,9 +956,30 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
       return;
     }
 
-    case 'presence:set':
-      setStatus(userId, ev.status, ev.statusEmoji, ev.statusText, ev.statusExpiresAt);
+    case 'presence:set': {
+      /*
+       * Zwei Absender, ein Ereignis — unterschieden an der Frist:
+       *
+       *   fehlt sie      -> ein Mensch hat gewählt. Der Server legt seine
+       *                     Regelfrist darüber, damit die Wahl eine Weile hält.
+       *   ist sie null   -> der Leerlaufwächter der Oberfläche meldet, was er
+       *                     beobachtet hat. Das darf eine laufende eigene Wahl
+       *                     nicht verdrängen.
+       *   ist sie eine Zahl -> ausdrücklich bis dahin.
+       *
+       * „online" bekommt bei eigener Wahl keine Frist: es ist der Zustand, in
+       * den alles von selbst zurückfällt. Ihn festzuhalten hieße, den
+       * Leerlaufwächter für acht Stunden abzuschalten.
+       */
+      const automatisch = ev.statusExpiresAt === null;
+      if (automatisch && statusHaelt(userId)) return;
+      const frist = automatisch
+        ? null
+        : ev.statusExpiresAt ?? (ev.status === 'online' ? null : Date.now() + MANUELL_HAELT_MS);
+      if (!automatisch) letzteAktion.set(userId, Date.now());
+      setStatus(userId, ev.status, ev.statusEmoji, ev.statusText, frist);
       return;
+    }
 
     case 'prefs:update': {
       const map: Record<string, string> = {
@@ -849,6 +1045,7 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
       if (!darfNachrichtSehen(userId, ev.messageId)) {
         return fail(session, 'forbidden', 'Zu dieser Nachricht hast du keinen Zugang.');
       }
+      if (klartextNoetigFuerNachricht(session, ev.messageId)) return;
       const view = await translateMessage(ev.messageId, ev.targetLang, { force: ev.force });
       if (view) send(session, { t: 'translation', messageId: ev.messageId, translation: view });
       else fail(session, 'no_translation', 'Keine Übersetzung nötig oder möglich');
@@ -860,6 +1057,7 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
       if (!darfNachrichtSehen(userId, ev.messageId)) {
         return fail(session, 'forbidden', 'Zu dieser Nachricht hast du keinen Zugang.');
       }
+      if (klartextNoetigFuerNachricht(session, ev.messageId)) return;
       const result = await roundTrip(ev.messageId, ev.targetLang);
       if (!result) return fail(session, 'no_translation', 'Für diese Nachricht liegt keine Übersetzung vor');
       send(session, { t: 'roundtrip', messageId: ev.messageId, targetLang: ev.targetLang, ...result });
@@ -868,6 +1066,12 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
 
     case 'compose:preview': {
       if (!darf(session, 'ai.translate')) return;
+      /* Besonders wichtig hier: die Vorschau schickt Text, den die Person
+         gerade erst tippt — noch unverschlüsselt, weil sie ihn ja noch nicht
+         abgeschickt hat. Ginge das durch, wäre die ganze Verschlüsselung
+         umsonst: der Klartext läge beim Übersetzungsdienst, bevor er den
+         Kanal überhaupt erreicht. */
+      if (klartextNoetig(session, ev.channelId)) return;
       const outcome = await translate({
         text: ev.text, targetLang: ev.targetLang, context: channelContext(ev.channelId),
       });
@@ -880,6 +1084,7 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
 
     case 'ai:catchup': {
       if (!darf(session, 'ai.assistant')) return;
+      if (klartextNoetig(session, ev.channelId)) return;
       const ch = store.getChannel(ev.channelId, userId);
       if (!ch) return fail(session, 'not_found', 'Kanal nicht gefunden', ev.requestId);
       const state = store.channelState(ev.channelId, userId);
@@ -902,6 +1107,7 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
       if (!darfNachrichtSehen(userId, ev.messageId)) {
         return fail(session, 'not_found', 'Nachricht nicht gefunden', ev.requestId);
       }
+      if (klartextNoetigFuerNachricht(session, ev.messageId)) return;
       const summary = await ai.summarizeThread(ev.messageId, session.language);
       send(session, { t: 'ai:thread-summary', requestId: ev.requestId, messageId: ev.messageId, summary });
       return;
@@ -913,6 +1119,7 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
       if (!store.getChannel(ev.channelId, userId)) {
         return fail(session, 'not_found', 'Kanal nicht gefunden', ev.requestId);
       }
+      if (klartextNoetig(session, ev.channelId)) return;
       const self = store.getSelf(userId)!;
       const replies = await ai.smartReplies({
         channelId: ev.channelId, parentId: ev.parentId ?? null,
@@ -1080,6 +1287,10 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
 
     case 'ai:set-mode': {
       if (!darf(session, 'channel.manage')) return;
+      /* Den Assistenten in einem vertraulichen Kanal einzuschalten geht nicht.
+         Er bekäme nur Chiffrat zu sehen — und die Einstellung stünde dann als
+         eingeschaltet da, während nie etwas passiert. */
+      if (klartextNoetig(session, ev.channelId)) return;
       ki.setAiMode(ev.channelId, ev.mode);
       const ch = store.getChannel(ev.channelId, userId);
       if (ch) broadcast({ t: 'channel:upsert', channel: ch }, ch.kind === 'public' ? undefined : ch.memberIds);
@@ -1153,6 +1364,7 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
 
     case 'ai:extract-tasks': {
       if (!darf(session, 'ai.assistant')) return;
+      if (klartextNoetig(session, ev.channelId)) return;
       // Aufgaben entstehen aus dem Verlauf des Kanals — nur aus einem eigenen.
       if (!store.getChannel(ev.channelId, userId)) {
         return fail(session, 'not_found', 'Kanal nicht gefunden', ev.requestId);
@@ -1215,6 +1427,7 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
 
     case 'ai:protocol': {
       if (!darf(session, 'ai.assistant')) return;
+      if (klartextNoetig(session, ev.channelId)) return;
       const kanal = store.getChannel(ev.channelId, userId);
       if (!kanal) return fail(session, 'not_found', 'Kanal nicht gefunden.');
       send(session, {
@@ -1387,6 +1600,7 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
 
     case 'ai:ask': {
       if (!darf(session, 'ai.assistant')) return;
+      if (klartextNoetig(session, ev.channelId)) return;
       const ch = store.getChannel(ev.channelId, userId);
       if (!ch) return fail(session, 'not_found', 'Kanal nicht gefunden', ev.requestId);
       const result = await ai.askChannel({
@@ -1394,6 +1608,168 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
         channelName: channels.channelLabel(ch, userId, (id) => store.getUser(id)?.displayName ?? 'Unbekannt'),
       });
       send(session, { t: 'ai:ask', requestId: ev.requestId, ...result });
+      return;
+    }
+
+    /* ── Vertrauliche Kanäle ────────────────────────────────
+       Der Server nimmt hier Verschlossenes entgegen und gibt Verschlossenes
+       heraus. Was er prüft, ist ausschließlich, wer wem etwas geben darf —
+       nie, was darin steht. */
+
+    case 'vertraulich:schluessel-melden': {
+      if (!ev.jwk || !ev.abdruck) return fail(session, 'bad_request', 'Der Schlüssel ist unvollständig.');
+      if (ev.jwk.length > 4000) return fail(session, 'bad_request', 'Der Schlüssel ist zu groß.');
+      const ergebnis = vertraulich.schluesselMelden({
+        userId, jwk: ev.jwk, abdruck: ev.abdruck, sicherung: ev.sicherung ?? null,
+      });
+      send(session, { t: 'vertraulich:schluessel', schluessel: vertraulich.oeffentlicheSchluessel([userId]) });
+      /* Ein neu hinterlegter Schlüssel heißt: in jedem vertraulichen Kanal
+         dieser Person fehlt jetzt ein Paket. Ohne diesen Anstoß säße sie in
+         ihren eigenen Kanälen vor lauter unlesbaren Nachrichten und wüsste
+         nicht, warum. */
+      if (ergebnis.neu || ergebnis.gewechselt) {
+        for (const kanal of store.visibleChannels(userId)) {
+          if (kanal.vertraulich) schluesselarbeitAnstossen(kanal.id);
+        }
+      }
+      return;
+    }
+
+    case 'vertraulich:schluessel-holen': {
+      /* Öffentliche Teile sind öffentlich — für alle Konten abrufbar, nicht
+         nur für Kanalmitglieder. Sie sind zum Verteilen da, und wer sie
+         einschränkte, verhinderte nur, dass man jemanden in einen
+         vertraulichen Kanal aufnehmen kann, mit dem man noch keinen teilt. */
+      send(session, { t: 'vertraulich:schluessel', schluessel: vertraulich.oeffentlicheSchluessel(ev.userIds) });
+      return;
+    }
+
+    case 'vertraulich:sicherung-holen':
+      send(session, { t: 'vertraulich:sicherung', paket: vertraulich.sicherungHolen(userId) });
+      return;
+
+    case 'vertraulich:einschalten': {
+      if (!darf(session, 'vertraulich.kanal')) return;
+      if (!store.isMember(ev.channelId, userId)) {
+        return fail(session, 'forbidden', 'Nur Mitglieder können einen Kanal vertraulich stellen.');
+      }
+      const fassung = vertraulich.einschalten({ channelId: ev.channelId, userId, pakete: ev.pakete ?? [] });
+      const kanal = store.getChannel(ev.channelId, userId)!;
+      for (const uid of kanal.memberIds) {
+        sendToUser(uid, { t: 'channel:upsert', channel: store.getChannel(ev.channelId, uid)! });
+      }
+      /* Auch das ist eine Zugangsänderung und gehört sichtbar in den Kanal:
+         ab hier lesen Übersetzung und KI nicht mehr mit, und wer ohne
+         Schlüssel dasteht, soll den Grund im Verlauf finden. */
+      zugangsMeldung(
+        ev.channelId, userId,
+        `@${store.getUser(userId)?.handle} hat diesen Kanal vertraulich gestellt — ab hier liest nur noch mit, wer den Schlüssel hat.`,
+        'vertraulich.ein',
+      );
+      schluesselarbeitAnstossen(ev.channelId);
+      void fassung;
+      return;
+    }
+
+    case 'vertraulich:pakete': {
+      const anzahl = vertraulich.paketeNachreichen({
+        channelId: ev.channelId, fassung: ev.fassung, vonUserId: userId, pakete: ev.pakete ?? [],
+      });
+      // Jedes versorgte Konto erfährt sofort davon, statt bis zum nächsten
+      // Öffnen des Kanals vor unlesbaren Nachrichten zu sitzen.
+      for (const eintrag of ev.pakete ?? []) {
+        sendToUser(eintrag.userId, {
+          t: 'vertraulich:paket', channelId: ev.channelId,
+          fassung: vertraulich.aktuelleFassung(ev.channelId),
+          pakete: vertraulich.paketeFuer(ev.channelId, eintrag.userId),
+        });
+      }
+      void anzahl;
+      return;
+    }
+
+    case 'vertraulich:wechseln': {
+      const fassung = vertraulich.wechseln({
+        channelId: ev.channelId, userId, pakete: ev.pakete ?? [],
+      });
+      for (const uid of store.memberIds(ev.channelId)) {
+        sendToUser(uid, {
+          t: 'vertraulich:paket', channelId: ev.channelId, fassung,
+          pakete: vertraulich.paketeFuer(ev.channelId, uid),
+        });
+        sendToUser(uid, { t: 'channel:upsert', channel: store.getChannel(ev.channelId, uid)! });
+      }
+      schluesselarbeitAnstossen(ev.channelId);
+      return;
+    }
+
+    case 'vertraulich:paket-holen': {
+      if (!store.isMember(ev.channelId, userId)) {
+        return fail(session, 'forbidden', 'Kein Zugriff auf diesen Kanal');
+      }
+      send(session, {
+        t: 'vertraulich:paket', channelId: ev.channelId,
+        fassung: vertraulich.aktuelleFassung(ev.channelId),
+        pakete: vertraulich.paketeFuer(ev.channelId, userId),
+      });
+      return;
+    }
+
+    case 'vertraulich:vorfall-melden': {
+      const freigabe = vertraulich.freigabeAnlegen({
+        channelId: ev.channelId, melderId: userId, grund: ev.grund,
+        codeAbdruck: ev.codeAbdruck, tage: ev.tage, pakete: ev.pakete ?? [],
+      });
+      /* Erst die Meldung im Kanal, dann die Bestätigung an die meldende Person.
+         In dieser Reihenfolge, weil die Systemnachricht der eigentliche Zweck
+         ist: schlüge sie fehl, soll niemand eine Freigabe in der Hand halten,
+         von der der Kanal nichts weiß. */
+      zugangsMeldung(
+        ev.channelId, userId,
+        `@${store.getUser(userId)?.handle} hat diesen Kanal für die Verwaltung geöffnet — Grund: ${freigabe.grund}`,
+        'vertraulich.freigabe',
+      );
+      send(session, { t: 'vertraulich:freigabe', freigabe });
+      for (const uid of new Set([...store.memberIds(ev.channelId), ...vertraulich.verwaltungIds()])) {
+        if (uid === userId) continue;
+        sendToUser(uid, { t: 'vertraulich:freigabe', freigabe });
+      }
+      return;
+    }
+
+    case 'vertraulich:freigaben':
+      send(session, {
+        t: 'vertraulich:freigaben', channelId: ev.channelId ?? null,
+        freigaben: vertraulich.freigabenFuer(userId, ev.channelId ?? null),
+      });
+      return;
+
+    case 'vertraulich:freigabe-oeffnen': {
+      const schluessel = vertraulich.freigabeOeffnen({
+        freigabeId: ev.freigabeId, userId, codeAbdruck: ev.codeAbdruck,
+      });
+      send(session, { t: 'vertraulich:freigabe-schluessel', schluessel });
+      /* Auch das Öffnen gehört in den Kanal. Die Freigabe selbst war schon
+         sichtbar; dass jemand sie tatsächlich benutzt hat, ist die zweite
+         Hälfte derselben Auskunft. */
+      zugangsMeldung(
+        schluessel.channelId, userId,
+        `@${store.getUser(userId)?.handle} hat die Freigabe eingelöst und liest diesen Kanal jetzt mit.`,
+        'vertraulich.eingeloest',
+      );
+      return;
+    }
+
+    case 'vertraulich:freigabe-zuruecknehmen': {
+      const freigabe = vertraulich.freigabeZuruecknehmen(ev.freigabeId, userId);
+      zugangsMeldung(
+        freigabe.channelId, userId,
+        `@${store.getUser(userId)?.handle} hat die Freigabe für die Verwaltung zurückgenommen.`,
+        'vertraulich.zurueckgenommen',
+      );
+      for (const uid of new Set([...store.memberIds(freigabe.channelId), ...vertraulich.verwaltungIds()])) {
+        sendToUser(uid, { t: 'vertraulich:freigabe', freigabe });
+      }
       return;
     }
   }
@@ -1458,6 +1834,12 @@ async function pollUebersetzungNachreichen(pollId: string, userId: string, chann
  * eine langsame fremde Website darf den Chat nicht aufhalten.
  */
 function enrichLinks(messageId: string, text: string, channelId: string): void {
+  /* Aus einem Chiffrat holt extractUrls ohnehin nichts heraus. Die Prüfung
+     steht hier ausdrücklich, damit niemand sie später wieder wegoptimiert:
+     eine Vorschau bedeutet, dass der Server die Adresse abruft — und damit
+     jemandem verrät, welche Seite in einem vertraulichen Gespräch verlinkt
+     wurde. */
+  if (istE2EChiffrat(text)) return;
   if (!extractUrls(text).length) return;
   void attachPreviews(messageId, text)
     .then((links) => {
@@ -1475,6 +1857,11 @@ function enrichLinks(messageId: string, text: string, channelId: string): void {
 async function runTranscription(messageId: string, attachmentId: string): Promise<void> {
   const msg = store.getMessage(messageId);
   if (!msg) return;
+  /* In einem vertraulichen Kanal wird nicht transkribiert. Das Transkript
+     würde zum Nachrichtentext — im Klartext, auf dem Server, für ein Gespräch,
+     das ausdrücklich niemand außer den Beteiligten lesen soll. Die Aufnahme
+     bleibt hörbar, sie bekommt nur keine Abschrift. */
+  if (vertraulich.istVertraulich(msg.channelId)) return;
   const audience = store.memberIds(msg.channelId);
 
   try {
@@ -1527,6 +1914,11 @@ async function runTranscription(messageId: string, attachmentId: string): Promis
  * Modell wartet.
  */
 function vielleichtAntworten(channelId: string, text: string, authorId: string): void {
+  /* In vertraulichen Kanälen schweigt der Assistent. Er könnte gar nicht
+     antworten — er läse Base64 — aber die Prüfung steht trotzdem hier und
+     nicht erst im Modell: der Verlauf ginge sonst als Anfrage an einen fremden
+     Dienst, bevor irgendwer merkt, dass nichts dabei herauskommt. */
+  if (vertraulich.istVertraulich(channelId)) return;
   if (!ki.shouldAnswer(channelId, text, authorId)) return;
 
   const botId = ki.assistantUserId();
@@ -1623,13 +2015,21 @@ export function startBackgroundJobs(): () => void {
   // Abgelaufene Status zurücksetzen ("bin gleich zurück" soll nicht ewig stehen)
   const statusTimer = setInterval(() => {
     try {
+      const jetzt = Date.now();
       const expired = database.all<{ id: string }>(
-        'SELECT id FROM users WHERE status_expires_at IS NOT NULL AND status_expires_at <= ?', Date.now(),
+        'SELECT id FROM users WHERE status_expires_at IS NOT NULL AND status_expires_at <= ?', jetzt,
       );
       for (const row of expired) {
+        /*
+         * Mit der Frist endet der Status selbst, nicht nur Zeichen und Text.
+         * Vorher verschwand allein das Emoji, und „bitte nicht stören" stand
+         * hinterher für immer da — rot, ohne Erklärung daneben. Was danach
+         * gilt, entscheidet die Verbindung: wer noch dranhängt, ist online.
+         */
+        const zurueck: UserStatus = isOnline(row.id) ? 'online' : 'offline';
         database.run(
-          "UPDATE users SET status_emoji = NULL, status_text = NULL, status_expires_at = NULL WHERE id = ?",
-          row.id,
+          "UPDATE users SET status = ?, status_emoji = NULL, status_text = NULL, status_expires_at = NULL WHERE id = ?",
+          zurueck, row.id,
         );
         const u = store.getUser(row.id);
         if (u) {
@@ -1638,6 +2038,19 @@ export function startBackgroundJobs(): () => void {
             statusEmoji: null, statusText: null, statusExpiresAt: null, lastSeenAt: u.lastSeenAt,
           });
         }
+      }
+
+      /*
+       * Wer verbunden ist, aber lange nichts getan hat, wandert auf abwesend.
+       * Ohne das bleibt ein offener, vergessener Rechner für alle anderen
+       * grün — die Verbindung steht ja, nur der Mensch davor nicht mehr.
+       */
+      const grenze = jetzt - LEERLAUF_MS;
+      for (const uid of byUser.keys()) {
+        if ((letzteAktion.get(uid) ?? jetzt) > grenze) continue;
+        if (statusHaelt(uid)) continue;
+        if (store.getUser(uid)?.status !== 'online') continue;
+        setStatus(uid, 'away');
       }
     } catch (err) {
       console.error('[status]', (err as Error).message);
@@ -1688,6 +2101,20 @@ export function startBackgroundJobs(): () => void {
     }
   }, 60_000);
 
+  /* Abgelaufene Freigaben entschärfen.
+     Der Ablauf wird bei jedem Öffnen geprüft — aber solange die Pakete
+     daliegen, hängt alles an dieser einen Prüfung. Ein Fehler dort, und eine
+     Freigabe von vor zwei Jahren stünde wieder offen. Werden die Pakete
+     gelöscht, ist der Ablauf keine Regel mehr, sondern ein Zustand. */
+  const freigabenTimer = setInterval(() => {
+    try {
+      const weg = vertraulich.abgelaufeneAufraeumen();
+      if (weg) console.log(`[vertraulich] ${weg} abgelaufene Freigaben entschärft.`);
+    } catch (err) {
+      console.error('[vertraulich]', (err as Error).message);
+    }
+  }, 10 * 60_000);
+
   // Tote Sockets aussortieren
   const heartbeat = setInterval(() => {
     for (const s of sessions.values()) {
@@ -1703,6 +2130,7 @@ export function startBackgroundJobs(): () => void {
     clearInterval(statusTimer);
     clearInterval(terminTimer);
     clearInterval(wartungsTimer);
+    clearInterval(freigabenTimer);
     clearInterval(heartbeat);
   };
 }

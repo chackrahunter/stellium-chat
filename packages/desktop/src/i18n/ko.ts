@@ -796,4 +796,15 @@ export const ko = {
   'download.checksumHint': '내려받은 뒤 비교하면 파일이 그대로 도착했는지 확인할 수 있습니다.',
   'download.checksumCopy': '체크섬 복사',
   'download.checksumCopied': '복사됨',
+
+  'status.title': '내 상태',
+  'status.online': '온라인',
+  'status.away': '자리 비움',
+  'status.invisible': '숨김',
+  'status.onlineNote': '연락 가능',
+  'status.awayNote': '지금은 자리에 없음',
+  'status.dndNote': '알림 없음',
+  'status.invisibleNote': '모두에게 오프라인으로 표시됩니다',
+  'status.holds': '{stunden}시간 동안 유지되며, 이후에는 다시 접속 상태를 따릅니다.',
+  'status.openSettings': '설정 열기',
 };

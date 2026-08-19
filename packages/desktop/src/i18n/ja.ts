@@ -796,4 +796,15 @@ export const ja = {
   'download.checksumHint': 'ダウンロード後に照合すれば、ファイルが変更されずに届いたと確認できます。',
   'download.checksumCopy': 'チェックサムをコピー',
   'download.checksumCopied': 'コピーしました',
+
+  'status.title': '自分のステータス',
+  'status.online': 'オンライン',
+  'status.away': '離席中',
+  'status.invisible': '非表示',
+  'status.onlineNote': '連絡できます',
+  'status.awayNote': '今は席にいません',
+  'status.dndNote': '通知は届きません',
+  'status.invisibleNote': '全員にオフラインとして表示されます',
+  'status.holds': '{stunden}時間有効で、その後は在席状況が優先されます。',
+  'status.openSettings': '設定を開く',
 };

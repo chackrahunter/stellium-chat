@@ -796,4 +796,15 @@ export const uk = {
   'download.checksumHint': 'Порівняйте її після завантаження — так ви переконаєтеся, що файл надійшов без змін.',
   'download.checksumCopy': 'Скопіювати контрольну суму',
   'download.checksumCopied': 'Скопійовано',
+
+  'status.title': 'Мій статус',
+  'status.online': 'У мережі',
+  'status.away': 'Відійшов',
+  'status.invisible': 'Невидимий',
+  'status.onlineNote': 'Доступний',
+  'status.awayNote': 'Зараз не на місці',
+  'status.dndNote': 'Без сповіщень',
+  'status.invisibleNote': 'Для всіх ви будете поза мережею',
+  'status.holds': 'Діє {stunden} годин, потім знову враховується присутність.',
+  'status.openSettings': 'Відкрити налаштування',
 };

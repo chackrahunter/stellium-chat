@@ -817,4 +817,15 @@ export const en: Partial<Dictionary> = {
   'download.checksumHint': 'Compare it after downloading — then you know the file arrived unchanged.',
   'download.checksumCopy': 'Copy checksum',
   'download.checksumCopied': 'Copied',
+
+  'status.title': 'My status',
+  'status.online': 'Online',
+  'status.away': 'Away',
+  'status.invisible': 'Invisible',
+  'status.onlineNote': 'Available',
+  'status.awayNote': 'Not at my desk right now',
+  'status.dndNote': 'No notifications',
+  'status.invisibleNote': 'Shows as offline to everyone',
+  'status.holds': 'Applies for {stunden} hours, then presence counts again.',
+  'status.openSettings': 'Open settings',
 };

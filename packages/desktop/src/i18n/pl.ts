@@ -796,4 +796,15 @@ export const pl = {
   'download.checksumHint': 'Porównaj ją po pobraniu — wtedy wiesz, że plik dotarł niezmieniony.',
   'download.checksumCopy': 'Kopiuj sumę kontrolną',
   'download.checksumCopied': 'Skopiowano',
+
+  'status.title': 'Mój status',
+  'status.online': 'Dostępny',
+  'status.away': 'Nieobecny',
+  'status.invisible': 'Niewidoczny',
+  'status.onlineNote': 'Można się skontaktować',
+  'status.awayNote': 'Chwilowo nie ma mnie przy biurku',
+  'status.dndNote': 'Bez powiadomień',
+  'status.invisibleNote': 'Dla wszystkich wyglądasz na offline',
+  'status.holds': 'Obowiązuje przez {stunden} godzin, potem znowu liczy się obecność.',
+  'status.openSettings': 'Otwórz ustawienia',
 };

@@ -796,4 +796,15 @@ export const fi = {
   'download.checksumHint': 'Vertaa sitä latauksen jälkeen — silloin tiedät, että tiedosto tuli perille muuttumattomana.',
   'download.checksumCopy': 'Kopioi tarkistussumma',
   'download.checksumCopied': 'Kopioitu',
+
+  'status.title': 'Oma tila',
+  'status.online': 'Paikalla',
+  'status.away': 'Poissa',
+  'status.invisible': 'Näkymätön',
+  'status.onlineNote': 'Tavoitettavissa',
+  'status.awayNote': 'En ole juuri nyt paikalla',
+  'status.dndNote': 'Ei ilmoituksia',
+  'status.invisibleNote': 'Näkyy muille poissaolevana',
+  'status.holds': 'Voimassa {stunden} tuntia, sen jälkeen läsnäolo ratkaisee taas.',
+  'status.openSettings': 'Avaa asetukset',
 };

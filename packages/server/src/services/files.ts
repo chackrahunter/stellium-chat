@@ -24,6 +24,7 @@ function toFile(r: any): StoredFile {
     name: r.name,
     mime: r.mime,
     size: r.size,
+    privat: Boolean(r.privat),
     folder: r.folder ?? '',
     channelId: r.channel_id ?? null,
     description: r.description ?? null,
@@ -113,6 +114,12 @@ export function usage(): StorageUsage {
 export function addFile(input: {
   id: string; name: string; mime: string; size: number; storedPath: string;
   folder?: string; channelId?: string | null; description?: string | null; uploadedBy: string;
+  /**
+   * Privat heißt: was hier ankommt, ist bereits Chiffrat. Die App hat die
+   * Datei verschlüsselt, bevor sie den Rechner verlassen hat — der Server
+   * verwahrt sie und kann sie nicht öffnen, auch nicht mit dem Masterpasswort.
+   */
+  privat?: boolean;
 }): StoredFile {
   const belegt = usage();
   if (belegt.used + input.size > belegt.quota) {
@@ -120,16 +127,23 @@ export function addFile(input: {
   }
   const jetzt = Date.now();
   db.run(
-    `INSERT INTO files (id, name, mime, size, path, folder, channel_id, description, uploaded_by, created_at, updated_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+    `INSERT INTO files (id, name, mime, size, path, folder, channel_id, description, uploaded_by, privat, created_at, updated_at)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
     input.id, saubererName(input.name), input.mime, input.size, input.storedPath,
     normalisierterOrdner(input.folder ?? ''), input.channelId ?? null,
-    input.description?.trim() || null, input.uploadedBy, jetzt, jetzt,
+    input.description?.trim() || null, input.uploadedBy, input.privat ? 1 : 0, jetzt, jetzt,
   );
 
   /* In den Blockspeicher übernehmen. Läuft nach dem Eintragen: die Datei ist
      sofort benutzbar, und scheitert die Übernahme, bleibt sie schlicht als
-     ganze Datei liegen — niemand merkt etwas außer der Belegung. */
+     ganze Datei liegen — niemand merkt etwas außer der Belegung.
+
+     Private Dateien laufen bewusst durch denselben Weg. Der Blockspeicher
+     arbeitet über den Inhalt: gleiches Chiffrat wird zusammengelegt,
+     verschiedenes nicht. Ob das bei privaten Dateien je etwas einspart, hängt
+     daran, wie ihr Schlüssel zustande kommt — und genau das ist noch nicht
+     entschieden. Bis dahin ist der Weg hier für beide Antworten derselbe und
+     kostet im schlechteren Fall nur einen Durchlauf, der nichts findet. */
   ablage.uebernehmen({ id: input.id, art: 'file', pfad: input.storedPath, mime: input.mime });
 
   return getFile(input.id)!;

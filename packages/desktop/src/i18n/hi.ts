@@ -796,4 +796,15 @@ export const hi = {
   'download.checksumHint': 'डाउनलोड के बाद इसकी तुलना करें — तब पक्का हो जाता है कि फ़ाइल बिना बदलाव पहुँची।',
   'download.checksumCopy': 'चेकसम कॉपी करें',
   'download.checksumCopied': 'कॉपी हो गया',
+
+  'status.title': 'मेरी स्थिति',
+  'status.online': 'ऑनलाइन',
+  'status.away': 'अनुपस्थित',
+  'status.invisible': 'अदृश्य',
+  'status.onlineNote': 'उपलब्ध',
+  'status.awayNote': 'अभी जगह पर नहीं हूँ',
+  'status.dndNote': 'कोई सूचना नहीं',
+  'status.invisibleNote': 'सबको ऑफ़लाइन दिखेगा',
+  'status.holds': '{stunden} घंटे तक लागू, उसके बाद फिर उपस्थिति मानी जाएगी।',
+  'status.openSettings': 'सेटिंग्स खोलें',
 };

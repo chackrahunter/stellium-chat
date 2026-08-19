@@ -796,4 +796,15 @@ export const cs = {
   'download.checksumHint': 'Po stažení ho porovnejte — pak víte, že soubor dorazil beze změny.',
   'download.checksumCopy': 'Kopírovat kontrolní součet',
   'download.checksumCopied': 'Zkopírováno',
+
+  'status.title': 'Můj stav',
+  'status.online': 'Online',
+  'status.away': 'Nepřítomen',
+  'status.invisible': 'Neviditelný',
+  'status.onlineNote': 'K zastižení',
+  'status.awayNote': 'Právě nejsem u počítače',
+  'status.dndNote': 'Žádná upozornění',
+  'status.invisibleNote': 'Všem se zobrazí jako offline',
+  'status.holds': 'Platí {stunden} hodin, poté se zase počítá přítomnost.',
+  'status.openSettings': 'Otevřít nastavení',
 };

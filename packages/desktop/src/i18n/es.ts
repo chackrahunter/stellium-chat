@@ -796,4 +796,15 @@ export const es = {
   'download.checksumHint': 'Compárala después de descargar: así sabrás que el archivo llegó sin cambios.',
   'download.checksumCopy': 'Copiar la suma de verificación',
   'download.checksumCopied': 'Copiada',
+
+  'status.title': 'Mi estado',
+  'status.online': 'En línea',
+  'status.away': 'Ausente',
+  'status.invisible': 'Invisible',
+  'status.onlineNote': 'Disponible',
+  'status.awayNote': 'Ahora mismo no estoy en el sitio',
+  'status.dndNote': 'Sin notificaciones',
+  'status.invisibleNote': 'Los demás te ven como desconectado',
+  'status.holds': 'Vale durante {stunden} horas; después vuelve a contar la presencia.',
+  'status.openSettings': 'Abrir configuración',
 };

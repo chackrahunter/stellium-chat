@@ -796,4 +796,15 @@ export const nl = {
   'download.checksumHint': 'Vergelijk hem na het downloaden — dan weet je dat het bestand ongewijzigd is aangekomen.',
   'download.checksumCopy': 'Controlesom kopiëren',
   'download.checksumCopied': 'Gekopieerd',
+
+  'status.title': 'Mijn status',
+  'status.online': 'Online',
+  'status.away': 'Afwezig',
+  'status.invisible': 'Onzichtbaar',
+  'status.onlineNote': 'Bereikbaar',
+  'status.awayNote': 'Even niet op mijn plek',
+  'status.dndNote': 'Geen meldingen',
+  'status.invisibleNote': 'Iedereen ziet je als offline',
+  'status.holds': 'Geldt {stunden} uur, daarna telt de aanwezigheid weer.',
+  'status.openSettings': 'Instellingen openen',
 };

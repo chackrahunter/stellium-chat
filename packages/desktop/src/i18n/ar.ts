@@ -796,4 +796,15 @@ export const ar = {
   'download.checksumHint': 'قارنه بعد التنزيل — عندئذٍ تتأكد أن الملف وصل دون تغيير.',
   'download.checksumCopy': 'نسخ المجموع الاختباري',
   'download.checksumCopied': 'تم النسخ',
+
+  'status.title': 'حالتي',
+  'status.online': 'متصل',
+  'status.away': 'غائب',
+  'status.invisible': 'مخفي',
+  'status.onlineNote': 'متاح',
+  'status.awayNote': 'لست في مكاني حالياً',
+  'status.dndNote': 'بدون إشعارات',
+  'status.invisibleNote': 'يظهر للجميع كغير متصل',
+  'status.holds': 'يسري لمدة {stunden} ساعات، بعدها يُحتسب الحضور من جديد.',
+  'status.openSettings': 'فتح الإعدادات',
 };

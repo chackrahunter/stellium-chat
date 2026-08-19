@@ -827,4 +827,16 @@ export const de = {
   'download.checksumHint': 'Vergleiche sie nach dem Laden — dann steht fest, dass die Datei unverändert angekommen ist.',
   'download.checksumCopy': 'Prüfsumme kopieren',
   'download.checksumCopied': 'Kopiert',
+
+  /* Statusmenü am eigenen Profilbild */
+  'status.title': 'Mein Status',
+  'status.online': 'Online',
+  'status.away': 'Abwesend',
+  'status.invisible': 'Unsichtbar',
+  'status.onlineNote': 'Erreichbar',
+  'status.awayNote': 'Gerade nicht am Platz',
+  'status.dndNote': 'Keine Benachrichtigungen',
+  'status.invisibleNote': 'Erscheint für alle als offline',
+  'status.holds': 'Gilt {stunden} Stunden, danach zählt wieder die Anwesenheit.',
+  'status.openSettings': 'Einstellungen öffnen',
 } as const;

@@ -796,4 +796,15 @@ export const ro = {
   'download.checksumHint': 'Compar-o după descărcare — așa știi că fișierul a ajuns neschimbat.',
   'download.checksumCopy': 'Copiază suma de control',
   'download.checksumCopied': 'Copiat',
+
+  'status.title': 'Starea mea',
+  'status.online': 'Online',
+  'status.away': 'Plecat',
+  'status.invisible': 'Invizibil',
+  'status.onlineNote': 'Disponibil',
+  'status.awayNote': 'Momentan nu sunt la birou',
+  'status.dndNote': 'Fără notificări',
+  'status.invisibleNote': 'Toți te văd ca fiind offline',
+  'status.holds': 'Este valabilă {stunden} ore, apoi contează din nou prezența.',
+  'status.openSettings': 'Deschide setările',
 };
