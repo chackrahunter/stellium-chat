@@ -20,6 +20,8 @@ class Socket {
   private reconnectTimer: number | null = null;
   private pingTimer: number | null = null;
   private closedByUs = false;
+  /** Warum die Verbindung endgültig scheiterte — entscheidet über das Abmelden. */
+  failCode: string | null = null;
   private authed = false;
 
   state: ConnectionState = 'idle';
@@ -72,8 +74,13 @@ class Socket {
         this.flush();
         this.startPing();
       }
-      if (ev.t === 'error' && (ev.code === 'invalid_token' || ev.code === 'protocol_mismatch')) {
+      if (ev.t === 'error' && (ev.code === 'invalid_token' || ev.code === 'protocol_mismatch'
+                               || ev.code === 'account_blocked')) {
         this.closedByUs = true;   // kein Reconnect-Sturm bei kaputtem Token
+        // Der Grund muss mit: bei 'protocol_mismatch' ist das Token in Ordnung,
+        // nur die App zu alt. Wer dabei abmeldet, schickt in eine Schleife —
+        // die neue Anmeldung scheitert am selben Protokoll.
+        this.failCode = ev.code;
         this.setState('failed', ev.message);
       }
       for (const fn of this.listeners) fn(ev);

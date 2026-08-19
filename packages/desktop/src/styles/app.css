@@ -1629,7 +1629,11 @@ button.msg__author:hover { color: var(--violet-soft); text-decoration: underline
   .header__actions { gap: 2px; }
   .header__actions .icon-btn { width: 34px; height: 34px; }
   /* Von den Werkzeugen bleiben die drei, die man unterwegs wirklich braucht. */
-  .header__actions > *:nth-child(n + 4) { display: none; }
+  /* Vorher zählte diese Regel von vorn — und die ersten drei Kinder sind die
+     drei Sprach-Pillen, die eine Zeile höher ohnehin schon ausgeblendet werden.
+     Auf dem Telefon blieb dadurch kein einziger Knopf übrig. Jetzt zählt sie
+     vom Ende und trifft nur Symbolknöpfe. */
+  .header__actions .icon-btn:nth-last-child(n + 4) { display: none; }
 
   .msg { padding-inline-start: 10px; padding-inline-end: 10px; gap: 8px; }
   .msg__body { font-size: 15px; }

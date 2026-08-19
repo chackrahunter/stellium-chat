@@ -180,9 +180,13 @@ export function MessageList({ channelId }: Props) {
             className="icon-btn"
             onClick={jumpDown}
             title={t('chat.toBottom')}
+            /* Klebt am unteren Rand der Liste, nicht am Hauptbereich.
+               Vorher maß `bottom: 130` vom Fuß des gesamten Bereichs — der
+               Knopf lag damit über dem Eingabefeld und fing dort Klicks ab. */
             style={{
-              position: 'absolute', right: 26, bottom: 130, zIndex: 6,
-              width: 38, height: 38,
+              position: 'sticky', alignSelf: 'flex-end', bottom: 12,
+              marginInlineEnd: 26, marginTop: -38, zIndex: 6,
+              width: 38, height: 38, flex: '0 0 auto',
               background: 'var(--bg-elevated)', border: '1px solid var(--line-strong)',
               boxShadow: 'var(--shadow-md)',
             }}

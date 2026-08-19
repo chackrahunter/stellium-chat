@@ -48,6 +48,7 @@ FARBEN = {
     "linie": "#1c2138",    # feiner Rahmen
     "kopf1": "#191d33",    # Farbverlauf oben …
     "kopf2": "#0b0d16",    # … nach unten
+    "karte": "#141829",    # Auswahlfeld
 }
 
 BREIT, HOCH = 760, 440
@@ -117,6 +118,58 @@ def herkunft_namen():
         if abdruck and abdruck in namen:
             zuordnung[adresse] = namen[abdruck]
     return zuordnung
+
+
+def verfuegbare_tage(anzahl=14):
+    """An welchen Tagen wurde überhaupt etwas mitgeschrieben?
+
+    Fragt das Journal einmal nach den Zeitstempeln und zählt die Tage zusammen —
+    so stehen in der Auswahl nur Tage, an denen es auch etwas zu sehen gibt.
+    """
+    try:
+        roh = subprocess.run(
+            ["journalctl", "-t", "stellium-ssh", "--since", f"-{anzahl} days",
+             "--no-pager", "-o", "json", "--output-fields=__REALTIME_TIMESTAMP"],
+            capture_output=True, text=True, timeout=15).stdout
+    except Exception:
+        return []
+    tage = []
+    for zeile in roh.splitlines():
+        try:
+            roh_zeit = json.loads(zeile).get("__REALTIME_TIMESTAMP")
+            tag = time.strftime("%Y-%m-%d", time.localtime(int(roh_zeit) / 1e6))
+        except (ValueError, TypeError):
+            continue
+        if tag not in tage:
+            tage.append(tag)
+    return sorted(tage, reverse=True)
+
+
+def tag_lesen(tag):
+    """Alles, was an einem bestimmten Tag geschah."""
+    try:
+        roh = subprocess.run(
+            ["journalctl", "-t", "stellium-ssh", "--since", f"{tag} 00:00:00",
+             "--until", f"{tag} 23:59:59", "--no-pager", "-o", "json",
+             "--output-fields=MESSAGE,__REALTIME_TIMESTAMP"],
+            capture_output=True, text=True, timeout=20).stdout
+    except Exception:
+        return []
+    aus = []
+    for zeile in roh.splitlines():
+        try:
+            satz = json.loads(zeile)
+        except ValueError:
+            continue
+        text = satz.get("MESSAGE") or ""
+        if isinstance(text, list):
+            text = bytes(text).decode("utf-8", "replace")
+        try:
+            uhr = time.strftime("%H:%M:%S", time.localtime(int(satz.get("__REALTIME_TIMESTAMP", 0)) / 1e6))
+        except ValueError:
+            uhr = ""
+        aus.append((uhr, text))
+    return aus
 
 
 def sitzungen():
@@ -208,6 +261,20 @@ class Fenster:
         self.kopf.bind("<Button-1>", self.griff_setzen)
         self.kopf.bind("<B1-Motion>", self.griff_ziehen)
 
+        # ── Tagesauswahl ────────────────────────────────────────
+        # Nur beim Nachlesen sinnvoll: wer gerade zusieht, will das Laufende.
+        self.leiste = tk.Frame(self.wurzel, bg=FARBEN["grund"])
+        tk.Label(self.leiste, text="Tag", bg=FARBEN["grund"], fg=FARBEN["zeit"],
+                 font=klein).pack(side="left", padx=(16, 8))
+        self.tag_wahl = tk.StringVar(value="heute")
+        self.tag_menue = tk.OptionMenu(self.leiste, self.tag_wahl, "heute")
+        self.tag_menue.config(bg=FARBEN["karte"], fg=FARBEN["tinte"], relief="flat",
+                              highlightthickness=0, bd=0, activebackground=FARBEN["linie"],
+                              activeforeground=FARBEN["tinte"], font=klein, cursor="hand2")
+        self.tag_menue["menu"].config(bg=FARBEN["karte"], fg=FARBEN["tinte"],
+                                      activebackground=FARBEN["rand"], bd=0)
+        self.tag_menue.pack(side="left")
+
         # ── Mitschrift ──────────────────────────────────────────
         self.rahmen = tk.Frame(self.wurzel, bg=FARBEN["linie"], bd=0)
         self.rahmen.pack(fill="both", expand=True, padx=14, pady=(4, 10))
@@ -242,6 +309,8 @@ class Fenster:
         self.verstecken_um = None
         self.eingeklappt = False
         self.takt = 0.0
+        self.gezeigter_tag = "heute"
+        self.tag_wahl.trace_add("write", lambda *_: self.tag_wechseln())
         self.wurzel.protocol("WM_DELETE_WINDOW", self.einklappen)
         self.atmen()
 
@@ -264,6 +333,39 @@ class Fenster:
         self.kopf.tag_lower("verlauf")
         self.kopf.coords(self.klappe_id, breite - 18, 32)
         self.kopf.coords(self.schliessen_id, breite - 46, 32)
+
+    def tage_auffrischen(self):
+        """Die Auswahl mit den Tagen füllen, an denen etwas geschah."""
+        tage = verfuegbare_tage()
+        heute = time.strftime("%Y-%m-%d")
+        eintraege = ["heute"] + [t for t in tage if t != heute]
+        menue = self.tag_menue["menu"]
+        menue.delete(0, "end")
+        for eintrag in eintraege:
+            beschriftung = "heute · laufend" if eintrag == "heute" else eintrag
+            menue.add_command(label=beschriftung,
+                              command=lambda w=eintrag: self.tag_wahl.set(w))
+
+    def tag_wechseln(self):
+        """Einen anderen Tag anzeigen — oder zurück ins Laufende."""
+        tag = self.tag_wahl.get()
+        if tag == self.gezeigter_tag:
+            return
+        self.gezeigter_tag = tag
+        self.text.config(state="normal")
+        self.text.delete("1.0", "end")
+        self.text.config(state="disabled")
+        self.offen = False
+        if tag == "heute":
+            # Das Laufende kommt von selbst wieder — die Warteschlange füllt sich.
+            self.zeigen("", f"— ab hier wieder live —")
+            return
+        eintraege = tag_lesen(tag)
+        if not eintraege:
+            self.zeigen("", f"Am {tag} wurde nichts mitgeschrieben.")
+            return
+        for uhr, text in eintraege:
+            self.zeigen(uhr, text)
 
     def setzen(self, titel=None, wer=None):
         if titel is not None:
@@ -339,6 +441,7 @@ class Fenster:
         self.eingeklappt = True
         self.rahmen.pack_forget()
         self.fuss.pack_forget()
+        self.leiste.pack_forget()
         self.kopf.itemconfig(self.klappe_id, text="▴")
         self.hoehe_ziehen(KOPFHOCH)
 
@@ -374,6 +477,9 @@ class Fenster:
         if offen:
             self.manuell = False
             self.verstecken_um = None
+            if self.leiste.winfo_ismapped():
+                self.leiste.pack_forget()
+                self.tag_wahl.set("heute")
             self.zeigen_lassen()
             self.lebendig = True
             self.setzen(titel=(
@@ -388,6 +494,9 @@ class Fenster:
             if self.manuell:
                 self.setzen(titel="Protokoll des Fernzugriffs",
                             wer="Gerade ist niemand verbunden.")
+                if not self.leiste.winfo_ismapped():
+                    self.tage_auffrischen()
+                    self.leiste.pack(fill="x", pady=(6, 0), before=self.rahmen)
             else:
                 # Noch eine Minute stehen lassen: die letzten Zeilen will man
                 # meist noch lesen, wenn die Verbindung eben erst endete.
@@ -491,7 +600,9 @@ class Fenster:
     def abarbeiten(self):
         while not self.warteschlange.empty():
             uhr, text = self.warteschlange.get()
-            self.zeigen(uhr, text)
+            # Wer in einem alten Tag liest, soll nicht von Neuem überschrieben werden.
+            if self.gezeigter_tag == "heute":
+                self.zeigen(uhr, text)
         self.wurzel.after(300, self.abarbeiten)
 
     def schreiben(self, stuecke):

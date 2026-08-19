@@ -81,6 +81,13 @@ Terminal=false
 Categories=System;Monitor;
 ENDE
 
+# Auch als Verknüpfung auf dem Schreibtisch — dort sucht man zuerst.
+for heim in /home/*; do
+  [ -d "$heim/Desktop" ] || continue
+  install -m 755 /usr/share/applications/stellium-fernzugriff.desktop "$heim/Desktop/"
+  chown "$(basename "$heim")":"$(basename "$heim")" "$heim/Desktop/stellium-fernzugriff.desktop" 2>/dev/null || true
+done
+
 echo "→ Fenster startet mit dem Desktop"
 cat > /etc/xdg/autostart/stellium-ssh-wache.desktop <<ENDE
 [Desktop Entry]

@@ -260,6 +260,10 @@ interface StoreState {
 }
 
 const uid = () => Math.random().toString(36).slice(2, 11);
+/* Welche Kanäle gerade eine ältere Seite nachladen. Ohne diese Sperre schickt
+   jedes Scroll-Ereignis eine weitere Anfrage mit demselben `before` los. */
+const seiteUnterwegs = new Set<string>();
+
 const pending = new Map<string, PendingRequest<any>>();
 
 function awaitReply<T>(requestId: string, timeoutMs = 45_000): Promise<T> {
@@ -443,9 +447,15 @@ export const useStore = create<StoreState>((set, get) => ({
       socket.connect();
       const t = token();
       if (t) void window.stellium?.updateSignIn?.(serverUrl(), t);
-    } catch {
-      setToken(null);
-      set({ self: null });
+    } catch (fehler) {
+      /* Nur ein abgelehnter Nachweis heißt „abmelden". Ein 500er oder ein
+         kurz nicht erreichbarer Server ist kein Grund, den Zugang wegzuwerfen —
+         sonst steht man nach jedem Serverneustart wieder vor der Anmeldung. */
+      const status = (fehler as { status?: number }).status;
+      if (status === 401 || status === 403) {
+        setToken(null);
+        set({ self: null });
+      }
     } finally {
       set({ booted: true });
     }
@@ -502,6 +512,11 @@ export const useStore = create<StoreState>((set, get) => ({
   loadOlder: (channelId) => {
     const list = get().messages[channelId];
     if (!list?.length || !get().hasMore[channelId]) return;
+    /* Beim Scrollen feuert dieser Aufruf im Dutzend, und alle Anfragen tragen
+       dasselbe `before`. Jede Antwort ersetzte den Verlauf — die spätere warf
+       weg, was die frühere schon nachgeladen hatte. Eine Seite zur Zeit. */
+    if (seiteUnterwegs.has(channelId)) return;
+    seiteUnterwegs.add(channelId);
     socket.send({ t: 'channel:open', channelId, before: list[0].id, limit: 50 });
   },
 
@@ -936,7 +951,13 @@ function applyTheme(theme: SelfUser['theme'], density: SelfUser['density']): voi
 
 socket.onState((connection, detail) => {
   useStore.setState({ connection, connectionDetail: detail ?? null });
-  if (connection === 'failed') {
+  /* Bricht die Verbindung ab, kommt auf eine laufende Anfrage nie eine Antwort.
+     Bliebe die Sperre stehen, ließe sich in dem Kanal nie wieder nachladen. */
+  if (connection !== 'open') seiteUnterwegs.clear();
+  /* Nur abmelden, wenn wirklich der Nachweis das Problem ist. Bei einem zu
+     alten Protokoll ist das Token einwandfrei — wer hier abmeldet, schickt in
+     eine Schleife: anmelden, dieselbe Fehlermeldung, wieder abmelden. */
+  if (connection === 'failed' && socket.failCode !== 'protocol_mismatch') {
     setToken(null);
     useStore.setState({ self: null });
   }
@@ -972,6 +993,7 @@ socket.onEvent((ev: ServerEvent) => {
       break;
 
     case 'channel:history': {
+      seiteUnterwegs.delete(ev.channelId);
       useStore.setState((s) => {
         const existing = s.messages[ev.channelId] ?? [];
         // Ältere Seite: vorne anhängen. Erste Seite: ersetzen.
