@@ -37,7 +37,7 @@ export function PollCard({ poll }: { poll: Poll }) {
         {poll.closed && <span className="poll__flag poll__flag--closed">beendet</span>}
       </div>
 
-      <div className="poll__question">{poll.question}</div>
+      <div className="poll__question">{poll.translation?.question ?? poll.question}</div>
 
       <div className="stack gap-2">
         {poll.options.map((option) => {
@@ -60,7 +60,9 @@ export function PollCard({ poll }: { poll: Poll }) {
               <span className={`poll-option__mark${chosen ? ' poll-option__mark--on' : ''}`}>
                 {chosen && <Check size={11} strokeWidth={3.5} />}
               </span>
-              <span className="poll-option__text">{option.text}</span>
+              <span className="poll-option__text">
+                {poll.translation?.options[option.id] ?? option.text}
+              </span>
 
               {!poll.anonymous && option.voterIds.length > 0 && (
                 <span className="poll-option__faces">

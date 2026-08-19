@@ -1,7 +1,10 @@
 import { app, BrowserWindow, Menu, Notification, shell, ipcMain, nativeTheme, Tray, nativeImage } from 'electron';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { updaterInit, updaterAnmelden, updaterAbmelden, pruefen, installieren } from './updater.js';
+import {
+  updaterInit, updaterAnmelden, updaterAbmelden, pruefen, installieren, letztesUpdate,
+  fristVerschieben, beimBeendenInstallieren,
+} from './updater.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const isDev = !app.isPackaged;
@@ -197,6 +200,8 @@ ipcMain.handle('update:signin', (_e, { url, token }: { url: string; token: strin
 ipcMain.handle('update:signout', () => { updaterAbmelden(); return true; });
 ipcMain.handle('update:check', () => pruefen(true));
 ipcMain.handle('update:install', () => installieren());
+ipcMain.handle('update:last', () => letztesUpdate());
+ipcMain.handle('update:postpone', () => { fristVerschieben(); return true; });
 
 /* ── IPC ──────────────────────────────────────────────────────── */
 
@@ -261,7 +266,16 @@ void app.whenReady().then(() => {
   });
 });
 
-app.on('before-quit', () => { quitting = true; });
+app.on('before-quit', (e) => {
+  quitting = true;
+  // Wer "später" gewählt hat, bekommt die neue Fassung jetzt — beim Beenden
+  // stört sie niemanden mehr. Der Austausch läuft in einem eigenen Prozess
+  // weiter, deshalb genügt es, ihn kurz vor dem Ende anzustoßen.
+  if (beimBeendenInstallieren()) {
+    e.preventDefault();
+    void installieren().finally(() => setTimeout(() => app.exit(0), 1200));
+  }
+});
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();

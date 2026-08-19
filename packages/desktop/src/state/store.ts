@@ -60,11 +60,14 @@ interface StoreState {
   extractingTasks: boolean;
   /** Stand der Selbstaktualisierung. Im Browser bleibt er auf 'aus'. */
   update: {
-    zustand: 'aus' | 'suche' | 'gefunden' | 'laedt' | 'bereit' | 'aktuell' | 'fehler';
+    zustand: 'aus' | 'suche' | 'gefunden' | 'laedt' | 'bereit' | 'installiert' | 'aktuell' | 'fehler';
     version?: string;
     notes?: string | null;
     anteil?: number;
     fehler?: string;
+    /** Sekunden bis zur automatischen Installation. */
+    restSekunden?: number;
+    verschoben?: boolean;
   };
   ideas: Record<string, Idea>;
   ideaComments: Record<string, IdeaComment[]>;
@@ -186,6 +189,7 @@ interface StoreState {
 
   checkForUpdate: () => void;
   installUpdate: () => void;
+  postponeUpdate: () => void;
   loadIdeas: () => void;
   createIdea: (input: { title: string; body?: string | null; tag?: string; channelId?: string | null }) => void;
   updateIdea: (ideaId: string, patch: { title?: string; body?: string | null; tag?: string; channelId?: string | null }) => void;
@@ -706,6 +710,7 @@ export const useStore = create<StoreState>((set, get) => ({
     void window.stellium.checkForUpdate();
   },
   installUpdate: () => { void window.stellium?.installUpdate?.(); },
+  postponeUpdate: () => { void window.stellium?.postponeUpdate?.(); },
 
   loadIdeas: () => socket.send({ t: 'idea:list' }) as unknown as void,
   createIdea: (input) => socket.send({ t: 'idea:create', ...input }) as unknown as void,

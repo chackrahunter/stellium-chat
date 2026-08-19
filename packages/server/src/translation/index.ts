@@ -429,3 +429,111 @@ export function listGlossary() {
     createdAt: r.created_at,
   }));
 }
+
+/* ── Umfragen übersetzen ──────────────────────────────────────── */
+
+/** Frage und Antwortmöglichkeiten in einer Zielsprache. */
+export interface PollView {
+  lang: string;
+  question: string;
+  /** Nach Optionskennung, damit die Reihenfolge egal ist. */
+  options: Record<string, string>;
+  provider: string;
+}
+
+/**
+ * Bereits übersetzte Umfrage aus dem Zwischenspeicher — ohne Netzzugriff.
+ * Für den Verlauf: dort muss die Antwort sofort stehen.
+ */
+export function cachedPollView(pollId: string, targetLang: string): PollView | null {
+  const target = normalizeLang(targetLang);
+  const row = db.get<{ payload: string; provider: string }>(
+    'SELECT payload, provider FROM poll_translations WHERE poll_id = ? AND lang = ?', pollId, target,
+  );
+  if (!row) return null;
+  try {
+    const daten = JSON.parse(row.payload) as { question: string; options: Record<string, string> };
+    return { lang: target, ...daten, provider: row.provider };
+  } catch { return null; }
+}
+
+/**
+ * Eine Umfrage ist mehr als ihr Nachrichtentext: Frage und Antworten stehen in
+ * eigenen Zeilen und blieben deshalb bisher in der Ausgangssprache stehen —
+ * mitten in einem sonst übersetzten Gespräch.
+ *
+ * Übersetzt wird jede Zeichenkette einzeln. Zusammengefasst in einen Aufruf
+ * wäre billiger, aber dann müsste man die Antwort wieder auseinandernehmen,
+ * und genau daran gehen solche Verfahren zugrunde, sobald ein Modell die
+ * Nummerierung anders setzt als erwartet.
+ */
+export async function translatePoll(
+  pollId: string,
+  targetLang: string,
+  opts: { force?: boolean; sourceLang?: string | null } = {},
+): Promise<PollView | null> {
+  const target = normalizeLang(targetLang);
+
+  const poll = db.get<{ question: string }>('SELECT question FROM polls WHERE id = ?', pollId);
+  if (!poll) return null;
+  const optionen = db.all<{ id: string; text: string }>(
+    'SELECT id, text FROM poll_options WHERE poll_id = ? ORDER BY position', pollId,
+  );
+
+  const quelle = JSON.stringify([poll.question, ...optionen.map((o) => o.text)]);
+  const hash = sha1(quelle);
+
+  if (!opts.force) {
+    const cached = db.get<{ payload: string; source_hash: string; provider: string }>(
+      'SELECT payload, source_hash, provider FROM poll_translations WHERE poll_id = ? AND lang = ?',
+      pollId, target,
+    );
+    if (cached && cached.source_hash === hash && cached.provider === provider.name) {
+      const daten = JSON.parse(cached.payload) as { question: string; options: Record<string, string> };
+      return { lang: target, ...daten, provider: cached.provider };
+    }
+  }
+
+  // Die Ausgangssprache einmal an der Frage bestimmen und für alle Antworten
+  // übernehmen. Einzeln betrachtet ist "Ja, sehr" zu kurz, um erkannt zu
+  // werden — die Antwort bliebe dann als Einzige stehen.
+  let quellSprache = opts.sourceLang ?? null;
+  const frageErgebnis = await translate({
+    text: poll.question, targetLang: target, sourceLang: quellSprache, skipCache: opts.force,
+  });
+  if (!quellSprache && frageErgebnis.sourceLang && frageErgebnis.sourceLang !== 'unknown') {
+    quellSprache = frageErgebnis.sourceLang;
+  }
+
+  const uebersetze = async (text: string): Promise<string | null> => {
+    const ergebnis = await translate({
+      text, targetLang: target, sourceLang: quellSprache, skipCache: opts.force,
+    });
+    return ergebnis.noop ? null : ergebnis.text;
+  };
+
+  const frage = frageErgebnis.noop ? null : frageErgebnis.text;
+  const antworten = await Promise.all(optionen.map((o) => uebersetze(o.text)));
+
+  // Ist gar nichts zu tun — die Umfrage steht schon in der Zielsprache —,
+  // hat der Aufrufer nichts anzuzeigen.
+  if (frage === null && antworten.every((a) => a === null)) return null;
+
+  const daten = {
+    question: frage ?? poll.question,
+    options: Object.fromEntries(
+      optionen.map((o, i) => [o.id, antworten[i] ?? o.text]),
+    ),
+  };
+
+  db.run(
+    `INSERT INTO poll_translations (poll_id, lang, payload, source_hash, provider, created_at)
+     VALUES (?,?,?,?,?,?)
+     ON CONFLICT(poll_id, lang) DO UPDATE SET
+       payload = excluded.payload, source_hash = excluded.source_hash,
+       provider = excluded.provider, created_at = excluded.created_at`,
+    pollId, target, JSON.stringify(daten), hash, provider.name, Date.now(),
+  );
+
+  return { lang: target, ...daten, provider: provider.name };
+}

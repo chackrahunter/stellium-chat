@@ -442,3 +442,15 @@ CREATE TABLE IF NOT EXISTS releases (
   published_by TEXT NOT NULL REFERENCES users(id),
   published_at INTEGER NOT NULL
 );
+
+-- Übersetzte Umfragen. Frage und Antwortmöglichkeiten liegen als JSON,
+-- damit eine Umfrage in jeder Sprache genau einen Eintrag hat.
+CREATE TABLE IF NOT EXISTS poll_translations (
+  poll_id     TEXT NOT NULL REFERENCES polls(id) ON DELETE CASCADE,
+  lang        TEXT NOT NULL,
+  payload     TEXT NOT NULL,
+  source_hash TEXT NOT NULL,
+  provider    TEXT NOT NULL,
+  created_at  INTEGER NOT NULL,
+  PRIMARY KEY (poll_id, lang)
+);

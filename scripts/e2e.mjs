@@ -96,6 +96,9 @@ async function main() {
   // Es gibt keine Demo-Daten mehr. Die Suite legt sich alles selbst an,
   // damit sie auf einem frischen Arbeitsbereich genauso läuft.
   const fixture = await testdatenAnlegen();
+  // Die zweite Person gleich zu Beginn: ohne jemanden zum Erwähnen scheitert
+  // die Vorschlagsliste, und das sähe nach einem Fehler aus, wo keiner ist.
+  zweiterToken = await zweitesKontoAnlegen();
   log(`Testdaten: #${fixture.kanal} mit ${fixture.nachrichten} Nachrichten, Suchwort "${fixture.suchwort}"\n`);
 
   const browser = await chromium.launch({ headless: !sichtbar });
@@ -278,10 +281,12 @@ async function main() {
     if (!zweiterToken) zweiterToken = await zweitesKontoAnlegen();
     const antwort = { token: zweiterToken };
 
-    const kanal = await seite.evaluate(() => {
-      const el = document.querySelector('.chan[aria-current="true"] .chan__name');
-      return el?.textContent?.trim();
-    });
+    const kanal = fixture.kanal;
+    // Vorherige Prüfungen können den Kanal gewechselt haben; die Nachricht
+    // erscheint aber nur dort, wo man gerade hinsieht.
+    await aufraeumen();
+    await seite.locator('.chan', { hasText: kanal }).first().click();
+    await seite.waitForTimeout(900);
 
     const satz = `Quick check ${marke}: could you review the deployment before Friday?`;
     await sendeAlsAnderer(antwort.token, kanal, satz);
@@ -289,10 +294,14 @@ async function main() {
     await warteAuf(async () => (await seite.locator('.msg', { hasText: satz.slice(0, 20) }).count()) > 0,
       'Nachricht der zweiten Person kommt nicht an', 40000);
 
+    // Auf den deutschen Text warten, nicht auf ein bestimmtes Beiwerk: ob die
+    // Herkunftszeile mitkommt, hängt an den Einstellungen, die Übersetzung
+    // selbst nicht.
     await warteAuf(async () => {
       const n = seite.locator('.msg', { hasText: satz.slice(0, 20) }).last();
-      return (await n.locator('.translated__meta').count()) > 0;
-    }, 'Keine Übersetzung nachgeliefert', 40000);
+      const text = await n.locator('.msg__body').first().innerText().catch(() => '');
+      return text.length > 0 && !text.includes('could you review');
+    }, 'Keine Übersetzung nachgeliefert', 60000);
 
     const nachricht = seite.locator('.msg', { hasText: satz.slice(0, 20) }).last();
     const angezeigt = await nachricht.locator('.msg__body .md').first().innerText();
@@ -622,7 +631,13 @@ async function sendeAlsAnderer(token, kanalName, text) {
     ws.onmessage = (e) => {
       const ev = JSON.parse(e.data);
       if (ev.t === 'ready') {
-        const kanal = ev.channels.find((c) => c.name === kanalName) ?? ev.channels[0];
+        const kanal = ev.channels.find((c) => c.name === kanalName);
+        if (!kanal) {
+          clearTimeout(timer);
+          ws.close();
+          reject(new Error(`Die zweite Person sieht #${kanalName} nicht — Kanäle: ${ev.channels.map((c) => c.name).join(', ')}`));
+          return;
+        }
         ws.send(JSON.stringify({ t: 'message:send', clientId: 'e2e', channelId: kanal.id, text }));
         clearTimeout(timer);
         setTimeout(() => { ws.close(); resolve(); }, 600);

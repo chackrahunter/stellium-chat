@@ -851,7 +851,8 @@ chmod 755 /usr/local/lib/stellium/konsole.mjs
 
 install -m 755 "$ZIEL/server-setup/stellium-zugang.sh" /usr/local/bin/stellium-zugang
 install -m 755 "$ZIEL/server-setup/stellium-tunnel.sh" /usr/local/bin/stellium-tunnel
-ok "stellium-zugang und stellium-tunnel eingerichtet"
+install -m 755 "$ZIEL/server-setup/stellium-aktualisieren.sh" /usr/local/bin/stellium-update
+ok "stellium-zugang, stellium-tunnel und stellium-update eingerichtet"
 
 cat > /usr/local/bin/stellium <<KONSOLE
 #!/usr/bin/env bash

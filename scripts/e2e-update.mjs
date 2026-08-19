@@ -9,8 +9,16 @@ const muss = (b, m) => { if (!b) throw new Error(m); };
 
 const anmeldung = await (await fetch(`${S}/api/auth/login`, {
   method: 'POST', headers: { 'content-type': 'application/json' },
-  body: JSON.stringify({ login: 'don-calvinkuhn', password: 'MeinLangesPasswort-2026' }),
+  body: JSON.stringify({
+    login: process.env.STELLIUM_TEST_LOGIN ?? 'don',
+    password: process.env.STELLIUM_TEST_PASSWORT ?? 'MeinLangesPasswort-2026',
+  }),
 })).json();
+if (!anmeldung.token) {
+  console.error('Anmeldung fehlgeschlagen:', JSON.stringify(anmeldung).slice(0, 160));
+  console.error('Zugang über STELLIUM_TEST_LOGIN und STELLIUM_TEST_PASSWORT setzen.');
+  process.exit(1);
+}
 const kopf = { authorization: `Bearer ${anmeldung.token}` };
 
 const inhalt = new Uint8Array(256 * 1024).fill(7);

@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { motion } from 'framer-motion';
 import { Search, X } from 'lucide-react';
 
@@ -13,11 +14,43 @@ const GROUPS: { name: string; emoji: string[] }[] = [
 interface Props {
   onPick: (emoji: string) => void;
   onClose: () => void;
+  /** Element, an dem die Auswahl hängen soll — meist der Emoji-Knopf. */
+  ankerRef?: React.RefObject<HTMLElement | null>;
 }
 
-export function EmojiPicker({ onPick, onClose }: Props) {
+const BREITE = 306;
+const RAND = 10;
+
+export function EmojiPicker({ onPick, onClose, ankerRef }: Props) {
   const [query, setQuery] = useState('');
   const ref = useRef<HTMLDivElement>(null);
+  const [ort, setOrt] = useState<{ left: number; top: number; hoehe: number } | null>(null);
+
+  /* Am Anker ausrichten und dabei im Fenster bleiben.
+     Vorher hing die Auswahl absolut im Eingabebereich und lief unten aus dem
+     Bild — sichtbar war dann nur die erste Reihe. */
+  useLayoutEffect(() => {
+    const anker = ankerRef?.current?.getBoundingClientRect();
+    const fensterH = window.innerHeight;
+    const fensterB = window.innerWidth;
+
+    // Über dem Knopf ist fast immer mehr Platz als darunter: die Leiste sitzt
+    // am unteren Rand.
+    const obenFrei = (anker?.top ?? fensterH) - RAND * 2;
+    const untenFrei = fensterH - (anker?.bottom ?? 0) - RAND * 2;
+    const nachOben = obenFrei >= Math.min(340, untenFrei) || obenFrei > untenFrei;
+
+    const hoehe = Math.max(180, Math.min(380, nachOben ? obenFrei : untenFrei));
+    const top = nachOben
+      ? Math.max(RAND, (anker?.top ?? fensterH) - hoehe - 8)
+      : Math.min(fensterH - hoehe - RAND, (anker?.bottom ?? 0) + 8);
+
+    const links = anker
+      ? Math.min(fensterB - BREITE - RAND, Math.max(RAND, anker.left - BREITE / 2 + anker.width / 2))
+      : (fensterB - BREITE) / 2;
+
+    setOrt({ left: links, top, hoehe });
+  }, [ankerRef]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
@@ -38,16 +71,23 @@ export function EmojiPicker({ onPick, onClose }: Props) {
     ? [{ name: 'Treffer', emoji: GROUPS.flatMap((g) => g.emoji) }]
     : GROUPS;
 
-  return (
+  // Am <body>, nicht dort wo es im Baum steht: der Eingabebereich hat einen
+  // backdrop-filter, und der macht jede feste Positionierung darin zunichte.
+  return createPortal(
     <motion.div
       ref={ref}
-      initial={{ opacity: 0, scale: 0.96, y: -6 }}
+      initial={{ opacity: 0, scale: 0.96, y: 6 }}
       animate={{ opacity: 1, scale: 1, y: 0 }}
-      exit={{ opacity: 0, scale: 0.96, y: -6 }}
+      exit={{ opacity: 0, scale: 0.96, y: 6 }}
       transition={{ duration: 0.15 }}
       style={{
-        position: 'absolute', top: 4, right: 'var(--sp-5)', zIndex: 20,
-        width: 306, padding: 10, borderRadius: 'var(--r-lg)',
+        position: 'fixed',
+        left: ort?.left ?? -9999,
+        top: ort?.top ?? -9999,
+        zIndex: 90,
+        width: BREITE, padding: 10, borderRadius: 'var(--r-lg)',
+        display: 'flex', flexDirection: 'column',
+        maxHeight: ort?.hoehe ?? 340,
         background: 'var(--bg-elevated)', border: '1px solid var(--line-strong)',
         boxShadow: 'var(--shadow-lg)', backdropFilter: 'blur(24px)',
       }}
@@ -64,7 +104,7 @@ export function EmojiPicker({ onPick, onClose }: Props) {
         />
         <button className="icon-btn icon-btn--sm" onClick={onClose}><X size={14} /></button>
       </div>
-      <div style={{ maxHeight: 236, overflowY: 'auto' }}>
+      <div style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
         {groups.map((g) => (
           <div key={g.name} style={{ marginBottom: 8 }}>
             <div className="muted" style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '.07em', textTransform: 'uppercase', margin: '4px 2px' }}>
@@ -84,6 +124,7 @@ export function EmojiPicker({ onPick, onClose }: Props) {
           </div>
         ))}
       </div>
-    </motion.div>
+    </motion.div>,
+    document.body,
   );
 }

@@ -6,7 +6,7 @@ import {
 import { verifyToken } from '../auth.js';
 import { db } from '../db/index.js';
 import { newId } from '../util/id.js';
-import { aiCapabilities, roundTrip, translate, translateMessage } from '../translation/index.js';
+import { aiCapabilities, roundTrip, translate, translateMessage, translatePoll } from '../translation/index.js';
 import * as ai from '../services/ai.js';
 import * as channels from '../services/channels.js';
 import * as messages from '../services/messages.js';
@@ -165,6 +165,22 @@ function deliverMessage(message: Message, senderClientId?: string): void {
     const target = normalizeLang(u.language);
     if (target === sourceLang) continue;
     langs.set(target, [...(langs.get(target) ?? []), uid]);
+  }
+
+  // Eine Umfrage steht nicht im Nachrichtentext, sondern in eigenen Zeilen.
+  // Ohne diesen Anstoß bliebe sie mitten im übersetzten Gespräch deutsch.
+  if (message.poll) {
+    for (const [target, users] of langs) {
+      void translatePoll(message.poll.id, target, { sourceLang: message.sourceLang })
+        .then((sicht) => {
+          if (!sicht) return;
+          for (const uid of users) {
+            const poll = polls.getPoll(message.poll!.id, uid);
+            if (poll) sendToUser(uid, { t: 'poll:updated', poll: { ...poll, translation: sicht }, channelId: message.channelId });
+          }
+        })
+        .catch((err) => console.error('[ws] Umfrage-Übersetzung:', (err as Error).message));
+    }
   }
 
   const context = channelContext(message.channelId);
@@ -599,6 +615,13 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
           if (m.translation) send(session, { t: 'translation', messageId: m.id, translation: m.translation });
         }
         if (missing.length) translateInBackground(missing, session.language, userId, channelContext(session.openChannelId));
+
+        // Umfragen stehen nicht im Nachrichtentext und blieben sonst in der
+        // alten Sprache stehen, während ringsum alles gewechselt hat.
+        for (const m of list) {
+          if (!m.poll) continue;
+          void pollUebersetzungNachreichen(m.poll.id, userId, session.openChannelId);
+        }
       }
       return;
     }
@@ -1089,7 +1112,30 @@ function broadcastPoll(pollId: string): void {
   if (!msg) return;
   for (const uid of store.memberIds(msg.channel_id)) {
     const poll = polls.getPoll(pollId, uid);
-    if (poll) sendToUser(uid, { t: 'poll:updated', poll, channelId: msg.channel_id });
+    if (!poll) continue;
+    sendToUser(uid, { t: 'poll:updated', poll, channelId: msg.channel_id });
+    // Die Übersetzung kommt nach, sobald sie da ist — auf sie zu warten würde
+    // das Ergebnis einer Abstimmung für alle anderen verzögern.
+    void pollUebersetzungNachreichen(pollId, uid, msg.channel_id);
+  }
+}
+
+/**
+ * Frage und Antworten in die Lesesprache bringen und nachliefern.
+ * Steht die Umfrage schon in dieser Sprache, passiert nichts.
+ */
+async function pollUebersetzungNachreichen(pollId: string, userId: string, channelId: string): Promise<void> {
+  const sprache = store.getSelf(userId)?.language;
+  if (!sprache) return;
+  try {
+    const sicht = await translatePoll(pollId, sprache);
+    const poll = polls.getPoll(pollId, userId);
+    if (!poll) return;
+    // Auch ohne Übersetzung senden: wer zurück in die Ausgangssprache wechselt,
+    // säße sonst weiter vor der englischen Fassung.
+    sendToUser(userId, { t: 'poll:updated', poll: { ...poll, translation: sicht }, channelId });
+  } catch (err) {
+    console.error('[umfrage]', (err as Error).message);
   }
 }
 

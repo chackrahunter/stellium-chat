@@ -97,6 +97,7 @@ muss also erreichbar sein, bevor es ein Zertifikat gibt.
 | **Sicherung** | jede Nacht um 3:30, vierzehn Stände unter `/var/lib/stellium/sicherungen` |
 | **Portwahl** | 80 und 443, sonst automatisch 8080 und 8443 |
 | **Statuskonsole** | öffnet sich beim Anmelden von selbst |
+| **Browser-Zugang** | die Oberfläche läuft auch ohne App, direkt im Browser |
 
 ## Wie die Verbindung geschützt ist
 
@@ -124,6 +125,16 @@ sudo STELLIUM_MODE=1 STELLIUM_DOMAIN=chat.meinefirma.de \
 ```
 
 Für DuckDNS: `STELLIUM_MODE=2 STELLIUM_DUCK=meinefirma:dein-token`.
+
+## Auf dem Handy
+
+Der Server liefert die Oberfläche gleich mit. Ruf die Adresse einfach im
+Browser auf — auf dem iPhone, dem iPad, unter Android, überall. Es gibt nichts
+zu installieren, und die Serveradresse muss auch niemand eintragen: die Seite
+weiß, von wo sie kommt.
+
+In Safari lässt sie sich über *Teilen → Zum Home-Bildschirm* ablegen, dann
+sieht und startet sie wie eine App.
 
 ## Kein Zugang zum Router?
 
@@ -199,12 +210,26 @@ sudo journalctl -u stellium | grep -A6 Einmal
 
 ## Aktualisieren
 
+Neues Paket auspacken und eine Zeile:
+
 ```bash
-sudo bash /opt/stellium/server-setup/stellium-installieren.sh
+tar xzf stellium-server.tar.gz && cd stellium-server
+sudo bash server-setup/stellium-aktualisieren.sh
 ```
 
-Holt den neuen Stand, baut ihn und startet den Dienst neu. Daten, Konten und
-Schlüssel bleiben unangetastet.
+Keine Fragen, keine Wiederholung der Einrichtung. Angefasst wird nur der
+Programmcode — Datenbank, Konten, Schlüssel, Zertifikat, nginx, Firewall und
+alle Einstellungen bleiben unberührt.
+
+Vorher wird der alte Stand beiseitegelegt. Startet der Dienst danach nicht oder
+antwortet er nicht, kommt der alte automatisch zurück; du kannst also nichts
+kaputt machen.
+
+Später genügt auch:
+
+```bash
+sudo stellium-update
+```
 
 Die Apps für Mac, Windows und Linux aktualisieren sich selbst, sobald du unter
 *Einstellungen → Aktualisierung* eine neue Version hochlädst.

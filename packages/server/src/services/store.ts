@@ -8,6 +8,7 @@ import { overridesFor, permissionsFor } from './users.js';
 import { linkPreviewsFor } from './links.js';
 import { hiddenFor } from './messages.js';
 import { pollForMessage } from './polls.js';
+import { cachedPollView } from '../translation/index.js';
 import { voiceNoteFor } from './voice.js';
 
 /* ── Nutzer ───────────────────────────────────────────────────── */
@@ -299,7 +300,7 @@ export function hydrateMessages(rows: any[], viewerId = ''): Message[] {
       pinned: Boolean(r.pinned),
       kind,
       forwardedFrom: r.forwarded_from ? parseForward(r.forwarded_from) : null,
-      poll: kind === 'poll' ? pollForMessage(r.id, viewerId) : null,
+      poll: kind === 'poll' ? mitUebersetzung(pollForMessage(r.id, viewerId), viewerId) : null,
       voice: kind === 'voice' ? voiceNoteFor(r.id) : null,
       links: r.deleted_at ? [] : linkPreviewsFor(r.id),
       hiddenForMe: versteckt.has(r.id),
@@ -364,4 +365,16 @@ export function toScheduled(r: any): ScheduledMessage {
 
 export function scheduledFor(userId: string): ScheduledMessage[] {
   return db.all('SELECT * FROM scheduled_messages WHERE user_id = ? ORDER BY send_at ASC', userId).map(toScheduled);
+}
+
+/**
+ * Hängt einer Umfrage die bereits übersetzte Fassung an, falls es eine gibt.
+ * Fehlt sie noch, bleibt es beim Original — sie kommt dann als eigenes
+ * Ereignis nach, sobald das Modell geantwortet hat.
+ */
+function mitUebersetzung(poll: ReturnType<typeof pollForMessage>, viewerId: string) {
+  if (!poll) return poll;
+  const sprache = db.get<{ language: string }>('SELECT language FROM users WHERE id = ?', viewerId)?.language;
+  if (!sprache) return poll;
+  return { ...poll, translation: cachedPollView(poll.id, sprache) };
 }

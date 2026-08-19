@@ -23,6 +23,8 @@ export interface StelliumBridge {
   updateSignOut?(): Promise<boolean>;
   checkForUpdate?(): Promise<unknown>;
   installUpdate?(): Promise<boolean>;
+  postponeUpdate?(): Promise<boolean>;
+  lastUpdate?(): Promise<{ version: string; notes: string | null; installiertAm: number } | null>;
   onUpdate?(handler: (art: string, daten: unknown) => void): () => void;
 }
 

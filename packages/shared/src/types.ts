@@ -245,6 +245,13 @@ export interface Poll {
   totalVoters: number;
   /** Optionen, die der Betrachter gewählt hat. */
   myVotes: string[];
+  /** Frage und Antworten in der Lesesprache, falls übersetzt. */
+  translation?: {
+    lang: string;
+    question: string;
+    options: Record<string, string>;
+    provider: string;
+  } | null;
 }
 
 /* ── Link-Vorschau ────────────────────────────────────────────── */

@@ -8,7 +8,19 @@ const STORAGE_SERVER = 'stellium.serverUrl';
 const STORAGE_TOKEN = 'stellium.token';
 
 export function serverUrl(): string {
-  return localStorage.getItem(STORAGE_SERVER) || 'http://localhost:8787';
+  const gemerkt = localStorage.getItem(STORAGE_SERVER);
+  if (gemerkt) return gemerkt;
+
+  // Im Browser vom Server selbst geladen? Dann ist er auch der Server. Ohne
+  // das müsste jede Person auf dem Telefon die Adresse abtippen, unter der
+  // sie ohnehin gerade steht.
+  if (typeof window !== 'undefined' && !window.stellium
+      && /^https?:$/.test(window.location.protocol)
+      && !/^(localhost|127\.0\.0\.1)$/.test(window.location.hostname)) {
+    return window.location.origin;
+  }
+
+  return 'http://localhost:8787';
 }
 export function setServerUrl(url: string): void {
   localStorage.setItem(STORAGE_SERVER, url.replace(/\/+$/, ''));

@@ -26,6 +26,7 @@ import { CalendarPanel } from './components/CalendarPanel.jsx';
 import { FilesPanel } from './components/FilesPanel.jsx';
 import { ProtocolPanel } from './components/ProtocolPanel.jsx';
 import { IdeaBoard } from './components/IdeaBoard.jsx';
+import { UpdateBanner, UpdateWillkommen } from './components/UpdateBanner.jsx';
 import { Toasts } from './components/Toasts.jsx';
 import { clsx } from './lib/format.js';
 
@@ -136,7 +137,9 @@ export function App() {
   return (
     <>
       <Cosmos />
-      <div className={clsx('app', threadParentId && 'app--thread')}>
+      <div className="rahmen">
+        <UpdateBanner />
+        <div className={clsx('app', threadParentId && 'app--thread')}>
         <Rail />
         <Sidebar />
 
@@ -171,6 +174,7 @@ export function App() {
         <AnimatePresence>
           {threadParentId && <ThreadPanel key={threadParentId} parentId={threadParentId} />}
         </AnimatePresence>
+        </div>
       </div>
 
       <AnimatePresence>
@@ -190,6 +194,10 @@ export function App() {
         {overlay === 'files' && <FilesPanel key="files" onClose={closeOverlay} />}
         {overlay === 'protocol' && <ProtocolPanel key="protocol" onClose={closeOverlay} />}
         {overlay === 'ideas' && <IdeaBoard key="ideas" onClose={closeOverlay} />}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        <UpdateWillkommen key="neu" />
         {overlay === 'channelSettings' && activeChannelId && (
           <ChannelSettings key="chset" channelId={activeChannelId} onClose={closeOverlay} />
         )}

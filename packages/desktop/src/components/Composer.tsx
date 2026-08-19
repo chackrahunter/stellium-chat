@@ -46,6 +46,7 @@ export function Composer({ channelId, parentId = null, placeholder, autoFocus }:
   const [focused, setFocused] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const emojiKnopf = useRef<HTMLButtonElement>(null);
   const [toneOpen, setToneOpen] = useState(false);
   const [rewriting, setRewriting] = useState(false);
   const [preview, setPreview] = useState<string | null>(null);
@@ -359,7 +360,12 @@ export function Composer({ channelId, parentId = null, placeholder, autoFocus }:
           <button className="icon-btn icon-btn--sm" onClick={() => fileRef.current?.click()} title={t('composer.attach')}>
             <Paperclip size={16} />
           </button>
-          <button className="icon-btn icon-btn--sm" onClick={() => setPickerOpen(true)} title={t('composer.emoji')}>
+          <button
+            ref={emojiKnopf}
+            className="icon-btn icon-btn--sm"
+            onClick={() => setPickerOpen(true)}
+            title={t('composer.emoji')}
+          >
             <Smile size={16} />
           </button>
           <button
@@ -478,6 +484,7 @@ export function Composer({ channelId, parentId = null, placeholder, autoFocus }:
         <AnimatePresence>
           {pickerOpen && (
             <EmojiPicker
+              ankerRef={emojiKnopf}
               onPick={(emoji) => { setText((t) => t + emoji); setPickerOpen(false); inputRef.current?.focus(); }}
               onClose={() => setPickerOpen(false)}
             />

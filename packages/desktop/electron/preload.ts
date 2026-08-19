@@ -31,8 +31,12 @@ const api = {
   updateSignOut: () => ipcRenderer.invoke('update:signout') as Promise<boolean>,
   checkForUpdate: () => ipcRenderer.invoke('update:check') as Promise<unknown>,
   installUpdate: () => ipcRenderer.invoke('update:install') as Promise<boolean>,
+  postponeUpdate: () => ipcRenderer.invoke('update:postpone') as Promise<boolean>,
+  lastUpdate: () => ipcRenderer.invoke('update:last') as Promise<
+    { version: string; notes: string | null; installiertAm: number } | null>,
   onUpdate: (handler: (art: string, daten: unknown) => void) => {
-    const arten = ['update:found', 'update:progress', 'update:ready', 'update:none', 'update:error'];
+    const arten = ['update:found', 'update:progress', 'update:ready', 'update:none', 'update:error', 'update:installing',
+      'update:deadline', 'update:postponed'];
     const hoerer = arten.map((art) => {
       const fn = (_e: unknown, daten: unknown) => handler(art.slice(7), daten);
       ipcRenderer.on(art, fn);

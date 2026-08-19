@@ -92,12 +92,26 @@ a:hover { text-decoration: underline; }
   position: relative;
   z-index: 1;
   display: grid;
+
   grid-template-columns: var(--rail-w) var(--sidebar-w) minmax(0, 1fr);
   /* Genau eine Zeile über die volle Fensterhöhe. Ohne die feste Zeilenhöhe
      wachsen die Spalten mit ihrem Inhalt und schieben den Composer aus dem Bild. */
   grid-template-rows: 100%;
+  /* Die Höhe kommt vom Rahmen. Fest auf 100dvh gesetzt würde die App den
+     Update-Streifen darüber nach unten aus dem Bild schieben. */
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* Streifen und App untereinander, zusammen genau das Fenster. */
+.rahmen {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
   height: 100vh;
-  height: 100dvh;   /* auf Mobilgeräten und im Browser die tatsächlich sichtbare Höhe */
+  height: 100dvh;
   overflow: hidden;
 }
 .app--thread { grid-template-columns: var(--rail-w) var(--sidebar-w) minmax(0, 1fr) var(--thread-w); }
@@ -2322,3 +2336,94 @@ button.msg__author:hover { color: var(--violet-soft); text-decoration: underline
 .release-row__main { flex: 1; min-width: 0; display: grid; gap: 1px; }
 .release-row__name { font-size: 12.5px; font-weight: 600; }
 .release-row__meta { font-size: 10.5px; color: var(--text-dim); }
+
+/* ── Hinweis auf eine neue Version ─────────────────────────── */
+
+.update-band {
+  /* Über den kosmischen Hintergrund. Der liegt fest im Fenster und deckte den
+     Streifen sonst zu — sichtbar war er, anklickbar nicht. */
+  position: relative;
+  z-index: 2;
+  overflow: hidden;
+  background: linear-gradient(90deg, color-mix(in oklab, var(--violet) 22%, var(--bg-elevated)), var(--bg-elevated));
+  border-bottom: 1px solid var(--line-strong);
+}
+
+.update-band__inner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  font-size: 12.5px;
+}
+
+.update-band__icon {
+  display: grid;
+  place-items: center;
+  width: 26px; height: 26px;
+  flex: none;
+  border-radius: 8px;
+  color: #fff;
+  background: linear-gradient(135deg, var(--violet), #4d7cff);
+}
+
+.update-band__text { flex: 1; min-width: 0; font-variant-numeric: tabular-nums; }
+.update-band__notes { color: var(--text-dim); }
+
+.update-band__bar {
+  width: 120px; height: 4px;
+  flex: none;
+  border-radius: 999px;
+  background: var(--bg-sunken);
+  overflow: hidden;
+}
+
+.update-band__bar > span { display: block; height: 100%; background: var(--violet); border-radius: 999px; }
+
+.btn--sm { height: 26px; padding: 0 10px; font-size: 12px; }
+
+/* ── Was ist neu ───────────────────────────────────────────── */
+
+.neu { padding: 26px 26px 22px; text-align: center; }
+
+.neu__stern {
+  display: inline-grid;
+  place-items: center;
+  width: 54px; height: 54px;
+  margin-bottom: 14px;
+  border-radius: 17px;
+  color: #fff;
+  background: linear-gradient(135deg, var(--violet), #4d7cff);
+  box-shadow: 0 8px 26px rgb(124 92 255 / 0.42);
+}
+
+.neu__titel { margin: 0 0 5px; font-size: 21px; font-weight: 660; letter-spacing: -0.02em; }
+.neu__text { margin: 0 0 16px; font-size: 13px; color: var(--text-dim); }
+
+.neu__liste {
+  margin: 0 0 20px;
+  padding: 0;
+  list-style: none;
+  text-align: left;
+  display: grid;
+  gap: 7px;
+}
+
+.neu__liste li {
+  position: relative;
+  padding: 9px 12px 9px 32px;
+  border-radius: var(--r-sm);
+  background: var(--bg-sunken);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+/* Ein Punkt statt eines Aufzählungszeichens — er sitzt genauer. */
+.neu__liste li::before {
+  content: '';
+  position: absolute;
+  left: 14px; top: 16px;
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--violet);
+}
