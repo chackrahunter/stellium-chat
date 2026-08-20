@@ -19,7 +19,7 @@
  * App nicht ansieht, hat auch nichts von einer neuen Fassung.
  */
 
-const ABSTAND_MS = 5 * 60 * 1000;   /* nicht öfter als alle fünf Minuten */
+const ABSTAND_MS = 2 * 60 * 1000;   /* nicht öfter als alle zwei Minuten */
 
 let unser: string | null = null;
 let zuletzt = 0;
@@ -114,6 +114,23 @@ export function auffrischenVerbinden(): () => void {
   };
   document.addEventListener('visibilitychange', beiSicht);
   window.addEventListener('focus', beiSicht);
+  /* iOS stellt eine eingefrorene Startbildschirm-App gern aus dem
+     Seiten-Zwischenspeicher wieder her — dann feuert pageshow, nicht focus. */
+  window.addEventListener('pageshow', beiSicht);
+
+  /* Das Sicherheitsnetz, und der eigentliche Grund, warum das hier
+     verlässlich ist: In der Startbildschirm-App kamen nach dem Auftauen aus
+     dem iOS-Einfrieren weder visibilitychange noch focus an — im
+     Zugriffs-Log des Servers stand über Minuten KEINE einzige Anfrage vom
+     Telefon, während dieselben Handler im Browser sauber liefen. Ein
+     eingefrorener Timer dagegen feuert nach, sobald die Seite wieder Rechenzeit
+     bekommt. Alle zweieinhalb Minuten, nur bei sichtbarer Seite, ein paar
+     Kilobyte — das ist der Preis dafür, dass niemand mehr eine veraltete
+     Fassung festhält. */
+  const takt = setInterval(() => {
+    if (document.visibilityState === 'visible') void nachsehen();
+  }, 150_000);
+
   /* Einmal kurz nach dem Start: wer die App öffnet, während gerade
      ausgeliefert wurde, soll nicht bis zum nächsten Wechsel warten. */
   const ersteFrist = setTimeout(() => void nachsehen(true), 20_000);
@@ -121,6 +138,8 @@ export function auffrischenVerbinden(): () => void {
   return () => {
     document.removeEventListener('visibilitychange', beiSicht);
     window.removeEventListener('focus', beiSicht);
+    window.removeEventListener('pageshow', beiSicht);
+    clearInterval(takt);
     clearTimeout(ersteFrist);
   };
 }

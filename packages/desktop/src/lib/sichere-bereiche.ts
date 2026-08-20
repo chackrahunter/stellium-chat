@@ -41,12 +41,22 @@ function anwenden(): void {
   const abgezogen = screen.height - window.innerHeight;
 
   const wurzel = document.documentElement.style;
+  const klassen = document.documentElement.classList;
   if (abgezogen >= oben + unten - 6 && oben + unten > 0) {
     wurzel.setProperty('--sicher-oben', '0px');
     wurzel.setProperty('--sicher-unten', '0px');
+    /* Der Viewport endet ÜBER der Home-Leiste; die Zone darunter füllt iOS
+       selbst mit der Seitenhintergrundfarbe — flach. Damit dort keine Naht
+       entsteht (Aurora-Türkis trifft hart auf flaches Blau, auf dem Gerät
+       gemessen bei 812 von 874 Punkten), blendet die Seite ihren eigenen
+       unteren Rand in dieselbe Farbe über. Nur hier — im Vollbild bleibt
+       die Aurora bis zur letzten Zeile. */
+    klassen.add('viewport-beschnitten');
   } else if (oben > 0 && abgezogen >= oben - 6) {
     wurzel.setProperty('--sicher-oben', '0px');
+    klassen.remove('viewport-beschnitten');
   } else {
+    klassen.remove('viewport-beschnitten');
     /* Voller Schirm — die Werte aus tokens.css gelten unverändert. Vorher
        gesetzte Übersteuerungen zurücknehmen (Drehung des Geräts). */
     wurzel.removeProperty('--sicher-oben');

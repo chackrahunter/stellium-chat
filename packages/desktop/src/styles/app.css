@@ -129,6 +129,21 @@ a:hover { text-decoration: underline; }
      Blasen. Was man nicht malt, kann auch nicht abgeschnitten werden. */
 }
 
+/* Endet der Viewport über der Home-Leiste (iOS 26+, Startbildschirm-App),
+   füllt das System die Zone darunter flach mit der Seitenhintergrundfarbe.
+   Diese Blende führt den eigenen unteren Rand in genau diese Farbe über —
+   sonst steht dort eine gerade Kante, wo die Aurora hart abbricht. Die
+   Klasse setzt lib/sichere-bereiche.ts, und nur wenn wirklich beschnitten
+   wird; im Vollbild läuft die Aurora unangetastet bis zur letzten Zeile. */
+.viewport-beschnitten .cosmos::after {
+  content: '';
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 76px;
+  background: linear-gradient(to bottom, transparent, var(--grund-rand));
+  pointer-events: none;
+}
+
 .cosmos__stars { position: absolute; inset: 0; width: 100%; height: 100%; opacity: var(--star-alpha); }
 
 /* Am Weichzeichner ist hier schon gemessen worden — er bleibt, wie er ist.
