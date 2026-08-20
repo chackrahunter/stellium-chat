@@ -23,6 +23,31 @@ const api = {
   setBadge: (count: number) => ipcRenderer.invoke('badge:set', count) as Promise<boolean>,
   flashWindow: () => ipcRenderer.invoke('window:flash') as Promise<boolean>,
   setTheme: (theme: 'system' | 'dark' | 'light') => ipcRenderer.invoke('theme:set', theme) as Promise<boolean>,
+  /* Fernsteuerung. Absichtlich schmal: die Ansicht kann verbinden, trennen,
+     Eingaben schicken und zuhören — an den Sitzungsschlüssel kommt sie nicht. */
+  fern: {
+    verbinden: (adresse: string, passwort: string) =>
+      ipcRenderer.invoke('fern:verbinden', adresse, passwort),
+    trennen: () => ipcRenderer.invoke('fern:trennen'),
+    lage: () => ipcRenderer.invoke('fern:lage'),
+    eingabe: (zeilen: string) => ipcRenderer.send('fern:eingabe', zeilen),
+    steuer: (wunsch: unknown) => ipcRenderer.send('fern:steuer', wunsch),
+    aufBild: (ruf: (daten: Uint8Array) => void) => {
+      const h = (_e: unknown, d: Uint8Array) => ruf(d);
+      ipcRenderer.on('fern:bild', h);
+      return () => ipcRenderer.off('fern:bild', h);
+    },
+    aufZustand: (ruf: (z: { lage: string; fehler: string }) => void) => {
+      const h = (_e: unknown, z: { lage: string; fehler: string }) => ruf(z);
+      ipcRenderer.on('fern:zustand', h);
+      return () => ipcRenderer.off('fern:zustand', h);
+    },
+    aufInfo: (ruf: (i: unknown) => void) => {
+      const h = (_e: unknown, i: unknown) => ruf(i);
+      ipcRenderer.on('fern:info', h);
+      return () => ipcRenderer.off('fern:info', h);
+    },
+  },
   openExternal: (url: string) => ipcRenderer.invoke('shell:open', url) as Promise<boolean>,
 
   /* Selbstaktualisierung */

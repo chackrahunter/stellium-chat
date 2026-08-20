@@ -1106,4 +1106,16 @@ export const nl = {
   'fehler.vorschlagEntschieden': 'Over dit voorstel is al beslist.',
   'fehler.vorschlagTitel': 'Het voorstel heeft een titel nodig.',
   'fehler.zusammensetzen': 'Samenvoegen mislukt: {grund}',
+
+  /* Fernsteuerung des Pi */
+  'fern.titel': 'Pi op afstand bedienen',
+  'fern.nurApp': 'Bediening op afstand bestaat alleen in de Stellium-app.',
+  'fern.verbinden': 'Verbinden',
+  'fern.trennen': 'Verbreken',
+  'fern.passwort': 'Wachtwoord',
+  'fern.verbindet': 'Verbinden …',
+  'fern.nichtVerbunden': 'Niet verbonden',
+  'fern.steuertAn': 'Bediening aan',
+  'fern.steuertAus': 'alleen kijken',
+  'fern.steuernHilfe': 'Toetsenbord en muis naar de Pi sturen',
 };

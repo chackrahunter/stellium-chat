@@ -1106,4 +1106,16 @@ export const ko = {
   'fehler.vorschlagEntschieden': '이 제안은 이미 결정되었습니다.',
   'fehler.vorschlagTitel': '제안에는 제목이 필요합니다.',
   'fehler.zusammensetzen': '병합 실패: {grund}',
+
+  /* Fernsteuerung des Pi */
+  'fern.titel': 'Pi 원격 제어',
+  'fern.nurApp': '원격 제어는 Stellium 앱에서만 됩니다.',
+  'fern.verbinden': '연결',
+  'fern.trennen': '연결 끊기',
+  'fern.passwort': '비밀번호',
+  'fern.verbindet': '연결 중 …',
+  'fern.nichtVerbunden': '연결 안 됨',
+  'fern.steuertAn': '제어 켜짐',
+  'fern.steuertAus': '보기만',
+  'fern.steuernHilfe': '키보드와 마우스를 Pi로 보내기',
 };

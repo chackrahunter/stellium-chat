@@ -34,6 +34,7 @@ export type Overlay =
   | null | 'quick' | 'search' | 'settings' | 'newChannel' | 'glossary'
   | 'catchup' | 'schedule' | 'people' | 'poll' | 'reminders' | 'models' | 'team'
   | 'channelSettings' | 'tour' | 'tasks' | 'calendar' | 'files' | 'taskExtract' | 'protocol' | 'ideas' | 'download'
+  | 'fern'
   | 'vorfall' | 'freigaben';
 
 interface PendingRequest<T> { resolve: (value: T) => void; reject: (err: Error) => void; timer: number }

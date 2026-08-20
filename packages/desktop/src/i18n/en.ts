@@ -1127,4 +1127,16 @@ export const en: Partial<Dictionary> = {
   'fehler.vorschlagEntschieden': 'This suggestion has already been decided.',
   'fehler.vorschlagTitel': 'The suggestion needs a title.',
   'fehler.zusammensetzen': 'Reassembling failed: {grund}',
+
+  /* Fernsteuerung des Pi */
+  'fern.titel': 'Control Pi remotely',
+  'fern.nurApp': 'Remote control is only available in the Stellium app.',
+  'fern.verbinden': 'Connect',
+  'fern.trennen': 'Disconnect',
+  'fern.passwort': 'Password',
+  'fern.verbindet': 'Connecting …',
+  'fern.nichtVerbunden': 'Not connected',
+  'fern.steuertAn': 'Control on',
+  'fern.steuertAus': 'view only',
+  'fern.steuernHilfe': 'Send keyboard and mouse to the Pi',
 };

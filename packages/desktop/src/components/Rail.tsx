@@ -1,4 +1,4 @@
-import { Bell, Bookmark, Bot, CalendarDays, Download, FolderOpen, Inbox, Lightbulb, ListChecks, MessageSquare, Settings, ShieldCheck, Sparkles, Star } from 'lucide-react';
+import { Bell, Bookmark, Bot, CalendarDays, Download, FolderOpen, Inbox, Lightbulb, ListChecks, MessageSquare, Settings, ShieldCheck, Sparkles, Star, Monitor } from 'lucide-react';
 import { useStore } from '../state/store.js';
 import { useT } from '../i18n/index.js';
 import { imBrowser } from './DownloadPanel.jsx';
@@ -101,6 +101,15 @@ export function Rail() {
       <button className="rail-btn no-drag" data-tour="ideas" onClick={() => setOverlay('ideas')} title={t('nav.ideas')}>
         <Lightbulb size={20} />
       </button>
+
+      {/* Umgekehrt zum Herunterladen oben: Fernsteuerung gibt es NUR in der
+          installierten App. Sie läuft über den Hauptprozess, weil der
+          Handschlag scrypt braucht — im Browser gibt es das nicht. */}
+      {!imBrowser() && (
+        <button className="rail-btn no-drag" onClick={() => setOverlay('fern')} title={t('fern.titel')}>
+          <Monitor size={20} />
+        </button>
+      )}
 
       <button className="rail-btn no-drag" onClick={() => setOverlay('catchup')} title={t('nav.catchup')}>
         <Sparkles size={20} />

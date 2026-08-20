@@ -1106,4 +1106,16 @@ export const fi = {
   'fehler.vorschlagEntschieden': 'Tästä ehdotuksesta on jo päätetty.',
   'fehler.vorschlagTitel': 'Ehdotus tarvitsee otsikon.',
   'fehler.zusammensetzen': 'Kokoaminen epäonnistui: {grund}',
+
+  /* Fernsteuerung des Pi */
+  'fern.titel': 'Ohjaa Pi:tä etänä',
+  'fern.nurApp': 'Etäohjaus on vain Stellium-sovelluksessa.',
+  'fern.verbinden': 'Yhdistä',
+  'fern.trennen': 'Katkaise',
+  'fern.passwort': 'Salasana',
+  'fern.verbindet': 'Yhdistetään …',
+  'fern.nichtVerbunden': 'Ei yhteyttä',
+  'fern.steuertAn': 'Ohjaus päällä',
+  'fern.steuertAus': 'vain katselu',
+  'fern.steuernHilfe': 'Lähetä näppäimistö ja hiiri Pi:lle',
 };

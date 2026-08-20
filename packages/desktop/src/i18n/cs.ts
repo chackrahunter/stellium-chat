@@ -1106,4 +1106,16 @@ export const cs = {
   'fehler.vorschlagEntschieden': 'O tomto návrhu už bylo rozhodnuto.',
   'fehler.vorschlagTitel': 'Návrh potřebuje název.',
   'fehler.zusammensetzen': 'Sestavení selhalo: {grund}',
+
+  /* Fernsteuerung des Pi */
+  'fern.titel': 'Ovládat Pi na dálku',
+  'fern.nurApp': 'Vzdálené ovládání je jen v aplikaci Stellium.',
+  'fern.verbinden': 'Připojit',
+  'fern.trennen': 'Odpojit',
+  'fern.passwort': 'Heslo',
+  'fern.verbindet': 'Připojuji …',
+  'fern.nichtVerbunden': 'Nepřipojeno',
+  'fern.steuertAn': 'Ovládání zapnuto',
+  'fern.steuertAus': 'jen sledovat',
+  'fern.steuernHilfe': 'Posílat klávesnici a myš do Pi',
 };

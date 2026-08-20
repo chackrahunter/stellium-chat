@@ -1106,4 +1106,16 @@ export const ja = {
   'fehler.vorschlagEntschieden': 'この提案はすでに判断済みです。',
   'fehler.vorschlagTitel': '提案にはタイトルが必要です。',
   'fehler.zusammensetzen': '結合に失敗しました: {grund}',
+
+  /* Fernsteuerung des Pi */
+  'fern.titel': 'Pi をリモート操作',
+  'fern.nurApp': 'リモート操作は Stellium アプリでのみ使えます。',
+  'fern.verbinden': '接続',
+  'fern.trennen': '切断',
+  'fern.passwort': 'パスワード',
+  'fern.verbindet': '接続中 …',
+  'fern.nichtVerbunden': '未接続',
+  'fern.steuertAn': '操作オン',
+  'fern.steuertAus': '見るだけ',
+  'fern.steuernHilfe': 'キーボードとマウスを Pi に送る',
 };

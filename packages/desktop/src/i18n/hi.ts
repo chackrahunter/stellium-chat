@@ -1106,4 +1106,16 @@ export const hi = {
   'fehler.vorschlagEntschieden': 'इस सुझाव पर पहले ही फ़ैसला हो चुका है।',
   'fehler.vorschlagTitel': 'सुझाव को एक शीर्षक चाहिए।',
   'fehler.zusammensetzen': 'जोड़ना विफल: {grund}',
+
+  /* Fernsteuerung des Pi */
+  'fern.titel': 'Pi को दूर से चलाएँ',
+  'fern.nurApp': 'दूर से नियंत्रण केवल Stellium ऐप में है।',
+  'fern.verbinden': 'जोड़ें',
+  'fern.trennen': 'अलग करें',
+  'fern.passwort': 'पासवर्ड',
+  'fern.verbindet': 'जुड़ रहा है …',
+  'fern.nichtVerbunden': 'जुड़ा नहीं',
+  'fern.steuertAn': 'नियंत्रण चालू',
+  'fern.steuertAus': 'केवल देखें',
+  'fern.steuernHilfe': 'कीबोर्ड और माउस Pi को भेजें',
 };

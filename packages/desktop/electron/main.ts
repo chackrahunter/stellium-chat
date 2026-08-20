@@ -6,6 +6,7 @@ import {
   updaterInit, updaterAnmelden, updaterAbmelden, pruefen, installieren, letztesUpdate,
   fristVerschieben, beimBeendenInstallieren,
 } from './updater.js';
+import { fernsteuerungEinrichten, fernsteuerungBeenden } from './fernsteuerung.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const isDev = !app.isPackaged;
@@ -249,6 +250,11 @@ ipcMain.handle('update:postpone', () => { fristVerschieben(); return true; });
 
 /* ── IPC ──────────────────────────────────────────────────────── */
 
+/* Fernsteuerung des Pi. Läuft im Hauptprozess, weil der Handschlag scrypt
+   braucht — das gibt es in der Browser-Krypto nicht. Nebenwirkung, die uns
+   entgegenkommt: der Sitzungsschlüssel bleibt hier und die Ansicht sieht ihn nie. */
+fernsteuerungEinrichten(() => mainWindow);
+
 ipcMain.handle('app:info', () => ({
   locale: app.getLocale(),
   platform: process.platform,
@@ -325,6 +331,10 @@ void app.whenReady().then(() => {
 
 app.on('before-quit', (e) => {
   quitting = true;
+  // Eine offene Fernsitzung sauber schließen. Ohne das bliebe auf dem Pi der
+  // Abgreifer stehen, bis die Leitung von selbst zusammenbricht — und der
+  // nächste Anlauf fände den Platz besetzt ("schon jemand verbunden").
+  fernsteuerungBeenden();
   // Wer "später" gewählt hat, bekommt die neue Fassung jetzt — beim Beenden
   // stört sie niemanden mehr. Der Austausch läuft in einem eigenen Prozess
   // weiter, deshalb genügt es, ihn kurz vor dem Ende anzustoßen.

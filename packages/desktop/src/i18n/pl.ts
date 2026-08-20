@@ -1106,4 +1106,16 @@ export const pl = {
   'fehler.vorschlagEntschieden': 'O tej propozycji już zdecydowano.',
   'fehler.vorschlagTitel': 'Propozycja potrzebuje tytułu.',
   'fehler.zusammensetzen': 'Składanie nie powiodło się: {grund}',
+
+  /* Fernsteuerung des Pi */
+  'fern.titel': 'Zdalne sterowanie Pi',
+  'fern.nurApp': 'Zdalne sterowanie jest tylko w aplikacji Stellium.',
+  'fern.verbinden': 'Połącz',
+  'fern.trennen': 'Rozłącz',
+  'fern.passwort': 'Hasło',
+  'fern.verbindet': 'Łączenie …',
+  'fern.nichtVerbunden': 'Brak połączenia',
+  'fern.steuertAn': 'Sterowanie włączone',
+  'fern.steuertAus': 'tylko podgląd',
+  'fern.steuernHilfe': 'Przekazuj klawiaturę i mysz do Pi',
 };

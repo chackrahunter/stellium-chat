@@ -1106,4 +1106,16 @@ export const it = {
   'fehler.vorschlagEntschieden': 'Su questa proposta è già stato deciso.',
   'fehler.vorschlagTitel': 'La proposta ha bisogno di un titolo.',
   'fehler.zusammensetzen': 'Ricomposizione non riuscita: {grund}',
+
+  /* Fernsteuerung des Pi */
+  'fern.titel': 'Controlla il Pi da remoto',
+  'fern.nurApp': 'Il controllo remoto esiste solo nell’app Stellium.',
+  'fern.verbinden': 'Connetti',
+  'fern.trennen': 'Disconnetti',
+  'fern.passwort': 'Password',
+  'fern.verbindet': 'Connessione …',
+  'fern.nichtVerbunden': 'Non connesso',
+  'fern.steuertAn': 'Controllo attivo',
+  'fern.steuertAus': 'solo guardare',
+  'fern.steuernHilfe': 'Invia tastiera e mouse al Pi',
 };

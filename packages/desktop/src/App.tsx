@@ -30,6 +30,7 @@ import { IdeaBoard } from './components/IdeaBoard.jsx';
 import { VorschlagPosteingang } from './components/VorschlagPosteingang.jsx';
 import { useVorschlaege } from './state/vorschlaege.js';
 import { DownloadPanel } from './components/DownloadPanel.jsx';
+import { Fernsteuerung } from './components/Fernsteuerung.jsx';
 import { UpdateBanner, UpdateWillkommen, ServerWartung } from './components/UpdateBanner.jsx';
 import { Toasts } from './components/Toasts.jsx';
 import { Fangkorb } from './components/Fangkorb.jsx';
@@ -232,6 +233,7 @@ export function App() {
         {overlay === 'protocol' && <ProtocolPanel key="protocol" onClose={closeOverlay} />}
         {overlay === 'ideas' && <IdeaBoard key="ideas" onClose={closeOverlay} />}
         {overlay === 'download' && <DownloadPanel key="download" onClose={closeOverlay} />}
+        {overlay === 'fern' && <Fernsteuerung key="fern" onClose={closeOverlay} />}
         {vorschlagFilter && (
           <VorschlagPosteingang
             key="vorschlaege"

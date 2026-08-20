@@ -1106,4 +1106,16 @@ export const ar = {
   'fehler.vorschlagEntschieden': 'تم البتّ في هذا الاقتراح من قبل.',
   'fehler.vorschlagTitel': 'الاقتراح يحتاج إلى عنوان.',
   'fehler.zusammensetzen': 'فشل التجميع: {grund}',
+
+  /* Fernsteuerung des Pi */
+  'fern.titel': 'التحكّم بالـ Pi عن بُعد',
+  'fern.nurApp': 'التحكّم عن بُعد متاح في تطبيق Stellium فقط.',
+  'fern.verbinden': 'اتصال',
+  'fern.trennen': 'قطع الاتصال',
+  'fern.passwort': 'كلمة المرور',
+  'fern.verbindet': 'جارٍ الاتصال …',
+  'fern.nichtVerbunden': 'غير متصل',
+  'fern.steuertAn': 'التحكّم مفعّل',
+  'fern.steuertAus': 'المشاهدة فقط',
+  'fern.steuernHilfe': 'إرسال لوحة المفاتيح والفأرة إلى الـ Pi',
 };

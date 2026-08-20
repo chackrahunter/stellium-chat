@@ -1106,4 +1106,16 @@ export const ro = {
   'fehler.vorschlagEntschieden': 'S-a decis deja asupra acestei propuneri.',
   'fehler.vorschlagTitel': 'Propunerea are nevoie de un titlu.',
   'fehler.zusammensetzen': 'Reasamblarea a eșuat: {grund}',
+
+  /* Fernsteuerung des Pi */
+  'fern.titel': 'Controlează Pi la distanță',
+  'fern.nurApp': 'Controlul la distanță există doar în aplicația Stellium.',
+  'fern.verbinden': 'Conectează',
+  'fern.trennen': 'Deconectează',
+  'fern.passwort': 'Parolă',
+  'fern.verbindet': 'Se conectează …',
+  'fern.nichtVerbunden': 'Neconectat',
+  'fern.steuertAn': 'Control pornit',
+  'fern.steuertAus': 'doar privire',
+  'fern.steuernHilfe': 'Trimite tastatura și mouse-ul către Pi',
 };

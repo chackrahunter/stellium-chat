@@ -1106,4 +1106,16 @@ export const zh = {
   'fehler.vorschlagEntschieden': '这条建议已经有结论了。',
   'fehler.vorschlagTitel': '建议需要一个标题。',
   'fehler.zusammensetzen': '合并失败：{grund}',
+
+  /* Fernsteuerung des Pi */
+  'fern.titel': '远程操作 Pi',
+  'fern.nurApp': '远程操作仅在 Stellium 应用中可用。',
+  'fern.verbinden': '连接',
+  'fern.trennen': '断开',
+  'fern.passwort': '密码',
+  'fern.verbindet': '连接中 …',
+  'fern.nichtVerbunden': '未连接',
+  'fern.steuertAn': '操作已开',
+  'fern.steuertAus': '仅查看',
+  'fern.steuernHilfe': '把键盘和鼠标发送到 Pi',
 };

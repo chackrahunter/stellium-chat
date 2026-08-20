@@ -1106,4 +1106,16 @@ export const ru = {
   'fehler.vorschlagEntschieden': 'По этому предложению уже принято решение.',
   'fehler.vorschlagTitel': 'Предложению нужен заголовок.',
   'fehler.zusammensetzen': 'Не удалось собрать: {grund}',
+
+  /* Fernsteuerung des Pi */
+  'fern.titel': 'Удалённое управление Pi',
+  'fern.nurApp': 'Удалённое управление есть только в приложении Stellium.',
+  'fern.verbinden': 'Подключиться',
+  'fern.trennen': 'Отключиться',
+  'fern.passwort': 'Пароль',
+  'fern.verbindet': 'Подключение …',
+  'fern.nichtVerbunden': 'Нет подключения',
+  'fern.steuertAn': 'Управление включено',
+  'fern.steuertAus': 'только смотреть',
+  'fern.steuernHilfe': 'Передавать клавиатуру и мышь на Pi',
 };

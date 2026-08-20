@@ -1,0 +1,112 @@
+/* Der Pi-Schreibtisch im Fenster.
+   Der Grund ist absichtlich sehr dunkel: alles Helle daneben lässt das
+   ferne Bild flau wirken, und man soll hierhin schauen, nicht auf den Rahmen. */
+
+.fern {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 380px;
+}
+
+.fern__buehne {
+  position: relative;
+  display: grid;
+  place-items: center;
+  background: #05070d;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  overflow: hidden;
+  min-height: 360px;
+}
+
+.fern__schirm {
+  display: block;
+  max-width: 100%;
+  max-height: min(66vh, 720px);
+  /* Ohne das rechnet der Browser beim Verkleinern glatt und macht feine
+     Schrift matschig. Bei einem Schreibtisch mit viel Text ist scharf
+     wichtiger als weich. */
+  image-rendering: -webkit-optimize-contrast;
+}
+
+/* Solange nur zugesehen wird, ist der Zeiger der gewohnte. Beim Steuern
+   verschwindet er — der Pi malt seinen eigenen, und zwei Zeiger nebeneinander
+   sind das Erste, was an einer Fernsteuerung stört. */
+.fern__schirm--steuert { cursor: none; }
+
+.fern__hinweis {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--tx-lo);
+  font-size: 13px;
+  pointer-events: none;
+}
+
+.fern__leer {
+  display: grid;
+  place-items: center;
+  gap: 10px;
+  padding: 32px 16px;
+  color: var(--tx-lo);
+  text-align: center;
+}
+
+.fern__fehler {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--rose) 14%, transparent);
+  color: var(--rose);
+  font-size: 12.5px;
+}
+
+.fern__anmeldung { display: flex; align-items: center; gap: 6px; }
+
+.fern__anmeldung input {
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--bg-panel);
+  color: var(--tx-hi);
+  font-size: 12.5px;
+}
+.fern__anmeldung input[type='text']     { width: 190px; }
+.fern__anmeldung input[type='password'] { width: 130px; }
+
+.fern__anmeldung button,
+.fern__knopf {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--bg-panel);
+  color: var(--tx-hi);
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.fern__anmeldung button:disabled { opacity: 0.6; cursor: default; }
+
+/* Angeschaltete Steuerung muss man auf einen Blick sehen — sonst tippt man
+   ins Leere und wundert sich, oder schlimmer: man tippt in den Pi, ohne es
+   zu wollen. */
+.fern__knopf--an {
+  border-color: color-mix(in srgb, var(--cyan) 55%, transparent);
+  background: color-mix(in srgb, var(--cyan) 16%, transparent);
+  color: var(--cyan);
+}
+
+.dreht { animation: fern-dreht 1s linear infinite; }
+@keyframes fern-dreht { to { transform: rotate(360deg); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .dreht { animation: none; }
+}

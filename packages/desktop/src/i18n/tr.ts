@@ -1106,4 +1106,16 @@ export const tr = {
   'fehler.vorschlagEntschieden': 'Bu öneri hakkında zaten karar verildi.',
   'fehler.vorschlagTitel': 'Önerinin bir başlığa ihtiyacı var.',
   'fehler.zusammensetzen': 'Birleştirme başarısız: {grund}',
+
+  /* Fernsteuerung des Pi */
+  'fern.titel': 'Pi’yi uzaktan yönet',
+  'fern.nurApp': 'Uzaktan yönetim yalnızca Stellium uygulamasında var.',
+  'fern.verbinden': 'Bağlan',
+  'fern.trennen': 'Bağlantıyı kes',
+  'fern.passwort': 'Parola',
+  'fern.verbindet': 'Bağlanıyor …',
+  'fern.nichtVerbunden': 'Bağlı değil',
+  'fern.steuertAn': 'Yönetim açık',
+  'fern.steuertAus': 'yalnızca izle',
+  'fern.steuernHilfe': 'Klavye ve fareyi Pi’ye ilet',
 };

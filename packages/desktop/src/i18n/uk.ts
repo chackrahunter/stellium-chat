@@ -1106,4 +1106,16 @@ export const uk = {
   'fehler.vorschlagEntschieden': 'Щодо цієї пропозиції вже вирішено.',
   'fehler.vorschlagTitel': 'Пропозиції потрібен заголовок.',
   'fehler.zusammensetzen': 'Не вдалося зібрати: {grund}',
+
+  /* Fernsteuerung des Pi */
+  'fern.titel': 'Віддалене керування Pi',
+  'fern.nurApp': 'Віддалене керування є лише в застосунку Stellium.',
+  'fern.verbinden': 'Підключитися',
+  'fern.trennen': 'Відʼєднатися',
+  'fern.passwort': 'Пароль',
+  'fern.verbindet': 'Підключення …',
+  'fern.nichtVerbunden': 'Не підключено',
+  'fern.steuertAn': 'Керування увімкнено',
+  'fern.steuertAus': 'лише дивитися',
+  'fern.steuernHilfe': 'Передавати клавіатуру та мишу на Pi',
 };

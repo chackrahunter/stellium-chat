@@ -1106,4 +1106,16 @@ export const sv = {
   'fehler.vorschlagEntschieden': 'Det här förslaget är redan avgjort.',
   'fehler.vorschlagTitel': 'Förslaget behöver en titel.',
   'fehler.zusammensetzen': 'Sammanfogningen misslyckades: {grund}',
+
+  /* Fernsteuerung des Pi */
+  'fern.titel': 'Fjärrstyr Pi:n',
+  'fern.nurApp': 'Fjärrstyrning finns bara i Stellium-appen.',
+  'fern.verbinden': 'Anslut',
+  'fern.trennen': 'Koppla från',
+  'fern.passwort': 'Lösenord',
+  'fern.verbindet': 'Ansluter …',
+  'fern.nichtVerbunden': 'Inte ansluten',
+  'fern.steuertAn': 'Styrning på',
+  'fern.steuertAus': 'bara titta',
+  'fern.steuernHilfe': 'Skicka tangentbord och mus till Pi:n',
 };
