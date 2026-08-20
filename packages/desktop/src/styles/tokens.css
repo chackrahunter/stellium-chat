@@ -12,7 +12,11 @@
 
   /* Was Dynamic Island, Kameraloch und Home-Leiste verdecken. Auf Geräten ohne
      solche Ränder sind die Werte null — die Regeln kosten dort also nichts,
-     und man muss nicht nach Gerät unterscheiden. */
+     und man muss nicht nach Gerät unterscheiden.
+     ACHTUNG: In der iOS-Startbildschirm-App übersteuert lib/sichere-bereiche.ts
+     oben/unten zur Laufzeit per Inline-Style auf :root (WebKit #301994 meldet
+     dort falsche env-Werte). Wer hier misst und env sieht, aber 0 bekommt,
+     sucht dort weiter. */
   --sicher-oben:   env(safe-area-inset-top, 0px);
   --sicher-unten:  env(safe-area-inset-bottom, 0px);
   --sicher-links:  env(safe-area-inset-left, 0px);

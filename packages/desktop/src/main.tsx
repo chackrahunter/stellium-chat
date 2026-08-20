@@ -5,6 +5,7 @@ import { Fangkorb } from './components/Fangkorb.jsx';
 import { updatesVerbinden } from './lib/updates.js';
 import { auffrischenVerbinden } from './lib/auffrischen.js';
 import { sichereBereicheVerbinden } from './lib/sichere-bereiche.js';
+import { tastaturVerbinden } from './lib/tastatur.js';
 import './styles/app.css';
 
 /**
@@ -23,6 +24,9 @@ updatesVerbinden();
 auffrischenVerbinden();
 /* Muss vor dem ersten Zeichnen laufen — sonst springt die Kopfzeile. */
 sichereBereicheVerbinden();
+/* iOS legt die Tastatur ÜBER die Seite statt sie zu verkleinern —
+   diese Zeile macht die sichtbare Höhe als --vv-hoehe verfügbar. */
+tastaturVerbinden();
 
 /* Der äußerste Fangkorb. Ohne ihn hängt React bei einem Fehler beim Zeichnen
    den ganzen Baum aus: #root ist leer, das Fenster bleibt schwarz und nichts

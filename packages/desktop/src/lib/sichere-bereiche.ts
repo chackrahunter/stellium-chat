@@ -1,73 +1,165 @@
 /**
- * Doppelten Sicherheitsabstand erkennen und wegnehmen — gemessen, nicht geraten.
+ * Doppelten oder fehlenden Sicherheitsabstand erkennen und ausgleichen —
+ * gemessen, nicht geraten.
  *
- * Seit iOS 26 beginnt der Viewport einer Startbildschirm-App nicht mehr
- * hinter der Statusleiste, aber `env(safe-area-inset-top)` meldet weiterhin
- * ihre Höhe. Wer den Wert brav als Abstand setzt, schiebt seinen Inhalt
- * damit ZWEIMAL nach unten: einmal durch das System, einmal selbst. Auf dem
- * iPhone 17 Pro gemessen: die Kopfzeile saß bei 124 statt 68 Punkten, mit
- * einem 56-Punkte-Leerband unter der Uhr.
+ * Hintergrund ist WebKit-Fehler #301994 (aufgetreten in iOS 26.1, behoben in
+ * 26.2, seit 26.5.2 und der 27er-Beta wieder da): Die Startbildschirm-App
+ * bekommt einen um die Statusleistenhöhe verkleinerten Viewport (auf dem
+ * iPhone 17 Pro: innerHeight 812 bei 874 Punkten Schirmhöhe). WO das System
+ * die fehlenden Punkte wegnimmt, unterscheidet sich:
  *
- * Tückisch daran: Die frühere Fassung, in der eine Kurzschreibweise den
- * Abstand versehentlich löschte, sah in der Startbildschirm-App genau
- * deshalb RICHTIG aus. Die Reparatur des einen Fehlers machte den anderen
- * sichtbar.
+ *   Lage A: Viewport beginnt UNTER der Uhr, env(safe-area-inset-top) fällt
+ *           auf 0 — die env-Werte stimmen dann einfach, nichts zu tun.
+ *   Lage B: Viewport klebt am oberen Schirmrand, unten bleibt ein toter
+ *           Streifen, den iOS flach einfärbt. env() meldet weiter oben ~62
+ *           und unten 34 — oben stimmt das (die Uhr steht über dem Inhalt),
+ *           unten ist es gelogen (die Home-Leiste liegt UNTER dem Streifen,
+ *           nicht über der Seite). Auf dem Gerät nachgemessen am 20.08.2026.
  *
- * Statt an einer iOS-Fassung zu schnüffeln, wird gemessen: Nimmt der
- * Viewport den ganzen Schirm ein (dann braucht es unsere Abstände), oder hat
- * das System oben/unten schon Platz weggenommen (dann wären unsere doppelt)?
- * Zwei Probe-Elemente liefern die env()-Werte, der Vergleich von
- * `innerHeight` mit `screen.height` sagt, was das System schon abgezogen hat.
+ * Bekannte Unschärfe: Eine frühere Messung auf demselben Gerät (Kopfzeile bei
+ * 124 statt 68 Punkten) zeigte den Viewport UNTER der Uhr, während env oben
+ * trotzdem ~62 meldete — dieselben Zahlen wie Lage B, aber die Gegenlage.
+ * Aus fehl/oben/unten allein sind die beiden nicht zu unterscheiden. Als
+ * Zünglein dient window.screenY: meldet es die Verschiebung, ist es die
+ * Gegenlage; meldet es 0 (auf diesem Gerät für Lage B gemessen), gilt die
+ * aktuelle Messung. Taucht die 124er-Kopfzeile je wieder auf, ist das der
+ * Ort, an dem weiterzusuchen ist.
+ *
+ * Ein Gegenmittel per Meta-Tag oder Manifest gibt es nicht — im Bugtracker
+ * und in den Foren ist alles durchprobiert und gescheitert. Es bleibt nur,
+ * zur Laufzeit zu messen und die eigenen Abstände passend zu übersteuern.
+ *
+ * Zwei Fallen, beide auf dem Gerät gefunden:
+ *   – Beim Kaltstart sind die env()-Werte noch 0 und stehen erst mit dem
+ *     ersten resize-Ereignis (im Labor: 13 ms nach load). Einmal zu früh
+ *     gemessen, und jede Fallunterscheidung greift daneben — deshalb wird
+ *     kurz nach dem Start nachgemessen.
+ *   – Nachgemessen wird nur bei geschlossener Bildschirmtastatur (echt
+ *     gemessen über visualViewport, siehe tastatur.ts): eine offene Tastatur
+ *     kann innerHeight verfälschen. Bloßer Feld-Fokus taugt NICHT als
+ *     Kriterium — der Composer fokussiert sich beim Start und bei jedem
+ *     Kanalwechsel selbst, ohne dass iOS die Tastatur zeigt; eine
+ *     Fokus-Sperre hätte jede Nachmessung dauerhaft blockiert.
  */
 
-function envWert(eigenschaft: string): number {
+import { tastaturOffen } from './tastatur.js';
+
+/* Beide env()-Werte mit EINEM Probe-Element und einem Layout-Durchlauf:
+   Höhe trägt den oberen, das Polster den unteren Wert. */
+function envWerte(): { oben: number; unten: number } {
   const el = document.createElement('div');
-  el.style.cssText = `position:fixed;top:0;left:0;visibility:hidden;pointer-events:none;height:env(${eigenschaft},0px)`;
+  el.style.cssText = 'position:fixed;top:0;left:0;visibility:hidden;pointer-events:none;'
+    + 'height:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)';
   document.body.appendChild(el);
-  const wert = el.getBoundingClientRect().height;
+  const stil = getComputedStyle(el);
+  const werte = { oben: parseFloat(stil.height) || 0, unten: parseFloat(stil.paddingBottom) || 0 };
   el.remove();
-  return wert;
+  return werte;
+}
+
+/* Schirmhöhe passend zur aktuellen Ausrichtung — iOS meldet screen.height
+   immer als lange Kante, auch im Querformat. */
+function schirmHoehe(): number {
+  return window.innerWidth > window.innerHeight
+    ? Math.min(screen.width, screen.height)
+    : Math.max(screen.width, screen.height);
 }
 
 function anwenden(): void {
-  /* Nur die installierte Web-App ist betroffen. Im Browser verwaltet Safari
-     seine Leisten selbst, und dort ist env() ohnehin 0. */
-  if (!window.matchMedia('(display-mode: standalone)').matches) return;
-
-  const oben = envWert('safe-area-inset-top');
-  const unten = envWert('safe-area-inset-bottom');
-  /* Was das System bereits abgezogen hat. Bei einem Viewport über den ganzen
-     Schirm ist das 0 — dann stimmen die env()-Werte und bleiben stehen. */
-  const abgezogen = screen.height - window.innerHeight;
-
   const wurzel = document.documentElement.style;
   const klassen = document.documentElement.classList;
-  if (abgezogen >= oben + unten - 6 && oben + unten > 0) {
-    wurzel.setProperty('--sicher-oben', '0px');
-    wurzel.setProperty('--sicher-unten', '0px');
-    /* Der Viewport endet ÜBER der Home-Leiste; die Zone darunter füllt iOS
-       selbst mit der Seitenhintergrundfarbe — flach. Damit dort keine Naht
-       entsteht (Aurora-Türkis trifft hart auf flaches Blau, auf dem Gerät
-       gemessen bei 812 von 874 Punkten), blendet die Seite ihren eigenen
-       unteren Rand in dieselbe Farbe über. Nur hier — im Vollbild bleibt
-       die Aurora bis zur letzten Zeile. */
-    klassen.add('viewport-beschnitten');
-  } else if (oben > 0 && abgezogen >= oben - 6) {
-    wurzel.setProperty('--sicher-oben', '0px');
-    klassen.remove('viewport-beschnitten');
-  } else {
-    klassen.remove('viewport-beschnitten');
-    /* Voller Schirm — die Werte aus tokens.css gelten unverändert. Vorher
-       gesetzte Übersteuerungen zurücknehmen (Drehung des Geräts). */
+  const zuruecksetzen = () => {
     wurzel.removeProperty('--sicher-oben');
     wurzel.removeProperty('--sicher-unten');
+    klassen.remove('viewport-beschnitten');
+  };
+
+  const fehl = schirmHoehe() - window.innerHeight;
+  if (fehl <= 8) {
+    /* Voller Schirm — kein Beschnitt, die env()-Werte aus tokens.css gelten.
+       Vorher gesetzte Übersteuerungen zurücknehmen (Drehung, iOS-Update).
+       Erst hier messen: der gesunde Fall soll keine Probe-Elemente zahlen. */
+    zuruecksetzen();
+    return;
   }
+
+  const { oben, unten } = envWerte();
+
+  if (oben <= 8) {
+    /* Lage A: env sagt oben 0 — das System hat den Viewport unter die Uhr
+       geschoben und die env-Werte passen. Auch der iPad-Fenstermodus landet
+       hier (dort liefert env nichts); übersteuern wäre in beiden Fällen
+       falsch. */
+    zuruecksetzen();
+    return;
+  }
+
+  if (unten > 8 && fehl >= oben + unten - 6) {
+    /* Oben UND unten hat das System schon Platz genommen, env meldet trotzdem
+       volle Werte — eigene Abstände wären doppelt. Der Viewport endet über
+       der Home-Leiste, also die Naht am unteren Rand überblenden. */
+    wurzel.setProperty('--sicher-oben', '0px');
+    wurzel.setProperty('--sicher-unten', '0px');
+    klassen.add('viewport-beschnitten');
+    return;
+  }
+
+  if (Math.abs(fehl - oben) <= 10) {
+    if (window.screenY >= oben - 10) {
+      /* Gegenlage (siehe Kopfkommentar): das System hat den Viewport nach
+         unten geschoben UND env meldet oben trotzdem die Leistenhöhe —
+         eigener Abstand oben wäre der zweite. Unten stimmt env. */
+      wurzel.setProperty('--sicher-oben', '0px');
+      wurzel.removeProperty('--sicher-unten');
+      klassen.remove('viewport-beschnitten');
+      return;
+    }
+    /* Lage B: es fehlt genau die Statusleistenhöhe, env meldet sie oben
+       weiterhin — der Viewport klebt am oberen Schirmrand. Oben braucht es
+       den vollen Abstand (die Uhr steht über dem Inhalt), unten endet der
+       Viewport bereits über der Home-Leiste: dort keinen Abstand doppeln,
+       nur die Naht zum flachen Systemstreifen überblenden. */
+    wurzel.removeProperty('--sicher-oben');
+    wurzel.setProperty('--sicher-unten', '0px');
+    klassen.add('viewport-beschnitten');
+    return;
+  }
+
+  /* Unbekannte Geometrie (geteilter Bildschirm, künftige iOS-Launen):
+     lieber den env()-Werten glauben als raten. */
+  zuruecksetzen();
 }
 
 export function sichereBereicheVerbinden(): void {
-  /* Vor dem ersten Zeichnen einmal, danach nur bei Drehung. NICHT bei jedem
-     resize: die Tastatur verkleinert innerHeight ebenfalls, und das darf die
-     Messung nicht als Systemleiste missverstehen. */
+  /* Nur die iOS-Startbildschirm-App ist betroffen. navigator.standalone gibt
+     es nur in Safari auf iOS; auf Android stimmen die env()-Werte nativ, im
+     Browser verwaltet Safari seine Leisten selbst — dort wird gar nichts
+     verkabelt. */
+  if ((navigator as { standalone?: boolean }).standalone !== true) return;
+
+  /* Vor dem ersten Zeichnen einmal — und danach gezielt nach: die env()-Werte
+     stehen beim Kaltstart noch nicht (siehe Kopfkommentar). KEIN dauerhafter
+     resize-Beobachter: das erste resize nach dem Start trägt die echten
+     Werte, danach hat der Beobachter seine Schuldigkeit getan; der Timer ist
+     das Netz, falls es ausbleibt. */
   anwenden();
-  window.addEventListener('orientationchange', () => setTimeout(anwenden, 300));
+  /* Blockt die Tastatur eine Nachmessung, wird sie nachgeholt statt
+     verworfen — sonst behält z. B. eine Drehung während des Tippens die
+     Übersteuerungen der alten Ausrichtung für den Rest der Sitzung. */
+  let holtNach = false;
+  const nachmessen = () => {
+    if (tastaturOffen()) {
+      if (!holtNach) {
+        holtNach = true;
+        setTimeout(() => { holtNach = false; nachmessen(); }, 1000);
+      }
+      return;
+    }
+    anwenden();
+  };
+  setTimeout(nachmessen, 1200);
+  window.addEventListener('resize', nachmessen);
+  setTimeout(() => window.removeEventListener('resize', nachmessen), 3000);
+
+  window.addEventListener('orientationchange', () => setTimeout(nachmessen, 300));
 }

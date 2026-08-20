@@ -18,9 +18,11 @@
          stattdessen die ganze Seite nach oben, um das Schreibfeld freizulegen —
          danach steht der Composer mal hier, mal dort. Mit der Angabe schrumpft
          100dvh, die Nachrichtenliste wird kürzer und das Schreibfeld sitzt von
-         selbst über der Tastatur. Achtung: die Wirkung mit echter Tastatur ist
-         hier NICHT geprüft — ein Prüflauf ohne Gerät hat keine. Maschinen, die
-         die Angabe nicht kennen, überlesen sie folgenlos. -->
+         selbst über der Tastatur. Achtung: das versteht nur Chromium/Android —
+         iOS Safari ignoriert die Angabe und legt die Tastatur weiter ÜBER die
+         Seite; dort gleicht lib/tastatur.ts das über visualViewport und die
+         Variable --vv-hoehe aus. Maschinen, die die Angabe nicht kennen,
+         überlesen sie folgenlos. -->
     <meta name="viewport"
           content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content" />
     <!-- Dieselbe Farbe wie der Seitenrand (--grund-rand). iOS tönt damit die
