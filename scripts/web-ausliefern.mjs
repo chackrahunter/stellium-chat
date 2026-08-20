@@ -51,12 +51,25 @@ console.log('→ nachsehen');
    jemandem auffiel: `kopf` enthielt kein „200", also meldete der Lauf
    brav einen Fehlschlag — für eine Auslieferung, die geglückt war. */
 const OEFFENTLICH = process.env.STELLIUM_SERVER?.replace(/\/+$/, '') || 'https://chat.stellium.club';
-const kopf = execFileSync('curl', ['-sI', `${OEFFENTLICH}/`], { encoding: 'utf8' });
-const seite = execFileSync('curl', ['-s', `${OEFFENTLICH}/`], { encoding: 'utf8' });
-const datei = (seite.match(/assets\/[^"]+\.css/) ?? [])[0];
-const cssKopf = datei
-  ? execFileSync('curl', ['-sI', `${OEFFENTLICH}/${datei}`], { encoding: 'utf8' })
-  : '';
+
+/* Geduldig nachsehen. Die Zeile davor startet den Server neu; er braucht ein
+   paar Sekunden, bis er wieder antwortet. Ohne das Warten meldete dieser Lauf
+   eine geglückte Auslieferung als Fehlschlag — und ein Werkzeug, das grundlos
+   rot leuchtet, wird nach dem dritten Mal nicht mehr gelesen. Das ist derselbe
+   Schaden wie ein Werkzeug, das grundlos grün meldet, nur andersherum. */
+let kopf = '', seite = '', datei, cssKopf = '';
+for (let versuch = 1; versuch <= 12; versuch++) {
+  try {
+    kopf = execFileSync('curl', ['-sI', '--max-time', '10', `${OEFFENTLICH}/`], { encoding: 'utf8' });
+    seite = execFileSync('curl', ['-s', '--max-time', '10', `${OEFFENTLICH}/`], { encoding: 'utf8' });
+    datei = (seite.match(/assets\/[^"]+\.css/) ?? [])[0];
+    cssKopf = datei
+      ? execFileSync('curl', ['-sI', '--max-time', '10', `${OEFFENTLICH}/${datei}`], { encoding: 'utf8' })
+      : '';
+    if (kopf.includes('200') && /content-type:\s*text\/css/i.test(cssKopf)) break;
+  } catch { /* noch nicht da */ }
+  if (versuch < 12) execFileSync('sleep', ['3']);
+}
 
 const gut = kopf.includes('200') && /content-type:\s*text\/css/i.test(cssKopf);
 console.log(gut
