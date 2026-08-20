@@ -109,16 +109,37 @@ export interface Zerlegt {
  * löscht. So bleibt bei einem Fehler mitten im Vorgang alles benutzbar.
  *
  * Warum das schrittweise geht: das Packen eines einzelnen Blocks kostet je
- * nach Inhalt Sekunden, und der ganze Vorgang läuft synchron. Eine große,
- * gut packbare Datei am Stück zu zerlegen hielte den Server minutenlang an —
- * keine Nachricht käme durch, keine Leitung bekäme ein Lebenszeichen. Wer die
- * Zerlegung im Hintergrund fährt, kann zwischen zwei Blöcken Luft lassen;
- * gemessen liegt die Zerlegung zwischen 100 MB/s (schon gepackter Inhalt,
- * die Stichprobe winkt ihn durch) und unter 1 MB/s (packbarer Inhalt).
+ * nach Inhalt Sekunden. Eine große, gut packbare Datei am Stück zu zerlegen
+ * hielte den Server minutenlang an — keine Nachricht käme durch, keine Leitung
+ * bekäme ein Lebenszeichen. Wer die Zerlegung im Hintergrund fährt, kann
+ * zwischen zwei Blöcken Luft lassen; gemessen liegt die Zerlegung zwischen
+ * 100 MB/s (schon gepackter Inhalt, die Stichprobe winkt ihn durch) und unter
+ * 1 MB/s (packbarer Inhalt).
+ *
+ * Die Pause zwischen zwei Blöcken war aber nur die halbe Miete: EIN Block
+ * hielt den Server trotzdem am Stück an, weil das Packen selbst synchron
+ * rechnete. Gemessen mit einem zweiten Draht im 50-ms-Takt: 2,14 s ohne jede
+ * Antwort bei einer 4-MB-Textdatei, und das auf einem M3-Mac. Deshalb ist
+ * dieser Ablauf jetzt durchgehend asynchron — gepackt wird neben dem
+ * Ereignisfaden, nicht in ihm (siehe packen.ts).
  *
  * Wer das nicht braucht, nimmt `ablegen()` — dieselbe Arbeit an einem Stück.
+ *
+ * `beruehrt` ist der Zettel für den Aufrufer: dort landet jeder Block, den
+ * dieser Lauf angefasst hat — geschrieben wie wiederverwendet. Er wird
+ * gebraucht, wenn der Lauf **mitten** in der Zerlegung scheitert. Bis dahin
+ * steht in `datei_bloecke` nämlich nichts; wer hinterher aufräumen will, kann
+ * nirgends nachsehen, was schon dasteht, und die fertigen Blöcke blieben mit
+ * ihrer vorläufigen Anmeldung für immer liegen. Nachgemessen: eine 12-MB-Datei,
+ * deren zweiter Block an ENOTDIR scheiterte, hinterließ einen Block mit
+ * `verweise = 1` und ohne eine einzige Zeile in `datei_bloecke` — den holte
+ * kein Aufräumlauf je wieder ab.
  */
-export function* ablegenSchritte(pfad: string, mime: string): Generator<void, Zerlegt> {
+export async function* ablegenSchritte(
+  pfad: string,
+  mime: string,
+  beruehrt?: Set<string>,
+): AsyncGenerator<void, Zerlegt> {
   const groesse = fs.statSync(pfad).size;
   const bloecke: string[] = [];
   let neuBelegt = 0;
@@ -156,26 +177,46 @@ export function* ablegenSchritte(pfad: string, mime: string): Generator<void, Ze
         bloecke.push(summe);
         gesamt.update(block);
 
+        /* Vor dem ersten Griff vermerken, nicht danach: scheitert schon das
+           Anlegen des Ordners, ist der Block zwar nicht entstanden — der
+           Aufrufer darf ihn aber trotzdem prüfen. Ein Name zu viel auf dem
+           Zettel kostet eine Abfrage, ein Name zu wenig einen Block für immer. */
+        beruehrt?.add(summe);
+
         const ziel = blockPfad(summe);
         if (fs.existsSync(ziel)) {
           gespart += laenge;              // diesen Inhalt gibt es schon
         } else {
           fs.mkdirSync(path.dirname(ziel), { recursive: true });
           const vorlaeufig = `${ziel}.teil`;
-          fs.writeFileSync(vorlaeufig, block);
-          /* Jeder Block wird einzeln gepackt — aber nur mit den umkehrbaren
-             Verfahren. Ein Bildkodierer bekäme hier ein Bruchstück und keine
-             Bilddatei; deshalb bewusst als reine Bytes behandelt. Damit bleibt
-             die Zusage: aus den Blöcken entsteht die Datei Byte für Byte. */
-          const { verfahren, groesse: belegt } = verkleinern(vorlaeufig, 'application/octet-stream');
-          fs.renameSync(vorlaeufig, ziel);
-          db.run(
-            `INSERT INTO bloecke (summe, groesse, belegt, verfahren, verweise, erstellt_am)
-             VALUES (?,?,?,?,0,?)
-             ON CONFLICT(summe) DO NOTHING`,
-            summe, laenge, belegt, verfahren, Date.now(),
-          );
-          neuBelegt += belegt;
+          try {
+            /* Eine Kopie, keine Sicht: `block` zeigt in den Lesepuffer, und der
+               wird gleich weitergeschoben. Solange geschrieben wurde, während
+               niemand dazwischenkam, war das gleichgültig — jetzt liegt ein
+               `await` dazwischen, und ohne Kopie schriebe der Server die Bytes
+               des nächsten Blocks in die Datei des vorigen. */
+            await fs.promises.writeFile(vorlaeufig, Buffer.from(block));
+            /* Jeder Block wird einzeln gepackt — aber nur mit den umkehrbaren
+               Verfahren. Ein Bildkodierer bekäme hier ein Bruchstück und keine
+               Bilddatei; deshalb bewusst als reine Bytes behandelt. Damit bleibt
+               die Zusage: aus den Blöcken entsteht die Datei Byte für Byte. */
+            const { verfahren, groesse: belegt } = await verkleinern(vorlaeufig, 'application/octet-stream');
+            await fs.promises.rename(vorlaeufig, ziel);
+            db.run(
+              `INSERT INTO bloecke (summe, groesse, belegt, verfahren, verweise, erstellt_am)
+               VALUES (?,?,?,?,0,?)
+               ON CONFLICT(summe) DO NOTHING`,
+              summe, laenge, belegt, verfahren, Date.now(),
+            );
+            neuBelegt += belegt;
+          } finally {
+            /* Bricht es zwischen Schreiben und Umbenennen ab, bliebe ein
+               `.teil` liegen — und zwar unsichtbar: der Aufräumlauf kennt nur
+               Namen aus 64 Hexzeichen, `bloecke-pruefen.mjs` ebenso. Nach dem
+               Umbenennen ist hier nichts mehr wegzuräumen, der Aufruf kostet
+               dann einen Fehlschlag ohne Folgen. */
+            if (fs.existsSync(vorlaeufig)) fs.rmSync(vorlaeufig, { force: true });
+          }
         }
         /* Eine vorläufige Anmeldung: die Zeilen in `datei_bloecke` entstehen
            erst, wenn die ganze Datei zerlegt ist. Bis dahin schützt dieser
@@ -210,12 +251,51 @@ export function* ablegenSchritte(pfad: string, mime: string): Generator<void, Ze
  * Für alle, die ohnehin warten, bis es fertig ist — kleine Dateien beim
  * Hochladen, der Nachziehlauf von Hand.
  */
-export function ablegen(pfad: string, mime: string): Zerlegt {
-  const lauf = ablegenSchritte(pfad, mime);
+export async function ablegen(pfad: string, mime: string, beruehrt?: Set<string>): Promise<Zerlegt> {
+  const lauf = ablegenSchritte(pfad, mime, beruehrt);
   for (;;) {
-    const schritt = lauf.next();
+    const schritt = await lauf.next();
     if (schritt.done) return schritt.value;
   }
+}
+
+/**
+ * Halbe Blöcke aus einem Absturz wegräumen.
+ *
+ * Zwischen „Bytes geschrieben" und „umbenannt" liegt ein Augenblick, in dem
+ * eine `.teil`-Datei dasteht. Wird der Server genau dort abgeschossen, bleibt
+ * sie liegen — und zwar unsichtbar, denn jeder Aufräum- und Prüflauf sucht
+ * nach Namen aus 64 Hexzeichen und übersieht die Endung. Im Betrieb räumt der
+ * Ablauf selbst hinter sich her; das hier ist für den Fall, in dem er nicht
+ * mehr dazu kam.
+ *
+ * Angefasst wird nur, was seit über einer Stunde niemand mehr berührt hat: der
+ * Lauf hängt am Start, und da soll er einer Zerlegung, die möglicherweise
+ * gerade in einem zweiten Prozess läuft, nichts unter den Händen wegziehen.
+ */
+export function teileWegraeumen(): number {
+  const grenze = Date.now() - 60 * 60 * 1000;
+  let weg = 0;
+  const gehe = (ort: string): void => {
+    let eintraege: fs.Dirent[];
+    try { eintraege = fs.readdirSync(ort, { withFileTypes: true }); } catch { return; }
+    for (const e of eintraege) {
+      const voll = path.join(ort, e.name);
+      if (e.isDirectory()) { gehe(voll); continue; }
+      /* `.teil` ist der halbe Block, `.teil.neu` der Zwischenschritt, den
+         packen.ts beim Verkleinern anlegt. Beide tragen keinen Namen aus 64
+         Hexzeichen und sind deshalb für jeden anderen Lauf unsichtbar. */
+      if (!/\.teil(\.neu)?$/.test(e.name)) continue;
+      try {
+        if (fs.statSync(voll).mtimeMs > grenze) continue;
+        fs.rmSync(voll, { force: true });
+        weg += 1;
+      } catch { /* schon weg */ }
+    }
+  };
+  gehe(path.join(config.storageDir, 'bloecke'));
+  if (weg) console.log(`[bloecke] ${weg} halbe Blockdatei(en) aus einem Absturz weggeräumt.`);
+  return weg;
 }
 
 /* ── Rückweg ──────────────────────────────────────────────────── */

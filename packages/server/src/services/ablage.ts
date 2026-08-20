@@ -14,6 +14,7 @@ import { db } from '../db/index.js';
 import { config } from '../config.js';
 import {
   ablegenSchritte, zusammensetzen, freigeben, verweiseNachrechnen, pruefsummeAus,
+  teileWegraeumen,
 } from './bloecke.js';
 
 export type Art = 'file' | 'attachment';
@@ -92,9 +93,9 @@ export interface Uebernommen { belegt: number; bloecke: number }
  * dazwischen darf niemand eine zweite Zeile auf dieselbe Datei legen, sonst
  * verlöre die ihren Inhalt, während wir noch prüfen.
  */
-function* uebernehmenSchritte(input: {
+async function* uebernehmenSchritte(input: {
   id: string; art: Art; pfad: string; mime: string;
-}): Generator<void, Uebernommen | null> {
+}): AsyncGenerator<void, Uebernommen | null> {
   /* Der Stand vor dem Eingriff — damit eine gescheiterte Übernahme genau ihn
      wiederherstellen kann. Die Blockliste gehört dazu: es gibt sie, wenn ein
      Lauf abgebrochen ist und wiederholt wird, und ohne sie blieben ihre Blöcke
@@ -112,10 +113,16 @@ function* uebernehmenSchritte(input: {
     console.error('[ablage] Aufräumen übersprungen:', (fehler as Error).message);
   }
 
+  /* Was dieser Lauf im Blockspeicher angefasst hat. Scheitert er mitten in der
+     Zerlegung, ist das die einzige Spur davon: in `datei_bloecke` steht bis zum
+     Schluss nichts, und ohne diesen Zettel bliebe jeder schon geschriebene
+     Block mit seiner vorläufigen Anmeldung für immer liegen. */
+  const beruehrt = new Set<string>();
+
   try {
     const {
       bloecke, pruefsumme, groesse, neuBelegt, gespart,
-    } = yield* ablegenSchritte(input.pfad, input.mime);
+    } = yield* ablegenSchritte(input.pfad, input.mime, beruehrt);
     if (!bloecke.length) return null;
 
     db.transaction(() => {
@@ -164,7 +171,7 @@ function* uebernehmenSchritte(input: {
     return { belegt: neuBelegt, bloecke: bloecke.length };
   } catch (fehler) {
     console.error('[ablage] Übernahme in den Blockspeicher gescheitert:', (fehler as Error).message);
-    zuruecknehmen(input, vorher, alterStand);
+    zuruecknehmen(input, vorher, alterStand, beruehrt);
     return null;
   }
 }
@@ -173,12 +180,12 @@ function* uebernehmenSchritte(input: {
  * Eine fertig hochgeladene Datei in den Blockspeicher übernehmen, an einem
  * Stück. Der Aufrufer wartet, bis es fertig ist.
  */
-export function uebernehmen(input: {
+export async function uebernehmen(input: {
   id: string; art: Art; pfad: string; mime: string;
-}): Uebernommen | null {
+}): Promise<Uebernommen | null> {
   const lauf = uebernehmenSchritte(input);
   for (;;) {
-    const schritt = lauf.next();
+    const schritt = await lauf.next();
     if (schritt.done) return schritt.value;
   }
 }
@@ -196,6 +203,12 @@ const atempause = (): Promise<void> => new Promise((weiter) => { setImmediate(we
  * bereits einen ganzen Block. Stand die Pause dahinter, hing damit jede
  * Anmeldung am ersten Block — auf dem Raspberry Pi bei einem vollen Block von
  * vier Megabyte gemessene 20 Sekunden mitten in der Antwort.
+ *
+ * Die Pause allein reichte allerdings nicht: sie ließ den Server zwischen zwei
+ * Blöcken atmen, aber WÄHREND eines Blocks stand er weiter still, weil das
+ * Packen synchron rechnete. Seit packen.ts asynchron arbeitet, ist auch das
+ * vorbei — die Pause hier bleibt trotzdem, denn Lesen, Prüfsumme und
+ * Datenbankzeilen laufen weiterhin im Ereignisfaden.
  */
 async function uebernehmenMitLuft(input: {
   id: string; art: Art; pfad: string; mime: string;
@@ -203,7 +216,7 @@ async function uebernehmenMitLuft(input: {
   const lauf = uebernehmenSchritte(input);
   for (;;) {
     await atempause();
-    const schritt = lauf.next();
+    const schritt = await lauf.next();
     if (schritt.done) return schritt.value;
   }
 }
@@ -325,6 +338,12 @@ function vermerkLoeschen(id: string, art: Art): void {
  * liegengelassen hat.
  */
 export function offeneUebernahmenFortsetzen(): number {
+  /* Was ein Absturz mitten im Schreiben eines Blocks hinterlassen hat. Der
+     Start ist der einzige Augenblick, in dem sicher keine Zerlegung läuft. */
+  try { teileWegraeumen(); } catch (fehler) {
+    console.error('[ablage] Halbe Blöcke nicht weggeräumt:', (fehler as Error).message);
+  }
+
   let angemeldet = 0;
   for (const art of ['file', 'attachment'] as const) {
     const offen = db.all<{ id: string; path: string; mime: string }>(
@@ -347,14 +366,31 @@ export function offeneUebernahmenFortsetzen(): number {
  * Die Datei liegt in diesem Fall noch auf der Platte — gelöscht wird sie erst
  * ganz am Ende. Zurückzunehmen sind also nur die Einträge, und zwar so, dass
  * halb geschriebene Blöcke nicht als Bestand stehenbleiben.
+ *
+ * `beruehrt` ist dabei der entscheidende Teil, und er hat hier gefehlt.
+ * Nachgesehen wurde bisher allein in `datei_bloecke` — dort steht aber nichts,
+ * solange die Zerlegung noch läuft. Scheiterte sie mittendrin, waren die schon
+ * geschriebenen Blöcke aus jeder Sicht unsichtbar: kein Verweis zeigte auf sie,
+ * ihr vorläufiger Zähler stand auf 1, und weder `verwaisteAufraeumen()` noch
+ * sonst ein Lauf holte sie je wieder ab. Nachgemessen an einer 12-MB-Datei,
+ * deren zweiter Block an ENOTDIR scheiterte: ein Block blieb liegen, samt
+ * Zeile. Bei einem Fehler kurz vor dem Ende wären es alle bis auf einen.
+ *
+ * `freigeben()` ist dafür genau das richtige Werkzeug, denn es entscheidet
+ * nicht am Zettel, sondern an der Wahrheit: es rechnet den Zähler jedes
+ * genannten Blocks aus `datei_bloecke` neu und löscht nur, worauf danach
+ * niemand mehr zeigt. Blöcke, die schon vorher zu dieser oder einer anderen
+ * Datei gehörten, überstehen das von selbst — und ihr vom Lauf hochgezählter
+ * Zähler wird bei der Gelegenheit wieder geradegerückt.
  */
 function zuruecknehmen(
   input: { id: string; art: Art },
   vorher: string[],
   alterStand: { encoding: string | null; stored_size: number | null },
+  beruehrt: Set<string> = new Set(),
 ): void {
   try {
-    const angelegt = blockListe(input.id, input.art);
+    const angelegt = [...new Set([...blockListe(input.id, input.art), ...beruehrt])];
     db.transaction(() => {
       db.run('DELETE FROM datei_bloecke WHERE art = ? AND datei_id = ?', input.art, input.id);
       vorher.forEach((summe, nummer) => {
@@ -368,7 +404,7 @@ function zuruecknehmen(
         alterStand.encoding, alterStand.stored_size, input.id,
       );
     });
-    /* Nur wegräumen, was dieser Versuch neu angelegt hat: was schon vorher zu
+    /* Nur wegräumen, was dieser Versuch angefasst hat: was schon vorher zu
        dieser Datei gehörte, steht gerade wieder in den Zeilen und überlebt die
        Prüfung auf Verweise von selbst. */
     freigeben(angelegt);
