@@ -134,6 +134,41 @@ function setupFts(): void {
   }
 }
 
+/**
+ * SQL-Bedingung: welche kanalgebundenen Zeilen ein Konto sehen darf.
+ *
+ * Aufgaben, Termine und Ideen können an einem Kanal hängen. Wer den Kanal
+ * nicht sehen darf, hat auch mit dem nichts zu tun, was daraus entstanden ist:
+ * ein Aufgabentitel aus einem privaten Kanal ist genauso wenig öffentlich wie
+ * die Nachricht, aus der er stammt — und die Aufgabenerkennung macht aus
+ * Nachrichten Titel.
+ *
+ * Dieselbe Regel wie überall sonst: offene Kanäle sieht jeder, alles andere
+ * nur Mitglieder. Was an gar keinem Kanal hängt, geht das ganze Team an und
+ * bleibt für alle sichtbar.
+ *
+ * Die Bedingung steht hier und nicht dreimal in den Diensten. Drei Kopien
+ * heißen drei Stellen, an denen man sie beim nächsten Umbau vergessen kann —
+ * und genau daran hing dieser Fund: die Sichtbarkeit war im Kommentar
+ * beschrieben und nirgends im Code.
+ *
+ * Der Aufrufer setzt an dieser Stelle genau einen Parameter ein: die Kennung
+ * des fragenden Kontos.
+ *
+ * Eine Folge, die man kennen muss: wird ein Kanal gelöscht, setzen die
+ * Fremdschlüssel channel_id auf NULL (ON DELETE SET NULL) — was aus ihm
+ * stammt, ist danach für alle sichtbar. Das ist bewusst so gelassen: die
+ * Alternative wäre, Aufgaben und Ideen mit dem Kanal zu vernichten, und das
+ * verliert Arbeit. Wer einen privaten Kanal löscht, sollte vorher wissen, dass
+ * seine Aufgaben bleiben und dann dem Team gehören.
+ */
+export function nurSichtbareKanaele(spalte = 'channel_id'): string {
+  return `(${spalte} IS NULL OR ${spalte} IN (
+            SELECT c.id FROM channels c
+            LEFT JOIN channel_members m ON m.channel_id = c.id AND m.user_id = ?
+             WHERE c.kind = 'public' OR m.user_id IS NOT NULL))`;
+}
+
 /** Index für eine Nachricht neu aufbauen (Original + Übersetzungen). */
 export function reindexMessage(messageId: string): void {
   if (!db.fts) return;
@@ -170,6 +205,20 @@ export function reindexMessage(messageId: string): void {
 export function removeFromIndex(messageId: string): void {
   if (!db.fts) return;
   db.run('DELETE FROM message_fts WHERE message_id = ?', messageId);
+}
+
+/**
+ * Alles aus dem Volltextindex nehmen, was zu einem Kanal gehört.
+ *
+ * message_fts ist eine virtuelle Tabelle und kennt keine Fremdschlüssel. Die
+ * Nachrichten eines gelöschten Kanals räumt die Datenbank über ON DELETE
+ * CASCADE selbst ab — ihre Indexzeilen bleiben stehen, für immer und ohne
+ * dass jemals wieder etwas dahinter steht. Nachgemessen: ein Kanal mit einer
+ * Nachricht hinterließ nach dem Löschen genau eine Zeile im Index.
+ */
+export function removeChannelFromIndex(channelId: string): void {
+  if (!db.fts) return;
+  db.run('DELETE FROM message_fts WHERE channel_id = ?', channelId);
 }
 
 export function now(): number { return Date.now(); }

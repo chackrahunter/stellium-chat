@@ -1,6 +1,6 @@
 import { db } from './index.js';
 import { blindIndex, encryptField, encryptionActive } from '../crypto/pii.js';
-import { istChiffrat, verschluesseln, verschluesselungAktiv } from '../crypto/nachrichten.js';
+import { abdruck, istChiffrat, verschluesseln, verschluesselungAktiv } from '../crypto/nachrichten.js';
 
 /**
  * Spalten nachrüsten, die in älteren Datenbanken fehlen.
@@ -17,6 +17,13 @@ const COLUMNS: { table: string; column: string; definition: string }[] = [
   { table: 'users', column: 'disabled',             definition: 'INTEGER NOT NULL DEFAULT 0' },
   { table: 'users', column: 'created_by',           definition: 'TEXT' },
   { table: 'users', column: 'password_set_at',      definition: 'INTEGER' },
+  /* Ab wann Sitzungen dieses Kontos gelten: jedes Token, das älter ist, weist
+     `verifyToken` ab. Bewusst eine eigene Spalte und nicht `password_set_at`,
+     obwohl beide fast immer denselben Wert tragen — die Ersteinrichtung setzt
+     ein Passwort mit genau dem Token in der Hand, das sie sonst selbst
+     entwerten würde. Wer beides zusammenlegt, sperrt jeden neuen Kollegen
+     mitten in seiner Einrichtung aus. */
+  { table: 'users', column: 'sitzungen_ab',         definition: 'INTEGER' },
   { table: 'users', column: 'deleted_at',           definition: 'INTEGER' },
   // Prüfsumme des Inhalts: damit muss dieselbe Datei nur einmal übertragen werden.
   { table: 'attachments', column: 'sha256',        definition: 'TEXT' },
@@ -80,6 +87,26 @@ export function migrate(): void {
     db.exec('CREATE INDEX IF NOT EXISTS idx_attachments_sha ON attachments(sha256)');
   } catch (err) {
     console.warn('[db] Index für Anhang-Prüfsummen:', (err as Error).message);
+  }
+
+  /**
+   * Der Index für die Ungelesen-Zählung.
+   *
+   * store.unreadCounts() fragt `channel_id = ? AND ... AND id > ?`, und diese
+   * Abfrage läuft nicht selten: zweimal je Empfänger und ausgelieferter
+   * Nachricht, dazu einmal je Kanal bei jeder Anmeldung. Der vorhandene Index
+   * liegt auf (channel_id, created_at) — SQLite konnte damit nur den Kanal
+   * aufschlagen und musste jede seiner Zeilen ansehen. Der Aufwand wuchs also
+   * mit dem Gespräch, nicht mit dem Ungelesenen.
+   *
+   * Nachgemessen an 200.000 Nachrichten, davon die Hälfte in einem Kanal, im
+   * üblichen Fall „fast alles gelesen": 19,8 ms je Aufruf vorher, 0,008 ms
+   * nachher. Auf dem Pi ist der Abstand größer.
+   */
+  try {
+    db.exec('CREATE INDEX IF NOT EXISTS idx_messages_channel_id ON messages(channel_id, id)');
+  } catch (err) {
+    console.warn('[db] Index für die Ungelesen-Zählung:', (err as Error).message);
   }
 
   rebuildUsersTable();
@@ -180,21 +207,61 @@ function bestehendeTexteVerschluesseln(): void {
     }
   }
 
-  /* Die Schlüsselwerte des Zwischenspeichers entstehen jetzt anders (HMAC
-     statt sha1). Alte Einträge fänden sich nie wieder und lägen nur herum —
-     sie werden verworfen, die Übersetzungen entstehen bei Bedarf neu. */
-  try {
-    const alt = db.get<{ n: number }>(
-      "SELECT COUNT(*) AS n FROM translation_memory WHERE length(key) = 40 AND key GLOB '[0-9a-f]*'",
-    )?.n ?? 0;
-    if (alt > 0 && verschluesselungAktiv()) {
-      const weg = db.run("DELETE FROM translation_memory WHERE length(key) <> 40");
-      if (weg.changes) console.log(`[db] ${weg.changes} Einträge im Übersetzungsspeicher verworfen (neuer Schlüsselwert).`);
-    }
-  } catch { /* Tabelle fehlt */ }
+  uebersetzungsspeicherPruefen();
 
   if (gesamt) {
     console.log(`[db] ${gesamt} gespeicherte Texte nachträglich verschlüsselt.`);
+  }
+}
+
+/**
+ * Passen die Schlüsselwerte im Übersetzungsspeicher noch?
+ *
+ * HIER STAND EINE PRÜFUNG, DIE NIE ETWAS GEMESSEN HAT
+ * Der Schlüsselwert entstand früher als sha1 über den Klartext, heute als
+ * HMAC mit dem Hausschlüssel. Beide sind vierzig Hexzeichen lang. Der Nachlauf
+ * versuchte trotzdem, sie an der Zeichenkette zu unterscheiden: gezählt wurde
+ * `length(key) = 40`, gelöscht `length(key) <> 40`. Die Bedingung traf auf
+ * jeden Eintrag zu, das DELETE auf keinen — der Aufräumlauf lief bei jedem
+ * Start und tat nichts. Die Meldung „Einträge verworfen" kam nie, und niemand
+ * hat sie vermisst.
+ *
+ * Am Schlüssel selbst lässt sich das nicht entscheiden, also wird es
+ * aufgeschrieben — dieselbe Machart wie beim Volltextindex nebenan. Die
+ * Kennung entsteht aus dem Hausschlüssel: kommt später ein Masterpasswort
+ * dazu oder fällt es weg, ändert sie sich, und dann passt wirklich kein
+ * gespeicherter Wert mehr. Genau dann, und nur dann, wird geleert.
+ *
+ * Beim ersten Lauf nach dieser Änderung wird nichts weggeworfen, sondern nur
+ * vermerkt. Die vorhandenen Einträge sind mit dem heutigen Schlüssel
+ * entstanden und werden weiter gefunden; sie jetzt zu verwerfen hieße, jede
+ * Übersetzung noch einmal zu bezahlen. Was aus der sha1-Zeit übrig ist, bleibt
+ * damit liegen — unauffindbar, aber verschlüsselt und harmlos, und es gibt
+ * kein Merkmal, an dem man es erkennen könnte.
+ */
+function uebersetzungsspeicherPruefen(): void {
+  try {
+    if (!db.all('PRAGMA table_info(translation_memory)').length) return;
+    const kennung = `tm-v2:${abdruck('stellium')}`;
+    const stand = db.get<{ value: string }>(
+      "SELECT value FROM app_settings WHERE key = 'tm_format'",
+    )?.value;
+
+    if (stand && stand !== kennung) {
+      const weg = db.run('DELETE FROM translation_memory');
+      if (weg.changes) {
+        console.log(`[db] ${weg.changes} Einträge im Übersetzungsspeicher verworfen — der Schlüsselwert hat sich geändert.`);
+      }
+    }
+    if (stand !== kennung) {
+      db.run(
+        `INSERT INTO app_settings (key, value, updated_by, updated_at) VALUES ('tm_format', ?, NULL, ?)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+        kennung, Date.now(),
+      );
+    }
+  } catch (err) {
+    console.warn('[db] Übersetzungsspeicher:', (err as Error).message);
   }
 }
 
@@ -263,7 +330,11 @@ function rebuildUsersTable(): void {
           -- PRAGMA table_info(users) und enthält sie — der Neuaufbau scheiterte
           -- deshalb, und mit ihm der ganze Serverstart.
           deleted_at             INTEGER,
-          kategorie              TEXT
+          kategorie              TEXT,
+          -- Aus demselben Grund wie deleted_at und kategorie: die Spaltenliste
+          -- für das INSERT kommt aus PRAGMA table_info(users), und die Schleife
+          -- oben hat diese Spalte bereits ergänzt.
+          sitzungen_ab           INTEGER
         )
       `);
       db.exec(`INSERT INTO users_neu (${liste}) SELECT ${liste} FROM users`);

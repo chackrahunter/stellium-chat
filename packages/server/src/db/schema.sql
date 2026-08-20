@@ -588,3 +588,48 @@ CREATE TABLE IF NOT EXISTS vertraulich_freigabe_pakete (
   daten       TEXT NOT NULL,
   PRIMARY KEY (freigabe_id, user_id)
 );
+
+-- ─────────────────────────────────────────────────────────────────
+-- Vorschläge der KI, bevor sie etwas werden
+-- ─────────────────────────────────────────────────────────────────
+/* Die Zwischenstufe zwischen "die KI hat etwas erkannt" und "es steht auf dem
+   Brett". Ohne sie legt die Erkennung Aufgaben an, die niemand bestellt hat,
+   und jemand muss hinterher aufräumen — das ist keine Hilfe, sondern Arbeit.
+
+   `titel` ist Klartext aus einer Nachricht und geht deshalb wie jeder andere
+   Nachrichtentext durch crypto/nachrichten.ts. Eine Nachrüstung in
+   db/migrate.ts braucht es nicht: die Tabelle ist neu, es gibt keinen
+   Altbestand, der offen dastünde.
+
+   `abdruck` ist der HMAC des vereinheitlichten Titels — dieselbe Bauart wie
+   die Fingerabdrücke im Volltextindex. Er trägt die Dublettensperre, ohne
+   selbst lesbar zu sein.
+
+   Die Sperre steht als UNIQUE-Bedingung in der Datenbank und nicht als Merker
+   im Arbeitsspeicher: ein Serverneustart soll nicht dazu führen, dass morgen
+   noch einmal auftaucht, was gestern abgelehnt wurde. Genau deshalb bleibt
+   eine abgelehnte Zeile stehen, statt gelöscht zu werden — sie IST das
+   Gedächtnis. */
+CREATE TABLE IF NOT EXISTS vorschlaege (
+  id                TEXT PRIMARY KEY,
+  art               TEXT NOT NULL,                    -- aufgabe|idee
+  zustand           TEXT NOT NULL DEFAULT 'offen',    -- offen|angenommen|abgelehnt|verfallen
+  titel             TEXT NOT NULL,                    -- verschlüsselt
+  abdruck           TEXT NOT NULL,                    -- HMAC des vereinheitlichten Titels
+  channel_id        TEXT NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
+  quelle_message_id TEXT,                             -- Nachricht, aus der er stammt
+  -- Genau eine Person ist zuständig. Ein Vorschlag, den fünf Leute sehen und
+  -- keiner annimmt, weil jeder den anderen meint, ist schlechter als keiner.
+  fuer_user_id      TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  -- Wen die KI genannt hat. Getrennt von fuer_user_id, weil "niemand genannt"
+  -- eine eigene Auskunft ist: dann liegt er bei dem, der die Nachricht schrieb.
+  genannt_user_id   TEXT REFERENCES users(id) ON DELETE SET NULL,
+  faellig_am        INTEGER,
+  erstellt_am       INTEGER NOT NULL,
+  entschieden_am    INTEGER,
+  entschieden_von   TEXT REFERENCES users(id) ON DELETE SET NULL,
+  ergebnis_id       TEXT                              -- die angelegte Aufgabe/Idee
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_vorschlaege_dublette ON vorschlaege(channel_id, art, abdruck);
+CREATE INDEX IF NOT EXISTS idx_vorschlaege_fuer   ON vorschlaege(fuer_user_id, zustand, erstellt_am DESC);
+CREATE INDEX IF NOT EXISTS idx_vorschlaege_kanal  ON vorschlaege(channel_id, zustand);

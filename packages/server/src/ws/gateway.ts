@@ -1,8 +1,9 @@
 import type { WebSocket } from 'ws';
 import { kennungVon } from '../util/abweisung.js';
 import {
-  decode, encode, normalizeLang, WS_PROTOCOL_VERSION,
+  decode, encode, isSupportedLang, normalizeLang, WS_PROTOCOL_VERSION,
   type ClientEvent, type Message, type ServerEvent, type Task, type UserStatus,
+  type Vorschlag,
 } from '@stellium/shared';
 import { verifyToken } from '../auth.js';
 import { db } from '../db/index.js';
@@ -13,6 +14,7 @@ import * as ai from '../services/ai.js';
 import * as channels from '../services/channels.js';
 import * as messages from '../services/messages.js';
 import * as store from '../services/store.js';
+import { grenze } from '../services/search.js';
 import * as polls from '../services/polls.js';
 import { may } from '../services/users.js';
 import { extractMentions, mentionsEveryone, PERMISSIONS, type PermissionKey } from '@stellium/shared';
@@ -30,6 +32,7 @@ import { istE2EChiffrat } from '@stellium/shared';
 import * as events from '../services/events.js';
 import * as files from '../services/files.js';
 import * as ideas from '../services/ideas.js';
+import * as vorschlaege from '../services/vorschlaege.js';
 import * as wartung from '../services/wartung.js';
 import { db as database } from '../db/index.js';
 import { reindexMessage } from '../db/index.js';
@@ -100,13 +103,127 @@ function darfNachrichtSehen(userId: string, messageId: string): boolean {
  * eigene Reaktion aber erst, wenn sie den Kanal neu öffnen.
  */
 function darfNachrichtAendern(userId: string, messageId: string): boolean {
-  const row = database.get<{ channel_id: string; kind: string }>(
-    `SELECT m.channel_id, c.kind FROM messages m
-     JOIN channels c ON c.id = m.channel_id
-     WHERE m.id = ?`, messageId,
+  return darfNachrichtLesen(userId, messageId);
+}
+
+/**
+ * Darf diese Person in diesen Kanal hineinsehen?
+ *
+ * Nicht zu verwechseln mit store.getChannel(): das beantwortet eine andere
+ * Frage, nämlich ob es den Kanal überhaupt gibt. Genau diese Verwechslung war
+ * hier der teuerste Fund des Durchgangs — fünf Stellen prüften mit
+ * `if (!store.getChannel(id, userId))`, und der Kommentar daneben behauptete
+ * „also nur, wo man mitliest". In Wahrheit genügte die Kennung eines fremden
+ * privaten Kanals, um sich seinen Inhalt zusammenfassen, protokollieren oder
+ * beantworten zu lassen.
+ *
+ * Die Regel ist dieselbe wie bei darfNachrichtLesen(): offene Kanäle stehen
+ * jedem offen, auch ohne Beitritt; alles andere verlangt Mitgliedschaft.
+ */
+function darfKanalSehen(userId: string, channelId: string | null | undefined): boolean {
+  if (!channelId) return false;
+  const ch = database.get<{ kind: string }>('SELECT kind FROM channels WHERE id = ?', channelId);
+  if (!ch) return false;
+  return ch.kind === 'public' || store.isMember(channelId, userId);
+}
+
+/** Dasselbe mit Abweisung — spart die Zeile an jeder einzelnen Stelle. */
+function kanalZugang(session: Session, channelId: string | null | undefined, requestId?: string): boolean {
+  if (darfKanalSehen(session.userId!, channelId)) return true;
+  fail(session, 'fehler.keinKanalZugriff', 'Kein Zugriff auf diesen Kanal', requestId);
+  return false;
+}
+
+/**
+ * Wer ein Element sehen darf, das an einem Kanal hängen kann.
+ *
+ * `undefined` heißt „alle" — genau das, was broadcast() ohne Empfängerkreis
+ * tut. Aufgaben, Termine und Ideen ohne Kanal gehen das ganze Team an und
+ * bleiben für alle sichtbar; was an einem Kanal hängt, geht nur an dessen
+ * Kreis. Offene Kanäle darf jeder sehen, also auch hier: alle.
+ *
+ * Gibt es den Kanal nicht mehr, ist die Bindung fort und das Element wieder
+ * für alle da. Über die Fremdschlüssel (ON DELETE SET NULL) kann das gar
+ * nicht eintreten — die Zeile trägt dann NULL —, aber die Antwort soll
+ * dieselbe sein wie in dem Fall, den es wirklich gibt.
+ */
+function empfaengerFuer(channelId: string | null | undefined): string[] | undefined {
+  if (!channelId) return undefined;
+  const ch = database.get<{ kind: string }>('SELECT kind FROM channels WHERE id = ?', channelId);
+  if (!ch || ch.kind === 'public') return undefined;
+  return store.memberIds(channelId);
+}
+
+/**
+ * Darf diese Person das Element sehen?
+ *
+ * Bewusst aus empfaengerFuer() abgeleitet und nicht daneben noch einmal
+ * formuliert: sonst gäbe es zwei Regeln, die dasselbe entscheiden sollen, und
+ * eines Tages entscheiden sie es verschieden. Die Liste ist der Rundruf, die
+ * Prüfung ist die Einzelabfrage — dieselbe Antwort, zwei Verwendungen.
+ */
+function darfElementSehen(userId: string, channelId: string | null | undefined): boolean {
+  const kreis = empfaengerFuer(channelId);
+  return kreis === undefined || kreis.includes(userId);
+}
+
+/**
+ * Wer ein Element nach einem Umzug nicht mehr sehen darf.
+ *
+ * Zieht eine Aufgabe in einen privaten Kanal (oder eine Idee), verschwindet
+ * sie für alle anderen — aber nur, wenn man es ihnen sagt. Der Client hält
+ * seine Bretter als Zuordnung und räumt einen Eintrag erst auf ein
+ * `*:removed` hin weg; ohne diese Meldung bliebe die Aufgabe dort stehen,
+ * bis jemand die Liste neu lädt. Sichtbar wäre sie dann für Leute, die sie
+ * gerade verloren haben.
+ */
+function verlorenGegangen(vorher: string[] | undefined, nachher: string[] | undefined): string[] {
+  if (nachher === undefined) return [];                    // jetzt sehen es alle
+  const jetzt = new Set(nachher);
+  // `undefined` vorher heißt: es sahen alle. Stale Zustand kann nur haben,
+  // wer gerade verbunden ist.
+  const vorherige = vorher ?? [...byUser.keys()];
+  return vorherige.filter((uid) => !jetzt.has(uid));
+}
+
+/**
+ * Was aus einem Kanal stammt, von den Brettern derer nehmen, die ihn gerade
+ * verloren haben.
+ *
+ * Aufgaben, Termine und Ideen bleiben bestehen, wenn jemand einen Kanal
+ * verlässt — sie gehören dem Kanal, nicht ihm. Auf seinem Schirm stehen sie
+ * trotzdem weiter, denn der Client räumt einen Eintrag erst auf ein
+ * `*:removed` hin weg. Wer eine App über Nacht offen lässt, säße also am
+ * nächsten Morgen noch vor den Aufgabentiteln eines Kanals, aus dem er
+ * gestern entfernt wurde.
+ */
+function kanalElementeZuruecknehmen(channelId: string, userIds: string[]): void {
+  if (!userIds.length) return;
+  // Bei einem offenen Kanal — oder wenn es ihn nicht mehr gibt — ist nichts
+  // zurückzunehmen: dann darf es ohnehin jeder sehen.
+  if (empfaengerFuer(channelId) === undefined) return;
+  const aufgaben = tasks.idsImKanal(channelId);
+  const termine = events.idsImKanal(channelId);
+  const ideen = ideas.idsImKanal(channelId);
+  const vorschlaegeImKanal = vorschlaege.idsImKanal(channelId);
+  for (const uid of userIds) {
+    if (store.isMember(channelId, uid)) continue;      // doch noch dabei
+    for (const id of aufgaben) sendToUser(uid, { t: 'task:removed', taskId: id });
+    for (const id of termine) sendToUser(uid, { t: 'event:removed', eventId: id });
+    for (const id of ideen) sendToUser(uid, { t: 'idea:removed', ideaId: id });
+    /* Vorschläge gehören genau einer Person, aber dieselbe Überlegung gilt:
+       wer den Kanal verliert, darf dessen Vorschläge nicht weiter im Eingang
+       stehen haben — in ihren Titeln steht, worüber dort geredet wurde. */
+    for (const id of vorschlaegeImKanal) sendToUser(uid, { t: 'vorschlag:removed', vorschlagId: id });
+  }
+}
+
+/** Der Kanal einer Nachricht — und ob man ihn sehen darf. */
+function darfNachrichtLesen(userId: string, messageId: string): boolean {
+  const row = database.get<{ channel_id: string }>(
+    'SELECT channel_id FROM messages WHERE id = ?', messageId,
   );
-  if (!row) return false;
-  return row.kind === 'public' || store.isMember(row.channel_id, userId);
+  return Boolean(row) && darfKanalSehen(userId, row!.channel_id);
 }
 
 function broadcast(ev: ServerEvent, userIds?: Iterable<string>): void {
@@ -446,6 +563,7 @@ const MENSCHLICHE_EREIGNISSE = new Set<string>([
   'thread:open', 'dm:open', 'poll:create', 'poll:vote', 'voice:send',
   'task:create', 'task:update', 'task:move', 'task:comment',
   'idea:create', 'idea:vote', 'idea:comment', 'event:create', 'event:respond',
+  'vorschlag:accept', 'vorschlag:reject', 'vorschlag:undo',
   'ai:ask', 'ai:rewrite', 'compose:preview',
 ]);
 
@@ -668,6 +786,69 @@ async function authenticate(session: Session, ev: Extract<ClientEvent, { t: 'aut
   }
 }
 
+/* ── Einstellungen ────────────────────────────────────────────── */
+
+/**
+ * Was 'prefs:update' schreiben darf — und in welcher Form.
+ *
+ * Vorher stand hier nur eine Zuordnung von Feldname zu Spalte, und der Wert
+ * ging ungeprüft in das UPDATE. Damit ließ sich über diesen Weg alles
+ * hineinschreiben, was ein eigener Client schickte: ein Anzeigename mit
+ * sechzigtausend Zeichen (bei der Ersteinrichtung sind achtzig die Grenze),
+ * ein Sprachkürzel, das es nicht gibt, ein Aussehen namens „lila". Der
+ * Anzeigename ging von dort per user:upsert an jede offene Verbindung im
+ * Haus, das Sprachkürzel in jede Übersetzungsanfrage.
+ *
+ * `pruefen` gibt den Wert zurück, der geschrieben werden soll, oder
+ * `undefined` — dann bleibt das Feld unangetastet.
+ */
+const EINSTELLUNGEN: Record<string, { spalte: string; pruefen: (w: unknown) => unknown }> = {
+  language: { spalte: 'language', pruefen: (w) => sprache(w) },
+  /* Die Sprache der Oberfläche gibt es auch als "gar nicht gesetzt" — dann
+     gilt die Übersetzungssprache. Deshalb ist null hier ein gültiger Wert. */
+  uiLanguage: { spalte: 'ui_language', pruefen: (w) => (w === null ? null : sprache(w)) },
+  autoTranslate: { spalte: 'auto_translate', pruefen: (w) => (typeof w === 'boolean' ? (w ? 1 : 0) : undefined) },
+  composeTargetPreview: { spalte: 'compose_target_preview', pruefen: (w) => (typeof w === 'boolean' ? (w ? 1 : 0) : undefined) },
+  notifyOn: { spalte: 'notify_on', pruefen: (w) => ausListe(w, ['all', 'mentions', 'none']) },
+  theme: { spalte: 'theme', pruefen: (w) => ausListe(w, ['system', 'dark', 'light']) },
+  density: { spalte: 'density', pruefen: (w) => ausListe(w, ['comfortable', 'compact']) },
+  notificationSound: { spalte: 'notification_sound', pruefen: (w) => ausListe(w, ['ping', 'blip', 'chime', 'aus']) },
+  translationSpeed: { spalte: 'translation_speed', pruefen: (w) => ausListe(w, ['fast', 'balanced', 'accurate']) },
+  /* Dieselbe Grenze wie in users.completeSetup(). Sie stand dort allein, und
+     damit war sie keine Grenze, sondern eine Höflichkeit. */
+  displayName: { spalte: 'display_name', pruefen: (w) => text(w, 80, { leerErlaubt: false }) },
+  title: { spalte: 'title', pruefen: (w) => text(w, 120) },
+  timezone: { spalte: 'timezone', pruefen: (w) => text(w, 64) },
+  // Minuten seit Mitternacht; null hebt die Ruhezeit auf.
+  quietHoursStart: { spalte: 'quiet_hours_start', pruefen: (w) => minuten(w) },
+  quietHoursEnd: { spalte: 'quiet_hours_end', pruefen: (w) => minuten(w) },
+};
+
+function sprache(w: unknown): string | undefined {
+  if (typeof w !== 'string') return undefined;
+  const code = normalizeLang(w);
+  return isSupportedLang(code) ? code : undefined;
+}
+
+function ausListe(w: unknown, erlaubt: string[]): string | undefined {
+  return typeof w === 'string' && erlaubt.includes(w) ? w : undefined;
+}
+
+function text(w: unknown, grenze: number, opt: { leerErlaubt?: boolean } = {}): string | null | undefined {
+  if (w === null) return opt.leerErlaubt === false ? undefined : null;
+  if (typeof w !== 'string') return undefined;
+  const sauber = w.trim().slice(0, grenze);
+  if (!sauber) return opt.leerErlaubt === false ? undefined : null;
+  return sauber;
+}
+
+function minuten(w: unknown): number | null | undefined {
+  if (w === null) return null;
+  if (typeof w !== 'number' || !Number.isFinite(w)) return undefined;
+  const m = Math.trunc(w);
+  return m >= 0 && m < 1440 ? m : undefined;
+}
+
 /* ── Event-Dispatch ───────────────────────────────────────────── */
 
 async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
@@ -691,8 +872,10 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
       session.openChannelId = ch.id;
 
       /* Math.min allein reicht nicht: eine negative Zahl kommt kleiner durch
-         und wird in SQL zu LIMIT -1 — das liefert den ganzen Kanal auf einmal. */
-      const wieviele = Math.min(Math.max(Math.trunc(ev.limit ?? 50) || 50, 1), 100);
+         und wird in SQL zu LIMIT -1 — das liefert den ganzen Kanal auf einmal.
+         Dieselbe Regel wie bei der Suche, und sie steht dort: eine Zahl, die
+         keine brauchbare Grenze ist, wird auf die Vorgabe zurückgesetzt. */
+      const wieviele = grenze(ev.limit, 50, 100);
       const { messages: list, hasMore } = store.channelHistory(ch.id, ev.before ?? null, wieviele, userId);
       const missing = session.autoTranslate ? fillCachedTranslations(list, session.language) : [];
       send(session, { t: 'channel:history', channelId: ch.id, messages: list, hasMore });
@@ -743,6 +926,7 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
       const warVertraulich = vertraulich.istVertraulich(ev.channelId);
       channels.leaveChannel(ev.channelId, userId);
       sendToUser(userId, { t: 'channel:removed', channelId: ev.channelId });
+      kanalElementeZuruecknehmen(ev.channelId, [userId]);
       /* Wer geht, nimmt den Kanalschlüssel auf seinem Gerät mit. Ohne Wechsel
          läse er alles Neue weiter mit — er müsste den Kanal dafür nicht einmal
          sehen, ein mitgeschriebenes Chiffrat genügte. */
@@ -780,8 +964,26 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
     }
 
     case 'channel:hide': {
+      /* Bei einem gewöhnlichen Kanal tut Ausblenden dasselbe wie Verlassen:
+         die Mitgliedschaft fällt weg (siehe channels.hideChannel). Der
+         Schlüsselwechsel hing aber allein an 'channel:leave' — wer stattdessen
+         ausblendete, ging mit dem Kanalschlüssel auf seinem Gerät hinaus, und
+         im Kanal merkte es niemand. Zwei Wege, eine Wirkung: dann gehört auch
+         dieselbe Folge daran. */
+      const warVertraulich = vertraulich.istVertraulich(ev.channelId);
+      const warMitglied = store.isMember(ev.channelId, userId);
       channels.hideChannel(ev.channelId, userId);
       sendToUser(userId, { t: 'channel:removed', channelId: ev.channelId });
+      kanalElementeZuruecknehmen(ev.channelId, [userId]);
+      if (warVertraulich && warMitglied && !store.isMember(ev.channelId, userId)) {
+        for (const uid of store.memberIds(ev.channelId)) {
+          if (!vertraulich.kannLesen(ev.channelId, uid)) continue;
+          sendToUser(uid, {
+            t: 'vertraulich:wechsel-noetig', channelId: ev.channelId,
+            grund: 'Jemand hat den Kanal verlassen.',
+          });
+        }
+      }
       return;
     }
 
@@ -797,6 +999,7 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
       for (const uid of ev.remove ?? []) {
         if (!ch.memberIds.includes(uid)) sendToUser(uid, { t: 'channel:removed', channelId: ch.id });
       }
+      kanalElementeZuruecknehmen(ch.id, ev.remove ?? []);
 
       /* Vertrauliche Kanäle: Aufnahme heißt verpacken, Entfernen heißt
          wechseln. Beides kann nur eine App erledigen, die den Kanalschlüssel
@@ -1024,12 +1227,21 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
     }
 
     case 'typing': {
+      /* Ohne Zugang kein Lebenszeichen. Still abgewiesen wie draft:save: das
+         schickt die Oberfläche beim Tippen nebenher, eine Meldung pro
+         Tastendruck hülfe niemandem. Ohne diese Zeile konnte jede Person mit
+         der Kennung eines privaten Kanals dort „schreibt gerade" erscheinen
+         lassen — sichtbar für alle Mitglieder. */
+      if (!darfKanalSehen(userId, ev.channelId)) return;
       const audience = store.memberIds(ev.channelId).filter((uid) => uid !== userId);
       broadcast({ t: 'typing', channelId: ev.channelId, userId, parentId: ev.parentId ?? null }, audience);
       return;
     }
 
     case 'read': {
+      // Dasselbe wie bei 'typing': ohne Zugang zum Kanal geht die Meldung
+      // nicht an dessen Mitglieder hinaus.
+      if (!darfKanalSehen(userId, ev.channelId)) return;
       messages.markRead(ev.channelId, userId, ev.lastMessageId);
       const st = store.channelState(ev.channelId, userId);
       if (st) send(session, { t: 'channel:state', state: st });
@@ -1064,23 +1276,17 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
     }
 
     case 'prefs:update': {
-      const map: Record<string, string> = {
-        language: 'language', autoTranslate: 'auto_translate', notifyOn: 'notify_on',
-        theme: 'theme', density: 'density', composeTargetPreview: 'compose_target_preview',
-        quietHoursStart: 'quiet_hours_start', quietHoursEnd: 'quiet_hours_end',
-        displayName: 'display_name', title: 'title', timezone: 'timezone',
-        // Diese drei fehlten: die Oberfläche schickte sie, der Server warf sie
-        // weg — die Einstellung war nach dem nächsten Start wieder fort.
-        uiLanguage: 'ui_language', notificationSound: 'notification_sound',
-        translationSpeed: 'translation_speed',
-      };
       const sets: string[] = [];
       const vals: any[] = [];
       for (const [key, value] of Object.entries(ev.patch)) {
-        const col = map[key];
-        if (!col) continue;
-        sets.push(`${col} = ?`);
-        vals.push(typeof value === 'boolean' ? (value ? 1 : 0) : value);
+        const feld = EINSTELLUNGEN[key];
+        if (!feld) continue;
+        const wert = feld.pruefen(value);
+        // Was nicht durchkommt, wird still übergangen — wie bisher schon jedes
+        // unbekannte Feld. Eine Meldung pro verworfenem Wert hülfe niemandem.
+        if (wert === undefined) continue;
+        sets.push(`${feld.spalte} = ?`);
+        vals.push(wert);
       }
       if (!sets.length) return;
       db.run(`UPDATE users SET ${sets.join(', ')} WHERE id = ?`, ...vals, userId);
@@ -1153,6 +1359,7 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
          abgeschickt hat. Ginge das durch, wäre die ganze Verschlüsselung
          umsonst: der Klartext läge beim Übersetzungsdienst, bevor er den
          Kanal überhaupt erreicht. */
+      if (!kanalZugang(session, ev.channelId, ev.requestId)) return;
       if (klartextNoetig(session, ev.channelId)) return;
       const outcome = await translate({
         text: ev.text, targetLang: ev.targetLang, context: channelContext(ev.channelId),
@@ -1166,6 +1373,9 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
 
     case 'ai:catchup': {
       if (!darf(session, 'ai.assistant')) return;
+      /* Zugang vor allem anderen: erst danach darf überhaupt herauskommen,
+         ob es diesen Kanal gibt und ob er vertraulich ist. */
+      if (!kanalZugang(session, ev.channelId, ev.requestId)) return;
       if (klartextNoetig(session, ev.channelId)) return;
       const ch = store.getChannel(ev.channelId, userId);
       if (!ch) return fail(session, 'fehler.kanalNichtGefunden', 'Kanal nicht gefunden', ev.requestId);
@@ -1198,9 +1408,7 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
     case 'ai:smart-replies': {
       if (!darf(session, 'ai.assistant')) return;
       // Vorschläge entstehen aus dem Verlauf — also nur, wo man mitliest.
-      if (!store.getChannel(ev.channelId, userId)) {
-        return fail(session, 'fehler.kanalNichtGefunden', 'Kanal nicht gefunden', ev.requestId);
-      }
+      if (!kanalZugang(session, ev.channelId, ev.requestId)) return;
       if (klartextNoetig(session, ev.channelId)) return;
       const self = store.getSelf(userId)!;
       const replies = await ai.smartReplies({
@@ -1213,6 +1421,10 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
 
     case 'ai:rewrite': {
       if (!darf(session, 'ai.assistant')) return;
+      /* channelId dient hier nur der Vertraulichkeitsprüfung; wer einen
+         fremden Kanal angibt, soll aber auch nicht erfahren, ob er
+         vertraulich ist. */
+      if (ev.channelId && !kanalZugang(session, ev.channelId, ev.requestId)) return;
       if (klartextNoetig(session, ev.channelId)) return;
       const text = await ai.rewrite({ text: ev.text, tone: ev.tone, targetLang: ev.targetLang ?? null });
       send(session, { t: 'ai:rewrite', requestId: ev.requestId, text });
@@ -1341,6 +1553,14 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
     /* ── Erinnerungen ─────────────────────────────────────── */
 
     case 'reminder:create': {
+      /* Der Zeitgeber schickt beim Auslösen die ganze Nachricht mit (siehe
+         startBackgroundJobs). Ohne diese beiden Zeilen genügte eine bekannte
+         Kennung, um sich den Text einer fremden Nachricht zustellen zu
+         lassen — mit fünf Sekunden Verzögerung und ganz ohne Mitgliedschaft. */
+      if (!kanalZugang(session, ev.channelId)) return;
+      if (ev.messageId && !darfNachrichtLesen(userId, ev.messageId)) {
+        return fail(session, 'fehler.keinNachrichtZugang', 'Zu dieser Nachricht hast du keinen Zugang.');
+      }
       const reminder = reminders.createReminder({
         userId, channelId: ev.channelId, messageId: ev.messageId ?? null,
         note: ev.note ?? null, remindAt: ev.remindAt,
@@ -1474,7 +1694,9 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
     case 'task:list':
       send(session, {
         t: 'task:list',
-        tasks: tasks.listTasks({ channelId: ev.channelId, assigneeId: ev.assigneeId }),
+        tasks: tasks.listTasks({
+          channelId: ev.channelId, assigneeId: ev.assigneeId, sichtbarFuer: userId,
+        }),
       });
       return;
 
@@ -1483,6 +1705,10 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
       if (ev.assigneeId && ev.assigneeId !== userId && !may(userId, 'task.assign')) {
         return fail(session, 'fehler.keinRechtUebergeben', 'Aufgaben an andere zu übergeben ist ein eigenes Recht.');
       }
+      /* An einen Kanal hängen darf sie nur, wer den Kanal auch sieht. Sonst
+         ließe sich eine Aufgabe in einem fremden privaten Kanal ablegen — und
+         nachher fragen, was aus ihr geworden ist. */
+      if (ev.channelId && !kanalZugang(session, ev.channelId)) return;
       const task = tasks.createTask({ ...ev, createdBy: userId });
       // Alle Beteiligten sollen die Aufgabe sofort sehen.
       broadcastTask(task);
@@ -1493,20 +1719,32 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
       if (!darf(session, 'task.create')) return;
       const vorher = tasks.getTask(ev.taskId);
       if (!vorher) return fail(session, 'fehler.aufgabeNichtGefunden', 'Aufgabe nicht gefunden.');
+      if (!aufgabeSichtbar(session, vorher)) return;
       if (ev.patch.assigneeId !== undefined && ev.patch.assigneeId !== userId && !may(userId, 'task.assign')) {
         return fail(session, 'fehler.keinRechtUebergeben', 'Aufgaben an andere zu übergeben ist ein eigenes Recht.');
       }
-      broadcastTask(tasks.updateTask(ev.taskId, ev.patch, userId));
+      /* Das Protokoll kennt in diesem Feld keinen Kanalwechsel — der Dienst
+         schon, und ein selbstgebauter Client schickt, was er will. Wer eine
+         Aufgabe umhängt, muss beide Kanäle sehen dürfen. */
+      const zielKanal = (ev.patch as { channelId?: string | null }).channelId;
+      if (zielKanal && !kanalZugang(session, zielKanal)) return;
+      umzugMelden(vorher, tasks.updateTask(ev.taskId, ev.patch, userId));
       return;
     }
 
     case 'task:move': {
       if (!darf(session, 'task.create')) return;
+      const vorher = tasks.getTask(ev.taskId);
+      if (!vorher) return fail(session, 'fehler.aufgabeNichtGefunden', 'Aufgabe nicht gefunden.');
+      if (!aufgabeSichtbar(session, vorher)) return;
       broadcastTask(tasks.reorder(ev.taskId, ev.status, ev.afterId ?? null, userId));
       return;
     }
 
     case 'task:comment': {
+      const ziel = tasks.getTask(ev.taskId);
+      if (!ziel) return fail(session, 'fehler.aufgabeNichtGefunden', 'Aufgabe nicht gefunden.');
+      if (!aufgabeSichtbar(session, ziel)) return;
       const verlauf = tasks.addComment(ev.taskId, userId, ev.text);
       send(session, { t: 'task:history', taskId: ev.taskId, events: verlauf });
       const task = tasks.getTask(ev.taskId);
@@ -1514,33 +1752,103 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
       return;
     }
 
-    case 'task:watch':
+    case 'task:watch': {
+      const ziel = tasks.getTask(ev.taskId);
+      if (!ziel) return fail(session, 'fehler.aufgabeNichtGefunden', 'Aufgabe nicht gefunden.');
+      if (!aufgabeSichtbar(session, ziel)) return;
       broadcastTask(tasks.setWatching(ev.taskId, userId, ev.watching));
       return;
+    }
 
     case 'task:delete': {
       const task = tasks.getTask(ev.taskId);
       if (!task) return;
+      if (!aufgabeSichtbar(session, task)) return;
       const eigene = task.createdBy === userId;
       if (!eigene && !may(userId, 'task.delete')) {
         return fail(session, 'fehler.nurModerationAufgaben', 'Fremde Aufgaben darf nur die Moderation löschen.');
       }
       tasks.deleteTask(ev.taskId);
-      broadcast({ t: 'task:removed', taskId: ev.taskId });
+      // Der Kreis muss vor dem Löschen feststehen — danach ist die Zeile weg.
+      broadcast({ t: 'task:removed', taskId: ev.taskId }, empfaengerFuer(task.channelId));
       return;
     }
 
-    case 'task:history':
+    case 'task:history': {
+      /* Der Verlauf trägt Titel, Kommentare und wer was geändert hat. Ohne
+         diese Prüfung nützte die gefilterte Liste nichts: man müsste die
+         Kennung nur kennen und direkt hier fragen. */
+      const ziel = tasks.getTask(ev.taskId);
+      if (!ziel) return fail(session, 'fehler.aufgabeNichtGefunden', 'Aufgabe nicht gefunden.');
+      if (!aufgabeSichtbar(session, ziel)) return;
       send(session, { t: 'task:history', taskId: ev.taskId, events: tasks.historyOf(ev.taskId) });
       return;
+    }
+
+    /* ── Vorschlagseingang ─────────────────────────────────────
+
+       Ein Vorschlag gehört genau einer Person. Der Empfängerkreis ist
+       deshalb nicht `broadcast(..., empfaengerFuer(...))`, sondern die eine
+       Person — aber erst, nachdem `vorschlagSichtbar()` bestätigt hat, dass
+       sie den Kanal noch sehen darf. Was daraus entsteht, geht dagegen an
+       den vollen Kanalkreis: eine angenommene Aufgabe gehört dem Kanal. */
+
+    case 'vorschlag:list': {
+      send(session, { t: 'vorschlag:list', vorschlaege: vorschlaege.listeFuer(userId) });
+      return;
+    }
+
+    case 'vorschlag:accept': {
+      if (!vorschlagSichtbar(session, ev.vorschlagId, ev.requestId)) return;
+      try {
+        const { vorschlag, aufgabe, idee } = vorschlaege.annehmen(ev.vorschlagId, userId, ev.aenderung);
+        /* Erst das Entstandene an den Kanalkreis, dann die Quittung an den
+           einen Wartenden: so steht die Aufgabe schon auf dem Brett, wenn
+           der Eingang sie als angenommen meldet. */
+        if (aufgabe) broadcast({ t: 'task:upsert', task: aufgabe }, empfaengerFuer(aufgabe.channelId));
+        if (idee) broadcast({ t: 'idea:upsert', idea: idee }, empfaengerFuer(idee.channelId));
+        sendToUser(userId, { t: 'vorschlag:upsert', requestId: ev.requestId, vorschlag });
+      } catch (e) {
+        return vorschlagFehler(session, e, ev.requestId);
+      }
+      return;
+    }
+
+    case 'vorschlag:reject': {
+      if (!vorschlagSichtbar(session, ev.vorschlagId, ev.requestId)) return;
+      try {
+        const vorschlag = vorschlaege.ablehnen(ev.vorschlagId, userId);
+        sendToUser(userId, { t: 'vorschlag:upsert', requestId: ev.requestId, vorschlag });
+      } catch (e) {
+        return vorschlagFehler(session, e, ev.requestId);
+      }
+      return;
+    }
+
+    case 'vorschlag:undo': {
+      if (!vorschlagSichtbar(session, ev.vorschlagId, ev.requestId)) return;
+      try {
+        const vorher = vorschlaege.getVorschlag(ev.vorschlagId);
+        const vorschlag = vorschlaege.zuruecknehmen(ev.vorschlagId, userId);
+        /* Das Entstandene ist weg — sonst bliebe die Aufgabe auf den
+           Brettern aller anderen stehen, bis jemand neu lädt. */
+        if (vorher?.ergebnisId) {
+          const kreis = empfaengerFuer(vorschlag.channelId);
+          if (vorher.art === 'aufgabe') broadcast({ t: 'task:removed', taskId: vorher.ergebnisId }, kreis);
+          else broadcast({ t: 'idea:removed', ideaId: vorher.ergebnisId }, kreis);
+        }
+        sendToUser(userId, { t: 'vorschlag:upsert', requestId: ev.requestId, vorschlag });
+      } catch (e) {
+        return vorschlagFehler(session, e, ev.requestId);
+      }
+      return;
+    }
 
     case 'ai:extract-tasks': {
       if (!darf(session, 'ai.assistant')) return;
-      if (klartextNoetig(session, ev.channelId)) return;
       // Aufgaben entstehen aus dem Verlauf des Kanals — nur aus einem eigenen.
-      if (!store.getChannel(ev.channelId, userId)) {
-        return fail(session, 'fehler.kanalNichtGefunden', 'Kanal nicht gefunden', ev.requestId);
-      }
+      if (!kanalZugang(session, ev.channelId, ev.requestId)) return;
+      if (klartextNoetig(session, ev.channelId)) return;
       /* Nur das Neue seit dem letzten Durchgang ansehen. */
       const marke = `aufgaben_ab:${ev.channelId}`;
       const seit = settings.getSetting(marke);
@@ -1553,52 +1861,46 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
         'SELECT id FROM messages WHERE channel_id = ? ORDER BY created_at DESC LIMIT 1', ev.channelId,
       )?.id;
 
-      /* Früher bekam man eine Liste zum Ankreuzen. Gewünscht ist, dass die
-         Erkennung die Aufgaben gleich anlegt — bestätigt wird nur noch, dass
-         es passiert ist. Was im Kanal schon offen steht, entsteht nicht
-         zweimal, sonst füllt jeder Klick das Brett mit Dubletten. */
-      const erstellt: Task[] = [];
-      let uebersprungen = 0;
-      if (gefunden.length && may(userId, 'task.create')) {
-        const darfZuweisen = may(userId, 'task.assign');
-        const bekannt = new Set(
-          tasks.listTasks({ channelId: ev.channelId, includeFinished: false })
-            .map((a) => a.title.trim().toLowerCase()),
-        );
-        for (const vorschlag of gefunden) {
-          const schluessel = vorschlag.title.trim().toLowerCase();
-          if (bekannt.has(schluessel)) { uebersprungen++; continue; }
-          try {
-            const task = tasks.createTask({
-              title: vorschlag.title,
-              // Ohne das Recht zum Zuweisen landet sie beim Auslöser selbst.
-              assigneeId: darfZuweisen ? vorschlag.assigneeId : null,
-              dueAt: vorschlag.dueAt,
-              channelId: ev.channelId,
-              createdBy: userId,
-            });
-            bekannt.add(schluessel);
-            broadcastTask(task);
-            erstellt.push(task);
-          } catch {
-            uebersprungen++;
-          }
+      /* Der Knopf legt nichts mehr an, er füllt den Eingang.
+         Vorher entstanden die Aufgaben sofort auf dem Brett — wer drückte,
+         fand hinterher fünf Karten, von denen zwei stimmten. Jetzt geht
+         beides denselben Weg: was von Hand angestoßen wird und was der
+         Hintergrundlauf findet, landet als Vorschlag und wartet auf ein Ja.
+         Der Abdruck im Dienst sorgt dafür, dass ein Titel, den der
+         Hintergrundlauf schon vorgeschlagen hat, hier als Dublette zählt
+         statt zweimal im Eingang zu liegen. */
+      const bericht = vorschlaege.kandidatenEintragen(
+        ev.channelId,
+        gefunden.map((g) => ({
+          art: 'aufgabe' as const,
+          titel: g.title,
+          quelleMessageId: null,
+          genanntUserId: g.assigneeId,
+          faelligAm: g.dueAt,
+        })),
+      );
+      for (const v of bericht.angelegt) {
+        if (darfElementSehen(v.fuerUserId, v.channelId)) {
+          sendToUser(v.fuerUserId, { t: 'vorschlag:neu', vorschlag: v });
         }
       }
 
-      // Erst nach dem Anlegen merken — bricht etwas ab, wird beim nächsten
+      // Erst nach dem Eintragen merken — bricht etwas ab, wird beim nächsten
       // Mal derselbe Abschnitt noch einmal gelesen statt übersprungen.
       if (neuste) settings.setSetting(marke, neuste, userId);
 
       send(session, {
         t: 'ai:extract-tasks', requestId: ev.requestId,
-        tasks: gefunden, erstellt, uebersprungen,
+        tasks: gefunden,
+        vorgeschlagen: bericht.angelegt.length,
+        uebersprungen: bericht.dubletten + bericht.ohneAdressat,
       });
       return;
     }
 
     case 'ai:protocol': {
       if (!darf(session, 'ai.assistant')) return;
+      if (!kanalZugang(session, ev.channelId)) return;
       if (klartextNoetig(session, ev.channelId)) return;
       const kanal = store.getChannel(ev.channelId, userId);
       if (!kanal) return fail(session, 'fehler.kanalNichtGefunden', 'Kanal nicht gefunden.');
@@ -1617,48 +1919,59 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
     /* ── Kalender ─────────────────────────────────────────── */
 
     case 'event:list':
-      send(session, { t: 'event:list', events: events.listEvents(ev.from, ev.to) });
+      send(session, { t: 'event:list', events: events.listEvents(ev.from, ev.to, userId) });
       return;
 
     case 'event:create': {
       if (!darf(session, 'event.create')) return;
+      if (ev.channelId && !kanalZugang(session, ev.channelId)) return;
       const termin = events.createEvent({ ...ev, createdBy: userId });
-      broadcast({ t: 'event:upsert', event: termin });
+      broadcastTermin(termin);
       return;
     }
 
     case 'event:update': {
       const termin = events.getEvent(ev.eventId);
       if (!termin) return fail(session, 'fehler.terminNichtGefunden', 'Termin nicht gefunden.');
+      if (!terminSichtbar(session, termin)) return;
       if (termin.createdBy !== userId && !may(userId, 'event.manage')) {
         return fail(session, 'fehler.nurVerwaltungTermine', 'Fremde Termine darf nur die Verwaltung ändern.');
       }
-      broadcast({ t: 'event:upsert', event: events.updateEvent(ev.eventId, ev.patch) });
+      broadcastTermin(events.updateEvent(ev.eventId, ev.patch));
       return;
     }
 
-    case 'event:respond':
-      broadcast({ t: 'event:upsert', event: events.respond(ev.eventId, userId, ev.response) });
+    case 'event:respond': {
+      /* Zusagen ohne den Termin sehen zu dürfen ginge sonst — und mit der
+         Zusage stünde man in der Teilnehmerliste eines Termins, von dem man
+         nichts wissen sollte. */
+      const termin = events.getEvent(ev.eventId);
+      if (!termin) return fail(session, 'fehler.terminNichtGefunden', 'Termin nicht gefunden.');
+      if (!terminSichtbar(session, termin)) return;
+      broadcastTermin(events.respond(ev.eventId, userId, ev.response));
       return;
+    }
 
     case 'event:attendees': {
       const termin = events.getEvent(ev.eventId);
       if (!termin) return;
+      if (!terminSichtbar(session, termin)) return;
       if (termin.createdBy !== userId && !may(userId, 'event.manage')) {
         return fail(session, 'fehler.nurEinladerTeilnehmende', 'Nur wer eingeladen hat, ändert die Teilnehmenden.');
       }
-      broadcast({ t: 'event:upsert', event: events.setAttendees(ev.eventId, ev.add, ev.remove) });
+      broadcastTermin(events.setAttendees(ev.eventId, ev.add, ev.remove));
       return;
     }
 
     case 'event:delete': {
       const termin = events.getEvent(ev.eventId);
       if (!termin) return;
+      if (!terminSichtbar(session, termin)) return;
       if (termin.createdBy !== userId && !may(userId, 'event.manage')) {
         return fail(session, 'fehler.nurVerwaltungTermineLoeschen', 'Fremde Termine darf nur die Verwaltung löschen.');
       }
       events.deleteEvent(ev.eventId);
-      broadcast({ t: 'event:removed', eventId: ev.eventId });
+      broadcast({ t: 'event:removed', eventId: ev.eventId }, empfaengerFuer(termin.channelId));
       return;
     }
 
@@ -1670,6 +1983,7 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
 
     case 'idea:create': {
       if (!darf(session, 'idea.create')) return;
+      if (ev.channelId && !kanalZugang(session, ev.channelId)) return;
       broadcastIdee(ideas.createIdea({ ...ev, createdBy: userId }));
       return;
     }
@@ -1677,58 +1991,80 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
     case 'idea:update': {
       const idee = ideas.getIdea(ev.ideaId, userId);
       if (!idee) return fail(session, 'fehler.ideeNichtGefunden', 'Idee nicht gefunden.');
+      if (!ideeSichtbar(session, idee)) return;
       if (idee.createdBy !== userId && !may(userId, 'idea.manage')) {
         return fail(session, 'fehler.nurModerationIdeen', 'Fremde Ideen darf nur die Moderation ändern.');
       }
-      broadcastIdee(ideas.updateIdea(ev.ideaId, ev.patch, userId));
+      // Anders als bei Aufgaben kennt das Protokoll den Kanalwechsel hier
+      // ausdrücklich — er braucht denselben Zugang wie das Anlegen.
+      if (ev.patch.channelId && !kanalZugang(session, ev.patch.channelId)) return;
+      ideenUmzugMelden(idee.channelId, ideas.updateIdea(ev.ideaId, ev.patch, userId));
       return;
     }
 
     case 'idea:status': {
       if (!darf(session, 'idea.manage')) return;
+      const idee = ideas.getIdea(ev.ideaId, userId);
+      if (!idee) return fail(session, 'fehler.ideeNichtGefunden', 'Idee nicht gefunden.');
+      if (!ideeSichtbar(session, idee)) return;
       broadcastIdee(ideas.setStatus(ev.ideaId, ev.status, userId, ev.decision));
       return;
     }
 
     case 'idea:vote': {
       if (!darf(session, 'idea.vote')) return;
+      const idee = ideas.getIdea(ev.ideaId, userId);
+      if (!idee) return fail(session, 'fehler.ideeNichtGefunden', 'Idee nicht gefunden.');
+      if (!ideeSichtbar(session, idee)) return;
       ideas.vote(ev.ideaId, userId, ev.wert);
       // Die eigene Stimme steckt in der Antwort — jede Person bekommt daher
-      // ihre eigene Sicht auf dieselbe Idee.
-      for (const s of sessions.values()) {
-        if (!s.userId) continue;
-        const eigene = ideas.getIdea(ev.ideaId, s.userId);
-        if (eigene) send(s, { t: 'idea:upsert', idea: eigene });
-      }
+      // ihre eigene Sicht auf dieselbe Idee. broadcastIdee() macht genau das
+      // und hält sich dabei an den Kreis des Kanals.
+      broadcastIdee(ideas.getIdea(ev.ideaId, userId));
       return;
     }
 
-    case 'idea:comments':
+    case 'idea:comments': {
+      const idee = ideas.getIdea(ev.ideaId, userId);
+      if (!idee) return fail(session, 'fehler.ideeNichtGefunden', 'Idee nicht gefunden.');
+      if (!ideeSichtbar(session, idee)) return;
       send(session, { t: 'idea:comments', ideaId: ev.ideaId, comments: ideas.comments(ev.ideaId) });
       return;
+    }
 
     case 'idea:comment': {
       if (!darf(session, 'message.send')) return;
+      const idee = ideas.getIdea(ev.ideaId, userId);
+      if (!idee) return fail(session, 'fehler.ideeNichtGefunden', 'Idee nicht gefunden.');
+      if (!ideeSichtbar(session, idee)) return;
       const liste = ideas.addComment(ev.ideaId, userId, ev.text);
-      broadcast({ t: 'idea:comments', ideaId: ev.ideaId, comments: liste });
+      broadcast({ t: 'idea:comments', ideaId: ev.ideaId, comments: liste }, empfaengerFuer(idee.channelId));
       broadcastIdee(ideas.getIdea(ev.ideaId, userId));
       return;
     }
 
     case 'idea:comment-delete': {
+      /* Die Kennung der Idee kommt vom Client und muss nicht zum Kommentar
+         gehören — geprüft wird deshalb die Idee, deren Kommentare gleich
+         herausgehen. */
+      const idee = ideas.getIdea(ev.ideaId, userId);
+      if (!idee) return fail(session, 'fehler.ideeNichtGefunden', 'Idee nicht gefunden.');
+      if (!ideeSichtbar(session, idee)) return;
       ideas.deleteComment(ev.commentId, userId, may(userId, 'idea.manage'));
-      broadcast({ t: 'idea:comments', ideaId: ev.ideaId, comments: ideas.comments(ev.ideaId) });
+      broadcast({ t: 'idea:comments', ideaId: ev.ideaId, comments: ideas.comments(ev.ideaId) },
+        empfaengerFuer(idee.channelId));
       return;
     }
 
     case 'idea:delete': {
       const idee = ideas.getIdea(ev.ideaId, userId);
       if (!idee) return;
+      if (!ideeSichtbar(session, idee)) return;
       if (idee.createdBy !== userId && !may(userId, 'idea.manage')) {
         return fail(session, 'fehler.nurModerationIdeenLoeschen', 'Fremde Ideen darf nur die Moderation löschen.');
       }
       ideas.deleteIdea(ev.ideaId);
-      broadcast({ t: 'idea:removed', ideaId: ev.ideaId });
+      broadcast({ t: 'idea:removed', ideaId: ev.ideaId }, empfaengerFuer(idee.channelId));
       return;
     }
 
@@ -1772,6 +2108,14 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
     }
 
     case 'voice:retranscribe': {
+      /* Dieselbe Prüfung wie bei 'translate:request' und 'thread:open'. Sie
+         fehlte hier als einziger Stelle, und das war nicht folgenlos: die
+         Abschrift wird zum Nachrichtentext (siehe runTranscription), also
+         ließ sich mit einer bekannten Kennung eine fremde Nachricht in einem
+         Kanal umschreiben, den man nie gesehen hat. */
+      if (!darfNachrichtLesen(userId, ev.messageId)) {
+        return fail(session, 'fehler.keinNachrichtZugang', 'Zu dieser Nachricht hast du keinen Zugang.');
+      }
       const voice = voiceNoteFor(ev.messageId);
       if (!voice) return fail(session, 'fehler.keineAufnahme', 'Keine Aufnahme an dieser Nachricht');
       void runTranscription(ev.messageId, voice.attachmentId).catch((err) => console.error('[ws] Umschrift:', (err as Error).message));
@@ -1780,6 +2124,7 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
 
     case 'ai:ask': {
       if (!darf(session, 'ai.assistant')) return;
+      if (!kanalZugang(session, ev.channelId, ev.requestId)) return;
       if (klartextNoetig(session, ev.channelId)) return;
       const ch = store.getChannel(ev.channelId, userId);
       if (!ch) return fail(session, 'fehler.kanalNichtGefunden', 'Kanal nicht gefunden', ev.requestId);
@@ -1846,6 +2191,13 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
         `@${store.getUser(userId)?.handle} hat diesen Kanal vertraulich gestellt — ab hier liest nur noch mit, wer den Schlüssel hat.`,
         'vertraulich.ein',
       );
+      /* Sechste Sperre: was die KI aus diesem Kanal schon vorgeschlagen hat,
+         verschwindet jetzt. Die Titel stammen aus Nachrichten, die ab hier
+         niemand mehr im Klartext sehen soll — auch nicht rückwirkend. */
+      for (const id of vorschlaege.idsImKanal(ev.channelId)) {
+        for (const uid of kanal.memberIds) sendToUser(uid, { t: 'vorschlag:removed', vorschlagId: id });
+      }
+      vorschlaege.kanalGeschlossen(ev.channelId);
       schluesselarbeitAnstossen(ev.channelId);
       void fassung;
       return;
@@ -2140,22 +2492,127 @@ function vielleichtAntworten(channelId: string, text: string, authorId: string):
  * Eine geänderte Idee geht an alle — mit der jeweils eigenen Stimme, denn
  * "myVote" unterscheidet sich je Person.
  */
+/** Ein Termin geht an den Kreis seines Kanals — oder an alle, wenn er keinen hat. */
+function broadcastTermin(termin: ReturnType<typeof events.getEvent>): void {
+  if (!termin) return;
+  broadcast({ t: 'event:upsert', event: termin }, empfaengerFuer(termin.channelId));
+}
+
+/** Abweisen, wenn der Termin an einem Kanal hängt, den man nicht sieht. */
+function terminSichtbar(session: Session, termin: { channelId: string | null }): boolean {
+  if (darfElementSehen(session.userId!, termin.channelId)) return true;
+  fail(session, 'fehler.terminNichtGefunden', 'Termin nicht gefunden.');
+  return false;
+}
+
+/** Dasselbe für Ideen. */
+function ideeSichtbar(session: Session, idee: { channelId: string | null }): boolean {
+  if (darfElementSehen(session.userId!, idee.channelId)) return true;
+  fail(session, 'fehler.ideeNichtGefunden', 'Idee nicht gefunden.');
+  return false;
+}
+
+/**
+ * Eine Idee nach einem Umzug verteilen und bei denen aufräumen, die sie
+ * verloren haben — dieselbe Überlegung wie bei umzugMelden() für Aufgaben.
+ */
+function ideenUmzugMelden(vorherKanal: string | null, idee: ReturnType<typeof ideas.getIdea>): void {
+  if (!idee) return;
+  for (const uid of verlorenGegangen(empfaengerFuer(vorherKanal), empfaengerFuer(idee.channelId))) {
+    sendToUser(uid, { t: 'idea:removed', ideaId: idee.id });
+  }
+  broadcastIdee(idee);
+}
+
 function broadcastIdee(idee: ReturnType<typeof ideas.getIdea>): void {
   if (!idee) return;
+  // Wie bei den Aufgaben: hängt sie an einem Kanal, geht sie nur an dessen Kreis.
+  const kreis = empfaengerFuer(idee.channelId);
   for (const s of sessions.values()) {
     if (!s.userId) continue;
+    if (kreis && !kreis.includes(s.userId)) continue;
     const eigene = ideas.getIdea(idee.id, s.userId);
     if (eigene) send(s, { t: 'idea:upsert', idea: eigene });
   }
 }
 
 /**
- * Aufgaben gehen an alle: sie betreffen das ganze Team, und wer sie sehen darf,
- * entscheidet sich über den Kanal, nicht über die Aufgabe selbst.
+ * Wer eine Aufgabe sehen darf, entscheidet sich über den Kanal.
+ *
+ * Genau das stand hier schon als Kommentar — der Rundruf ging trotzdem an
+ * jede offene Verbindung. Belegt: ein Nichtmitglied bekam „Kündigung …
+ * vorbereiten" aus einem privaten Kanal zugestellt, und `task:list` gab sie
+ * ihm ein zweites Mal. Seit die Aufgabenerkennung aus Nachrichten Titel
+ * macht, ist das kein Schönheitsfehler mehr: der Kanal war vertraulich
+ * gedacht, der Titel daraus lag im ganzen Haus.
+ *
+ * Ohne Kanal bleibt es wie bisher: eine Aufgabe, die niemandem gehört,
+ * gehört allen.
  */
+/** Abweisen, wenn die Aufgabe an einem Kanal hängt, den man nicht sieht. */
+function aufgabeSichtbar(session: Session, task: Task): boolean {
+  if (darfElementSehen(session.userId!, task.channelId)) return true;
+  fail(session, 'fehler.aufgabeNichtGefunden', 'Aufgabe nicht gefunden.');
+  return false;
+}
+
+/**
+ * Der Vorschlag, den diese Person entscheiden darf — oder nichts.
+ *
+ * Zwei Fragen, die man nicht verwechseln darf. `nurEigener()` im Dienst prüft,
+ * ob der Vorschlag ihr gehört; hier wird geprüft, ob sie den Kanal überhaupt
+ * noch sehen darf. Adressat zu sein heißt nicht, dabei zu sein: wer aus einem
+ * privaten Kanal entfernt wird, steht weiter unter `fuer_user_id`. Ohne diese
+ * Prüfung könnte er den Vorschlag noch annehmen — und dessen Titel stammt aus
+ * einer Nachricht, die er nicht mehr lesen darf.
+ *
+ * Dieselbe Regel wie bei Aufgaben, Terminen und Ideen, aus derselben
+ * Funktion abgeleitet. Ein zweiter Empfängerkreis für Vorschläge wäre die
+ * zweite Regel für dieselbe Frage.
+ */
+/**
+ * Ein Fehler aus dem Vorschlagsdienst wird zur Kennung an die Oberfläche.
+ *
+ * `requestId` reist mit, damit der wartende Knopf die Absage zuordnen kann.
+ * Ohne sie bliebe er drehen, bis die Frist zuschlägt — Antwort da, Kreisel an.
+ */
+function vorschlagFehler(session: Session, e: unknown, requestId?: string): void {
+  if (e instanceof vorschlaege.VorschlagFehler) {
+    fail(session, e.kennung, e.message, requestId);
+    return;
+  }
+  throw e;
+}
+
+function vorschlagSichtbar(session: Session, vorschlagId: string, requestId?: string): Vorschlag | null {
+  const v = vorschlaege.getVorschlag(vorschlagId);
+  if (!v || !darfElementSehen(session.userId!, v.channelId)) {
+    fail(session, 'fehler.vorschlagWeg', 'Diesen Vorschlag gibt es nicht mehr.', requestId);
+    return null;
+  }
+  return v;
+}
+
+/**
+ * Eine Aufgabe nach einer Änderung verteilen — und aufräumen, wenn sie den
+ * Kanal gewechselt hat.
+ *
+ * Wer sie eben noch sah und jetzt nicht mehr, bekommt ein `task:removed`.
+ * Ohne das bliebe sie auf seinem Brett stehen, bis er die Liste neu lädt —
+ * also womöglich den ganzen Tag.
+ */
+function umzugMelden(vorher: Task, nachher: Task): void {
+  const alterKreis = empfaengerFuer(vorher.channelId);
+  const neuerKreis = empfaengerFuer(nachher.channelId);
+  for (const uid of verlorenGegangen(alterKreis, neuerKreis)) {
+    sendToUser(uid, { t: 'task:removed', taskId: nachher.id });
+  }
+  broadcast({ t: 'task:upsert', task: nachher }, neuerKreis);
+}
+
 function broadcastTask(task: Awaited<ReturnType<typeof tasks.getTask>>): void {
   if (!task) return;
-  broadcast({ t: 'task:upsert', task });
+  broadcast({ t: 'task:upsert', task }, empfaengerFuer(task.channelId));
 }
 
 /* ── Hintergrundaufgaben ──────────────────────────────────────── */
@@ -2201,11 +2658,23 @@ export function startBackgroundJobs(): () => void {
   // Fällige Erinnerungen zustellen
   const reminderTimer = setInterval(() => {
     try {
-      for (const reminder of reminders.due(Date.now())) {
-        const owner = ownerOfReminder(reminder.id);
-        database.run('UPDATE reminders SET done = 1 WHERE id = ?', reminder.id);
-        const message = reminder.messageId ? store.getMessage(reminder.messageId, owner) : null;
-        if (owner) sendToUser(owner, { t: 'reminder:fire', reminder, message });
+      /* Nur für Leute holen, die gerade verbunden sind — und erst abhaken,
+         wenn sie wirklich draußen ist. Vorher wurde jede fällige Erinnerung
+         abgehakt und dann losgeschickt; war niemand da, war sie weg. Wer
+         abends „morgen um neun" setzt und um neun den Rechner noch zu hat,
+         bekam sie nie und fand sie auch nicht mehr in seiner Liste. */
+      for (const reminder of reminders.due(Date.now(), onlineUserIds())) {
+        try {
+          const owner = ownerOfReminder(reminder.id);
+          if (!owner || !isOnline(owner)) continue;   // wartet auf die Rückkehr
+          const message = reminder.messageId ? store.getMessage(reminder.messageId, owner) : null;
+          sendToUser(owner, { t: 'reminder:fire', reminder, message });
+          database.run('UPDATE reminders SET done = 1 WHERE id = ?', reminder.id);
+        } catch (err) {
+          // Eine kaputte Erinnerung darf die anderen dieses Durchgangs nicht
+          // mitnehmen — vorher brach die Schleife beim ersten Wurf ab.
+          console.error('[reminders]', reminder.id, (err as Error).message);
+        }
       }
     } catch (err) {
       console.error('[reminders]', (err as Error).message);
@@ -2318,13 +2787,33 @@ export function startBackgroundJobs(): () => void {
   // Tote Sockets aussortieren
   const heartbeat = setInterval(() => {
     for (const s of sessions.values()) {
-      if (!s.alive) { s.socket.terminate(); continue; }
-      s.alive = false;
-      try { s.socket.ping(); } catch { /* ignore */ }
+      /* Auch terminate() gehört in den Schutz. Wirft es — und bei einem
+         Socket, den das Betriebssystem schon weggeräumt hat, kann es das —,
+         blieb der Rest dieses Durchgangs ungeprüft: die toten Verbindungen
+         dahinter überlebten bis zum nächsten Wurf an derselben Stelle. */
+      try {
+        if (!s.alive) { s.socket.terminate(); continue; }
+        s.alive = false;
+        s.socket.ping();
+      } catch { /* dann eben beim nächsten Mal */ }
     }
   }, 30_000);
 
+  /* Neue Vorschläge gehen ungefragt an genau eine Person — den Adressaten.
+     Der Dienst kennt das Gateway nicht; die Zustellung wird eingehängt,
+     damit er ohne WebSocket prüfbar bleibt. Auch hier gilt der Kanalkreis:
+     wer den Kanal nicht mehr sieht, bekommt nichts daraus. */
+  vorschlaege.zustellerSetzen((userId, neue) => {
+    for (const v of neue) {
+      if (!darfElementSehen(userId, v.channelId)) continue;
+      sendToUser(userId, { t: 'vorschlag:neu', vorschlag: v });
+    }
+  });
+  const stopVorschlaege = vorschlaege.startVorschlagJob();
+
   return () => {
+    vorschlaege.zustellerSetzen(null);
+    stopVorschlaege();
     clearInterval(scheduler);
     clearInterval(reminderTimer);
     clearInterval(statusTimer);

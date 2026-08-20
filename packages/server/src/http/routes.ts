@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import { Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { normalizeLang, LANGUAGES } from '@stellium/shared';
@@ -113,8 +114,36 @@ function versucheZuruecksetzen(herkunft: string): void {
  */
 const teilUploads = new Map<string, {
   userId: string; name: string; mime: string; size: number; parts: number;
-  da: Set<number>; begonnen: number;
+  da: Set<number>; groessen: Map<number, number>; begonnen: number;
 }>();
+
+/** Wie viele angefangene Teil-Uploads ein Konto gleichzeitig haben darf. */
+const TEILUPLOADS_JE_KONTO = 8;
+
+/**
+ * Einen Datenstrom durchlassen, aber nur bis zu einer Grenze.
+ *
+ * Ohne das nahm `PUT /api/uploads/:id/part/:index` jeden Rumpf entgegen, den
+ * jemand schickte. Fastify erzwingt seine `bodyLimit` nicht, wenn ein eigener
+ * Parser den Strom durchreicht — und genau so einen gibt es hier für
+ * application/octet-stream. Nachgemessen: ein Upload mit angemeldeten 1024
+ * Byte nahm einen Teil von 80 MB an, schrieb ihn auf die Platte und
+ * antwortete mit 200. Bei zweitausend erlaubten Teilen ist das keine Zahl
+ * mehr, sondern die Speicherkarte des Pi.
+ *
+ * Die Prüfung beim Zusammenlegen half nicht: sie vergleicht die Summe erst,
+ * wenn alles längst geschrieben ist.
+ */
+function begrenzt(hoechstens: number): Transform {
+  let gesehen = 0;
+  return new Transform({
+    transform(stueck, _kodierung, weiter) {
+      gesehen += stueck.length;
+      if (gesehen > hoechstens) { weiter(new Error('zu groß')); return; }
+      weiter(null, stueck);
+    },
+  });
+}
 
 /** Prüfsumme einer Datei, ohne sie ganz in den Speicher zu holen. */
 function dateiSumme(datei: string): Promise<string> {
@@ -585,10 +614,25 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
   app.get('/api/saved', async (req) => ({ messages: store.savedMessages(requireUser(req)) }));
 
+  /**
+   * Die angehefteten Nachrichten eines Kanals.
+   *
+   * Hier stand `if (!store.getChannel(id, userId))` — und das beantwortet
+   * nicht die Frage, die gestellt werden muss. store.getChannel() sagt, ob es
+   * den Kanal gibt, nicht ob man ihn sehen darf; den zweiten Parameter nimmt
+   * es nur, um die Übersetzung des Kanalnamens zu wählen. Damit genügte die
+   * Kennung eines privaten Kanals oder eines fremden Direktchats, um sich
+   * dessen angeheftete Nachrichten im Volltext geben zu lassen.
+   *
+   * Dieselbe Regel wie an der Ereignisleitung bei 'channel:open': offene
+   * Kanäle für alle, alles andere nur für Mitglieder.
+   */
   app.get('/api/channels/:id/pins', async (req) => {
     const userId = requireUser(req);
     const { id } = req.params as { id: string };
-    if (!store.getChannel(id, userId)) return { messages: [] };
+    const ch = store.getChannel(id, userId);
+    if (!ch) return { messages: [] };
+    if (ch.kind !== 'public' && !store.isMember(id, userId)) return { messages: [] };
     return { messages: store.pinnedMessages(id) };
   });
 
@@ -815,6 +859,16 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       return fehler(reply, 400, 'fehler.teileAnzahl', 'Ungültige Anzahl Teile.');
     }
 
+    /* Auch die Zahl der angefangenen Uploads gehört begrenzt: jeder hält
+       einen Eintrag im Speicher und bis zu zweitausend Teildateien auf der
+       Platte, und weggeräumt wird erst nach einer Stunde. */
+    let offen = 0;
+    for (const auftrag of teilUploads.values()) if (auftrag.userId === userId) offen += 1;
+    if (offen >= TEILUPLOADS_JE_KONTO) {
+      return fehler(reply, 429, 'fehler.zuVieleVersuche',
+        'Zu viele angefangene Uploads. Bitte einen Augenblick warten.');
+    }
+
     const id = newId('up_');
     teilUploads.set(id, {
       userId,
@@ -823,6 +877,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       size: groesse,
       parts: teile,
       da: new Set(),
+      groessen: new Map(),
       begonnen: Date.now(),
     });
     return { uploadId: id };
@@ -840,15 +895,35 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       return fehler(reply, 400, 'fehler.teilnummer', 'Ungültige Teilnummer.');
     }
 
+    /* Was dieser Teil höchstens noch beitragen darf: die angemeldete Größe
+       minus dem, was die anderen Teile schon belegen. Ein Teil neu zu
+       schicken ist erlaubt — sein bisheriger Beitrag zählt dann nicht mit. */
+    let belegt = 0;
+    for (const [n, g] of auftrag.groessen) if (n !== nummer) belegt += g;
+    const budget = auftrag.size - belegt;
+    if (budget <= 0) {
+      return fehler(reply, 413, 'fehler.dateiZuGross',
+        `Datei überschreitet ${Math.round(auftrag.size / 1024 / 1024)} MB`,
+        { mb: String(Math.round(auftrag.size / 1024 / 1024)) });
+    }
+
     const ziel = path.join(config.uploadDir, `${id}.teil${nummer}`);
+    auftrag.da.delete(nummer);
+    auftrag.groessen.delete(nummer);
     try {
-      await pipeline(req.raw, fs.createWriteStream(ziel, { highWaterMark: 1024 * 1024 }));
+      await pipeline(req.raw, begrenzt(budget), fs.createWriteStream(ziel, { highWaterMark: 1024 * 1024 }));
     } catch (err) {
       await fs.promises.rm(ziel, { force: true });
+      if ((err as Error).message === 'zu groß') {
+        return fehler(reply, 413, 'fehler.dateiZuGross',
+          `Datei überschreitet ${Math.round(auftrag.size / 1024 / 1024)} MB`,
+          { mb: String(Math.round(auftrag.size / 1024 / 1024)) });
+      }
       return fehler(reply, 500, 'fehler.teilFehlgeschlagen',
         `Teil ${nummer} fehlgeschlagen: ${(err as Error).message}`,
         { nummer: String(nummer), grund: (err as Error).message });
     }
+    auftrag.groessen.set(nummer, (await fs.promises.stat(ziel)).size);
     auftrag.da.add(nummer);
     return { ok: true, teil: nummer };
   });
