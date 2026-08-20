@@ -1,0 +1,35 @@
+Eine neue Fassung wartet höchstens sechs Stunden auf ein vergessen offenes Fenster, wirft dabei aber nie ungesendeten Text weg.
+Die Prüfläufe decken jetzt Tablets, Handy-Querformat und die Sicherheitsabstände ab und können nicht mehr versehentlich gegen den Firmenserver laufen.
+Handys im Querformat und Tablets: Schubladen und Hinweise weichen Kamera und Home-Leiste aus, Knöpfe sind fingergroß, Hover-Knöpfe immer sichtbar, Dialoge bleiben über der Tastatur bedienbar.
+Startbildschirm-App: Die Kopfzeile sitzt wieder unter der Uhr statt dahinter — der iOS-26-Viewport-Fehler (WebKit #301994) wird gemessen und an der richtigen Kante ausgeglichen.
+Startbildschirm-App: Naht am Viewport-Ende überblenden, Auffrischung mit Netz
+Doppelten Sicherheitsabstand in der Startbildschirm-App erkennen — gemessen
+Bei 413 den Ausweg nennen statt kommentarlos zu scheitern
+Aktionsleiste auf Touch: Tipp statt klebrigem Hover; Upload-Skript fragt Schlüsselbund
+Der Streifen war kein Farbfehler — Safari schneidet fixierte Flächen ab
+Eigenes Recht fürs Veröffentlichen statt der ganzen Kontoverwaltung
+Der dunkle Streifen am iPhone-Rand: die Änderung lag eine Ebene zu tief
+Fassung 1.0.14
+Aufgeschrieben, was für die Fernsteuerung am Pi dazukam
+Dashboard: sichtbar machen, DASS jemand am Schirm sitzt — nie was er tut
+Fernsteuerung: die Ansicht im Mac
+Fernsteuerung: Anmeldung mit ID und Passwort, Ende zu Ende verschlüsselt
+Fernsteuerung: der Teil, der auf dem Pi am Bildschirm sitzt
+Fassung 1.0.13
+Nachschau nach der Web-Auslieferung wartet auf den Neustart, statt zu früh rot zu melden
+Schirmbilder auf den heutigen Stand gebracht
+Anmeldung braucht bei unbekanntem Konto genauso lange wie bei echtem
+Pi: caddy und cloudflared unantastbar, Zugang dokumentiert, Konsole zeigt echte Zustände
+Prüfläufe messen jetzt wirklich: rund zwanzig konnten nie fehlschlagen
+Wörterbücher: 1087 Einträge in allen 22 Sprachen
+Stilvorlagen: fünf Farbnamen zeigten ins Leere, Reiter auf dem Telefon erreichbar
+Electron: Dateiname einer Aktualisierung kann nicht mehr aus dem Ordner ausbrechen
+Oberfläche: Fangkorb, Fokusfalle, Verlauf lässt sich zurückscrollen, kein ewiger Kreisel
+Protokoll: Kanalkennung für ai:rewrite, Vorschlags-Ereignisse, unübersetzte Nachrichten
+Dienste: Grenzen für Eingaben, Aufräumen beim Löschen, Fehlertexte mit Kennung
+KI-Vorschläge landen in einem Eingang zum Annehmen, Ablehnen oder Bearbeiten
+Ablage: gescheiterte Zerlegung räumt auf, Packen blockiert die Ereignisschleife nicht mehr
+Spracherkennung: „to" fehlte im Englischen, Listen ausgeglichen, Konfidenz neu gerechnet
+Übersetzung gibt den Eingabetext nicht mehr als Übersetzung aus; Anfragen passen ins Kontextfenster
+Ende-zu-Ende: Ablage nimmt keinen Klartext mehr, Sitzungen enden bei Sperre und Passwortwechsel
+Zugangslücken geschlossen: angeheftete Nachrichten, KI-Wege, Erinnerungen, Transkription
