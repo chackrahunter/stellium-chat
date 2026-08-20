@@ -119,7 +119,19 @@ a:hover { text-decoration: underline; }
     radial-gradient(1200px 700px at 78% -8%, var(--aurora-1), transparent 62%),
     radial-gradient(900px 620px at 10% 108%, var(--aurora-2), transparent 60%),
     radial-gradient(760px 520px at 96% 82%, var(--aurora-3), transparent 62%),
-    var(--bg-void);
+    /* Derselbe Grund wie bei `html`, und das ist der ganze Punkt.
+       Vorher stand hier --bg-void (#05060f), während `html` schon auf
+       --grund-rand (#172736) lief. Beide tragen dieselben drei Verläufe, aber
+       auf verschiedenem Grund — und weil .cosmos obendrauf liegt und mit
+       negativen Rändern bis in die Ecken reicht, war immer der falsche von
+       beiden zu sehen.
+       Auf dem iPhone gemessen: unten 98 Punkte, oben 61,7 Punkte flaches
+       #050610. Die Änderung an `html` allein hat also nichts bewirkt, weil
+       diese Ebene sie überdeckt hat.
+       Die Regel steht oben und gilt für beide Ebenen: was am Rand liegt, muss
+       denselben Ton haben wie der Schimmer dort — sonst kann ein Streifen
+       entstehen, ganz gleich, welche Fläche der Browser gerade abliest. */
+    var(--grund-rand);
 }
 
 .cosmos__stars { position: absolute; inset: 0; width: 100%; height: 100%; opacity: var(--star-alpha); }
