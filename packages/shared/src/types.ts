@@ -504,6 +504,69 @@ export interface IdeaComment {
   createdAt: number;
 }
 
+/* ── Vorschlagseingang ────────────────────────────────────────── */
+
+/**
+ * Woraus ein angenommener Vorschlag wird.
+ *
+ * Die Art rät das Modell — sie ist der unsicherste Teil eines Vorschlags.
+ * Deshalb ist sie auf der Karte umschaltbar und nicht als Reiter verbaut:
+ * ein Fehlgriff kostet einen Klick, nicht den ganzen Vorschlag.
+ */
+export type VorschlagArt = 'aufgabe' | 'idee';
+
+/**
+ * Der Weg eines Vorschlags: `offen` -> angenommen, abgelehnt oder verfallen.
+ *
+ * Abgelehnte und verfallene Zeilen bleiben stehen. Sie belegen weiter ihren
+ * Platz in `UNIQUE(channel_id, art, abdruck)` und sind damit das Gedächtnis,
+ * das denselben Vorschlag nicht wiederkommen lässt — auch nicht anders
+ * formuliert, auch nicht nach einem Neustart.
+ */
+export type VorschlagZustand = 'offen' | 'angenommen' | 'abgelehnt' | 'verfallen';
+
+/** Was die Oberfläche von einem Vorschlag sieht. */
+export interface Vorschlag {
+  id: string;
+  art: VorschlagArt;
+  zustand: VorschlagZustand;
+  titel: string;
+  channelId: string;
+  /** Name des Kanals, damit die Karte ihn ohne zweiten Abruf zeigen kann. */
+  channelName: string;
+  quelleMessageId: string | null;
+  /**
+   * Der Wortlaut der Nachricht, aus der er stammt — gekürzt.
+   *
+   * Aus einem vertraulichen Kanal steht hier immer `null`: der Server kann
+   * den Inhalt nicht lesen, und was er nicht lesen kann, gibt er nicht heraus.
+   */
+  quelleText: string | null;
+  quelleUserId: string | null;
+  quelleAm: number | null;
+  /** Genau ein Adressat — wer ihn annehmen oder ablehnen darf. */
+  fuerUserId: string;
+  genanntUserId: string | null;
+  faelligAm: number | null;
+  erstelltAm: number;
+  /** Bei angenommenen: die Kennung der entstandenen Aufgabe oder Idee. */
+  ergebnisId: string | null;
+}
+
+/**
+ * Was sich vor dem Annehmen ändern lässt.
+ *
+ * Genau die vier Felder entscheiden, ob man Ja sagen kann, und genau die
+ * trifft das Modell knapp daneben. Beschreibung, Wichtigkeit, Schlagwort und
+ * Status gehören dem fertigen Ding und bleiben dem Brett.
+ */
+export interface VorschlagAenderung {
+  titel?: string;
+  art?: VorschlagArt;
+  zustaendigId?: string | null;
+  faelligAm?: number | null;
+}
+
 /* ── Protokoll ────────────────────────────────────────────────── */
 
 /** Ergebnis einer Besprechung, weitergabefähig zusammengefasst. */

@@ -8,6 +8,7 @@ import type {
   Idea, IdeaComment, IdeaStatus, MeetingProtocol, Poll, Reaction, ReleaseInfo, Reminder, ScheduledMessage, SelfUser, SmartReply, StoredFile, StorageUsage,
   Task, TaskEvent, TaskPriority, TaskStatus, TranslationView, User,
   UserStatus, VoiceNote,
+  Vorschlag, VorschlagAenderung,
 } from './types.js';
 
 export const WS_PROTOCOL_VERSION = 1;
@@ -106,6 +107,20 @@ export type ClientEvent =
   | { t: 'idea:comment'; ideaId: string; text: string }
   | { t: 'idea:comment-delete'; commentId: string; ideaId: string }
   | { t: 'idea:delete'; ideaId: string }
+
+  /* Vorschlagseingang */
+  | { t: 'vorschlag:list' }
+  /**
+   * Annehmen — mit den Änderungen, die auf der Karte gemacht wurden.
+   *
+   * Titel, Art, Zuständige:r und Frist reisen mit, statt vorher einzeln
+   * gespeichert zu werden: ein Vorschlag, den man halb geändert liegen lässt,
+   * soll unverändert bleiben.
+   */
+  | { t: 'vorschlag:accept'; requestId: string; vorschlagId: string; aenderung?: VorschlagAenderung }
+  | { t: 'vorschlag:reject'; requestId: string; vorschlagId: string }
+  /** Die letzte Annahme zurücknehmen — nimmt das Entstandene wieder weg. */
+  | { t: 'vorschlag:undo'; requestId: string; vorschlagId: string }
 
   /* Kalender */
   | { t: 'event:list'; from: number; to: number }
@@ -211,8 +226,14 @@ export type ServerEvent =
   | {
       t: 'ai:extract-tasks'; requestId: string;
       tasks: { title: string; assigneeId: string | null; dueAt: number | null }[];
-      /** Gleich angelegte Aufgaben — die Erkennung fragt nicht mehr nach. */
-      erstellt: Task[];
+      /**
+       * Wie viele davon als Vorschlag im Eingang liegen.
+       *
+       * Die Erkennung legt seit dem Vorschlagseingang nichts mehr direkt an.
+       * Zwei Wege, die dasselbe tun, führen getrennte Lesemarken und
+       * entscheiden eines Tages verschieden — es gibt jetzt einen.
+       */
+      vorgeschlagen: number;
       /** Wie viele es schon gab und darum nicht doppelt entstanden sind. */
       uebersprungen: number;
     }
@@ -221,6 +242,26 @@ export type ServerEvent =
   | { t: 'idea:upsert'; idea: Idea }
   | { t: 'idea:removed'; ideaId: string }
   | { t: 'idea:comments'; ideaId: string; comments: IdeaComment[] }
+  | { t: 'vorschlag:list'; vorschlaege: Vorschlag[] }
+  /**
+   * Ein Vorschlag hat sich geändert.
+   *
+   * `requestId` trägt die Kennung der Anfrage zurück, die ihn geändert hat.
+   * Ohne dieses Feld wartet der Knopf, der die Anfrage geschickt hat, auf
+   * eine Antwort, die er nicht zuordnen kann — genau die Bauart, aus der
+   * der ewige Kreisel bei `ai:protocol` entstanden ist. Fehlt es, kam die
+   * Änderung von woanders und niemand wartet darauf.
+   */
+  | { t: 'vorschlag:upsert'; requestId?: string; vorschlag: Vorschlag }
+  /**
+   * Frisch entstanden, ungefragt zugestellt.
+   *
+   * Getrennt von `upsert`, weil nur das hier die Zahl am Eingang hochzählen
+   * und läuten darf — ein `upsert` ist die Folge einer eigenen Handlung und
+   * soll niemanden anstupsen.
+   */
+  | { t: 'vorschlag:neu'; vorschlag: Vorschlag }
+  | { t: 'vorschlag:removed'; vorschlagId: string }
   | { t: 'release:available'; release: ReleaseInfo }
   /** Bitte diesen Kanal anzeigen — etwa, wenn er gerade erst entstanden ist. */
   | { t: 'channel:focus'; channelId: string }
