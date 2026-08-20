@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { App } from './App.jsx';
 import { Fangkorb } from './components/Fangkorb.jsx';
 import { updatesVerbinden } from './lib/updates.js';
+import { auffrischenVerbinden } from './lib/auffrischen.js';
 import './styles/app.css';
 
 /**
@@ -16,6 +17,9 @@ const container = document.getElementById('root');
 if (!container) throw new Error('#root fehlt im HTML');
 
 updatesVerbinden();
+/* Im Browser und in der Startbildschirm-App gibt es keinen Hauptprozess, der
+   eine neue Fassung meldet. Diese Zeile merkt sie selbst. */
+auffrischenVerbinden();
 
 /* Der äußerste Fangkorb. Ohne ihn hängt React bei einem Fehler beim Zeichnen
    den ganzen Baum aus: #root ist leer, das Fenster bleibt schwarz und nichts

@@ -1,0 +1,6 @@
+Fernsteuerung für den Pi — Bildschirm, Maus, Tastatur und Zwischenablage, direkt aus Stellium heraus. Zu finden in der linken Leiste.
+Anmeldung mit ID und Passwort, die dauerhaft gleich bleiben. Alles Ende zu Ende verschlüsselt; der Bildschirm wird erst abgegriffen, wenn wirklich jemand zusieht.
+Im Dashboard des Pi ist zu sehen, DASS jemand fernsteuert — bewusst ohne Vorschau des Bildschirms.
+Der dunkle Streifen am oberen und unteren Rand auf dem iPhone ist weg. Die frühere Behebung lag eine Ebene zu tief und hat deshalb nichts bewirkt.
+Fassungen veröffentlichen ist jetzt ein eigenes Recht statt der ganzen Kontoverwaltung.
+Die Portfreigabe im Router meldete seit Wochen fälschlich "ausgefallen", obwohl sie stündlich sauber gesetzt wurde.

@@ -1,24 +1,25 @@
 /**
- * Haben die beiden Hintergrundebenen denselben Grund?
+ * Malt eine fixierte Ebene den Grund? Dann fehlt am Rand etwas.
  *
- * `html` und `.cosmos` tragen dieselben drei Verläufe. Der Sinn davon: was am
- * Rand liegt, sieht dann aus wie der Rest — egal, welche Fläche der Browser
- * gerade abliest, um den Bereich hinter seinen eigenen Leisten zu füllen.
+ * Safari ab iOS 26 zeichnet ein `position: fixed`-Element mit deckendem
+ * Hintergrund **nicht bis zum Schirmrand**: was unter die Bedienelemente
+ * reicht, wird abgeschnitten statt dahinter gezeichnet. Ein bekannter
+ * WebKit-Fehler, nicht unserer — aber wir müssen damit leben.
  *
- * Nur zählt für diesen Bereich **kein Verlauf**, sondern ausschließlich die
- * flache Grundfarbe darunter. Stehen die beiden Ebenen auf verschiedenem
- * Grund, entsteht dort ein Streifen — und zwar in der Farbe der oberen Ebene,
- * weil sie die untere überdeckt.
+ * Wir sind zweimal hineingelaufen:
  *
- * Genau das ist passiert: `html` wurde auf `--grund-rand` umgestellt,
- * `.cosmos` blieb auf `--bg-void`. Die Änderung wirkte deshalb nirgends. Auf
- * dem iPhone gemessen: unten 98 Punkte, oben 61,7 Punkte flaches #050610 —
- * die alte Farbe, obwohl Manifest, `theme-color` und `--grund-rand` alle
- * längst auf #172736 standen.
+ *   1. `.cosmos` stand auf --bg-void, während `html` schon auf --grund-rand
+ *      lief. Weil .cosmos obendrauf liegt, war am Rand die falsche Farbe zu
+ *      sehen — behoben, indem beide denselben Grund bekamen.
+ *   2. Damit war die Farbe richtig, aber die Fläche blieb: auf dem Gerät
+ *      gemessen 62 Punkte hoch, flach, mit gerader sichtbarer Kante. Denn
+ *      abgeschnitten wird sie unabhängig davon, welche Farbe sie hat.
  *
- * Das war nicht am Bildschirmabzug zu sehen und nicht am Quelltext: die
- * Änderung sah richtig aus, sie lag nur eine Ebene zu tief. Deshalb diese
- * Prüfung.
+ * Die Lehre daraus, und die Regel, die diese Prüfung durchsetzt:
+ * **Der Grund gehört auf `html`.** Ein Wurzelhintergrund füllt die Leinwand
+ * immer vollständig, weil er nicht fixiert ist und damit gar nicht in diesen
+ * Fehler laufen kann. Fixierte Ebenen dürfen darüber Verläufe, Sterne und
+ * Blasen legen — aber nichts Deckendes, das am Rand fehlen könnte.
  *
  *     node scripts/randfarbe-pruefen.mjs
  */
@@ -26,43 +27,68 @@ import fs from 'node:fs';
 
 const DATEI = 'packages/desktop/src/styles/app.css';
 const F = { rot: '\x1b[31m', gruen: '\x1b[32m', grau: '\x1b[90m', aus: '\x1b[0m' };
+/* Kommentare zuerst heraus. In ihnen stehen geschweifte Klammern und
+   Doppelpunkte, und daran ist die erste Fassung dieses Zerlegers gescheitert:
+   sie fand die html-Regel nicht und meldete, html habe gar keinen Grund. */
+const roh = fs.readFileSync(DATEI, 'utf8');
+const text = roh.replace(/\/\*[\s\S]*?\*\//g, (t) => t.replace(/[^\n]/g, ' '));
 
-const text = fs.readFileSync(DATEI, 'utf8');
-
-/** Die letzte Farbangabe einer `background`-Kurzschreibweise ist der Grund —
- *  alles davor sind Verläufe, die darüber liegen. */
-function grundVon(regel) {
-  const anfang = text.indexOf(regel);
-  if (anfang < 0) return { fehler: `${regel} nicht gefunden` };
-  const block = text.slice(anfang, text.indexOf('}', anfang));
-  const bg = block.match(/background:\s*([\s\S]*?);/);
-  if (!bg) return { fehler: `${regel} hat keine background-Angabe` };
-  const teile = bg[1].split(',');
-  const letzter = teile[teile.length - 1].trim();
-  const name = letzter.match(/var\(\s*(--[\w-]+)/);
-  return name ? { grund: name[1] } : { grund: letzter };
+/** Alle Regelblöcke mit ihrem Selektor und Rumpf. */
+function bloecke() {
+  const raus = [];
+  const re = /(^|\})\s*([^{}@][^{}]*?)\s*\{([^{}]*)\}/gms;
+  let m;
+  while ((m = re.exec(text))) {
+    const zeile = text.slice(0, m.index).split('\n').length;
+    raus.push({ zeile, sel: m[2].trim().replace(/\s+/g, ' '), rumpf: m[3] });
+  }
+  return raus;
 }
 
-const a = grundVon('\nhtml {');
-const b = grundVon('\n.cosmos {');
-
+const alle = bloecke();
+let fehler = 0;
 console.log('');
-for (const [wo, w] of [['html', a], ['.cosmos', b]]) {
-  if (w.fehler) {
-    console.log(`  ${F.rot}✗${F.aus} ${w.fehler}`);
-  } else {
-    console.log(`  ${wo.padEnd(9)} Grund: ${w.grund}`);
+
+/* ── 1. Hat `html` einen Grund? ──────────────────────────────── */
+
+const wurzel = alle.find((b) => /^html\b/.test(b.sel) && /background\s*:/.test(b.rumpf));
+if (!wurzel) {
+  console.log(`  ${F.rot}✗${F.aus} html hat keinen Hintergrund — dann füllt nichts verlässlich die Ränder.`);
+  fehler++;
+} else {
+  const letzter = wurzel.rumpf.match(/background:\s*([\s\S]*?);/)[1].split(',').pop().trim();
+  console.log(`  ${F.gruen}✓${F.aus} html trägt den Grund: ${letzter}`);
+}
+
+/* ── 2. Malt eine fixierte Ebene etwas Deckendes? ───────────── */
+
+/** Ein Verlauf, der in `transparent` ausläuft, ist harmlos: fehlt er am Rand,
+ *  sieht man den Unterschied nicht. Gefährlich ist nur eine flache Farbe. */
+function deckend(wert) {
+  const ohneVerlaeufe = wert.replace(/(radial|linear|conic)-gradient\([^()]*(\([^()]*\)[^()]*)*\)/g, '');
+  return /#[0-9a-f]{3,8}|rgba?\(|hsla?\(|var\(--/i.test(ohneVerlaeufe);
+}
+
+const verdaechtig = alle.filter((b) =>
+  /position:\s*fixed/.test(b.rumpf) && /background\s*:/.test(b.rumpf));
+
+for (const b of verdaechtig) {
+  const wert = b.rumpf.match(/background:\s*([\s\S]*?);/)?.[1] ?? '';
+  const raus = deckend(wert);
+  const reicht = /inset:\s*calc\(\s*-/.test(b.rumpf);
+  if (raus && reicht) {
+    console.log(`  ${F.rot}✗${F.aus} ${b.sel} (Z.${b.zeile}) ist fixiert, reicht über den Rand hinaus`);
+    console.log(`      und malt etwas Deckendes: ${F.grau}${wert.split(',').pop().trim()}${F.aus}`);
+    console.log(`      ${F.grau}Safari schneidet das am unteren Rand ab — dort bleibt eine Fläche.${F.aus}`);
+    fehler++;
   }
 }
 
-if (a.fehler || b.fehler) { console.log(''); process.exit(1); }
-
-if (a.grund !== b.grund) {
-  console.log(`\n  ${F.rot}✗ Die beiden Ebenen stehen auf verschiedenem Grund.${F.aus}`);
-  console.log(`  ${F.grau}.cosmos liegt über html und reicht bis in die Ecken — sichtbar am`);
-  console.log(`  Rand ist also ${b.grund}, nicht ${a.grund}. Dort entsteht ein Streifen.${F.aus}\n`);
-  process.exit(1);
+if (!verdaechtig.length || !fehler) {
+  console.log(`  ${F.gruen}✓${F.aus} Keine fixierte Ebene malt einen deckenden Grund über die Kante hinaus.`);
 }
 
-console.log(`\n  ${F.gruen}✓${F.aus} Beide Ebenen stehen auf demselben Grund — am Rand kann kein`);
-console.log(`    Streifen entstehen, gleich welche Fläche der Browser abliest.\n`);
+console.log(fehler
+  ? `\n  ${F.rot}${fehler} Fund(e).${F.aus}\n`
+  : `\n  ${F.gruen}Der Rand kann nicht ausfallen.${F.aus}\n`);
+process.exit(fehler ? 1 : 0);

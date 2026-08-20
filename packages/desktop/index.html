@@ -5,6 +5,13 @@
     <!-- viewport-fit=cover: sonst bleibt unter der Dynamic Island und über der
          Home-Leiste ein schwarzer Balken statt Inhalt. Das Freihalten
          übernimmt das Stylesheet über env(safe-area-inset-*). -->
+    <!-- Kein user-scalable=no. Es stand hier, damit iOS beim Antippen eines
+         Eingabefeldes nicht hineinzoomt — aber es sperrt damit auch alle aus,
+         die zum Lesen vergrößern müssen, und gilt als Barrierefreiheits-
+         Verstoß. Das eigentliche Mittel gegen das Zoomen ist eine Schriftgröße
+         von mindestens 16px im Eingabefeld, und die steht ohnehin da
+         (.composer__input). Zwei Lösungen für dasselbe Problem, von denen eine
+         schadet — also die weg. -->
     <!-- interactive-widget=resizes-content: geht die Tastatur auf, soll das
          Fenster selbst kleiner werden. Ohne diese Angabe bleibt die Fensterhöhe
          stehen, 100dvh am .rahmen bleibt also gross, und iOS verschiebt
@@ -15,7 +22,7 @@
          hier NICHT geprüft — ein Prüflauf ohne Gerät hat keine. Maschinen, die
          die Angabe nicht kennen, überlesen sie folgenlos. -->
     <meta name="viewport"
-          content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no, interactive-widget=resizes-content" />
+          content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content" />
     <!-- Dieselbe Farbe wie der Seitenrand (--grund-rand). iOS tönt damit die
          Leisten um die Seite; steht hier ein anderer Wert, entsteht genau der
          dunkle Streifen unter dem Schreibfeld, den wir lange gejagt haben. -->

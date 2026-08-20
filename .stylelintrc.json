@@ -1,0 +1,11 @@
+{
+  "extends": "stylelint-config-recommended",
+  "rules": {
+    "declaration-block-no-shorthand-property-overrides": true,
+    "declaration-block-no-duplicate-properties": [true, { "ignore": ["consecutive-duplicates-with-different-syntaxes"] }],
+    "no-duplicate-selectors": true,
+    "no-descending-specificity": null,
+    "media-feature-range-notation": null,
+    "font-family-no-missing-generic-family-keyword": null
+  }
+}
