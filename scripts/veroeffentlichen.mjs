@@ -17,6 +17,7 @@
  * jede Zeile wird den anderen nach dem Update als eigener Punkt gezeigt.
  */
 import { execFileSync } from 'node:child_process';
+import { execSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -171,11 +172,44 @@ for (const [system, datei] of Object.entries(dateien)) {
 if (mitServer) ok('server   downloads/stellium-server.tar.gz');
 if (!Object.values(dateien).some(Boolean) && !mitServer) raus('Nichts zum Hochladen gefunden.');
 
+
+/* ── Zugang aus dem Schlüsselbund ────────────────────────────────
+   Diese Abfragen standen bisher nur in `ausliefern.mjs`. Wer dieses Skript
+   direkt aufrief — und das tut man, wenn die Fassung schon gesetzt ist —
+   wurde nach Adresse, Benutzer und Passwort gefragt. Im Hintergrund, ohne
+   Terminal, wartete es darauf **stundenlang**, ohne eine Zeile auszugeben.
+   Es sah aus, als liefe der Bau noch. */
+
+function ausSchluesselbund(dienst, konto = null) {
+  const wo = konto ? `-s ${JSON.stringify(dienst)} -a ${JSON.stringify(konto)}` : `-s ${JSON.stringify(dienst)}`;
+  try {
+    return execSync(`security find-generic-password ${wo} -w`, {
+      encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+  } catch { return ''; }
+}
+
+/** Erst die Umgebung, dann der Schlüsselbund, dann fragen. */
+function zugangsdaten() {
+  const server = process.env.STELLIUM_SERVER || ausSchluesselbund('stellium-server');
+  let login = process.env.STELLIUM_LOGIN || '';
+  let passwort = process.env.STELLIUM_PASSWORT || '';
+  if (!passwort) {
+    for (const konto of [login || 'claude', 'don']) {
+      const wert = ausSchluesselbund('stellium-veroeffentlichen', konto);
+      if (wert) { login = konto; passwort = wert; break; }
+    }
+  }
+  return { server, login, passwort };
+}
+
 /* ── Hochladen ───────────────────────────────────────────────── */
 
-const server = (process.env.STELLIUM_SERVER || await frage('Serveradresse (z.B. https://chat.firma.de): ')).replace(/\/+$/, '');
-const login = process.env.STELLIUM_LOGIN || await frage('Benutzername: ');
-const passwort = process.env.STELLIUM_PASSWORT || await frage('Passwort: ');
+const gefunden = zugangsdaten();
+const server = (gefunden.server || await frage('Serveradresse (z.B. https://chat.firma.de): ')).replace(/\/+$/, '');
+const login = gefunden.login || await frage('Benutzername: ');
+const passwort = gefunden.passwort || await frage('Passwort: ');
+if (gefunden.server && gefunden.passwort) ok(`Zugang als ${login} (Schlüsselbund)`);
 const text = notizen || await frage('Was ist neu? (eine Zeile je Punkt, leer = nichts): ');
 
 schritt('Anmelden');

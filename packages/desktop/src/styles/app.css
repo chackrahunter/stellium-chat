@@ -555,7 +555,16 @@ a:hover { text-decoration: underline; }
   transition: opacity var(--t-fast), transform var(--t-fast) var(--ease-out);
   z-index: 5;
 }
-.msg:hover .msg__actions, .msg__actions:focus-within { opacity: 1; pointer-events: auto; transform: none; }
+.msg:hover .msg__actions, .msg__actions:focus-within,
+.msg--aktionen .msg__actions { opacity: 1; pointer-events: auto; transform: none; }
+
+/* Auf Touch öffnet nicht das Überfahren, sondern ein Tipp auf die Nachricht
+   (msg--aktionen, gesetzt in MessageItem). iOS lässt :hover nach jedem Tipp
+   kleben — ohne diese Trennung blieben über etlichen Nachrichten offene
+   Leisten zurück, auf dem Gerät gesehen und gemessen. */
+@media (pointer: coarse) {
+  .msg:hover:not(.msg--aktionen) .msg__actions { opacity: 0; pointer-events: none; }
+}
 
 /* ── Übersetzung ────────────────────────────────────────────── */
 

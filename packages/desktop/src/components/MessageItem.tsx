@@ -1,4 +1,4 @@
-import { memo, useState } from 'react';
+import { memo, useState, useEffect } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
   AlertTriangle, Bell, Bookmark, Check, Copy, EyeOff, Forward, Languages, Lock,
@@ -120,6 +120,31 @@ export const MessageItem = memo(function MessageItem({ message, grouped, inThrea
      Zustand — sonst bearbeitete man Base64. */
   const bearbeitenStarten = () => { setDraft(klartext); setEditing(true); };
 
+  /* Auf Touch gibt es kein Überfahren. iOS tut zwar so (klebriger
+     :hover nach jedem Tipp) — aber genau das ließ über den Nachrichten
+     lauter offene Aktionsleisten zurück, die niemand bestellt hatte.
+     Deshalb: auf groben Zeigern öffnet ein Tipp auf die Nachricht die
+     Leiste, ein zweiter (oder ein Tipp auf eine andere Nachricht)
+     schließt sie. Maus-Geräte behalten das Überfahren. */
+  const [aktionenOffen, setAktionenOffen] = useState(false);
+  useEffect(() => {
+    if (!aktionenOffen) return;
+    const zu = (e: Event) => {
+      if ((e as CustomEvent).detail !== message.id) setAktionenOffen(false);
+    };
+    document.addEventListener('msg-aktionen', zu);
+    return () => document.removeEventListener('msg-aktionen', zu);
+  }, [aktionenOffen, message.id]);
+
+  const beiTipp = (e: React.MouseEvent) => {
+    if (!window.matchMedia('(pointer: coarse)').matches) return;
+    /* Knöpfe, Links und Eingaben in der Nachricht behalten ihren Sinn. */
+    if ((e.target as HTMLElement).closest('button, a, input, textarea, [role="menu"]')) return;
+    const offen = !aktionenOffen;
+    setAktionenOffen(offen);
+    if (offen) document.dispatchEvent(new CustomEvent('msg-aktionen', { detail: message.id }));
+  };
+
   return (
     <motion.div
       layout="position"
@@ -134,7 +159,9 @@ export const MessageItem = memo(function MessageItem({ message, grouped, inThrea
         message.pending && 'msg--pending',
         message.failed && 'msg--failed',
         highlighted && 'msg--highlight',
+        aktionenOffen && 'msg--aktionen',
       )}
+      onClick={beiTipp}
     >
       <div className="msg__gutter">
         {grouped
