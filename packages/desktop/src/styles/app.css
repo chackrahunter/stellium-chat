@@ -951,12 +951,28 @@ a:hover { text-decoration: underline; }
   backdrop-filter: blur(6px);
   display: flex; align-items: flex-start; justify-content: center;
   padding: 9vh var(--sp-4) var(--sp-4);
+  /* Bei offener Bildschirmtastatur (iOS verkleinert das Fenster nicht!)
+     wächst das untere Polster um die Tastaturhöhe: 100dvh minus der
+     sichtbaren Höhe aus lib/tastatur.ts. Ohne Tastatur ist die Differenz 0
+     und das max() fällt auf den normalen Rand zurück. Auf Android schrumpft
+     dvh mit (interactive-widget) — dann ist die Differenz ebenfalls ~0 und
+     nichts wird doppelt ausgeglichen. */
+  padding-bottom: max(var(--sp-4), calc(100dvh - var(--vv-hoehe, 100dvh) + 12px));
 }
-.scrim--center { align-items: center; padding: var(--sp-4); }
+.scrim--center {
+  align-items: center;
+  padding: var(--sp-4);
+  padding-bottom: max(var(--sp-4), calc(100dvh - var(--vv-hoehe, 100dvh) + 12px));
+}
 
 .panel {
   width: min(720px, 100%);
-  max-height: 78vh;
+  /* 100 %: der .scrim hat als fixiertes Element eine bestimmte Höhe, sein
+     Polster (inkl. Tastatur-Ausgleich unten) begrenzt damit auch das Fenster —
+     egal ob oben angesetzt oder zentriert. Ein eigener --vv-hoehe-Abzug hier
+     rechnete den 9vh-Kopfabstand nicht heraus und ließ die Fußknöpfe auf
+     Tablets weiter unter der Tastatur liegen. */
+  max-height: min(78vh, 100%);
   display: flex; flex-direction: column;
   border-radius: var(--r-xl);
   border: 1px solid var(--line-strong);
@@ -1175,7 +1191,10 @@ a:hover { text-decoration: underline; }
 
 .toasts {
   position: fixed; z-index: 60;
-  bottom: var(--sp-5); right: var(--sp-5);
+  /* Fixiert am Viewport: ohne die Sicherheitsabstände läge der Hinweis in
+     der Wischzone der Home-Leiste bzw. im Querformat unter der Kamera. */
+  bottom: calc(var(--sp-5) + var(--sicher-unten));
+  right: calc(var(--sp-5) + var(--sicher-rechts));
   display: flex; flex-direction: column; gap: var(--sp-2);
   pointer-events: none;
 }
@@ -1715,13 +1734,24 @@ button.msg__author:hover { color: var(--violet-soft); text-decoration: underline
   padding-right: var(--sicher-rechts);
 }
 .rail { padding-top: calc(var(--sp-4) + var(--sicher-oben)); padding-bottom: calc(var(--sp-4) + var(--sicher-unten)); }
-.header { padding-top: var(--sicher-oben); height: calc(var(--header-h) + var(--sicher-oben)); }
+/* Die Flex-Basis muss mitwachsen, nicht die height: .header steht immer in
+   der Flex-Spalte .main mit `flex: 0 0 var(--header-h)`, und dort bestimmt
+   allein die Basis die Höhe — eine height-Angabe wäre wirkungslos (im
+   Prüflauf gemessen: +48 statt +59 px) und nur eine zweite Zahl, die beim
+   nächsten Umbau vergessen wird. */
+.header {
+  padding-top: var(--sicher-oben);
+  flex-basis: calc(var(--header-h) + var(--sicher-oben));
+}
 .sidebar { padding-top: var(--sicher-oben); padding-bottom: var(--sicher-unten); }
 
 
 /* Ab hier wird die Kanalliste zur Schublade — auch auf Tablets. So bleibt das
-   Gespräch überall die Hauptsache, und die Liste ist einen Griff entfernt. */
-@media (max-width: 880px) {
+   Gespräch überall die Hauptsache, und die Liste ist einen Griff entfernt.
+   Die zweite Bedingung fängt Telefone im Querformat: ein iPhone Pro Max ist
+   quer 932 Punkte breit und bekäme sonst die Schreibtisch-Dreispaltenansicht
+   auf 430 Punkten Höhe — flache Touch-Fenster gehören immer hierher. */
+@media (max-width: 880px), ((max-height: 500px) and (pointer: coarse)) {
   .app,
   .app--thread,
   .app--collapsed { grid-template-columns: var(--rail-w) minmax(0, 1fr); }
@@ -1732,13 +1762,16 @@ button.msg__author:hover { color: var(--violet-soft); text-decoration: underline
   .sidebar {
     position: fixed;
     top: 0; bottom: 0;
-    left: var(--rail-w);
-    width: min(300px, calc(100vw - var(--rail-w) - 40px));
+    /* Fixierte Elemente hängen am Viewport, nicht am gepolsterten .rahmen —
+       ohne den seitlichen Sicherheitsabstand säße die Schublade im Querformat
+       unter der Kamera-Aussparung und versetzt zur Symbolleiste im Raster. */
+    left: calc(var(--rail-w) + var(--sicher-links));
+    width: min(300px, calc(100vw - var(--rail-w) - var(--sicher-links) - 40px));
     z-index: 30;
     /* Weit genug nach links, dass sie auch die Symbolleiste freigibt —
        sonst lag die eingeklappte Liste unsichtbar über deren Knöpfen und
        fing jeden Fingertipp ab. */
-    transform: translateX(calc(-100% - var(--rail-w)));
+    transform: translateX(calc(-100% - var(--rail-w) - var(--sicher-links)));
     pointer-events: none;
     visibility: hidden;
     transition: transform 0.26s cubic-bezier(0.16, 1, 0.3, 1), visibility 0.26s;
@@ -1748,6 +1781,15 @@ button.msg__author:hover { color: var(--violet-soft); text-decoration: underline
     transform: none;
     pointer-events: auto;
     visibility: visible;
+  }
+  /* Bei offenem Thread setzt die 1080er-Regel `.app--thread .sidebar` die
+     Breite auf 0 — für die ausgefahrene Schublade muss die eigene Breite
+     gewinnen, sonst dunkelt der Schleier ab und es fährt eine unsichtbare,
+     null Pixel breite Liste aus (auf Quer-Handys erreichbar, weil der
+     Menü-Knopf dort neben dem 400-Punkte-Thread frei bleibt). */
+  .app--thread.app--schublade .sidebar {
+    width: min(300px, calc(100vw - var(--rail-w) - var(--sicher-links) - 40px));
+    min-width: 0;
   }
 
   .schublade-schleier {
@@ -1809,7 +1851,13 @@ button.msg__author:hover { color: var(--violet-soft); text-decoration: underline
   .rail {
     position: fixed;
     top: 0; bottom: 0; left: 0;
-    width: var(--rail-w);
+    /* Als fixiertes Element unter der Kamera-Aussparung hindurch: die Breite
+       wächst um den seitlichen Sicherheitsabstand, das Polster hält die
+       Knöpfe frei (im Hochformat ist beides 0). Physisches padding-left,
+       kein padding-inline-start: env() ist physisch, und die Leiste klebt
+       auch bei RTL-Sprachen physisch links. */
+    width: calc(var(--rail-w) + var(--sicher-links));
+    padding-left: var(--sicher-links);
     z-index: 31;
     transform: translateX(-100%);
     visibility: hidden;
@@ -1822,8 +1870,13 @@ button.msg__author:hover { color: var(--violet-soft); text-decoration: underline
   }
   /* Die Liste rückt neben die Symbolleiste — beide bilden eine Schublade. */
   .sidebar {
-    left: var(--rail-w);
-    width: min(300px, calc(100vw - var(--rail-w) - 28px));
+    left: calc(var(--rail-w) + var(--sicher-links));
+    width: min(300px, calc(100vw - var(--rail-w) - var(--sicher-links) - 28px));
+  }
+  /* Wie im 880er-Block: auch mit offenem Thread behält die ausgefahrene
+     Schublade ihre Breite (die 1080er-Regel setzt sie sonst auf 0). */
+  .app--thread.app--schublade .sidebar {
+    width: min(300px, calc(100vw - var(--rail-w) - var(--sicher-links) - 28px));
   }
   /* Undurchsichtig, sonst liest man Kopfzeile und Eingabefeld hindurch. */
   .rail, .sidebar { background: var(--bg-schublade); }
@@ -1866,7 +1919,12 @@ button.msg__author:hover { color: var(--violet-soft); text-decoration: underline
        Dynamic Island und die untersten unter der Wischleiste — sichtbar nur
        in der App vom Startbildschirm, weil im Browser env() dort 0 ist. */
     padding-block: calc(6px + var(--sicher-oben)) calc(6px + var(--sicher-unten));
-    padding-inline: 0;
+    /* Links bleibt der seitliche Sicherheitsabstand stehen (Kamera im
+       Querformat) — die Kurzschreibweise ohne ihn würde ihn löschen.
+       Physisch (nicht inline-start): env() kennt keine Leserichtung, und
+       die Leiste klebt auch bei RTL-Sprachen physisch links. */
+    padding-left: var(--sicher-links);
+    padding-right: 0;
     gap: 2px;
     overflow-y: auto;
     overscroll-behavior: contain;
@@ -1921,8 +1979,12 @@ button.msg__author:hover { color: var(--violet-soft); text-decoration: underline
   .composer__bar .muted { display: none; }
 
   /* Fenster nehmen fast die ganze Fläche — auf 6 Zoll ist Rand verschenkter Platz. */
-  .scrim { padding: 8px; align-items: flex-start; }
-  .panel { width: 100% !important; max-height: 92dvh; }
+  .scrim {
+    padding: 8px;
+    padding-bottom: max(8px, calc(100dvh - var(--vv-hoehe, 100dvh) + 8px));
+    align-items: flex-start;
+  }
+  .panel { width: 100% !important; max-height: min(92dvh, 100%); }
   .panel__head { padding: 12px 14px; }
   .panel__body { padding: 12px 14px 16px; }
   .grid-2 { grid-template-columns: 1fr; }
@@ -2038,7 +2100,10 @@ button.msg__author:hover { color: var(--violet-soft); text-decoration: underline
   -webkit-text-fill-color: transparent;
 }
 
-@media (max-width: 880px) {
+/* Dieselbe Weiche wie beim Schubladen-Block oben — beide Mobil-Blöcke müssen
+   gemeinsam schalten, sonst fährt ein Quer-Handy die Schublade, aber die
+   Teamverwaltung noch das Zweispalten-Raster auf 430 Punkten Höhe. */
+@media (max-width: 880px), ((max-height: 500px) and (pointer: coarse)) {
   .admin { grid-template-columns: 1fr; }
   .admin__liste { border-inline-end: 0; border-bottom: 1px solid var(--line); max-height: 200px; }
 }
@@ -3234,4 +3299,43 @@ button.msg__author:hover { color: var(--violet-soft); text-decoration: underline
   /* Auf schmalen Geräten bekommt jeder Knopf die volle Breite: nebeneinander
      wären sie schmaler als der Daumen. */
   .vorschlag__knoepfe .btn { flex: 1 1 100%; }
+}
+
+/* ── Fingerbedienung: Trefferflächen und Sichtbarkeit ─────────────
+   Diese Regeln hängen am Eingabegerät, nicht an der Fensterbreite: ein iPad
+   ist breiter als mancher Laptop und wird trotzdem mit dem Finger bedient.
+   Sie stehen bewusst am Dateiende — gezieltere Regeln (etwa die durchgerechnete
+   38er-Composer-Leiste fürs Telefon) gewinnen über ihre höhere Spezifität. */
+@media (pointer: coarse) {
+  .icon-btn { width: 40px; height: 40px; }
+  .icon-btn--sm { width: 34px; height: 34px; }
+  .reaction { height: 32px; padding: 0 11px; }
+  .idea-vote__btn { width: 36px; height: 28px; }
+  .poll__close { padding: 8px 14px; }
+  .week__add { width: 34px; height: 34px; }
+
+  /* Knöpfe, die am Zeiger-Überfahren hängen, gibt es auf Touch nicht —
+     dort bleiben sie dauerhaft sichtbar, sonst sind sie unerreichbar. */
+  .week__add, .group__add { opacity: 1; }
+
+  /* Unter 16 px zoomt iOS beim Antippen ins Eingabefeld hinein. Die Regel
+     stand bisher nur im Telefon-Block (≤560 px) und verfehlte Handys im
+     Querformat und Tablets — im Prüflauf gemessen: 14,5 px bei 750×342. */
+  .composer__input { font-size: 16px; }
+
+  /* Der jetzt immer sichtbare Plus-Knopf (34 px, unten rechts in der Zelle)
+     braucht Platz — sonst liegt er über dem letzten Termin des Tages und
+     ein Tipp auf dessen Ende legt stattdessen einen neuen an. */
+  .week__day { padding-bottom: 42px; }
+}
+
+/* Flache Touch-Fenster (Handy quer): die Symbolspalte will ~800 px Höhe und
+   bekommt keine 500 — ohne Rollen wären die untersten Knöpfe (Team,
+   Einstellungen) zerquetscht und unerreichbar. Der ≤560-Block hat dieselben
+   Regeln fürs Hochformat-Telefon; dazwischen (561–932 px Breite) griff
+   bisher keine. */
+@media (max-height: 500px) and (pointer: coarse) {
+  .rail { overflow-y: auto; overscroll-behavior: contain; scrollbar-width: none; }
+  .rail::-webkit-scrollbar { display: none; }
+  .rail__logo, .rail-btn, .rail__spacer { flex: none; }
 }
