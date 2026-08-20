@@ -124,6 +124,28 @@ a:hover { text-decoration: underline; }
 
 .cosmos__stars { position: absolute; inset: 0; width: 100%; height: 100%; opacity: var(--star-alpha); }
 
+/* Am Weichzeichner ist hier schon gemessen worden — er bleibt, wie er ist.
+
+   Die Vermutung war, dass `blur(70px)` auf drei großen Flächen die Oberfläche
+   ausbremst, und in einer alleinstehenden Messung sah es auch so aus. In der
+   vollständigen App bei echter Bildpunktdichte ist davon nichts übrig:
+   blur(70px) gegen blur(40px) ergab beim Scrollen 20,4 gegen 20,5 Bilder je
+   Sekunde — Rauschen. Der Unterschied verschwindet, weil dort die 17 Flächen
+   mit backdrop-filter und die doppelte Bildpunktdichte längst überwiegen.
+
+   Auf einer Maschine MIT Grafikbeschleunigung — Dons Mac, jedes Telefon,
+   nahezu jedes Windows — läuft ohnehin alles bei 60 Bildern, mit und ohne.
+   Teuer wird es nur ohne Beschleunigung (Linux mit gesperrtem Treiber,
+   virtuelle Maschinen, Fernzugriff), und dort hilft das Herunterdrehen des
+   Weichzeichners eben gerade nicht.
+
+   Ganz ohne Weichzeichner wäre es billig — aber dann wird aus dem Nebel eine
+   erkennbare Scheibe mit sichtbarem Rand. Angesehen, nicht nur nachgerechnet.
+
+   Wer es erneut versuchen will: scripts/blasen-vergleichen.mjs misst die
+   Anteile und legt die Bilder zum Vergleich in schirmbilder/blasen/ ab,
+   scripts/fluessig-messen.mjs sagt, ob es in der ganzen App etwas ändert.
+   Zweiteres ist die Frage — die alleinstehende Messung führt hier in die Irre. */
 .cosmos__blob {
   position: absolute;
   border-radius: 50%;
@@ -2972,4 +2994,186 @@ button.msg__author:hover { color: var(--violet-soft); text-decoration: underline
   font-weight: 600;
   letter-spacing: 0;
   text-align: center;
+}
+
+/* ── Eingang für KI-Vorschläge ──────────────────────────────── */
+/* Eigene Klassen statt .idea-tab: die dortigen Regeln greifen auf
+   --text-dim und --bg-sunken zu, und beide sind nirgends gesetzt — die
+   Deklarationen fallen damit aus. Hier stehen nur Tokens, die es
+   wirklich gibt. */
+
+.vorschlag-leiste {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.vorschlag-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  /* 34 px hoch: auf dem Telefon ist das die Untergrenze, ab der man einen
+     Reiter zuverlässig trifft, ohne den Nachbarn zu erwischen. */
+  min-height: 34px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  color: var(--tx-mid);
+  background: var(--bg-panel);
+  border: 1px solid var(--line);
+  transition: color var(--t-fast), border-color var(--t-fast), background var(--t-fast);
+}
+.vorschlag-tab:hover { color: var(--tx-hi); border-color: var(--line-strong); }
+.vorschlag-tab--on {
+  color: var(--tx-hi);
+  background: var(--bg-active);
+  border-color: var(--violet);
+}
+.vorschlag-tab__n {
+  font-size: 10.5px;
+  font-weight: 600;
+  opacity: 0.7;
+}
+
+.vorschlag-zurueck {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow: hidden;
+  margin-bottom: 10px;
+  padding: 8px 10px;
+  border-radius: var(--r-sm);
+  background: var(--bg-panel);
+  border: 1px solid var(--line);
+  font-size: 12.5px;
+}
+.vorschlag-zurueck .ok { color: var(--green); flex: none; }
+.vorschlag-zurueck__text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--tx-mid);
+}
+
+.vorschlag-liste { display: flex; flex-direction: column; gap: 10px; }
+
+.vorschlag {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border-radius: var(--r-md);
+  background: var(--bg-panel);
+  border: 1px solid var(--line);
+}
+
+.vorschlag__kopf { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; }
+
+.vorschlag__art {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--violet-soft);
+  background: var(--bg-active);
+}
+.vorschlag__art--idee { color: var(--amber); background: rgba(251, 191, 36, 0.14); }
+
+.vorschlag__titel {
+  margin: 0;
+  flex: 1;
+  min-width: 0;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--tx-hi);
+  /* Ein Titel aus dem Chat kann eine lange URL enthalten. Ohne das hier
+     schiebt er die Karte über den Rand des Telefons hinaus. */
+  overflow-wrap: anywhere;
+}
+
+.vorschlag__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  font-size: 11.5px;
+  color: var(--tx-lo);
+}
+.vorschlag__chan,
+.vorschlag__wer { display: inline-flex; align-items: center; gap: 4px; }
+
+/* Die Herkunft — leicht abgesetzt, damit man auf einen Blick sieht,
+   was Zitat ist und was Vorschlag. */
+.vorschlag__quelle {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 8px 10px;
+  border-radius: var(--r-sm);
+  background: var(--bg-panel-2);
+  border-left: 2px solid var(--line-strong);
+}
+.vorschlag__quelle-kopf {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  color: var(--tx-mid);
+}
+.vorschlag__quelle-text {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--tx-mid);
+  overflow-wrap: anywhere;
+  /* Drei Zeilen reichen zum Beurteilen. Wer mehr braucht, springt hin. */
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.vorschlag__aendern {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow: hidden;
+}
+
+.vorschlag__knoepfe {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+/* 40 px: die Höhe, ab der ein Knopf auf dem Telefon sicher zu treffen ist.
+   „Annehmen" und „Ablehnen" passen damit bei 375 px nebeneinander,
+   „Ändern" rutscht in die zweite Zeile. */
+.vorschlag__knoepfe .btn { min-height: 40px; }
+/* Der Hauptknopf darf auffallen, aber nicht die halbe Karte einnehmen: auf
+   einem breiten Schirm sah „Annehmen" wie ein Banner aus. */
+.vorschlag__knoepfe .btn--primary { flex: 0 1 220px; }
+
+.vorschlag-fuss {
+  margin: 14px 0 0;
+  font-size: 11px;
+  color: var(--tx-lo);
+  text-align: center;
+}
+
+@media (max-width: 520px) {
+  .vorschlag { padding: 10px; }
+  /* Auf schmalen Geräten bekommt jeder Knopf die volle Breite: nebeneinander
+     wären sie schmaler als der Daumen. */
+  .vorschlag__knoepfe .btn { flex: 1 1 100%; }
 }

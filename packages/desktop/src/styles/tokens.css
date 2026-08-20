@@ -29,6 +29,11 @@
   /* Zweitname für Mint. Drei Regeln griffen ins Leere, weil sie --green
      erwarteten — ein unbekannter Wert lässt die Deklaration ausfallen. */
   --green:       var(--mint);
+  /* Dieselbe Gattung, gefunden von scripts/tokens-pruefen.mjs: --red trägt
+     überfällige Fristen, Absagen und den Gefahr-Knopf, --blue die Marken für
+     „neu" und Erinnerungen. Beide fielen bisher ersatzlos aus. */
+  --red:         var(--rose);
+  --blue:        var(--cyan);
 
   --grad-nebula: linear-gradient(135deg, #7c5cff 0%, #22d3ee 100%);
   --grad-aurora: linear-gradient(135deg, #f472b6 0%, #7c5cff 55%, #22d3ee 100%);
@@ -77,6 +82,23 @@
   --tx-mid:       rgba(238, 241, 251, 0.68);
   --tx-lo:        rgba(238, 241, 251, 0.42);
   --tx-inv:       #0a0d18;
+
+  /* Zweitnamen, wie --green weiter oben. 60 Regeln in app.css greifen ins
+     Leere, weil sie diese Namen erwarten — und ein unbekannter Wert lässt die
+     ganze Deklaration ausfallen, lautlos. Sichtbar war das zuletzt an den
+     Filterreitern der Ideentafel: der aktive war vom inaktiven kaum zu
+     unterscheiden, weil bei beiden Farbe und Grund ausfielen.
+
+     Nur hier deklariert, nicht im Hell-Block: die Ersetzung geschieht erst
+     bei der Verwendung, --tx-lo trägt dort also schon den hellen Wert.
+
+     Die Ziele stehen nicht beliebig da, sondern folgen dem Gebrauch:
+     --text-dim  steht durchweg an gedämpften Nebentexten  → --tx-lo
+     --text      steht in :hover-Regeln, die aufhellen      → --tx-hi
+     --bg-sunken trägt Listen- und Hover-Flächen            → --bg-panel */
+  --text-dim:     var(--tx-lo);
+  --text:         var(--tx-hi);
+  --bg-sunken:    var(--bg-panel);
 
   --glow: 0 0 0 1px rgba(124, 92, 255, 0.28), 0 8px 34px -8px rgba(124, 92, 255, 0.5);
   --shadow-sm: 0 2px 10px rgba(0, 0, 0, 0.32);
