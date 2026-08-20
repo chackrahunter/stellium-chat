@@ -171,6 +171,14 @@ export function einschalten(input: {
 
   const fassung = 1;
   const jetzt = Date.now();
+  /* Nur an Mitglieder — dieselbe Regel wie in paketeNachreichen() und
+     wechseln(), die hier als einzige fehlte. Ein Paket für ein Konto außerhalb
+     des Kanals ließe sich zwar nirgends abholen (vertraulich:paket-holen prüft
+     die Mitgliedschaft), aber es stünde in der Buchhaltung als versorgt und
+     machte damit die Auskunft falsch, wer diesen Kanal aufschließen kann. Eine
+     Schlüsselbuchhaltung, die mehr Namen führt als der Kanal Mitglieder hat,
+     ist genau die Art Unstimmigkeit, in der später jemand eine Tür findet. */
+  const mitglieder = new Set(memberIds(input.channelId));
   db.transaction(() => {
     db.run('UPDATE channels SET vertraulich = 1, schluessel_fassung = ?, ai_mode = \'off\' WHERE id = ?',
       fassung, input.channelId);
@@ -178,7 +186,10 @@ export function einschalten(input: {
       'INSERT INTO kanal_schluessel (channel_id, fassung, erzeugt_von, grund, erstellt_am) VALUES (?,?,?,?,?)',
       input.channelId, fassung, input.userId, 'eingeschaltet', jetzt,
     );
-    paketeSchreiben(input.channelId, fassung, input.userId, input.pakete);
+    paketeSchreiben(
+      input.channelId, fassung, input.userId,
+      input.pakete.filter((p) => mitglieder.has(p.userId)),
+    );
   });
   return fassung;
 }
@@ -448,11 +459,16 @@ export function freigabenFuer(userId: string, channelId?: string | null): Freiga
 export function freigabeOeffnen(input: {
   freigabeId: string; userId: string; codeAbdruck: string;
 }): FreigabeSchluessel {
-  const r = db.get<any>('SELECT * FROM vertraulich_freigaben WHERE id = ?', input.freigabeId);
-  if (!r) throw new Error('Diese Freigabe gibt es nicht.');
+  /* Das Recht zuerst, erst danach die Frage, ob es diese Freigabe gibt.
+     Andersherum beantwortete der Server auch jemandem ohne Recht, ob eine
+     Kennung existiert — die Auskunft „diese Freigabe gibt es nicht" kam vor
+     der Prüfung, und wer Kennungen durchprobiert, hätte daran ablesen können,
+     in welchen Kanälen es einen Vorfall gab. */
   if (!may(input.userId, 'vertraulich.freigabe_lesen')) {
     throw new Error('Freigaben öffnet nur die Verwaltung.');
   }
+  const r = db.get<any>('SELECT * FROM vertraulich_freigaben WHERE id = ?', input.freigabeId);
+  if (!r) throw new Error('Diese Freigabe gibt es nicht.');
   if (r.zurueckgenommen_am) throw new Error('Diese Freigabe wurde zurückgenommen.');
   if (r.laeuft_ab <= Date.now()) throw new Error('Diese Freigabe ist abgelaufen.');
   if (r.fehlversuche >= FREIGABE_VERSUCHE) {

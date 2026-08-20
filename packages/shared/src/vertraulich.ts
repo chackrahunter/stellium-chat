@@ -305,5 +305,6 @@ export interface OeffentlicherSchluessel {
 export const VERTRAULICH_ABGESCHALTET = [
   'uebersetzung', 'zusammenfassung', 'antwortvorschlaege',
   'serversuche', 'aufgabenerkennung', 'assistent', 'linkvorschau', 'transkript',
+  'vorschlaege',
 ] as const;
 export type VertraulichAbgeschaltet = (typeof VERTRAULICH_ABGESCHALTET)[number];
