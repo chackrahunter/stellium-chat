@@ -111,8 +111,31 @@ export function updaterInit(win: BrowserWindow): void {
   } catch { /* kein Vermerk — dann gab es auch kein Update */ }
 }
 
+/**
+ * Ein Name, mit dem sich gefahrlos ein Pfad bilden lässt.
+ *
+ * `fileName` und `version` kommen aus der Antwort des Servers und gingen
+ * ungeprüft in `path.join`. Ein Name wie `../../../..` legt die Datei damit
+ * irgendwohin im Benutzerordner statt in den Update-Ordner — und unter Windows
+ * wird genau diese Datei danach ausgeführt. Der Server ist der eigene; das
+ * ändert nichts daran, dass eine Antwort aus dem Netz nie ein Pfad ist.
+ */
+function alsDateiname(roh: string, ersatz: string): string {
+  const nurName = path.basename(String(roh ?? ''));
+  const sauber = nurName.replace(/[^A-Za-z0-9._-]/g, '_').replace(/^\.+/, '');
+  return sauber || ersatz;
+}
+
 /** Der Renderer meldet sich, sobald jemand angemeldet ist. */
 export function updaterAnmelden(url: string, tok: string): void {
+  /* Auch diese Adresse ist nichts, worauf man sich verlassen kann: sie kommt
+     aus dem Renderer, und was von dort kommt, hat im Hauptprozess keinen
+     Vertrauensvorschuss. Von dieser Adresse wird gleich eine Datei geladen und
+     ausgeführt — http(s) ist dafür das Mindeste, was geprüft gehört. */
+  let geprueft: URL;
+  try { geprueft = new URL(url); } catch { return; }
+  if (geprueft.protocol !== 'http:' && geprueft.protocol !== 'https:') return;
+
   serverUrl = url.replace(/\/+$/, '');
   token = tok;
   if (timer) clearInterval(timer);
@@ -187,7 +210,7 @@ async function laden(update: Fern): Promise<void> {
   try { fs.chmodSync(ordner, 0o700); } catch { /* auf Windows ohne Belang */ }
   altesAufraeumen(ordner, update.version);
 
-  const ziel = path.join(ordner, `${update.version}-${update.fileName}`);
+  const ziel = path.join(ordner, `${alsDateiname(update.version, 'neu')}-${alsDateiname(update.fileName, 'stellium-update')}`);
   const halb = `${ziel}.teil`;
 
   // Platz prüfen, bevor 170 MB gezogen werden: doppelt, weil beim Installieren
@@ -238,7 +261,7 @@ function freierPlatz(ordner: string): number | null {
 function altesAufraeumen(ordner: string, behalten: string): void {
   try {
     for (const name of fs.readdirSync(ordner)) {
-      if (name.startsWith(behalten)) continue;
+      if (name.startsWith(alsDateiname(behalten, 'neu'))) continue;
       fs.rmSync(path.join(ordner, name), { force: true, recursive: true });
     }
   } catch { /* nicht schlimm */ }
@@ -265,8 +288,16 @@ async function ladenVersuch(update: Fern, halb: string, ziel: string): Promise<v
     if (Date.now() - letzteRegung > 90_000) abbruch.abort();
   }, 10_000);
 
+  /* Die Adresse gehört zum eigenen Server oder zu gar keinem. Vorher wurden
+     zwei Zeichenketten aneinandergehängt; eine absolute Adresse in `update.url`
+     hätte den Download woandershin geführt. */
+  const quelle = new URL(update.url, `${serverUrl}/`);
+  if (quelle.origin !== new URL(`${serverUrl}/`).origin) {
+    throw new Error('Die Adresse der Fassung zeigt nicht auf diesen Server.');
+  }
+
   try {
-    const antwort = await fetch(`${serverUrl}${update.url}`, { headers: kopf, signal: abbruch.signal });
+    const antwort = await fetch(quelle, { headers: kopf, signal: abbruch.signal });
     if (!antwort.ok || !antwort.body) throw new Error(`Download fehlgeschlagen (${antwort.status})`);
 
     // Beantwortet der Server den Bereich nicht, fangen wir eben von vorn an.

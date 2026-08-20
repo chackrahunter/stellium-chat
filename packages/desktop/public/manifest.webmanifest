@@ -6,8 +6,8 @@
   "scope": "/",
   "display": "standalone",
   "orientation": "any",
-  "background_color": "#05060f",
-  "theme_color": "#05060f",
+  "background_color": "#172736",
+  "theme_color": "#172736",
   "icons": [
     {
       "src": "/stellium-192-2.png",

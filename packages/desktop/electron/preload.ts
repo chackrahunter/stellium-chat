@@ -35,8 +35,13 @@ const api = {
   lastUpdate: () => ipcRenderer.invoke('update:last') as Promise<
     { version: string; notes: string | null; installiertAm: number } | null>,
   onUpdate: (handler: (art: string, daten: unknown) => void) => {
+    /* 'update:retry' gehört dazu — der Updater schickt es, wenn ein Download
+       abgerissen ist und neu ansetzt. Es fehlte hier, und damit sah man beim
+       Wiederaufsetzen einen Fortschrittsbalken, der minutenlang stillstand,
+       ohne dass irgendetwas den Grund nannte. Wer hier eine Meldung ergänzt,
+       muss sie auch in src/lib/updates.ts behandeln. */
     const arten = ['update:found', 'update:progress', 'update:ready', 'update:none', 'update:error', 'update:installing',
-      'update:deadline', 'update:postponed'];
+      'update:deadline', 'update:postponed', 'update:retry'];
     const hoerer = arten.map((art) => {
       const fn = (_e: unknown, daten: unknown) => handler(art.slice(7), daten);
       ipcRenderer.on(art, fn);
