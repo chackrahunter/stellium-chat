@@ -253,6 +253,15 @@ for (const [system, pfad] of hochzuladen) {
       const antwort = await fetch(`${server}/api/releases/${system}`, {
         method: 'POST', headers: { authorization: `Bearer ${token}` }, body: form,
       });
+      if (antwort.status === 413) {
+        /* Cloudflare deckelt Uploads durch den Tunnel bei 100 MB — die Pakete
+           sind größer. Dagegen hilft kein Wiederholen: der Weg führt über SSH
+           (der geht am Tunnel vorbei) und dann über localhost auf dem Pi.
+           Genau so ist 1.0.13 und 1.0.14 ausgeliefert worden. */
+        raus(`${system}: Cloudflare lehnt ab (413, Paket zu groß für den Tunnel).\n` +
+             `  Ausweg: Pakete per scp auf den Pi und dort gegen http://127.0.0.1:8787\n` +
+             `  hochladen — Vorlage liegt auf dem Pi unter ~/fassung-1.0.14/hochladen.sh`);
+      }
       if (!antwort.ok) {
         const fehler = await antwort.text();
         raus(`${system}: ${fehler.slice(0, 200)}`);
