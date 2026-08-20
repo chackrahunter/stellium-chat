@@ -25,6 +25,15 @@ export function VoiceRecorder({ channelId, parentId, onDone }: Props) {
   const chunksRef = useRef<Blob[]>([]);
   const blobRef = useRef<Blob | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  /* Der Klangzusammenhang für die Pegelanzeige.
+     Er MUSS hier stehen und nicht nur als lokale Variable im Effekt: ein
+     AudioContext hält eine Ressource des Betriebssystems, und Chromium lässt
+     je Seite nur sechs davon zu. Ohne das Schließen war nach der sechsten
+     Aufnahme Schluss — `new AudioContext()` wirft dann, der Wurf landete im
+     catch daneben, und auf dem Schirm stand „Aufnahme nicht möglich", ohne
+     dass am Mikrofon irgendetwas gewesen wäre. Nach einem Neuladen der Seite
+     ging es wieder; genau daran ist so etwas nicht zu erkennen. */
+  const klangRef = useRef<AudioContext | null>(null);
   const rafRef = useRef(0);
   const startedAt = useRef(0);
 
@@ -41,6 +50,7 @@ export function VoiceRecorder({ channelId, parentId, onDone }: Props) {
 
         // Pegelanzeige, damit man sieht, dass wirklich aufgenommen wird.
         const ctx = new AudioContext();
+        klangRef.current = ctx;
         const analyser = ctx.createAnalyser();
         analyser.fftSize = 512;
         ctx.createMediaStreamSource(stream).connect(analyser);
@@ -76,7 +86,13 @@ export function VoiceRecorder({ channelId, parentId, onDone }: Props) {
     return () => {
       cancelled = true;
       cancelAnimationFrame(rafRef.current);
+      /* Erst die Aufnahme beenden, dann das Mikrofon, dann den Klang. Ein
+         MediaRecorder, den niemand anhält, bleibt im Zustand „recording"
+         stehen und hält den Datenstrom fest. */
+      try { if (recorderRef.current?.state === 'recording') recorderRef.current.stop(); } catch { /* schon aus */ }
       streamRef.current?.getTracks().forEach((t) => t.stop());
+      void klangRef.current?.close().catch(() => {});
+      klangRef.current = null;
     };
   }, []);
 
@@ -90,6 +106,9 @@ export function VoiceRecorder({ channelId, parentId, onDone }: Props) {
     recorderRef.current?.stop();
     streamRef.current?.getTracks().forEach((t) => t.stop());
     cancelAnimationFrame(rafRef.current);
+    // Der Pegel wird ab hier nicht mehr gebraucht; die Ressource auch nicht.
+    void klangRef.current?.close().catch(() => {});
+    klangRef.current = null;
   };
 
   const send = async () => {

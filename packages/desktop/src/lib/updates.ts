@@ -19,7 +19,7 @@ export function updatesVerbinden(): () => void {
   return window.stellium.onUpdate((art, daten) => {
     const d = (daten ?? {}) as {
       version?: string; notes?: string | null; geladen?: number; gesamt?: number;
-      message?: string; sekunden?: number;
+      message?: string; sekunden?: number; versuch?: number;
     };
     switch (art) {
       case 'found':
@@ -58,6 +58,15 @@ export function updatesVerbinden(): () => void {
       case 'postponed':
         if (uhr) { clearInterval(uhr); uhr = null; }
         useStore.setState((s) => ({ update: { ...s.update, restSekunden: undefined, verschoben: true } }));
+        break;
+      case 'retry':
+        /* Der Download ist abgerissen und setzt neu an. Ohne diese Meldung
+           stand der Balken still und niemand wusste, ob noch etwas passiert. */
+        useStore.getState().toast({
+          kind: 'info',
+          title: t('update.retrying', { versuch: d.versuch ?? 1 }),
+          body: d.message ?? undefined,
+        });
         break;
       case 'installing':
         useStore.setState({ update: { zustand: 'installiert', version: d.version } });

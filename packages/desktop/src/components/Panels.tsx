@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { LANGUAGES, type GlossaryEntry } from '@stellium/shared';
 import { useStore } from '../state/store.js';
+import { useFokusfalle } from './Fokusfalle.jsx';
 import { api } from '../net/api.js';
 import { Avatar } from './Avatar.jsx';
 import { t } from '../i18n/index.js';
@@ -332,6 +333,8 @@ export function Shell({ title, icon, onClose, width, subtitle, actions, children
   subtitle?: string; actions?: React.ReactNode; children: React.ReactNode;
 }) {
   const ebene = useRef(0);
+  const kasten = useRef<HTMLDivElement>(null);
+  useFokusfalle(kasten);
 
   useEffect(() => {
     stapel += 1;
@@ -357,7 +360,11 @@ export function Shell({ title, icon, onClose, width, subtitle, actions, children
   return createPortal(
     <div className="scrim scrim--center" onClick={onClose}>
       <motion.div
+        ref={kasten}
         className="panel"
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
         style={{ width: `min(${width}px, 100%)` }}
         initial={{ opacity: 0, scale: 0.97, y: 8 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}

@@ -1,8 +1,9 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { motion } from 'framer-motion';
-import { Check, ListChecks, Loader2, Undo2 } from 'lucide-react';
+import { AlertCircle, Check, Inbox, ListChecks, Loader2 } from 'lucide-react';
 import { useStore } from '../state/store.js';
+import { useVorschlaege } from '../state/vorschlaege.js';
 import { useT } from '../i18n/index.js';
 
 const BREITE = 300;
@@ -22,6 +23,7 @@ export function TaskExtractPop({ ankerRef, onClose }: {
   const t = useT();
   const laeuft = useStore((s) => s.extractingTasks);
   const ergebnis = useStore((s) => s.extractErgebnis);
+  const fehler = useStore((s) => s.extractFehler);
   const ref = useRef<HTMLDivElement>(null);
   const [ort, setOrt] = useState<{ left: number; top: number } | null>(null);
 
@@ -34,7 +36,7 @@ export function TaskExtractPop({ ankerRef, onClose }: {
       left: Math.min(window.innerWidth - BREITE - RAND, Math.max(RAND, anker.right - BREITE)),
       top: Math.min(window.innerHeight - 120, anker.bottom + 8),
     });
-  }, [ankerRef, laeuft, ergebnis]);
+  }, [ankerRef, laeuft, ergebnis, fehler]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.stopPropagation(); onClose(); } };
@@ -50,15 +52,16 @@ export function TaskExtractPop({ ankerRef, onClose }: {
     };
   }, [onClose]);
 
-  /* Wenn nichts gefunden wurde, muss man das nicht wegklicken. */
-  const leer = !laeuft && ergebnis && !ergebnis.erstellt.length;
+  /* Wenn nichts gefunden wurde, muss man das nicht wegklicken. Ein Fehlschlag
+     dagegen bleibt stehen: er will gelesen werden. */
+  const leer = !laeuft && !fehler && ergebnis && !ergebnis.vorgeschlagen;
   useEffect(() => {
     if (!leer) return;
     const timer = window.setTimeout(onClose, 3200);
     return () => clearTimeout(timer);
   }, [leer, onClose]);
 
-  const anzahl = ergebnis?.erstellt.length ?? 0;
+  const anzahl = ergebnis?.vorgeschlagen ?? 0;
 
   return createPortal(
     <motion.div
@@ -71,49 +74,53 @@ export function TaskExtractPop({ ankerRef, onClose }: {
       style={{ left: ort?.left ?? -9999, top: ort?.top ?? -9999, width: BREITE }}
     >
       {laeuft && (
-        <div className="extract-pop__zeile">
+        <div className="extract-pop__zeile" data-zustand="laeuft">
           <Loader2 size={15} className="spin" />
           <span>{t('ai.extractRunning')}</span>
         </div>
       )}
 
-      {!laeuft && ergebnis && (
+      {/* Scheitert die Erkennung, sagte bisher nichts etwas: die Kennung ging
+          hinaus, aber niemand wartete auf sie, und der Kreisel blieb stehen. */}
+      {!laeuft && fehler && (
+        <div className="extract-pop__zeile" data-zustand="fehler" role="alert">
+          <AlertCircle size={15} style={{ color: 'var(--rose)', flex: 'none' }} />
+          <span>
+            <strong>{t('ai.extractFailed')}</strong>
+            <span className="muted" style={{ display: 'block', fontSize: 12 }}>{fehler}</span>
+          </span>
+        </div>
+      )}
+
+      {!laeuft && !fehler && ergebnis && (
         <>
           <div className="extract-pop__zeile extract-pop__kopf">
             {anzahl ? <Check size={15} className="ok" /> : <ListChecks size={15} className="muted" />}
             <strong>
               {anzahl
-                ? t(anzahl === 1 ? 'ai.extractOneAdded' : 'ai.extractAdded', { n: anzahl })
+                ? t(anzahl === 1 ? 'ai.extractOneProposed' : 'ai.extractProposed', { n: anzahl })
                 : t('ai.extractEmpty')}
             </strong>
           </div>
 
-          {anzahl > 0 && (
-            <ul className="extract-pop__liste">
-              {ergebnis.erstellt.slice(0, 6).map((a) => (
-                <li key={a.id}>{a.title}</li>
-              ))}
-              {anzahl > 6 && <li className="muted">{t('ai.extractMore', { n: anzahl - 6 })}</li>}
-            </ul>
-          )}
+          {/* Keine Titelliste mehr. Sie zeigte, was gerade angelegt worden
+              war — jetzt ist noch nichts angelegt, und die Titel stehen
+              vollständig im Eingang, wo man sie auch ändern kann. */}
 
           {ergebnis.uebersprungen > 0 && (
             <p className="extract-pop__hinweis">{t('ai.extractSkipped', { n: ergebnis.uebersprungen })}</p>
           )}
 
+          {/* Kein Rückgängig mehr: es ist nichts entstanden, was man
+              zurücknehmen müsste. Das Ja steht noch aus, und es wird im
+              Eingang gegeben. */}
           {anzahl > 0 && (
             <div className="extract-pop__fuss">
               <button
-                className="btn btn--ghost btn--sm"
-                onClick={() => { useStore.getState().extractRueckgaengig(); onClose(); }}
-              >
-                <Undo2 size={13} /> {t('common.undo')}
-              </button>
-              <button
                 className="btn btn--sm"
-                onClick={() => { useStore.getState().setOverlay('tasks'); onClose(); }}
+                onClick={() => { useVorschlaege.getState().oeffnen('aufgabe'); onClose(); }}
               >
-                {t('ai.extractOpenBoard')}
+                <Inbox size={13} /> {t('ai.extractOpenInbox')}
               </button>
             </div>
           )}

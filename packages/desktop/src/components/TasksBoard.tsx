@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
-  AlarmClock, CalendarDays, Check, Eye, EyeOff, Hash, ListChecks, Loader2,
+  AlarmClock, CalendarDays, Check, Eye, EyeOff, Hash, Inbox, ListChecks, Loader2,
   MessageSquare, Plus, Sparkles, Trash2, User as UserIcon,
 } from 'lucide-react';
 import {
   TASK_STATUSES, TASK_PRIORITIES, type Task, type TaskPriority, type TaskStatus,
 } from '@stellium/shared';
 import { useStore } from '../state/store.js';
+import { useVorschlaege } from '../state/vorschlaege.js';
 import { useT } from '../i18n/index.js';
 import { Avatar } from './Avatar.jsx';
 import { Shell } from './Panels.jsx';
@@ -38,6 +39,12 @@ function faelligkeit(dueAt: number | null, jetzt = Date.now()) {
 
 export function TasksBoard({ onClose }: { onClose: () => void }) {
   const t = useT();
+  /* Wie viele Vorschläge dieser Art warten. Aus demselben Laden wie der
+     Eingang selbst — keine zweite Zählung, die irgendwann abweicht. */
+  const offeneVorschlaege = useVorschlaege(
+    (s) => s.liste.filter((v) => v.art === 'aufgabe').length,
+  );
+
   const tasks = useStore((s) => s.tasks);
   const users = useStore((s) => s.users);
   const channels = useStore((s) => s.channels);
@@ -88,6 +95,17 @@ export function TasksBoard({ onClose }: { onClose: () => void }) {
           {ai?.assistant && activeChannelId && (
             <button className="pill" onClick={() => setOverlay('taskExtract')} title={t('ai.extractTasks')}>
               <Sparkles size={13} /> {t('ai.extractTasks')}
+            </button>
+          )}
+          {/* Dons „jeweils": das Brett zeigt, dass Vorschläge dieser Art
+              warten, und führt in den einen Eingang — vorgefiltert. Ein
+              eigener Reiter je Brett wäre der zweite Ort zum Nachsehen. */}
+          {offeneVorschlaege > 0 && (
+            <button
+              className="pill"
+              onClick={() => useVorschlaege.getState().oeffnen('aufgabe')}
+            >
+              <Inbox size={13} /> {t('vorschlaege.doorTasks', { n: offeneVorschlaege })}
             </button>
           )}
           <button className="pill pill--accent" onClick={() => setNeuOffen(true)}>

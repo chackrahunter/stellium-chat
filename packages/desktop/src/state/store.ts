@@ -4,7 +4,7 @@ import {
   type AiCapabilities, type AiSummary, type Channel, type ChannelState,
   type Draft, type LinkPreview, type Message, type Poll, type Reminder,
   type RewriteTone, type ScheduledMessage, type SearchHit,
-  type SelfUser, type ServerEvent, type SmartReply, type User, type UserStatus,
+  type ClientEvent, type SelfUser, type ServerEvent, type SmartReply, type User, type UserStatus,
   type VoiceNote, type Task, type TaskEvent, type TaskStatus, type CalendarEvent,
   type StoredFile, type StorageUsage, type MeetingProtocol,
   type Idea, type IdeaComment, type IdeaStatus, type ReleaseInfo,
@@ -73,7 +73,14 @@ interface StoreState {
   storageUsage: StorageUsage | null;
   taskHistory: Record<string, TaskEvent[]>;
   /** Ergebnis der Aufgabenerkennung — sie legt die Aufgaben selbst an. */
-  extractErgebnis: { erstellt: { id: string; title: string }[]; uebersprungen: number } | null;
+  /**
+   * Was der Knopf bewirkt hat: so viele Vorschläge liegen jetzt im Eingang.
+   *
+   * Früher standen hier die gleich angelegten Aufgaben samt Rückgängig. Seit
+   * die Erkennung in den Eingang führt, gibt es nichts zurückzunehmen — das
+   * Ja ist noch nicht gegeben.
+   */
+  extractErgebnis: { vorgeschlagen: number; uebersprungen: number } | null;
   extractingTasks: boolean;
   /** Stand der Selbstaktualisierung. Im Browser bleibt er auf 'aus'. */
   update: {
@@ -101,6 +108,17 @@ interface StoreState {
   ideaComments: Record<string, IdeaComment[]>;
   protocol: MeetingProtocol | null;
   protocolLoading: boolean;
+  /**
+   * Warum das Protokoll nicht zustande kam.
+   *
+   * Ohne dieses Feld drehte sich der Kreisel weiter, während die Meldung des
+   * Servers daneben als Toast aufging: Don sah „StelliumAI schreibt mit…" und
+   * „ollama 400 …" gleichzeitig und konnte nur raten, was gilt. Ein Kreisel,
+   * der nie aufhört, ist die unehrlichste Anzeige, die es gibt.
+   */
+  protocolFehler: string | null;
+  /** Dasselbe für die Aufgabenerkennung. */
+  extractFehler: string | null;
   /** Auf schmalen Geräten liegt die Seitenleiste über dem Chat. */
   schubladeOffen: boolean;
   activeChannelId: string | null;
@@ -234,7 +252,6 @@ interface StoreState {
   extractTasks: (channelId: string) => void;
   clearExtractedTasks: () => void;
   /** Die eben automatisch angelegten Aufgaben wieder entfernen. */
-  extractRueckgaengig: () => void;
   loadProtocol: (channelId: string) => void;
   clearProtocol: () => void;
 
@@ -293,6 +310,16 @@ const seiteUnterwegs = new Set<string>();
 
 const pending = new Map<string, PendingRequest<any>>();
 
+/**
+ * Frist für die langen KI-Aufträge — Protokoll und Aufgabenerkennung.
+ *
+ * Länger als die übrigen, weil beide den halben Kanal lesen und ein Modell im
+ * eigenen Netz dafür Minuten brauchen darf. Endlich muss sie trotzdem sein:
+ * ohne Frist wartet die Anzeige für immer, wenn gar nichts mehr kommt — etwa
+ * weil die Leitung mitten in der Antwort abgerissen ist.
+ */
+const KI_FRIST_MS = 90_000;
+
 function awaitReply<T>(requestId: string, timeoutMs = 45_000): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const timer = window.setTimeout(() => {
@@ -310,6 +337,56 @@ function settle(requestId: string, value: unknown, error?: Error): void {
   pending.delete(requestId);
   if (error) entry.reject(error);
   else entry.resolve(value);
+}
+
+/**
+ * Eine Anfrage hinausschicken und beim Scheitern sofort aufgeben.
+ *
+ * `socket.send` puffert nur, was später noch Sinn ergibt — eine KI-Anfrage
+ * gehört nicht dazu und fällt bei getrennter Leitung stillschweigend weg.
+ * Vorher lief die Anzeige dann in die Frist: eine halbe Minute Kreisel für
+ * etwas, das nie losgeschickt wurde. Jetzt sagt sie es sofort.
+ */
+function frageHinaus(requestId: string, ev: ClientEvent): void {
+  if (!socket.send(ev)) settle(requestId, null, new Error(ts('fehler.keineVerbindung')));
+}
+
+/**
+ * Eine Anfrage stellen und auf ihre Antwort warten — der eine Weg dafür.
+ *
+ * Öffnet `awaitReply` + `frageHinaus` für Läden außerhalb dieser Datei. Wer
+ * einen Kreisel anzeigt, muss ihn auch wieder ausmachen können, und zwar in
+ * allen drei Fällen: Antwort da, Fehler da, Leitung weg. Genau daran hing
+ * Dons ewiger Kreisel. Ein zweiter Merkspeicher neben `pending` wäre der
+ * Anfang derselben Geschichte — der Abbruch bei Verbindungsverlust räumt nur
+ * diesen einen ab.
+ */
+export function anfrage<T>(
+  bauen: (requestId: string) => ClientEvent, timeoutMs?: number,
+): Promise<T> {
+  const requestId = uid();
+  const versprechen = awaitReply<T>(requestId, timeoutMs);
+  frageHinaus(requestId, bauen(requestId));
+  return versprechen;
+}
+
+/**
+ * Der Protokoll-Auftrag — der einzige KI-Auftrag ohne eigene Kennung.
+ *
+ * `ai:protocol` trägt im Protokoll (packages/shared) kein `requestId`-Feld,
+ * also kann der Server einen Fehler dazu nicht zuordnen: er kommt ohne
+ * Kennung herein und lief bisher ins Leere. Deshalb hier ein Merker mit
+ * eigener Frist. Er fängt drei Fälle ab, die alle als ewiger Kreisel endeten:
+ * ein Fehler ohne Kennung, eine abgerissene Leitung, und gar keine Antwort.
+ */
+let protokollFrist: number | null = null;
+
+function protokollBeenden(fehler: string | null): boolean {
+  if (protokollFrist === null) return false;
+  clearTimeout(protokollFrist);
+  protokollFrist = null;
+  useStore.setState({ protocolLoading: false, protocolFehler: fehler });
+  return true;
 }
 
 /** Eine Nachricht in allen Kanallisten anfassen — wir wissen nicht immer, wo sie liegt. */
@@ -422,17 +499,47 @@ function ts(key: TranslationKey, werte?: Record<string, string | number>): strin
 }
 
 /**
- * Meldung des Servers in der eingestellten Sprache.
+ * Sieht dieser Text nach Maschine aus statt nach Mensch?
+ *
+ * Anlass: `ollama 400: {"error":{"code":400,"message":"request (10340 tokens)
+ * exceeds the available context size (8192 tokens)…` stand so im
+ * Meldungsfenster — auf Englisch, mit geschweiften Klammern, bei einer Person
+ * mit deutscher Oberfläche. Das ist kein Satz, den jemand lesen soll; es ist
+ * die Ausgabe eines fremden Dienstes, unverändert durchgereicht.
+ *
+ * Erkannt wird deshalb, was nach Maschine aussieht: JSON, ein Statuscode
+ * hinter einem Dienstnamen, oder schiere Länge. Diese Texte verschwinden
+ * nicht — sie rutschen nur aus der Überschrift in die Einzelheiten.
+ */
+function nachMaschine(text: string): boolean {
+  return /[{[]"|"\s*:\s*[{["]|^\S+\s+\d{3}\s*:/.test(text) || text.length > 300;
+}
+
+/** Lange Maschinenausgabe auf ein Maß kürzen, das in eine Meldung passt. */
+function gekuerzterText(text: string): string {
+  return text.length > 160 ? `${text.slice(0, 157)}…` : text;
+}
+
+/**
+ * Meldung des Servers in der eingestellten Sprache — getrennt in den Satz für
+ * Menschen und die rohe Ausgabe.
  *
  * Dieselbe Machart wie bei den HTTP-Fehlern in net/api.ts: kennt das
- * Wörterbuch die Kennung, gilt der eigene Satz; sonst bleibt der Text des
- * Servers stehen. So bleibt jede Meldung lesbar, auch wenn eine neuere
- * Serverfassung eine Kennung schickt, die diese App noch nicht kennt.
+ * Wörterbuch die Kennung, gilt der eigene Satz. Kennt es sie nicht, bleibt
+ * der Text des Servers stehen — aber nur, solange er wie ein Satz aussieht.
+ * Sobald der Server eine Kennung für einen Fall mitschickt, gilt sie ohne
+ * weiteres Zutun; das ist der Weg, auf dem eine neue Meldung übersetzt
+ * ankommt, ohne dass hier etwas geändert werden müsste.
  */
-function serverText(code: string | undefined, ersatz: string, werte?: Record<string, string>): string {
-  if (!code) return ersatz;
-  const eigener = ts(code as TranslationKey, werte);
-  return eigener && eigener !== code ? eigener : ersatz;
+function serverMeldung(
+  code: string | undefined, ersatz: string, werte?: Record<string, string>,
+): { satz: string; roh: string | null } {
+  if (code) {
+    const eigener = ts(code as TranslationKey, werte);
+    if (eigener && eigener !== code) return { satz: eigener, roh: null };
+  }
+  if (nachMaschine(ersatz)) return { satz: ts('fehler.technisch'), roh: gekuerzterText(ersatz) };
+  return { satz: ersatz, roh: null };
 }
 
 /**
@@ -506,6 +613,8 @@ export const useStore = create<StoreState>((set, get) => ({
   ideaComments: {},
   protocol: null,
   protocolLoading: false,
+  protocolFehler: null,
+  extractFehler: null,
   schubladeOffen: false,
   activeChannelId: null,
   lastHumanChannelId: null,
@@ -697,7 +806,16 @@ export const useStore = create<StoreState>((set, get) => ({
   react: (messageId, emoji) => socket.send({ t: 'message:react', messageId, emoji }) as unknown as void,
   pin: (messageId, pinned) => socket.send({ t: 'message:pin', messageId, pinned }) as unknown as void,
   save: (messageId, saved) => {
-    socket.send({ t: 'message:save', messageId, saved });
+    /* Erst hinausschicken, dann bestätigen.
+       `socket.send` puffert nur, was später noch Sinn ergibt — „gemerkt"
+       gehört nicht dazu und fiel bei getrennter Leitung stillschweigend weg.
+       Die Bestätigung ging trotzdem auf: die Oberfläche behauptete etwas, das
+       nie passiert ist, und nach dem nächsten Laden war die Nachricht wieder
+       nicht gemerkt. */
+    if (!socket.send({ t: 'message:save', messageId, saved })) {
+      get().toast({ kind: 'error', title: ts('toast.offline'), body: ts('fehler.keineVerbindung') });
+      return;
+    }
     get().toast({ kind: 'ok', title: saved ? ts('common.saved') : ts('toast.unsaved') });
   },
 
@@ -742,7 +860,7 @@ export const useStore = create<StoreState>((set, get) => ({
   composePreview: async (text, targetLang, channelId) => {
     const requestId = uid();
     const promise = awaitReply<string>(requestId, 20_000);
-    socket.send({ t: 'compose:preview', requestId, text, targetLang, channelId });
+    frageHinaus(requestId, { t: 'compose:preview', requestId, text, targetLang, channelId });
     return promise;
   },
 
@@ -805,7 +923,7 @@ export const useStore = create<StoreState>((set, get) => ({
        Ohne sie nahm der Server den Lesestand — und der ist, sobald man den
        Kanal ansieht, schon auf der neuesten Nachricht. Die Zusammenfassung
        hatte damit nie etwas zu berichten, egal wie viel aufgelaufen war. */
-    socket.send({ t: 'ai:catchup', requestId, channelId, sinceMessageId: get().readMarkers[channelId] ?? null });
+    frageHinaus(requestId, { t: 'ai:catchup', requestId, channelId, sinceMessageId: get().readMarkers[channelId] ?? null });
   },
 
   loadSmartReplies: (channelId, parentId) => {
@@ -818,7 +936,7 @@ export const useStore = create<StoreState>((set, get) => ({
         set({ smartReplies: [], smartRepliesLoading: false });
         get().toast({ kind: 'error', title: ts('toast.noSuggestions'), body: err.message });
       });
-    socket.send({ t: 'ai:smart-replies', requestId, channelId, parentId: parentId ?? null });
+    frageHinaus(requestId, { t: 'ai:smart-replies', requestId, channelId, parentId: parentId ?? null });
   },
 
   clearSmartReplies: () => set({ smartReplies: [], smartRepliesLoading: false }),
@@ -828,7 +946,7 @@ export const useStore = create<StoreState>((set, get) => ({
     const promise = awaitReply<string>(requestId, 40_000);
     // Der offene Kanal, in dem gerade geschrieben wird — der Server braucht ihn,
     // um einen Entwurf aus einem vertraulichen Kanal abweisen zu können.
-    socket.send({ t: 'ai:rewrite', requestId, text, tone, targetLang: targetLang ?? null,
+    frageHinaus(requestId, { t: 'ai:rewrite', requestId, text, tone, targetLang: targetLang ?? null,
       channelId: get().activeChannelId ?? null });
     return promise;
   },
@@ -836,7 +954,7 @@ export const useStore = create<StoreState>((set, get) => ({
   askChannel: async (channelId, question) => {
     const requestId = uid();
     const promise = awaitReply<{ answer: string; citedMessageIds: string[] }>(requestId);
-    socket.send({ t: 'ai:ask', requestId, channelId, question });
+    frageHinaus(requestId, { t: 'ai:ask', requestId, channelId, question });
     return promise;
   },
 
@@ -884,14 +1002,20 @@ export const useStore = create<StoreState>((set, get) => ({
       get().toast({ kind: 'error', title: ts('vertraulich.titel'), body: ts('fehler.vertraulich') });
       return;
     }
-    socket.send({ t: 'message:forward', clientId: uid(), messageId, toChannelId, comment });
+    if (!socket.send({ t: 'message:forward', clientId: uid(), messageId, toChannelId, comment })) {
+      get().toast({ kind: 'error', title: ts('toast.offline'), body: ts('fehler.keineVerbindung') });
+      return;
+    }
     set({ forwarding: null });
     get().toast({ kind: 'ok', title: ts('toast.forwarded') });
   },
 
   startReminder: (message) => set({ remindingAbout: message }),
   createReminder: (input) => {
-    socket.send({ t: 'reminder:create', ...input, messageId: input.messageId ?? null, note: input.note ?? null });
+    if (!socket.send({ t: 'reminder:create', ...input, messageId: input.messageId ?? null, note: input.note ?? null })) {
+      get().toast({ kind: 'error', title: ts('toast.offline'), body: ts('fehler.keineVerbindung') });
+      return;
+    }
     set({ remindingAbout: null });
     get().toast({ kind: 'ok', title: ts('toast.reminderSet'),
       body: ts('toast.reminderBody', {
@@ -965,24 +1089,35 @@ export const useStore = create<StoreState>((set, get) => ({
       get().toast({ kind: 'error', title: ts('toast.aiOff'), body: get().ai?.note ?? undefined });
       return;
     }
-    set({ extractingTasks: true, extractErgebnis: null });
-    socket.send({ t: 'ai:extract-tasks', channelId, requestId: `x_${Date.now()}` });
+    /* Die Kennung ging schon immer hinaus, und der Server schickt sie im
+       Fehlerfall zurück — nur wartete niemand darauf. Der Kreisel lief
+       deshalb weiter, wenn die Erkennung scheiterte. Jetzt hängt an der
+       Kennung ein Eintrag, der Fehler und Frist beide auffängt. */
+    const requestId = uid();
+    set({ extractingTasks: true, extractErgebnis: null, extractFehler: null });
+    void awaitReply<unknown>(requestId, KI_FRIST_MS).then(
+      () => { /* das Ereignis selbst trägt das Ergebnis ein */ },
+      (err: Error) => set({ extractingTasks: false, extractFehler: err.message }),
+    );
+    frageHinaus(requestId, { t: 'ai:extract-tasks', channelId, requestId });
   },
-  clearExtractedTasks: () => set({ extractErgebnis: null, extractingTasks: false }),
-  extractRueckgaengig: () => {
-    for (const a of get().extractErgebnis?.erstellt ?? []) socket.send({ t: 'task:delete', taskId: a.id });
-    set({ extractErgebnis: null });
-  },
-
+  clearExtractedTasks: () => set({ extractErgebnis: null, extractingTasks: false, extractFehler: null }),
   loadProtocol: (channelId) => {
     if (!get().ai?.assistant) {
       get().toast({ kind: 'error', title: ts('toast.aiOff'), body: get().ai?.note ?? undefined });
       return;
     }
-    set({ protocolLoading: true, protocol: null });
-    socket.send({ t: 'ai:protocol', channelId });
+    set({ protocolLoading: true, protocol: null, protocolFehler: null });
+    if (protokollFrist !== null) clearTimeout(protokollFrist);
+    protokollFrist = window.setTimeout(() => protokollBeenden(ts('toast.aiTimeout')), KI_FRIST_MS);
+    if (!socket.send({ t: 'ai:protocol', channelId })) {
+      protokollBeenden(ts('fehler.keineVerbindung'));
+    }
   },
-  clearProtocol: () => set({ protocol: null, protocolLoading: false }),
+  clearProtocol: () => {
+    if (protokollFrist !== null) { clearTimeout(protokollFrist); protokollFrist = null; }
+    set({ protocol: null, protocolLoading: false, protocolFehler: null });
+  },
 
   /* ── Ideenboard ───────────────────────────────────────── */
 
@@ -1146,6 +1281,22 @@ function applyTheme(theme: SelfUser['theme'], density: SelfUser['density']): voi
   void window.stellium?.setTheme(theme);
 }
 
+/**
+ * „Wie das System" heißt: auch dann, wenn das System umschaltet.
+ *
+ * Bisher wurde die Systemfarbe genau einmal abgefragt — beim Anmelden und bei
+ * jeder Änderung der Einstellungen. Wer die App morgens öffnet und mittags am
+ * Mac auf Hell umstellt, saß bis zum nächsten Neustart im Dunkeln, obwohl
+ * ausdrücklich „wie das System" eingestellt war.
+ */
+if (typeof window !== 'undefined' && window.matchMedia) {
+  const beobachter = window.matchMedia('(prefers-color-scheme: light)');
+  beobachter.addEventListener('change', () => {
+    const self = useStore.getState().self;
+    if (self?.theme === 'system') applyTheme(self.theme, self.density);
+  });
+}
+
 /* ── Server-Ereignisse in den Store spiegeln ────────────────── */
 
 socket.onState((connection, detail) => {
@@ -1153,6 +1304,20 @@ socket.onState((connection, detail) => {
   /* Bricht die Verbindung ab, kommt auf eine laufende Anfrage nie eine Antwort.
      Bliebe die Sperre stehen, ließe sich in dem Kanal nie wieder nachladen. */
   if (connection !== 'open') seiteUnterwegs.clear();
+
+  /* Dasselbe für alles, worauf die Oberfläche mit einem Kreisel wartet.
+     Eine Antwort auf eine Anfrage der alten Leitung kommt nie mehr an: der
+     Server schickt sie an die Sitzung, und die ist weg. Ohne diesen Abbruch
+     drehte sich der Kreisel bis zur Frist — bei der Aufgabenerkennung
+     anderthalb Minuten für etwas, das schon entschieden ist.
+     Auch die „Assistent denkt nach"-Anzeige gehört zurückgesetzt: das
+     abschließende ai:thinking mit active=false erreicht uns nicht mehr. */
+  if (connection !== 'open' && connection !== 'connecting') {
+    const grund = ts('fehler.keineVerbindung');
+    for (const id of [...pending.keys()]) settle(id, null, new Error(grund));
+    protokollBeenden(grund);
+    if (Object.keys(useStore.getState().aiThinking).length) useStore.setState({ aiThinking: {} });
+  }
   /* Nur abmelden, wenn wirklich der Nachweis das Problem ist. Bei einem zu
      alten Protokoll ist das Token einwandfrei — wer hier abmeldet, schickt in
      eine Schleife: anmelden, dieselbe Fehlermeldung, wieder abmelden. */
@@ -1180,10 +1345,36 @@ socket.onEvent((ev: ServerEvent) => {
         reminders: ev.reminders,
         drafts: Object.fromEntries(ev.drafts.map((d: Draft) => [`${d.channelId}:${d.parentId ?? ''}`, d.text])),
       });
-      const active = useStore.getState().activeChannelId
+      const schonOffen = useStore.getState().activeChannelId;
+      const active = schonOffen
         ?? ev.channels.find((c) => c.kind === 'public')?.id
         ?? ev.channels[0]?.id;
-      if (active) useStore.getState().openChannel(active);
+      if (!active) break;
+
+      /* `ready` kommt nicht nur beim ersten Anmelden, sondern nach jedem
+         Wiederverbinden — nach einem Funkloch, nach dem Aufklappen des
+         Laptops, nach einem Serverneustart.
+
+         `openChannel` baut dabei die ganze Ansicht um: es schließt den Thread,
+         schiebt die Schublade zu und setzt die Lesemarke neu. Gemessen am
+         gebauten Stand: Thread offen, Leitung gekappt, Leitung zurück — der
+         Thread war weg. Für den Kanal, der ohnehin schon offen ist, wird
+         deshalb nur der Verlauf nachgezogen; ein offener Thread bekommt seinen
+         eigenen Nachschlag, denn auch dort können Antworten aufgelaufen sein.
+
+         Nur wenn noch gar kein Kanal offen ist — der erste Start — wird
+         wirklich einer geöffnet. */
+      if (schonOffen === active) {
+        socket.send({ t: 'channel:open', channelId: active, limit: 50 });
+        const offenerThread = useStore.getState().threadParentId;
+        if (offenerThread) socket.send({ t: 'thread:open', messageId: offenerThread });
+      } else {
+        useStore.getState().openChannel(active);
+      }
+      /* Die Zahl am Programmsymbol hängt sonst an `channel:state` allein und
+         stand nach dem Start auf dem Wert von gestern, bis sich zufällig ein
+         Kanal meldete. */
+      updateBadge();
       break;
     }
 
@@ -1315,8 +1506,23 @@ socket.onEvent((ev: ServerEvent) => {
       useStore.setState((s) => {
         const channels = { ...s.channels }; delete channels[ev.channelId];
         const messages = { ...s.messages }; delete messages[ev.channelId];
-        return { channels, messages };
+        const states = { ...s.states }; delete states[ev.channelId];
+        const hasMore = { ...s.hasMore }; delete hasMore[ev.channelId];
+        const typing = { ...s.typing }; delete typing[ev.channelId];
+        const readMarkers = { ...s.readMarkers }; delete readMarkers[ev.channelId];
+        /* Bleibt der gelöschte Kanal der offene, steht danach ein leerer
+           Hauptbereich da: die Kopfzeile findet den Kanal nicht mehr und zeigt
+           gar nichts, das Schreibfeld aber schon — und was dort hineingeht,
+           weist der Server ab. Lieber ehrlich zurück auf „wähle einen Kanal". */
+        const weiter: Partial<StoreState> = { channels, messages, states, hasMore, typing, readMarkers };
+        if (s.activeChannelId === ev.channelId) {
+          weiter.activeChannelId = null;
+          weiter.threadParentId = null;
+        }
+        if (s.lastHumanChannelId === ev.channelId) weiter.lastHumanChannelId = null;
+        return weiter;
       });
+      updateBadge();
       break;
 
     case 'channel:state':
@@ -1379,6 +1585,9 @@ socket.onEvent((ev: ServerEvent) => {
     case 'ai:smart-replies': settle(ev.requestId, ev.replies); break;
     case 'ai:rewrite': settle(ev.requestId, ev.text); break;
     case 'ai:ask': settle(ev.requestId, { answer: ev.answer, citedMessageIds: ev.citedMessageIds }); break;
+    /* Trägt nur eine Kennung, wenn jemand darauf wartet — sonst kam die
+       Änderung von woanders und es gibt nichts zuzuordnen. */
+    case 'vorschlag:upsert': if (ev.requestId) settle(ev.requestId, ev.vorschlag); break;
 
     case 'poll:updated':
       useStore.setState((s) => ({
@@ -1458,10 +1667,14 @@ socket.onEvent((ev: ServerEvent) => {
       break;
 
     case 'ai:extract-tasks':
+      // Erst die Kennung abschließen: sonst läuft die Frist weiter und würde
+      // gleich darauf einen Fehlschlag melden, obwohl das Ergebnis schon da ist.
+      settle(ev.requestId, ev);
       useStore.setState({
         extractingTasks: false,
+        extractFehler: null,
         extractErgebnis: {
-          erstellt: ev.erstellt.map((a) => ({ id: a.id, title: a.title })),
+          vorgeschlagen: ev.vorgeschlagen,
           uebersprungen: ev.uebersprungen,
         },
       });
@@ -1471,7 +1684,8 @@ socket.onEvent((ev: ServerEvent) => {
       break;
 
     case 'ai:protocol':
-      useStore.setState({ protocol: ev.protocol, protocolLoading: false });
+      protokollBeenden(null);
+      useStore.setState({ protocol: ev.protocol, protocolLoading: false, protocolFehler: null });
       break;
 
     /* ── Ideenboard ───────────────────────────────────────── */
@@ -1618,9 +1832,14 @@ socket.onEvent((ev: ServerEvent) => {
       break;
 
     case 'error': {
-      const text = serverText(ev.code, ev.message, ev.werte);
-      if (ev.requestId) settle(ev.requestId, null, new Error(text));
-      else store.toast({ kind: 'error', title: ts('toast.serverError'), body: text });
+      const { satz, roh } = serverMeldung(ev.code, ev.message, ev.werte);
+      if (ev.requestId) { settle(ev.requestId, null, new Error(satz)); break; }
+      /* Ohne Kennung lässt sich der Fehler nur der Zeit nach zuordnen. Genau
+         ein Auftrag wartet ohne Kennung — das Protokoll. Wartet er gerade,
+         gibt er hier auf, statt sich weiterzudrehen. Die Meldung geht
+         trotzdem zusätzlich als Toast hinaus: verschluckt wird nichts. */
+      protokollBeenden(roh ? `${satz} ${roh}` : satz);
+      store.toast({ kind: 'error', title: ts('toast.serverError'), body: roh ? `${satz} ${roh}` : satz });
       break;
     }
   }

@@ -1,9 +1,10 @@
-import { Bell, Bookmark, Bot, CalendarDays, Download, FolderOpen, Lightbulb, ListChecks, MessageSquare, Settings, ShieldCheck, Sparkles, Star } from 'lucide-react';
+import { Bell, Bookmark, Bot, CalendarDays, Download, FolderOpen, Inbox, Lightbulb, ListChecks, MessageSquare, Settings, ShieldCheck, Sparkles, Star } from 'lucide-react';
 import { useStore } from '../state/store.js';
 import { useT } from '../i18n/index.js';
 import { imBrowser } from './DownloadPanel.jsx';
 import { StatusMenu } from './StatusMenu.jsx';
 import { useKiKanaele } from '../lib/ai-channels.js';
+import { useVorschlaege } from '../state/vorschlaege.js';
 
 export function Rail() {
   const t = useT();
@@ -11,6 +12,8 @@ export function Rail() {
   const states = useStore((s) => s.states);
   const reminders = useStore((s) => s.reminders);
   const tasks = useStore((s) => s.tasks);
+  const ai = useStore((s) => s.ai);
+  const offeneVorschlaege = useVorschlaege((s) => s.liste.length);
   const activeId = useStore((s) => s.activeChannelId);
   const { istKi, chatId: kiChatId } = useKiKanaele();
   const { setOverlay } = useStore.getState();
@@ -54,6 +57,24 @@ export function Rail() {
       >
         <Bot size={20} />
       </button>
+
+      {/* Der Eingang steht direkt unter der KI, weil er ihr Ausgang ist: was
+          sie im Verlauf gefunden hat, liegt hier und wartet auf ein Ja oder
+          Nein. Ohne KI bliebe er für immer leer — dann steht er nur da,
+          solange noch etwas Altes darin liegt. */}
+      {(ai?.assistant || offeneVorschlaege > 0) && (
+        <button
+          className="rail-btn no-drag"
+          data-tour="vorschlaege"
+          onClick={() => useVorschlaege.getState().oeffnen()}
+          title={t('vorschlaege.nav')}
+        >
+          <Inbox size={20} />
+          {offeneVorschlaege > 0 && (
+            <span className="rail-btn__dot">{offeneVorschlaege > 99 ? '99+' : offeneVorschlaege}</span>
+          )}
+        </button>
+      )}
 
       <button className="rail-btn no-drag" data-tour="tasks" onClick={() => setOverlay('tasks')} title={t('nav.tasks')}>
         <ListChecks size={20} />

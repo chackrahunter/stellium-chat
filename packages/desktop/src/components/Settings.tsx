@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import { Bell, Cpu, Globe, Loader2, Lock, LogOut, Palette, RefreshCw, Server, Sparkles, User, Volume2, X } from 'lucide-react';
 import { LANGUAGES, type AiCapabilities, type AiModelInfo } from '@stellium/shared';
 import { useStore } from '../state/store.js';
+import { useFokusfalle } from './Fokusfalle.jsx';
 import { api, serverUrl, setServerUrl } from '../net/api.js';
 import { Avatar } from './Avatar.jsx';
 import { languageInfo } from '../lib/format.js';
@@ -30,6 +31,8 @@ function kiHinweis(ai: AiCapabilities | null | undefined): string | null {
 }
 
 export function Settings({ onClose }: { onClose: () => void }) {
+  const kasten = useRef<HTMLDivElement>(null);
+  useFokusfalle(kasten, true, onClose);
   const t = useT();
   const self = useStore((s) => s.self);
   const ai = useStore((s) => s.ai);
@@ -48,6 +51,10 @@ export function Settings({ onClose }: { onClose: () => void }) {
   return (
     <div className="scrim scrim--center" onClick={onClose}>
       <motion.div
+        ref={kasten}
+        role="dialog"
+        aria-modal="true"
+        aria-label={t('nav.settings')}
         className="panel panel--wide"
         style={{ maxHeight: '82vh' }}
         initial={{ opacity: 0, scale: 0.97 }}

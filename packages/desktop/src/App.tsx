@@ -27,9 +27,12 @@ import { CalendarPanel } from './components/CalendarPanel.jsx';
 import { FilesPanel } from './components/FilesPanel.jsx';
 import { ProtocolPanel } from './components/ProtocolPanel.jsx';
 import { IdeaBoard } from './components/IdeaBoard.jsx';
+import { VorschlagPosteingang } from './components/VorschlagPosteingang.jsx';
+import { useVorschlaege } from './state/vorschlaege.js';
 import { DownloadPanel } from './components/DownloadPanel.jsx';
 import { UpdateBanner, UpdateWillkommen, ServerWartung } from './components/UpdateBanner.jsx';
 import { Toasts } from './components/Toasts.jsx';
+import { Fangkorb } from './components/Fangkorb.jsx';
 import { FreigabenDialog, VorfallDialog, WiederherstellungHinweis } from './components/Vertraulich.jsx';
 import { clsx } from './lib/format.js';
 /* Die Schlüsselarbeit für vertrauliche Kanäle hängt sich beim Laden selbst an
@@ -46,6 +49,10 @@ export function App() {
   const threadParentId = useStore((s) => s.threadParentId);
   const schubladeOffen = useStore((s) => s.schubladeOffen);
   const overlay = useStore((s) => s.overlay);
+  /* Der Eingang für KI-Vorschläge hängt an einem eigenen Laden, nicht an
+     `overlay`: er geht mit einem Filter auf, und eine Kennung allein hat dafür
+     keinen Platz. Siehe state/vorschlaege.ts. */
+  const vorschlagFilter = useVorschlaege((s) => s.offen);
   const lightbox = useStore((s) => s.lightbox);
   const forwarding = useStore((s) => s.forwarding);
   const remindingAbout = useStore((s) => s.remindingAbout);
@@ -204,6 +211,10 @@ export function App() {
         </div>
       </div>
 
+      {/* Eigener Fangkorb um die Fensterschicht: wirft ein Dialog beim
+          Zeichnen, soll der Chat dahinter weiterlaufen statt mitzugehen.
+          Zurückgesetzt wird, sobald ein anderes Fenster drankommt. */}
+      <Fangkorb eingebettet zuruecksetzenBei={overlay}>
       <AnimatePresence>
         {overlay === 'quick' && <QuickSwitcher key="quick" onClose={closeOverlay} />}
         {overlay === 'search' && <SearchOverlay key="search" onClose={closeOverlay} />}
@@ -221,6 +232,13 @@ export function App() {
         {overlay === 'protocol' && <ProtocolPanel key="protocol" onClose={closeOverlay} />}
         {overlay === 'ideas' && <IdeaBoard key="ideas" onClose={closeOverlay} />}
         {overlay === 'download' && <DownloadPanel key="download" onClose={closeOverlay} />}
+        {vorschlagFilter && (
+          <VorschlagPosteingang
+            key="vorschlaege"
+            startFilter={vorschlagFilter}
+            onClose={() => useVorschlaege.getState().schliessen()}
+          />
+        )}
       </AnimatePresence>
 
       <AnimatePresence>
@@ -238,6 +256,7 @@ export function App() {
           <FreigabenDialog key="freigaben" channelId={activeChannelId} onClose={closeOverlay} />
         )}
       </AnimatePresence>
+      </Fangkorb>
 
       <AnimatePresence>
         {forwarding && (

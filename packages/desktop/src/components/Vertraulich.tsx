@@ -9,6 +9,7 @@ import {
   type Attachment,
 } from '@stellium/shared';
 import { useStore } from '../state/store.js';
+import { useFokusfalle } from './Fokusfalle.jsx';
 import { currentUiLanguage, useT } from '../i18n/index.js';
 import {
   dateiAnzeigen, freigabeOeffnen, istE2EChiffrat, kanalVertraulichStellen, meinAbdruck,
@@ -724,9 +725,15 @@ function FreigabenListe({ channelId }: { channelId: string | null }) {
 function Rahmen({ titel, symbol, onClose, children }: {
   titel: string; symbol: React.ReactNode; onClose: () => void; children: React.ReactNode;
 }) {
+  const kasten = useRef<HTMLDivElement>(null);
+  useFokusfalle(kasten, true, onClose);
   return (
     <div className="scrim scrim--center" onClick={onClose}>
       <motion.div
+        ref={kasten}
+        role="dialog"
+        aria-modal="true"
+        aria-label={titel}
         className="panel"
         style={{ width: 'min(520px, 100%)', maxHeight: '84vh' }}
         initial={{ opacity: 0, scale: 0.97, y: 8 }}

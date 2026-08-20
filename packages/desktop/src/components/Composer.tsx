@@ -7,6 +7,7 @@ import { ChevronDown,
 import type { Attachment, RewriteTone } from '@stellium/shared';
 import { normalizeLang } from '@stellium/shared';
 import { useStore } from '../state/store.js';
+import { useFokusfalle } from './Fokusfalle.jsx';
 import { spracheName, useT, t } from '../i18n/index.js';
 import { api } from '../net/api.js';
 import { EmojiPicker } from './EmojiPicker.jsx';
@@ -758,6 +759,8 @@ function handleSlashCommand(text: string, channelId: string): SlashResult {
 /* ── Planungsdialog ─────────────────────────────────────────── */
 
 function ScheduleDialog({ onClose, onPick }: { onClose: () => void; onPick: (sendAt: number) => void }) {
+  const planKasten = useRef<HTMLDivElement>(null);
+  useFokusfalle(planKasten, true, onClose);
   const presets = [
     { label: t('schedule.in30'), ms: 30 * 60_000 },
     { label: t('schedule.in2h'), ms: 2 * 3600_000 },
@@ -769,6 +772,10 @@ function ScheduleDialog({ onClose, onPick }: { onClose: () => void; onPick: (sen
   return (
     <div className="scrim scrim--center" onClick={onClose}>
       <motion.div
+        ref={planKasten}
+        role="dialog"
+        aria-modal="true"
+        aria-label={t('schedule.title')}
         className="panel"
         style={{ width: 'min(430px, 100%)' }}
         initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.96 }}

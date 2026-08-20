@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import { Bookmark, Filter, Languages, Loader2, Lock, Search, X } from 'lucide-react';
 import type { Message } from '@stellium/shared';
 import { useStore } from '../state/store.js';
+import { useFokusfalle } from './Fokusfalle.jsx';
 import { useT } from '../i18n/index.js';
 import { api } from '../net/api.js';
 import { Avatar } from './Avatar.jsx';
@@ -11,6 +12,8 @@ import { useKlartext } from './Vertraulich.jsx';
 import { nachrichtEntschluesseln } from '../lib/vertraulich.js';
 
 export function SearchOverlay({ onClose }: { onClose: () => void }) {
+  const kasten = useRef<HTMLDivElement>(null);
+  useFokusfalle(kasten, true, onClose);
   const t = useT();
   const hits = useStore((s) => s.searchHits);
   const searching = useStore((s) => s.searching);
@@ -85,6 +88,10 @@ export function SearchOverlay({ onClose }: { onClose: () => void }) {
   return (
     <div className="scrim" onClick={onClose}>
       <motion.div
+        ref={kasten}
+        role="dialog"
+        aria-modal="true"
+        aria-label={t('search.placeholder')}
         className="panel panel--wide"
         initial={{ opacity: 0, y: -14, scale: 0.98 }}
         animate={{ opacity: 1, y: 0, scale: 1 }}

@@ -46,6 +46,10 @@ export function MessageList({ channelId }: Props) {
   );
   const mehrImSpeicher = alle.length > messages.length;
   const hasMore = useStore((s) => s.hasMore[channelId] ?? false);
+  /* Ist der Verlauf überhaupt schon da? `hasMore` steht erst, wenn der Server
+     geantwortet hat — vorher ist es undefined. Ohne diese Unterscheidung
+     blitzte die Begrüßung im Moment des Kanalwechsels kurz auf. */
+  const verlaufDa = useStore((s) => s.hasMore[channelId] !== undefined);
   const readMarker = useStore((s) => s.readMarkers[channelId] ?? null);
   const selfId = useStore((s) => s.self?.id ?? null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -119,7 +123,17 @@ export function MessageList({ channelId }: Props) {
     };
     el.addEventListener('scroll', onScroll, { passive: true });
     return () => el.removeEventListener('scroll', onScroll);
-  }, [channelId, hasMore]);
+    /* `mehrImSpeicher` gehört hierher, auch wenn der Zuhörer dadurch öfter neu
+       gesetzt wird.
+       Ohne diesen Eintrag trug der Zuhörer den Wert von damals mit sich herum:
+       beim Öffnen liegen 50 Nachrichten im Speicher, das Fenster fasst 80 —
+       also `false`. Der erste Griff nach oben lud richtigerweise nach, aber
+       ab da hätte das Fenster wachsen müssen, und der Zuhörer fragte weiter
+       den alten Wert. Gemessen am gebauten Stand mit 320 Nachrichten: acht
+       Griffe nach oben, und die Liste blieb bei 80 Einträgen stehen — dieselbe
+       älteste Nachricht, dieselbe Höhe, während im Hintergrund weiter Seiten
+       nachgeladen wurden, die niemand zu sehen bekam. */
+  }, [channelId, hasMore, mehrImSpeicher]);
 
   // Gelesen melden, sobald das Fenster den Fokus hat.
   useEffect(() => {
@@ -165,7 +179,12 @@ export function MessageList({ channelId }: Props) {
           <span className="muted" style={{ fontSize: 12 }}>{t('msg.loadingOlder')}</span>
         </div>
       )}
-      {!mehrImSpeicher && !hasMore && messages.length > 0 && <ChannelIntro channelId={channelId} />}
+      {/* Auch — und gerade — im leeren Kanal. Vorher hing die Begrüßung an
+          `messages.length > 0`: ein frisch angelegter Kanal zeigte damit
+          überhaupt nichts, eine schwarze Fläche zwischen Kopfzeile und
+          Schreibfeld. Auf den Schirmbildern aller zehn Geräte war genau das
+          zu sehen. */}
+      {!mehrImSpeicher && !hasMore && verlaufDa && <ChannelIntro channelId={channelId} />}
 
       {messages.map((msg, i) => {
         const prev = messages[i - 1];

@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
-  Check, Hash, Lightbulb, MessageSquare, Plus, Send, ThumbsDown, ThumbsUp,
+  Check, Hash, Inbox, Lightbulb, MessageSquare, Plus, Send, ThumbsDown, ThumbsUp,
   Trash2, X,
 } from 'lucide-react';
 import { IDEA_STATUSES, type Idea, type IdeaStatus } from '@stellium/shared';
 import { useStore } from '../state/store.js';
+import { useVorschlaege } from '../state/vorschlaege.js';
 import { useT } from '../i18n/index.js';
 import { Avatar } from './Avatar.jsx';
 import { Shell } from './Panels.jsx';
@@ -20,6 +21,12 @@ const STATUS_FARBE: Record<IdeaStatus, string> = {
 
 export function IdeaBoard({ onClose }: { onClose: () => void }) {
   const t = useT();
+  /* Wie viele Vorschläge dieser Art warten. Aus demselben Laden wie der
+     Eingang selbst — keine zweite Zählung, die irgendwann abweicht. */
+  const offeneVorschlaege = useVorschlaege(
+    (s) => s.liste.filter((v) => v.art === 'idee').length,
+  );
+
   const ideas = useStore((s) => s.ideas);
   const users = useStore((s) => s.users);
   const self = useStore((s) => s.self);
@@ -54,13 +61,26 @@ export function IdeaBoard({ onClose }: { onClose: () => void }) {
       onClose={onClose}
       width={860}
       actions={
-        <button
-          className="pill pill--accent"
-          disabled={!self?.permissions['idea.create']}
-          onClick={() => setNeuOffen(true)}
-        >
-          <Plus size={13} /> {t('ideas.new')}
-        </button>
+        <>
+          {/* Dons „jeweils": das Brett zeigt, dass Vorschläge dieser Art
+              warten, und führt in den einen Eingang — vorgefiltert. Ein
+              eigener Reiter je Brett wäre der zweite Ort zum Nachsehen. */}
+          {offeneVorschlaege > 0 && (
+            <button
+              className="pill"
+              onClick={() => useVorschlaege.getState().oeffnen('idee')}
+            >
+              <Inbox size={13} /> {t('vorschlaege.doorIdeas', { n: offeneVorschlaege })}
+            </button>
+          )}
+          <button
+            className="pill pill--accent"
+            disabled={!self?.permissions['idea.create']}
+            onClick={() => setNeuOffen(true)}
+          >
+            <Plus size={13} /> {t('ideas.new')}
+          </button>
+        </>
       }
     >
       <div className="idea-bar">

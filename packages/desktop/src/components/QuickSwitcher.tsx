@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import { Hash, Lock, Search, Sparkles } from 'lucide-react';
 import { useStore } from '../state/store.js';
+import { useFokusfalle } from './Fokusfalle.jsx';
 import { useT, t } from '../i18n/index.js';
 import { kanalName } from '../lib/format.js';
 import { Avatar } from './Avatar.jsx';
@@ -17,6 +18,8 @@ interface Item {
 }
 
 export function QuickSwitcher({ onClose }: { onClose: () => void }) {
+  const kasten = useRef<HTMLDivElement>(null);
+  useFokusfalle(kasten, true, onClose);
   const channels = useStore((s) => s.channels);
   const users = useStore((s) => s.users);
   const self = useStore((s) => s.self);
@@ -101,6 +104,10 @@ export function QuickSwitcher({ onClose }: { onClose: () => void }) {
   return (
     <div className="scrim" onClick={onClose}>
       <motion.div
+        ref={kasten}
+        role="dialog"
+        aria-modal="true"
+        aria-label={t('quick.placeholder')}
         className="panel"
         style={{ width: 'min(600px, 100%)' }}
         initial={{ opacity: 0, y: -14, scale: 0.98 }}

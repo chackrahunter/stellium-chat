@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
   AlertTriangle, Ban, Check, Copy, KeyRound, Loader2, Plus, Search,
@@ -10,6 +10,7 @@ import {
   type PermissionKey,
 } from '@stellium/shared';
 import { useStore } from '../state/store.js';
+import { useFokusfalle } from './Fokusfalle.jsx';
 import { api } from '../net/api.js';
 import { Avatar } from './Avatar.jsx';
 import { t } from '../i18n/index.js';
@@ -33,6 +34,8 @@ const GRUPPEN_SCHLUESSEL: Record<(typeof GRUPPEN)[number], string> = {
 };
 
 export function TeamAdmin({ onClose }: { onClose: () => void }) {
+  const kasten = useRef<HTMLDivElement>(null);
+  useFokusfalle(kasten);
   const self = useStore((s) => s.self);
   const [liste, setListe] = useState<ManagedUser[]>([]);
   const [laden, setLaden] = useState(true);
@@ -140,6 +143,10 @@ export function TeamAdmin({ onClose }: { onClose: () => void }) {
   return (
     <div className="scrim scrim--center" onClick={onClose}>
       <motion.div
+        ref={kasten}
+        role="dialog"
+        aria-modal="true"
+        aria-label={t('team.title')}
         className="panel panel--wide"
         style={{ width: 'min(1000px, 100%)', maxHeight: '86vh' }}
         initial={{ opacity: 0, scale: 0.97, y: 8 }}
@@ -395,6 +402,8 @@ function KontoAnlegen({ onClose, onFertig }: {
   onClose: () => void;
   onFertig: (cred: OneTimeCredential, users: ManagedUser[]) => void;
 }) {
+  const kasten = useRef<HTMLDivElement>(null);
+  useFokusfalle(kasten, true, onClose);
   const [name, setName] = useState('');
   const [handle, setHandle] = useState('');
   const [email, setEmail] = useState('');
@@ -425,7 +434,8 @@ function KontoAnlegen({ onClose, onFertig }: {
 
   return (
     <div className="scrim scrim--center" style={{ zIndex: 50 }} onClick={onClose}>
-      <motion.div className="panel" style={{ width: 'min(480px, 100%)' }}
+      <motion.div ref={kasten} role="dialog" aria-modal="true" aria-label={t('team.createAccount')}
+        className="panel" style={{ width: 'min(480px, 100%)' }}
         initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.96 }}
         onClick={(e) => e.stopPropagation()}>
         <div className="panel__head">
@@ -487,6 +497,8 @@ function KontoAnlegen({ onClose, onFertig }: {
 /* ── Einmal-Passwort anzeigen ─────────────────────────────────── */
 
 function ZugangAnzeigen({ credential, onClose }: { credential: OneTimeCredential; onClose: () => void }) {
+  const kasten = useRef<HTMLDivElement>(null);
+  useFokusfalle(kasten, true, onClose);
   const [kopiert, setKopiert] = useState(false);
 
   const kopieren = () => {
@@ -499,7 +511,8 @@ function ZugangAnzeigen({ credential, onClose }: { credential: OneTimeCredential
 
   return (
     <div className="scrim scrim--center" style={{ zIndex: 60 }} onClick={onClose}>
-      <motion.div className="panel" style={{ width: 'min(460px, 100%)' }}
+      <motion.div ref={kasten} role="dialog" aria-modal="true" aria-label={t('admin.oneTimePassword')}
+        className="panel" style={{ width: 'min(460px, 100%)' }}
         initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.96 }}
         onClick={(e) => e.stopPropagation()}>
         <div className="panel__head">

@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { ArrowRight, Download, Loader2, RefreshCw, Server, Sparkles, X } from 'lucide-react';
 import { useStore } from '../state/store.js';
+import { useFokusfalle } from './Fokusfalle.jsx';
 import { useT } from '../i18n/index.js';
 
 /**
@@ -124,6 +125,8 @@ export function UpdateBanner() {
  * Der Vermerk wird beim Abholen gelöscht, deshalb erscheint er genau einmal.
  */
 export function UpdateWillkommen() {
+  const kasten = useRef<HTMLDivElement>(null);
+  useFokusfalle(kasten, true, () => setStand(null));
   const t = useT();
   const [stand, setStand] = useState<{ version: string; notes: string | null } | null>(null);
 
@@ -141,6 +144,10 @@ export function UpdateWillkommen() {
   return (
     <div className="scrim scrim--center" onClick={() => setStand(null)}>
       <motion.div
+        ref={kasten}
+        role="dialog"
+        aria-modal="true"
+        aria-label={t('update.welcomeTitle', { version: stand.version })}
         className="panel"
         style={{ width: 'min(480px, 100%)' }}
         initial={{ opacity: 0, scale: 0.96, y: 12 }}

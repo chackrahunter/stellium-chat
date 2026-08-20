@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Check, ClipboardList, Copy, HelpCircle, ListChecks, Loader2 } from 'lucide-react';
+import { AlertCircle, Check, ClipboardList, Copy, HelpCircle, ListChecks, Loader2, RefreshCw } from 'lucide-react';
 import { useStore } from '../state/store.js';
 import { useT } from '../i18n/index.js';
 import { Avatar } from './Avatar.jsx';
@@ -15,13 +15,17 @@ export function ProtocolPanel({ onClose }: { onClose: () => void }) {
   const t = useT();
   const protokoll = useStore((s) => s.protocol);
   const laeuft = useStore((s) => s.protocolLoading);
+  const fehler = useStore((s) => s.protocolFehler);
   const users = useStore((s) => s.users);
   const activeChannelId = useStore((s) => s.activeChannelId);
   const { loadProtocol, clearProtocol, createTask, toast } = useStore.getState();
   const [kopiert, setKopiert] = useState(false);
 
+  /* Nur beim Öffnen anstoßen. Ohne die Fehlerabfrage liefe nach einem
+     Fehlschlag sofort der nächste Versuch — der Kreisel wäre wieder da, nur
+     mit einem Umweg. */
   useEffect(() => {
-    if (activeChannelId && !protokoll && !laeuft) loadProtocol(activeChannelId);
+    if (activeChannelId && !protokoll && !laeuft && !fehler) loadProtocol(activeChannelId);
     return () => clearProtocol();
   }, [activeChannelId]);
 
@@ -68,13 +72,32 @@ export function ProtocolPanel({ onClose }: { onClose: () => void }) {
       ) : undefined}
     >
       {laeuft && (
-        <div className="empty-state">
+        <div className="empty-state" data-zustand="laeuft">
           <Loader2 size={26} className="spin" />
           <p>{t('protocol.running')}</p>
         </div>
       )}
 
-      {!laeuft && protokoll && !protokoll.messageCount && (
+      {/* Der Fehlschlag gehört hierher, nicht nur in ein Meldungsfenster am
+          Rand. Vorher blieb an dieser Stelle der Kreisel stehen, während die
+          Meldung nebenan aufging — man wartete auf etwas, das längst
+          entschieden war. */}
+      {!laeuft && fehler && (
+        <div className="empty-state" data-zustand="fehler" role="alert">
+          <AlertCircle size={26} style={{ color: 'var(--rose)' }} />
+          <p>{t('protocol.failed')}</p>
+          <p className="muted" style={{ fontSize: 12.5, maxWidth: '52ch', wordBreak: 'break-word' }}>{fehler}</p>
+          <button
+            className="btn btn--primary"
+            onClick={() => activeChannelId && loadProtocol(activeChannelId)}
+            disabled={!activeChannelId}
+          >
+            <RefreshCw size={14} /> {t('common.retry')}
+          </button>
+        </div>
+      )}
+
+      {!laeuft && !fehler && protokoll && !protokoll.messageCount && (
         <div className="empty-state"><p>{t('protocol.empty')}</p></div>
       )}
 

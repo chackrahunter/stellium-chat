@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import { BarChart3, Bell, Forward, Hash, Lock, Plus, Trash2, X } from 'lucide-react';
 import type { Message } from '@stellium/shared';
 import { useStore } from '../state/store.js';
+import { useFokusfalle } from './Fokusfalle.jsx';
 import { useT, t , currentUiLanguage } from '../i18n/index.js';
 import { Avatar } from './Avatar.jsx';
 
@@ -240,9 +241,15 @@ export function RemindersPanel({ onClose }: { onClose: () => void }) {
 function Frame({ title, icon, onClose, width, children }: {
   title: string; icon: React.ReactNode; onClose: () => void; width: number; children: React.ReactNode;
 }) {
+  const kasten = useRef<HTMLDivElement>(null);
+  useFokusfalle(kasten, true, onClose);
   return (
     <div className="scrim scrim--center" onClick={onClose}>
       <motion.div
+        ref={kasten}
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
         className="panel"
         style={{ width: `min(${width}px, 100%)` }}
         initial={{ opacity: 0, scale: 0.97, y: 8 }}

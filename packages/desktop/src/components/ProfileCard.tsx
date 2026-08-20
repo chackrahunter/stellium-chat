@@ -1,12 +1,16 @@
+import { useRef } from 'react';
 import { motion } from 'framer-motion';
 import { AtSign, Clock, Languages, MessageSquare, X } from 'lucide-react';
 import { useStore } from '../state/store.js';
+import { useFokusfalle } from './Fokusfalle.jsx';
 import { t } from '../i18n/index.js';
 import { Avatar } from './Avatar.jsx';
 import { languageInfo, localTimeFor, relativeTime } from '../lib/format.js';
 
 /** Kleine Karte mit dem Wichtigsten über eine Person. */
 export function ProfileCard({ userId, onClose }: { userId: string; onClose: () => void }) {
+  const kasten = useRef<HTMLDivElement>(null);
+  useFokusfalle(kasten, true, onClose);
   const user = useStore((s) => s.users[userId]);
   const self = useStore((s) => s.self);
   const { openDm } = useStore.getState();
@@ -18,6 +22,10 @@ export function ProfileCard({ userId, onClose }: { userId: string; onClose: () =
   return (
     <div className="scrim scrim--center" onClick={onClose}>
       <motion.div
+        ref={kasten}
+        role="dialog"
+        aria-modal="true"
+        aria-label={user.displayName}
         className="profile"
         initial={{ opacity: 0, scale: 0.95, y: 10 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import {
   Archive, Bot, Hash, Lock, Megaphone, Settings2, Trash2, UserMinus,
@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { LANGUAGES } from '@stellium/shared';
 import { useStore } from '../state/store.js';
+import { useFokusfalle } from './Fokusfalle.jsx';
 import { useT } from '../i18n/index.js';
 import { Avatar } from './Avatar.jsx';
 import { languageInfo } from '../lib/format.js';
@@ -13,6 +14,8 @@ import { VertraulichAbschnitt } from './Vertraulich.jsx';
 
 /** Alles, was man an einem Kanal einstellen kann — an einem Ort. */
 export function ChannelSettings({ channelId, onClose }: { channelId: string; onClose: () => void }) {
+  const kasten = useRef<HTMLDivElement>(null);
+  useFokusfalle(kasten, true, onClose);
   const t = useT();
   const channel = useStore((s) => s.channels[channelId]);
   const users = useStore((s) => s.users);
@@ -56,6 +59,10 @@ export function ChannelSettings({ channelId, onClose }: { channelId: string; onC
   return (
     <div className="scrim scrim--center" onClick={onClose}>
       <motion.div
+        ref={kasten}
+        role="dialog"
+        aria-modal="true"
+        aria-label={istDm ? users[channel.dmPeerId ?? '']?.displayName ?? t('nav.directMessages') : `#${channel.name}`}
         className="panel panel--wide"
         style={{ width: 'min(680px, 100%)', maxHeight: '84vh' }}
         initial={{ opacity: 0, scale: 0.97, y: 8 }}
