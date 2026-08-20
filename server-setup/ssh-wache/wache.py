@@ -227,18 +227,38 @@ def herkunft_namen(frisch=False):
     return zuordnung
 
 
-def verfuegbare_tage(anzahl=14):
+# Welche Tage es gibt, ändert sich höchstens einmal am Tag — die Antwort darf
+# also stehen bleiben. Zwei Minuten sind reichlich und machen den Unterschied
+# zwischen einer Anzeige, die auf einen Klick sofort reagiert, und einer, die
+# erst einmal das Journal durchsieht.
+TAGE_HALTBAR = 120.0
+_tage_stand = (0.0, None)
+
+
+def verfuegbare_tage(anzahl=14, frisch=False):
     """An welchen Tagen wurde überhaupt etwas mitgeschrieben?
 
     Fragt das Journal einmal nach den Zeitstempeln und zählt die Tage zusammen —
     so stehen in der Auswahl nur Tage, an denen es auch etwas zu sehen gibt.
+
+    Das Ergebnis wird `TAGE_HALTBAR` Sekunden gehalten, und das ist kein
+    Feinschliff: auf dem Pi nachgemessen kostet die Abfrage 0,4 s im Journal
+    und noch einmal ähnlich viel, um 16 000 Zeilen JSON auseinanderzunehmen.
+    Sie lief bisher bei jedem Sprachwechsel mitten im Hauptfaden — ein Klick
+    auf DE/EN ließ die ganze Oberfläche dreiviertel Sekunden lang stehen, und
+    genau das beschreibt man als „reagiert nicht".
     """
+    global _tage_stand
+    alter, gehalten = _tage_stand
+    if not frisch and gehalten is not None and time.monotonic() - alter < TAGE_HALTBAR:
+        return gehalten
     try:
         roh = subprocess.run(
             ["journalctl", "-t", "stellium-ssh", "--since", f"-{anzahl} days",
              "--no-pager", "-o", "json", "--output-fields=__REALTIME_TIMESTAMP"],
             capture_output=True, text=True, timeout=15).stdout
     except Exception:
+        _tage_stand = (time.monotonic(), [])
         return []
     tage = []
     for zeile in roh.splitlines():
@@ -249,7 +269,9 @@ def verfuegbare_tage(anzahl=14):
             continue
         if tag not in tage:
             tage.append(tag)
-    return sorted(tage, reverse=True)
+    tage = sorted(tage, reverse=True)
+    _tage_stand = (time.monotonic(), tage)
+    return tage
 
 
 def tag_lesen(tag):
