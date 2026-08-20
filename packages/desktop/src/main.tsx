@@ -4,6 +4,7 @@ import { App } from './App.jsx';
 import { Fangkorb } from './components/Fangkorb.jsx';
 import { updatesVerbinden } from './lib/updates.js';
 import { auffrischenVerbinden } from './lib/auffrischen.js';
+import { sichereBereicheVerbinden } from './lib/sichere-bereiche.js';
 import './styles/app.css';
 
 /**
@@ -20,6 +21,8 @@ updatesVerbinden();
 /* Im Browser und in der Startbildschirm-App gibt es keinen Hauptprozess, der
    eine neue Fassung meldet. Diese Zeile merkt sie selbst. */
 auffrischenVerbinden();
+/* Muss vor dem ersten Zeichnen laufen — sonst springt die Kopfzeile. */
+sichereBereicheVerbinden();
 
 /* Der äußerste Fangkorb. Ohne ihn hängt React bei einem Fehler beim Zeichnen
    den ganzen Baum aus: #root ist leer, das Fenster bleibt schwarz und nichts
