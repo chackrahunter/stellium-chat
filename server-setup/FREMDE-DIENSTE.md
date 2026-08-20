@@ -213,3 +213,40 @@ Bindet jetzt auf `127.0.0.1:6080`. Wer den Browser-Zugang braucht, tunnelt ihn:
     # dann http://127.0.0.1:6080/vnc.html im Browser
 
 Sicherung: `/etc/systemd/system/novnc.service.vor-20260820`.
+
+---
+
+## Was am 20.08.2026 für die Fernsteuerung dazukam
+
+Damit es später niemand für einen Fremdkörper hält und wegräumt:
+
+- **`stellium-fern.service`** — eigener Dienst, läuft als `aryan` (er braucht
+  die Wayland-Sitzung, die gehört nicht root). Lauscht auf **7788**.
+- **Port 7788** ist in der Firewall des Pi eigens erlaubt
+  (`ufw allow 7788/tcp`) und in `stellium-zugang` aufgenommen, wird also
+  stündlich im Router erneuert. Ohne die Firewall-Regel kam nichts durch,
+  obwohl der Router korrekt weiterleitete und der Dienst lauschte — der Pi
+  verwarf es selbst (`INPUT policy DROP`).
+- `/var/lib/stellium/fern/` gehört `aryan`, Rechte 700. Darin liegen ID und
+  der aus dem Passwort abgeleitete Schlüssel.
+
+### Berichtigt: `stellium-zugang` meldete dauerhaft „ausgefallen"
+
+Der Dienst prüfte nach dem Freigeben, ob `https://$STELLIUM_DOMAIN` antwortet
+— und behandelte ein Nein als Fehlschlag des ganzen Laufs. Zwei Dinge waren
+daran falsch:
+
+1. `STELLIUM_DOMAIN` stand noch auf `stellium-chat.duckdns.org`, also der
+   längst abgeschalteten Adresse. Steht jetzt auf `chat.stellium.club`.
+2. Die Prüfung sagt über die **Portfreigabe** ohnehin nichts aus: die Seite
+   läuft durch den Tunnel. Und von innen scheitert sie fast immer, weil die
+   wenigsten Router eine Anfrage an die eigene öffentliche Adresse auf sich
+   selbst zurückleiten.
+
+Ergebnis war ein Dienst, der bei jedem Lauf rot meldete, während die Freigabe
+in Wahrheit stündlich sauber gesetzt wurde. Jetzt: Freigabe gelungen → Erfolg,
+mit einer Zeile über die nicht mögliche Nachprüfung. Nur wenn der Router die
+Freigabe verweigert, ist es ein Fehler (Rückgabe 3).
+
+**Die Lehre ist dieselbe wie oben:** Ein Wächter, der immer Alarm schlägt, ist
+kein Wächter. Der Tag, an dem es wirklich klemmt, fällt dann niemandem auf.

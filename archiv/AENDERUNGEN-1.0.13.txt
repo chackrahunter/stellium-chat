@@ -1,0 +1,16 @@
+Schirmbilder auf den heutigen Stand gebracht
+Anmeldung braucht bei unbekanntem Konto genauso lange wie bei echtem
+Pi: caddy und cloudflared unantastbar, Zugang dokumentiert, Konsole zeigt echte Zustände
+Prüfläufe messen jetzt wirklich: rund zwanzig konnten nie fehlschlagen
+Wörterbücher: 1087 Einträge in allen 22 Sprachen
+Stilvorlagen: fünf Farbnamen zeigten ins Leere, Reiter auf dem Telefon erreichbar
+Electron: Dateiname einer Aktualisierung kann nicht mehr aus dem Ordner ausbrechen
+Oberfläche: Fangkorb, Fokusfalle, Verlauf lässt sich zurückscrollen, kein ewiger Kreisel
+Protokoll: Kanalkennung für ai:rewrite, Vorschlags-Ereignisse, unübersetzte Nachrichten
+Dienste: Grenzen für Eingaben, Aufräumen beim Löschen, Fehlertexte mit Kennung
+KI-Vorschläge landen in einem Eingang zum Annehmen, Ablehnen oder Bearbeiten
+Ablage: gescheiterte Zerlegung räumt auf, Packen blockiert die Ereignisschleife nicht mehr
+Spracherkennung: „to" fehlte im Englischen, Listen ausgeglichen, Konfidenz neu gerechnet
+Übersetzung gibt den Eingabetext nicht mehr als Übersetzung aus; Anfragen passen ins Kontextfenster
+Ende-zu-Ende: Ablage nimmt keinen Klartext mehr, Sitzungen enden bei Sperre und Passwortwechsel
+Zugangslücken geschlossen: angeheftete Nachrichten, KI-Wege, Erinnerungen, Transkription
