@@ -119,6 +119,14 @@ const SERVER_WURZEL = 'packages/server/src';
 const MELDE_HELFER = new Map([
   ['fehler', { kennung: 1, text: 2, wo: 'HTTP-Antwort' }],   // fehler(reply, status, code, text)
   ['fail', { kennung: 1, text: 2, wo: 'WS-Meldung' }],       // fail(session, code, message)
+  /* Der dritte Weg, und er fehlte hier. `abweisung(code, text)` ist laut
+     util/abweisung.ts ausdrücklich DIE Art, eine übersetzbare Absage zu
+     werfen; Routen und Gateway holen die Kennung mit `kennungVon()` heraus
+     und schicken sie hinaus. Vierzig Aufrufstellen gingen an dieser Prüfung
+     vorbei — eine Kennung, die im Wörterbuch fehlt oder gar keine
+     Zeichenkette ist, blieb unbemerkt, und der Benutzer las den deutschen
+     Rückfalltext. */
+  ['abweisung', { kennung: 0, text: 1, wo: 'Abweisung' }],   // abweisung(code, message)
 ]);
 
 /* Ein Objekt mit diesem Feld ist eine Fehlerantwort. Ohne ein Feld „code"

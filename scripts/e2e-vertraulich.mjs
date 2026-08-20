@@ -21,6 +21,9 @@
  */
 import { DatabaseSync } from 'node:sqlite';
 import fs from 'node:fs';
+import path from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { execFileSync } from 'node:child_process';
 import { probeserver } from './probeserver.mjs';
 /* Die Verschlüsselung des Servers, mit dem Masterpasswort dieses Rechners.
    Damit lässt sich die schärfste Frage stellen: was findet der Server, wenn er
@@ -386,6 +389,69 @@ await pruefe('Die Vorschau beim Tippen wird abgewiesen', async () => {
   );
   muss(antwort.t === 'error', `bekam ${antwort.t} statt einer Abweisung`);
   return antwort.code;
+});
+
+/**
+ * Vorschläge der KI — geprüft am Dienst selbst, nicht an einem Ereignis.
+ *
+ * Die anderen KI-Funktionen weist das Gateway ab, und genau das steht oben.
+ * Vorschläge entstehen aber nicht auf Zuruf, sondern von selbst in einem
+ * Hintergrundlauf: es gibt kein Ereignis, das man schicken und abweisen
+ * lassen könnte. Die ehrliche Frage lautet deshalb nicht „wird es
+ * abgewiesen", sondern „entsteht überhaupt etwas" — und die beantwortet nur
+ * ein Blick in die Tabelle.
+ *
+ * Der Dienst läuft dafür in einem eigenen Prozess. Ihn hier zu laden zöge
+ * halb den Server in diesen Prüflauf hinein; ein Kindprozess mit demselben
+ * DATA_DIR sieht dieselbe Datenbank und ist danach wieder weg.
+ */
+await pruefe('In einem vertraulichen Kanal entsteht kein KI-Vorschlag', async () => {
+  const modul = pathToFileURL(
+    path.resolve('packages/server/dist/services/vorschlaege.js'),
+  ).href;
+
+  const sonde = [
+    "const V = await import(process.env.SONDE_MODUL);",
+    "const kanal = process.env.SONDE_KANAL;",
+    "const lauf = await V.laufFuerKanal(kanal);",
+    "const eintrag = V.kandidatenEintragen(kanal, [{",
+    "  art: 'aufgabe', titel: process.env.SONDE_TITEL,",
+    "  quelleMessageId: process.env.SONDE_NACHRICHT, genanntUserId: null, faelligAm: null,",
+    "}]);",
+    "console.log('SONDE ' + JSON.stringify({",
+    "  laufGrund: lauf.grund, laufAngelegt: lauf.angelegt.length,",
+    "  eintragGrund: eintrag.grund, eintragAngelegt: eintrag.angelegt.length,",
+    "  imKanal: V.zaehlenImKanal(kanal),",
+    "  klartext: V.klartextGefunden(process.env.SONDE_GEHEIM),",
+    "  faellig: V.faelligeKanaele(Date.now() + 86400000).includes(kanal),",
+    "}));",
+  ].join('\n');
+
+  const ausgabe = execFileSync('node', ['--input-type=module', '-e', sonde], {
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      DATA_DIR: probe.datenordner,
+      SONDE_MODUL: modul,
+      SONDE_KANAL: kanalId,
+      SONDE_NACHRICHT: nachrichtId,
+      SONDE_TITEL: `${GEHEIM} neu berechnen`,
+      SONDE_GEHEIM: GEHEIM,
+    },
+  });
+
+  const zeile = ausgabe.split('\n').find((z) => z.startsWith('SONDE '));
+  muss(zeile, `keine Antwort der Sonde:\n${ausgabe.slice(-400)}`);
+  const r = JSON.parse(zeile.slice(6));
+
+  muss(r.laufGrund === 'vertraulich', `der Lauf lief mit Grund "${r.laufGrund}"`);
+  muss(r.laufAngelegt === 0, `${r.laufAngelegt} Vorschläge aus dem Lauf`);
+  muss(r.eintragGrund === 'vertraulich', `das Eintragen lief mit Grund "${r.eintragGrund}"`);
+  muss(r.eintragAngelegt === 0, `${r.eintragAngelegt} Vorschläge eingetragen`);
+  muss(r.imKanal === 0, `${r.imKanal} Zeilen stehen in der Vorschlagstabelle`);
+  muss(!r.faellig, 'der vertrauliche Kanal wurde zum Lesen ausgewählt');
+  muss(!r.klartext, 'der Klartext steht in der Vorschlagstabelle');
+  return 'nichts entstanden, nichts gelesen';
 });
 
 /* ── Die übrigen Wege in einen Kanal hinein ───────────────────── */

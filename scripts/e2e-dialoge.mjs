@@ -31,13 +31,25 @@ for (const [breite, hoehe] of [[1440, 900], [1180, 720], [900, 620]]) {
   await p.waitForSelector('.app', { timeout: 20000 });
   await p.waitForTimeout(1200);
 
-  /** Liegt alles Sichtbare im Fenster? */
+  /**
+   * Liegt alles Sichtbare im Fenster?
+   *
+   * Die Zahl der betrachteten Kästen wird mitgeliefert, und das ist kein
+   * Beiwerk: die Schleife unten fand nichts, wenn sich gar kein Fenster
+   * geöffnet hatte — und eine Schleife über nichts wirft auch nichts. Sieben
+   * Prüfungen in dieser Datei drücken eine Taste und messen danach; ging die
+   * Taste ins Leere, meldeten sie ein Häkchen für einen Bildschirm, auf dem
+   * nichts passiert war. Deshalb muss jede Messung sagen, WAS sie gemessen
+   * hat, und der Aufrufer prüft, dass es überhaupt etwas war.
+   */
   const misst = async (was) => {
-    const mangel = await p.evaluate(({ b, h }) => {
+    const { schlecht: mangel, gesehen } = await p.evaluate(({ b, h }) => {
       const schlecht = [];
+      let gesehen = 0;
       for (const el of document.querySelectorAll('.panel, .kontextmenue, .profile, .neu, [style*="position: fixed"]')) {
         const r = el.getBoundingClientRect();
         if (r.width < 40 || r.height < 20) continue;
+        gesehen += 1;
         if (r.top < -1 || r.left < -1 || r.bottom > h + 1 || r.right > b + 1) {
           schlecht.push({
             teil: el.className || el.tagName,
@@ -46,8 +58,11 @@ for (const [breite, hoehe] of [[1440, 900], [1180, 720], [900, 620]]) {
           });
         }
       }
-      return schlecht;
+      return { schlecht, gesehen };
     }, { b: breite, h: hoehe });
+    if (!gesehen) {
+      throw new Error('kein einziges Fenster offen — es wurde nichts gemessen');
+    }
     if (mangel.length) {
       throw new Error(`ragt heraus: ${mangel.map((m) => `${m.teil} (${m.oben}…${m.unten})`).join(', ')}`);
     }
@@ -69,8 +84,12 @@ for (const [breite, hoehe] of [[1440, 900], [1180, 720], [900, 620]]) {
     ['team', 'Teamverwaltung'],
   ]) {
     const knopf = p.locator(`.rail [data-tour="${reiter}"]`);
-    if (!(await knopf.count())) continue;
+    /* Ein fehlender Knopf war bisher ein stiller Übersprung: die Prüfung
+       verschwand aus der Liste, statt rot zu werden, und „7/7 bestanden"
+       wurde eben zu „3/3 bestanden". Fehlt die Leiste ganz, blieb von diesem
+       Abschnitt gar nichts übrig. */
     await pruefe(name, async () => {
+      muss(await knopf.count(), `in der Leiste gibt es keinen Knopf "${reiter}"`);
       await knopf.click();
       await p.waitForSelector('.panel', { timeout: 8000 });
       await p.waitForTimeout(700);

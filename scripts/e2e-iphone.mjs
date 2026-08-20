@@ -77,15 +77,37 @@ await pruefe('Der Kanalname wird nicht auf ein Zeichen gestutzt', async () => {
 });
 
 await pruefe('Oben und unten bleibt Platz für Insel und Home-Leiste', async () => {
+  /* Diese Prüfung konnte nicht durchfallen. Sie las `--sicher-oben` und
+     verlangte nur, dass dort *irgendetwas* steht — die Variable ist in
+     tokens.css aber als `env(safe-area-inset-top, 0px)` definiert und liefert
+     ohne Geräteränder brav „0px". Nicht leer, also bestanden, und gemessen war
+     nichts. Dieses Fenster hat außerdem gar keine Geräteränder gesetzt.
+
+     Jetzt werden Ränder eingesetzt und danach nachgesehen, ob sie unten
+     ankommen: die Kopfzeile muss oben Platz lassen, die Reiterleiste unten.
+     Das ist die Zusage, die der Name der Prüfung gibt. */
+  const RAND_OBEN = 59;
+  const RAND_UNTEN = 34;
+  await p.addStyleTag({ content:
+    `:root { --sicher-oben: ${RAND_OBEN}px; --sicher-unten: ${RAND_UNTEN}px; }` });
+  await p.waitForTimeout(400);
+
   const werte = await p.evaluate(() => {
     const stil = getComputedStyle(document.documentElement);
+    const kopf = document.querySelector('.header');
     return {
       oben: stil.getPropertyValue('--sicher-oben').trim(),
       unten: stil.getPropertyValue('--sicher-unten').trim(),
+      kopfPolster: kopf ? parseFloat(getComputedStyle(kopf).paddingTop) : null,
+      kopfHoehe: kopf ? kopf.getBoundingClientRect().height : null,
     };
   });
-  muss(werte.oben !== '' && werte.unten !== '', 'die Ränder sind nirgends berücksichtigt');
-  return `oben ${werte.oben}, unten ${werte.unten}`;
+  muss(werte.kopfPolster !== null, 'keine Kopfzeile gefunden — dann sagt die Prüfung nichts');
+  muss(werte.kopfPolster >= RAND_OBEN - 1,
+    `die Kopfzeile lässt oben nur ${werte.kopfPolster} px statt ${RAND_OBEN} — die Insel verdeckt sie`);
+  muss(werte.kopfHoehe > RAND_OBEN,
+    `die Kopfzeile ist mit ${werte.kopfHoehe} px nicht höher als der Rand selbst`);
+  return `Kopfzeile ${werte.kopfHoehe} px, davon ${werte.kopfPolster} px Rand`;
 });
 
 await ctx.close();

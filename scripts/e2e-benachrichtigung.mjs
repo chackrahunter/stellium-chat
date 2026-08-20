@@ -57,8 +57,13 @@ await pruefe('Der Reitertitel trägt die Zahl der Ungelesenen', async () => {
   await p.evaluate((k) => window.__stelliumStore.getState().openChannel(k), stand);
   await p.waitForTimeout(1200);
   const titel = await p.title();
-  // Über neunundneunzig steht "(99+)" — die Zahl selbst ist nicht der Punkt.
-  muss(/^\(\d+\+?\)/.test(titel) || titel === 'Stellium', `Titel: "${titel}"`);
+  /* `|| titel === 'Stellium'` war die Ausnahme für genau den Fehlerfall:
+     „Stellium" ohne Klammern ist der unveränderte Titel, also der Zustand, in
+     dem die Zahl der Ungelesenen NICHT angekommen ist. Mit dieser Ausnahme
+     konnte die Prüfung nicht durchfallen.
+     Über neunundneunzig steht "(99+)" — die Zahl selbst ist nicht der Punkt. */
+  muss(/^\(\d+\+?\)/.test(titel),
+    `Titel: "${titel}" — die Zahl der Ungelesenen steht nicht im Reitertitel`);
   return `"${titel}"`;
 });
 
@@ -67,7 +72,8 @@ await pruefe('Eine Benachrichtigung wird im Browser gezeigt', async () => {
     window.__gezeigt = [];
     const mod = window.__stelliumBenachrichtigung;
     if (mod) mod.zeigen({ titel: 'Probe', text: 'Hallo', kanalId: 'ch_probe' });
-  });
+    return Boolean(mod);
+  }).then((da) => { if (!da) throw new Error('window.__stelliumBenachrichtigung fehlt — der Weg wurde nie geladen'); });
   // Über die Oberfläche: der Knopf in den Einstellungen.
   await p.keyboard.press('Meta+,');
   await p.waitForSelector('.panel', { timeout: 8000 });
@@ -86,7 +92,12 @@ await pruefe('Eine Benachrichtigung wird im Browser gezeigt', async () => {
 
 await pruefe('Gleiche Gruppe ersetzt statt zu stapeln', async () => {
   const tags = await p.evaluate(() => (window.__gezeigt ?? []).map((g) => g.tag));
+  /* `[].every(...)` ist wahr. Ohne die Zeile darunter bestand diese Prüfung
+     immer dann, wenn gar keine Benachrichtigung entstanden war — also gerade
+     dann, wenn etwas kaputt war. */
+  muss(tags.length, 'keine einzige Benachrichtigung gezeigt — dann sagt die Prüfung nichts');
   muss(tags.every((t) => typeof t === 'string' && t.length > 0), `Marken: ${JSON.stringify(tags)}`);
+  return `${tags.length} Marken`;
 });
 
 await ctx.close();

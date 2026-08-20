@@ -97,11 +97,17 @@ await pruefe('Alle drei Systeme stehen zur Wahl', async () => {
 
 await pruefe('Die Seite zeigt die neueste Fassung', async () => {
   const html = await seite(KENNUNGEN.macOS);
-  const r = await fetch(`${S}/api/releases/check?platform=darwin&version=0.0.1`);
-  const gemeldet = r.ok ? (await r.json()).update?.version : null;
+  /* Ohne Zugang antwortet diese Adresse mit 401 — `r.ok` war falsch,
+     `gemeldet` blieb null, und der einzige Abgleich, für den es diese Prüfung
+     gibt, kam nie zustande. Jede andere Abfrage in dieser Datei geht über
+     `mitZugang()`; diese eine war übersehen worden. */
+  const r = await fetch(mitZugang('/api/releases/check?platform=darwin&version=0.0.1'));
+  muss(r.ok, `der Server antwortet mit ${r.status} — es gibt nichts zu vergleichen`);
+  const gemeldet = (await r.json()).update?.version;
   const aufDerSeite = (html.match(/Aktuell ist Version ([\d.]+)/) ?? [])[1];
   muss(aufDerSeite, 'keine Version genannt');
-  if (gemeldet) muss(aufDerSeite === gemeldet, `Seite ${aufDerSeite}, Server ${gemeldet}`);
+  muss(gemeldet, 'der Server nennt keine Fassung');
+  muss(aufDerSeite === gemeldet, `Seite ${aufDerSeite}, Server ${gemeldet}`);
   return aufDerSeite;
 });
 

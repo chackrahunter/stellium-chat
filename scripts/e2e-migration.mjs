@@ -10,6 +10,7 @@ import { execFileSync, spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import net from 'node:net';
 import { DatabaseSync } from 'node:sqlite';
 
 const ergebnisse = [];
@@ -74,7 +75,24 @@ alteDatenbank(path.join(datenOrdner, 'stellium.db'));
 
 console.log('  Alte Datenbank gebaut: 25 Nachrichten im Klartext, keine neuen Spalten');
 
-const port = 8791;
+/* Fester Port hieß: zwei Prüfläufe zur selben Zeit greifen nach derselben
+   Nummer, einer scheitert, und die Prüfung meldet einen Fehler, den es nicht
+   gibt. probeserver.mjs hat dieselbe Stelle schon hinter sich; hier stand sie
+   noch. Die Nummer kommt jetzt vom Betriebssystem. */
+const freierPort = () => new Promise((fertig, schief) => {
+  const sucher = net.createServer();
+  sucher.unref();
+  sucher.on('error', schief);
+  sucher.listen(0, '127.0.0.1', () => {
+    const { port: p } = sucher.address();
+    sucher.close(() => fertig(p));
+  });
+});
+const port = await freierPort();
+/* Auch der zweite Server bekommt eine eigene Nummer. `port + 1` sah harmlos
+   aus, war aber wieder geraten: die Nummer daneben kann längst jemandem
+   anderen gehören. */
+const zweiterPort = await freierPort();
 const kind = spawn('node', ['dist/index.js'], {
   cwd: 'packages/server',
   env: { ...process.env, DATA_DIR: datenOrdner, PORT: String(port), HOST: '127.0.0.1' },
@@ -122,7 +140,7 @@ await pruefe('Ein zweiter Start läuft ebenfalls durch', async () => {
   await new Promise((f) => setTimeout(f, 1500));
   const zweiter = spawn('node', ['dist/index.js'], {
     cwd: 'packages/server',
-    env: { ...process.env, DATA_DIR: datenOrdner, PORT: String(port + 1), HOST: '127.0.0.1' },
+    env: { ...process.env, DATA_DIR: datenOrdner, PORT: String(zweiterPort), HOST: '127.0.0.1' },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   let zweiteAusgabe = '';
@@ -131,7 +149,7 @@ await pruefe('Ein zweiter Start läuft ebenfalls durch', async () => {
   const bis = Date.now() + 25000;
   let da = false;
   while (Date.now() < bis && !da) {
-    try { const r = await fetch(`http://127.0.0.1:${port + 1}/api/releases`); da = Boolean(r.status); } catch {}
+    try { const r = await fetch(`http://127.0.0.1:${zweiterPort}/api/releases`); da = Boolean(r.status); } catch {}
     if (!da) await new Promise((f) => setTimeout(f, 300));
   }
   zweiter.kill();

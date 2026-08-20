@@ -117,7 +117,15 @@ await pruefe('Serverabbruch wird angezeigt und wieder aufgebaut', async () => {
   await p.waitForTimeout(900);
   // Alle WebSocket-Verbindungen kappen — wie ein kurzer Netzausfall.
   await p.context().setOffline(true);
-  await p.waitForTimeout(3000);
+  /* Erst muss der Hinweis überhaupt erscheinen. Ohne diese Zeile prüfte der
+     Lauf nur die Rückkehr — und die Bedingung „steht dort NICHT 'Verbindung
+     verloren'" ist schon vor dem Ausfall erfüllt. Merkte die App den Abriss
+     gar nicht, war das ein bestandener Lauf, obwohl genau das der Fehler ist,
+     um den es hier geht. */
+  await p.waitForFunction(
+    () => document.body.innerText.includes('Verbindung verloren'),
+    undefined, { timeout: 25000 },
+  );
   await p.context().setOffline(false);
   await p.waitForFunction(
     () => !document.body.innerText.includes('Verbindung verloren'),
@@ -203,10 +211,17 @@ await pruefe('Gelöschter Kanal lässt die andere Sitzung nicht abstürzen', asy
   await a.locator('.chan', { hasText: name }).first().click({ button: 'right' });
   await a.waitForSelector('.kontextmenue', { timeout: 6000 });
   const loeschen = a.locator('.kontextmenue button').filter({ hasText: /löschen/i }).last();
-  await loeschen.click();
-  await a.waitForTimeout(600);
+  /* Der Zuhörer muss VOR dem Klick stehen. Er stand danach — Playwright weist
+     einen Dialog ohne Zuhörer sofort ab, der Kanal wurde also nie gelöscht,
+     und die beiden Zusagen darunter bescheinigten anschließend einen Vorgang,
+     der gar nicht stattgefunden hatte. */
   a.once('dialog', (d) => d.accept());
+  await loeschen.click();
   await a.waitForTimeout(2500);
+
+  /* Und nachsehen, ob der Kanal wirklich weg ist — sonst prüft der Rest
+     wieder nur, dass nichts passiert ist. */
+  await b.waitForFunction((n) => !document.body.innerText.includes(n), name, { timeout: 15000 });
 
   muss(await b.locator('.app').count(), 'die zweite Sitzung ist abgestürzt');
   const schlimm = b._fehler.filter((f) => /undefined is not|cannot read|of null/i.test(f));

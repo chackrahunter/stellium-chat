@@ -28,30 +28,53 @@ await p.waitForSelector('.app', { timeout: 20000 });
 await p.addStyleTag({ content: ':root { --sicher-oben: 59px; --sicher-unten: 34px; --sicher-links: 0px; --sicher-rechts: 0px; }' });
 await p.waitForTimeout(900);
 
-const farben = await p.evaluate(() => {
-  const lies = (x, y) => {
-    const el = document.elementFromPoint(x, y);
-    if (!el) return { punkt: `${x},${y}`, element: 'nichts', farbe: 'keine' };
-    let v = el;
-    while (v && getComputedStyle(v).backgroundColor === 'rgba(0, 0, 0, 0)') v = v.parentElement;
+/* WAS HIER FRÜHER GEMESSEN WURDE — UND WARUM ES NICHTS SAGTE
+   Der Leser stieg vom Element unter dem Punkt so lange nach oben, bis er einen
+   nicht durchsichtigen Vorfahren fand, und meldete dessen Farbe. `body` ist in
+   app.css ausdrücklich durchsichtig, `html` trägt den Verlauf — der Aufstieg
+   endete also für jeden der vier Punkte bei `html` und meldete jedes Mal
+   dieselbe Farbe. Ob der Browser an dieser Stelle wirklich etwas malt, kam
+   dabei nie zur Sprache. Die Überschrift versprach „die Farbe an den Rändern
+   wird wirklich ausgelesen"; ausgelesen wurde ein berechneter Stilwert.
+
+   Gemessen wird jetzt am Abzug: ein Bildschirmfoto, und daraus die Pixel an
+   den vier Rändern. Das ist, was ein Mensch sieht. */
+const abzug = 'schirmbilder/safearea.png';
+await p.screenshot({ path: abzug });
+const { pngLesen } = await import('./png-lesen.mjs');
+const bild = pngLesen(abzug);
+
+const farben = (() => {
+  const lies = (x, y, name) => {
+    const p3 = bild.punkt(Math.max(0, Math.min(bild.breite - 1, Math.round(x))),
+      Math.max(0, Math.min(bild.hoehe - 1, Math.round(y))));
     return {
-      punkt: `${x},${y}`,
-      element: `${el.tagName.toLowerCase()}.${(el.className || '').toString().split(' ')[0]}`,
-      farbe: v ? getComputedStyle(v).backgroundColor : 'keine',
+      punkt: name,
+      element: `${Math.round(x)},${Math.round(y)}`,
+      farbe: p3 ? `rgb(${p3[0]}, ${p3[1]}, ${p3[2]})` : 'keine',
     };
   };
-  const h = window.innerHeight, w = window.innerWidth;
-  return [lies(w / 2, 4), lies(w / 2, h - 4), lies(4, h / 2), lies(w - 4, h / 2)];
-});
+  const h = bild.hoehe, w = bild.breite;
+  return [lies(w / 2, 2, 'oben'), lies(w / 2, h - 3, 'unten'), lies(2, h / 2, 'links'), lies(w - 3, h / 2, 'rechts')];
+})();
 
 console.log('\nFarbe an den Rändern (iPhone-Ränder eingesetzt)');
 for (const f of farben) console.log(`  ${f.punkt.padEnd(10)} ${f.element.padEnd(24)} ${f.farbe}`);
-const schwarz = farben.filter((f) => f.farbe === 'rgb(0, 0, 0)' || f.farbe === 'keine');
+const unlesbar = farben.filter((f) => f.farbe === 'keine');
+const schwarz = farben.filter((f) => f.farbe === 'rgb(0, 0, 0)');
 console.log(schwarz.length
   ? `\n✗ ${schwarz.length} Rand${schwarz.length > 1 ? 'bereiche' : 'bereich'} ohne Farbe — dort bleibt es schwarz.`
   : '\n✓ Alle Ränder tragen die Hintergrundfarbe.');
 
-await p.screenshot({ path: 'schirmbilder/safearea.png' });
 await b.close();
 await probe.stop();
+
+/* Und ein Rückgabewert. Bisher endete diese Datei ohne einen — was auch immer
+   an den Rändern stand, der Lauf war grün. Ein unlesbarer Punkt zählt dabei
+   als Fehlschlag und nicht als Übersprung: er heißt, dass hier nichts gemessen
+   wurde, und das ist schlimmer als ein schwarzer Rand, den man sieht. */
+if (unlesbar.length) {
+  console.log(`✗ ${unlesbar.length} Punkt(e) waren nicht lesbar — es wurde nichts gemessen.`);
+}
+process.exit(schwarz.length || unlesbar.length ? 1 : 0);
 process.exit(schwarz.length ? 1 : 0);

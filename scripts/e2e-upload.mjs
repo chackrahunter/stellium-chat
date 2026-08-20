@@ -92,10 +92,20 @@ await pruefe('Zu große Dateien werden abgelehnt', async () => {
   muss(r.status === 413, `Status ${r.status}`);
 });
 
-await pruefe('Ein Strom gegen vier Ströme', async () => {
+await pruefe('Vier Ströme sind nicht langsamer als einer', async () => {
+  /* In dieser Prüfung stand kein einziges `muss`. Sie lud 30 MB hoch, rechnete
+     zwei Zahlen aus, gab sie als Text zurück — und war grün, gleich wie die
+     Zahlen ausfielen. Auch dann, wenn vier Ströme langsamer waren als einer,
+     also genau in dem Fall, für den es den Weg in Teilen gar nicht braucht. */
   const einer = await inTeilen(GROESSE, 1);
   const tempoEiner = (GROESSE / 1048576) / einer.dauer;
   const tempoVier = (GROESSE / 1048576) / geteilt.dauer;
+  muss(tempoEiner > 0 && tempoVier > 0, 'eine der beiden Messungen kam nicht zustande');
+  /* Großzügig: auf einer Leitung ohne Laufzeit gewinnen mehrere Ströme wenig,
+     und die Messung schwankt. Deutlich langsamer dürfen sie aber nicht sein —
+     dann stimmt am Zusammensetzen etwas nicht. */
+  muss(tempoVier >= tempoEiner * 0.7,
+    `vier Ströme ${tempoVier.toFixed(0)} MB/s gegen einen mit ${tempoEiner.toFixed(0)} MB/s`);
   return `1 Strom ${tempoEiner.toFixed(0)} MB/s · 4 Ströme ${tempoVier.toFixed(0)} MB/s`;
 });
 

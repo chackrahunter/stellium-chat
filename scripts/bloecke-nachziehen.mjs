@@ -209,7 +209,11 @@ for (const [i, datei] of liste.entries()) {
   const vorlage = summeVonDatei(datei.path);
   const begonnen = Date.now();
 
-  const ergebnis = ablage.uebernehmen({
+  /* Seit das Packen neben dem Ereignisfaden läuft statt in ihm, kommt die
+     Übernahme als Versprechen zurück. Ohne das `await` stünde hier ein
+     Promise, das immer wahr ist — und der Lauf meldete jede Datei als
+     übernommen, auch die gescheiterten. */
+  const ergebnis = await ablage.uebernehmen({
     id: datei.id, art: datei.art, pfad: datei.path, mime: datei.mime,
   });
   if (!ergebnis) {

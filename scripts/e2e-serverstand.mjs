@@ -28,7 +28,11 @@ if (!angemeldet.token && ERST) {
     await fetch(`${S}/api/auth/setup`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', authorization: `Bearer ${erst.token}` },
-      body: JSON.stringify({ handle: LOGIN, displayName: 'Don', email: `${LOGIN}@example.test`, password: PW, language: 'de' }),
+      /* `password` war das falsche Feld: /api/auth/setup liest `newPassword`
+         und antwortet sonst mit 400. Damit lief dieser Weg nie durch, und die
+         zugesagte Einrichtung ohne Vorbereitung endete in der Abbruchzeile
+         darunter. */
+      body: JSON.stringify({ handle: LOGIN, displayName: 'Don', email: `${LOGIN}@example.test`, newPassword: PW, language: 'de' }),
     });
     angemeldet = await anmelden(LOGIN, PW);
   }
@@ -95,7 +99,10 @@ await pruefe('Gleichstand wird als solcher benannt', async () => {
 });
 await pruefe('Der Server steht in der Verteilung', async () => {
   const zeilen = await p.locator('.release-row__name').allInnerTexts();
-  if (!zeilen.length) return 'ohne Verwaltungsrecht — Liste bleibt verborgen';
+  /* Ein leerer Kasten war bisher ein bestandener Lauf: `return` zählt in
+     `pruefe` als Erfolg, und die einzige Zusage darunter kam nie zum Zuge —
+     auch dann nicht, wenn die Liste schlicht nicht gezeichnet wurde. */
+  muss(zeilen.length, 'die Verteilungsliste ist leer — ohne Verwaltungsrecht sagt diese Prüfung nichts');
   muss(zeilen.includes('Server'), `nur: ${zeilen.join(', ')}`);
 });
 await p.context().close();

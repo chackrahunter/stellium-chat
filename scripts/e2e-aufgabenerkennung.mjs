@@ -99,8 +99,13 @@ await pruefe('Rückgängig entfernt sie wieder', async () => {
   await p.waitForFunction(() => !document.querySelector('.extract-pop .spin'), null, { timeout: 60000 });
   await p.waitForTimeout(400);
   const zurueck = p.locator('.extract-pop button').filter({ hasText: /Rückgängig/i });
-  if (!(await zurueck.count())) return 'nichts Neues gefunden — nichts zurückzunehmen';
+  /* Beides war ein stiller Übersprung, der als bestanden zählte — und
+     ausgerechnet das Fehlen des Rückgängig-Knopfes ist der Gegenstand dieser
+     Prüfung. Dazu die leere Liste: `[].filter(...)` ist `[]`, also bestand die
+     Zusage darunter auch dann, wenn nichts zu vergleichen war. */
+  muss(await zurueck.count(), 'kein Rückgängig-Knopf — genau das ist hier zu prüfen');
   const titel = await p.locator('.extract-pop__liste li').allInnerTexts();
+  muss(titel.length, 'die Liste der erkannten Aufgaben ist leer — dann sagt der Vergleich nichts');
   await zurueck.click();
   await p.waitForTimeout(1500);
   await p.locator('.rail [data-tour="tasks"]').click();

@@ -57,8 +57,16 @@ for (const g of GERAETE) {
     /* Nur melden, was wirklich stört. Absichtlich beiseitegeschobenes (die
        eingeklappte Kanalliste) und sauber Abgeschnittenes (die Farbblasen im
        Hintergrund) sind kein Fehler — sie sind der Entwurf. */
+    /* Diese Ausnahme hat einmal jeden Fund verschluckt: der Aufstieg endete
+       immer bei `body`, und `body` trägt in app.css `overflow: hidden`. Damit
+       war `abgeschnitten()` für jedes Element der Seite wahr und `raus` blieb
+       ausnahmslos leer — die halbe Zusicherung darunter konnte nicht
+       fehlschlagen.
+
+       Der Aufstieg endet deshalb jetzt vor `body`. Gemeint war ein Kasten, der
+       innerhalb der Seite etwas beschneidet, nicht das Fenster selbst. */
     const abgeschnitten = (el) => {
-      for (let v = el.parentElement; v; v = v.parentElement) {
+      for (let v = el.parentElement; v && v !== document.body; v = v.parentElement) {
         const st = getComputedStyle(v);
         if (st.overflowX !== 'visible' || st.contain.includes('strict')) return true;
       }

@@ -33,7 +33,12 @@ for (const motor of MOTOREN) {
   try {
     browser = await motor.starte.launch({ headless: true });
   } catch (e) {
+    /* Ein Motor, der nicht startet, war bisher ein Übersprung ohne Spur.
+       Starteten alle drei nicht, blieb `ergebnisse` leer, „0/0 bestanden"
+       stand da und der Rückgabewert war 0 — ein grüner Lauf, der nichts
+       ausgeführt hat. */
     console.log(`\n${motor.name}: nicht startbar — ${e.message.split('\n')[0]}`);
+    merke(motor.name, '—', 'Motor startet', false, e.message.split('\n')[0]);
     continue;
   }
   console.log(`\n${motor.name} (${motor.gilt})`);
@@ -144,5 +149,6 @@ for (const [motor, z] of proMotor) {
   console.log(`${motor.padEnd(10)} ${z.gut}/${z.gut + z.schlecht}`);
 }
 const schlecht = ergebnisse.filter((e) => !e.ok).length;
+if (!ergebnisse.length) { console.log('\n✗ keine einzige Prüfung gelaufen'); process.exit(1); }
 console.log(`\n${ergebnisse.length - schlecht}/${ergebnisse.length} bestanden`);
 process.exit(schlecht ? 1 : 0);

@@ -94,6 +94,12 @@ async function pruefen() {
   });
   await new Promise((r) => dienst.listen(port, '127.0.0.1', r));
 
+  /* Ab hier kann alles schiefgehen, und dann muss trotzdem der erfundene
+     Dienst zugehen und der Arbeitsordner weg sein. Ohne das blieb bei jedem
+     Fehlschlag ein lauschender Server im Prozess — der hält die
+     Ereignisschleife am Leben, `process.exit` unten wird nie erreicht, und der
+     Aufruf hängt bis zum Abbruch von Hand. */
+  try {
   const { initDb } = await import('../packages/server/src/db/index.ts');
   const { migrate } = await import('../packages/server/src/db/migrate.ts');
   initDb(); migrate();
@@ -151,10 +157,14 @@ async function pruefen() {
   console.log(`  hängender Rechner:                ${stummDauer} ms`
     + `  (ohne Test: 3 Versuche à ${FRIST} ms, im Betrieb à 25 s)`);
 
-  dienst.close();
-  fs.rmSync(ordner, { recursive: true, force: true });
+  } finally {
+    dienst.close();
+    for (const r of offen) { try { r.destroy(); } catch { /* schon zu */ } }
+    fs.rmSync(ordner, { recursive: true, force: true });
+  }
 
   const gut2 = ergebnisse.filter(Boolean).length;
+  if (!ergebnisse.length) { console.log('\n✗ keine einzige Prüfung gelaufen'); process.exit(1); }
   console.log(`\n${gut2 === ergebnisse.length ? '✓' : '✗'} ${gut2}/${ergebnisse.length} bestanden`);
   process.exit(gut2 === ergebnisse.length ? 0 : 1);
 }

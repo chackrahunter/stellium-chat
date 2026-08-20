@@ -21,8 +21,16 @@ const muss = (b, m) => { if (!b) throw new Error(m); };
 console.log('\nServerseitige Absicherung');
 
 await pruefe('Ein Archiv mit "../" wird abgelehnt', async () => {
-  /* Ein Ausbruchsarchiv lässt sich nicht überall gleich bauen — geprüft wird
-     deshalb die Regel selbst, mit genau den Einträgen, die gefährlich sind. */
+  /* Hier stand das Muster einmal ausgeschrieben — im Prüfling, nicht im
+     Skript. Damit prüfte dieser Lauf seine eigene Zeile: wer die Absicherung
+     in stellium-selbstupdate.sh ändert oder löscht, bekam weiterhin ein Häkchen.
+     Das Muster wird jetzt aus dem ausgelieferten Skript gelesen und genau so
+     angewandt, wie es dort steht. Fehlt es dort, fällt der Lauf durch. */
+  const skript = fs.readFileSync('server-setup/stellium-selbstupdate.sh', 'utf8');
+  const wache = skript.match(/tar -tzf "\$PAKET" \| grep -qE '([^']+)'/);
+  muss(wache, 'in stellium-selbstupdate.sh sieht niemand mehr ins Archiv, bevor es ausgepackt wird');
+  const muster = wache[1];
+
   const proben = [
     ['../ausbruch/datei', true],
     ['/etc/passwd', true],
@@ -33,11 +41,14 @@ await pruefe('Ein Archiv mit "../" wird abgelehnt', async () => {
   ];
   for (const [pfad, gefaehrlich] of proben) {
     const antwort = execFileSync('bash', ['-c',
-      `printf '%s\\n' ${JSON.stringify(pfad)} | grep -qE '^/|(^|/)\\.\\.(/|$)' && echo ja || echo nein`,
+      `printf '%s\\n' ${JSON.stringify(pfad)} | grep -qE ${JSON.stringify(muster)} && echo ja || echo nein`,
     ], { encoding: 'utf8' }).trim();
     muss((antwort === 'ja') === gefaehrlich, `"${pfad}" wurde als ${antwort === 'ja' ? 'gefährlich' : 'harmlos'} eingestuft`);
   }
-  return `${proben.length} Pfade richtig eingeordnet`;
+  // Und die Wache muss vor dem Auspacken stehen, nicht danach.
+  muss(skript.indexOf('grep -qE') < skript.indexOf('tar -C "$ARBEIT"'),
+    'ins Archiv wird erst nach dem Auspacken gesehen');
+  return `${proben.length} Pfade gegen das echte Muster geprüft`;
 });
 
 await pruefe('Das Skript hält die Prüfsumme für verbindlich', async () => {
@@ -59,7 +70,14 @@ await pruefe('Vor dem Laden wird der Platz geprüft', async () => {
 await pruefe('Der Rückfall steht im Aktualisierungsskript', async () => {
   const skript = fs.readFileSync('server-setup/stellium-aktualisieren.sh', 'utf8');
   muss(/zurueck\(\)/.test(skript), 'keine Rückfallebene');
-  muss(/trap .*zurueck|zurueck$/m.test(skript) || /\|\| zurueck/.test(skript), 'der Rückfall wird nie ausgelöst');
+  /* `zurueck$` allein genügte hier nicht: es traf auch `einstellungen_zurueck`
+     — eine ganz andere Funktion, die es unabhängig davon gibt. Damit blieb die
+     Prüfung grün, während der `trap` gelöscht war. Verlangt wird deshalb der
+     Auslöser selbst. */
+  muss(/^\s*trap\s+'?zurueck'?\s+.*ERR/m.test(skript),
+    'kein "trap zurueck ERR" — der Rückfall wird bei einem Fehler nie ausgelöst');
+  muss(/^\s*trap\s+'?zurueck'?\s+.*(INT|TERM)/m.test(skript),
+    'kein "trap zurueck INT TERM" — ein Abbruch von Hand lässt den Server halb aktualisiert stehen');
 });
 
 console.log('\nClientseitige Absicherung');
@@ -113,7 +131,10 @@ await pruefe('Die Prüfsumme kommt mit der Auskunft', async () => {
     headers: { authorization: `Bearer ${token}` },
   });
   const daten = await r.json();
-  if (!daten.update) return 'keine Fassung hinterlegt — übersprungen';
+  /* Ein Übersprung ist kein bestandener Lauf: hier stand einmal
+     `return '… übersprungen'`, und damit galten die beiden Zusagen darunter
+     als erfüllt, obwohl niemand sie gemessen hatte. */
+  muss(daten.update, 'keine Fassung hinterlegt — dann sagt diese Prüfung nichts');
   muss(/^[a-f0-9]{64}$/.test(daten.update.sha256 ?? ''), 'keine oder unsinnige Prüfsumme');
   muss(daten.update.size > 0, 'keine Größe');
   return `${daten.update.version} · ${daten.update.sha256.slice(0, 12)}…`;

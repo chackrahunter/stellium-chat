@@ -66,7 +66,11 @@ pruefe('ollama und llamacpp bleiben getrennt', () => {
 pruefe('Groq bleibt unberührt', () => {
   const r = mitUmgebung({ AI_PROVIDER: 'groq' });
   muss(!r.lokal, 'gilt fälschlich als lokal');
-  muss(r.name === 'groq' || r.name === 'demo', `Anbieter ${r.name}`);
+  /* `|| r.name === 'demo'` stand hier und machte die Prüfung wertlos: der
+     stille Rückfall auf „demo" ist genau der Fehler, den diese Datei fangen
+     soll (siehe oben). Wer die Ausnahme mit in die Zusage schreibt, prüft,
+     dass der Fehler erlaubt ist. */
+  muss(r.name === 'groq', `Anbieter ${r.name} — der stille Rückfall auf "demo" ist der Fehler, nicht die Ausnahme`);
 });
 
 const schlecht = ergebnisse.filter((x) => !x).length;

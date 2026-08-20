@@ -176,13 +176,13 @@ if (!DA) {
 } else {
   await pruefe('Deutsche Aufnahme wird abgetippt', async () => {
     deutsch = await sprachnachricht(offen, 'stimme-de.webm');
-    zeiten.push(['deutsch (3,7 s)', deutsch.dauerMs]);
+    zeiten.push(['deutsch (8,7 s)', deutsch.dauerMs]);
     muss(deutsch.voice.transcript, 'keine Abschrift zurückgekommen');
     muss(deutsch.voice.transcriptLang === 'de',
       `Sprache "${deutsch.voice.transcriptLang}" statt "de"`);
     const t = deutsch.voice.transcript.toLowerCase();
-    muss(/besprechung|montag|neun/.test(t), `nichts Erwartetes im Text: "${deutsch.voice.transcript}"`);
-    muss(deutsch.voice.durationMs > 2000 && deutsch.voice.durationMs < 8000,
+    muss(/besprechung|montag|verschoben/.test(t), `nichts Erwartetes im Text: "${deutsch.voice.transcript}"`);
+    muss(deutsch.voice.durationMs > 5000 && deutsch.voice.durationMs < 14000,
       `unglaubwürdige Länge: ${deutsch.voice.durationMs} ms`);
     return `${(deutsch.dauerMs / 1000).toFixed(1)} s · "${deutsch.voice.transcript.trim().slice(0, 46)}"`;
   });
@@ -231,19 +231,21 @@ if (!DA) {
 
   await pruefe('Englische Aufnahme wird als Englisch erkannt', async () => {
     const en = await sprachnachricht(offen, 'stimme-en.webm');
-    zeiten.push(['englisch (3,9 s)', en.dauerMs]);
+    zeiten.push(['englisch (8,5 s)', en.dauerMs]);
     muss(en.voice.transcript, 'keine Abschrift zurückgekommen');
     muss(en.voice.transcriptLang === 'en', `Sprache "${en.voice.transcriptLang}" statt "en"`);
-    muss(/report|finished|tomorrow|morning/i.test(en.voice.transcript),
+    muss(/meeting|moved|afternoon|tomorrow|morning/i.test(en.voice.transcript),
       `nichts Erwartetes im Text: "${en.voice.transcript}"`);
     return `${(en.dauerMs / 1000).toFixed(1)} s · "${en.voice.transcript.trim().slice(0, 46)}"`;
   });
 
   await pruefe('Spanische Aufnahme wird als Spanisch erkannt', async () => {
     const es = await sprachnachricht(offen, 'stimme-es.webm');
-    zeiten.push(['spanisch (4,2 s)', es.dauerMs]);
+    zeiten.push(['spanisch (9,1 s)', es.dauerMs]);
     muss(es.voice.transcript, 'keine Abschrift zurückgekommen');
     muss(es.voice.transcriptLang === 'es', `Sprache "${es.voice.transcriptLang}" statt "es"`);
+    muss(/informe|viernes|trimestral/i.test(es.voice.transcript),
+      `nichts Erwartetes im Text: "${es.voice.transcript}"`);
     return `${(es.dauerMs / 1000).toFixed(1)} s · "${es.voice.transcript.trim().slice(0, 46)}"`;
   });
 }

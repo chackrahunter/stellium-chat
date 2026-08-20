@@ -77,3 +77,18 @@ for (const t of treffer) console.log(`  „${t.text}"  ← ${t.tag}.${t.klasse}`
 
 await b.close();
 await probe.stop();
+
+/* Der Kommentar über `meta` sagte schon das Richtige — „ein Test, der ein
+   fehlendes Element für in Ordnung hält, prüft gar nichts" —, und dann stand
+   darunter nur ein `console.log`. Die Datei endete ohne Rückgabewert: beliebig
+   viele deutsche Reste und eine fehlende Übersetzungszeile ergaben eine Null.
+   Jetzt gilt beides als Fehlschlag. */
+const maengel = [];
+if (meta === null) maengel.push('die Übersetzungszeile wurde gar nicht gezeichnet');
+if (treffer.length) maengel.push(`${treffer.length} deutsche Reste in der englischen Oberfläche`);
+if (maengel.length) {
+  console.log(`\n✗ ${maengel.join(' · ')}`);
+  process.exit(1);
+}
+console.log('\n✓ Englische Oberfläche ohne deutsche Reste, Übersetzungszeile steht.');
+process.exit(0);

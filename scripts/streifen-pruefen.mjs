@@ -126,9 +126,19 @@ console.log(kanten.length
   : `║    ✓ Kein Sprung — nur der Verlauf. Größter Zeilenschritt Δ${sortiert[sortiert.length - 1]}, üblich Δ${mitte}.`);
 
 /* ── 2. Hat sich das Bild der Seite geändert? ─────────────────── */
+/* `null` heißt hier „nicht gemessen" und nicht „in Ordnung". Unten stand
+   einmal `bildGleich !== false`, und damit fiel jeder Fall, in dem der
+   Vergleich gar nicht zustande kam — kein Vergleichsbild, andere Größe —,
+   stillschweigend auf „bestanden". Ein fehlendes Vergleichsbild ist aber kein
+   Nachweis, sondern das Fehlen eines Nachweises; es wird jetzt als solches
+   gemeldet und macht den Lauf rot, statt ihn grün zu lassen. */
 let bildGleich = null;
+let gegenGrund = '';
 if (fs.existsSync(GEGEN)) {
   const alt = pngLesen(GEGEN);
+  if (alt.breite !== bild.breite || alt.hoehe !== bild.hoehe) {
+    gegenGrund = `Vergleichsbild ist ${alt.breite}×${alt.hoehe}, dieses ${bild.breite}×${bild.hoehe}`;
+  }
   if (alt.breite === bild.breite && alt.hoehe === bild.hoehe) {
     let groesster = 0, wo = 0;
     for (let y = 0; y < bild.hoehe; y += 1) {
@@ -143,7 +153,11 @@ if (fs.existsSync(GEGEN)) {
       : '║    ✗ Die Seite hat sich verändert.');
   }
 } else {
-  console.log(`║\n║ 2) Kein Vergleichsbild unter ${GEGEN} — übersprungen.`);
+  gegenGrund = `kein Vergleichsbild unter ${GEGEN}`;
+}
+if (bildGleich === null) {
+  console.log(`║\n║ 2) ✗ Nicht gemessen: ${gegenGrund}.`);
+  console.log('║      Vergleichsbild anlegen: node scripts/streifen-messen.mjs');
 }
 
 /* ── 3. Die Farbe der browsereigenen Ränder ───────────────────── */
@@ -159,7 +173,7 @@ console.log(randGut
   ? '║    ✓ Rand und Seite sind gleich hell — dort kann keine sichtbare Kante mehr entstehen.'
   : `║    ✗ Der Rand ist um ${abstand} Stufen ${hell(rand) < hell(unten) ? 'dunkler' : 'heller'} als die Seite — genau das ergibt den Streifen.`);
 
-const gut = kanten.length === 0 && randGut && bildGleich !== false;
+const gut = kanten.length === 0 && randGut && bildGleich === true;
 console.log(`║\n║ Bild: ${BILD}`);
 console.log(gut ? '╚═══ ✓ bestanden\n' : '╚═══ ✗ durchgefallen\n');
 process.exit(gut ? 0 : 1);

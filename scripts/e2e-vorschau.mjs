@@ -48,7 +48,11 @@ await pruefe('Vorschau erscheint in der Direktnachricht', async () => {
     });
     if (info && info.art === 'dm' && !info.bot && info.seine && info.seine !== info.meine) { gefunden = info; break; }
   }
-  if (!gefunden) return 'kein anderssprachiger Direktchat vorhanden — übersprungen';
+  /* Ein Übersprung zählte hier als bestanden — und zwar genau in dem Fall,
+     für den es diese Datei gibt. Der Zustand, den sie braucht (ein Direktchat
+     mit jemandem anderer Sprache), entsteht durch keinen Lauf hier von selbst;
+     fehlt er, ist nichts gemessen und das muss man sehen. */
+  muss(gefunden, 'kein anderssprachiger Direktchat vorhanden — die Vorschau wurde nicht geprüft');
 
   await p.locator('.composer__input').fill('Wir treffen uns morgen um zehn Uhr im Büro.');
   await p.waitForSelector('.composer__preview', { timeout: 30000 });
@@ -60,7 +64,7 @@ await pruefe('Vorschau erscheint in der Direktnachricht', async () => {
 
 await pruefe('Kurze Texte bekommen auch eine Vorschau', async () => {
   const sichtbar = await p.locator('.composer__preview').count();
-  if (!sichtbar) return 'kein anderssprachiger Chat — übersprungen';
+  muss(sichtbar, 'kein anderssprachiger Chat — die Vorschau wurde nicht geprüft');
   await p.locator('.composer__input').fill('Danke!');
   await p.waitForTimeout(4000);
   muss(await p.locator('.composer__preview').count() > 0, 'keine Vorschau bei kurzem Text');

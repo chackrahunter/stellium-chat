@@ -4,10 +4,18 @@ import fs from 'node:fs';
 import { APP, LOGIN, PW, SERVER as S } from './zugang.mjs';
 
 const SERVER = 'http://localhost:8787';
-const SHOTS = '/private/tmp/claude-501/-Users-don-calvinkuhn-Documents-Projekte/ed07e87c-fec9-446f-b57e-d0359eadaf24/scratchpad/shots';
+/* Hier stand der Kratzordner einer einzelnen Sitzung fest im Quelltext —
+   ein Pfad unter /private/tmp/claude-501/…, den es auf keinem zweiten Rechner
+   gibt und der nach einem Neustart auch auf diesem weg ist. Die Bilder gehen
+   jetzt dorthin, wo alle anderen Läufe ihre ablegen. */
+const SHOTS = process.env.STELLIUM_BILDER ?? 'schirmbilder/e2e-neu';
 fs.mkdirSync(SHOTS, { recursive: true });
 
-const EINMAL = process.env.STELLIUM_OTP ?? 'KY4D-3FKZ-9EBC-UQRZ';
+/* Ein Einmal-Passwort aus einem früheren Lauf gehört nicht in den Quelltext:
+   das Repository ist öffentlich, und ein Zugang, der irgendwann einmal gültig
+   war, ist genau die Art Fund, nach der automatisierte Sucher greifen. Wer den
+   Weg über die Ersteinrichtung prüfen will, gibt ihn über die Umgebung mit. */
+const EINMAL = process.env.STELLIUM_OTP ?? '';
 const PASSWORT = PW;
 
 const ergebnisse = [];
@@ -50,6 +58,13 @@ if (await seite.locator('.auth').count()) {
   await anmelden(PASSWORT);
   await seite.waitForTimeout(1800);
   if (await seite.locator('.auth').count()) {
+    if (!EINMAL) {
+      throw new Error(
+        'Anmeldung mit dem Testpasswort fehlgeschlagen, und es liegt kein '
+        + 'Einmal-Passwort vor. Entweder .stellium-test richtigstellen oder '
+        + 'STELLIUM_OTP setzen.',
+      );
+    }
     await anmelden(EINMAL);
     await seite.waitForTimeout(2000);
     await seite.waitForTimeout(2500);
@@ -88,16 +103,23 @@ await pruefe('Tour hebt echte Bedienelemente hervor', async () => {
 });
 
 await pruefe('Tour bleibt im Fenster', async () => {
+  /* Der Ausstieg beim ersten Durchgang war ein bestandener Lauf ohne eine
+     einzige Messung: startete die Tour gar nicht, brach die Schleife sofort ab
+     und niemand sah es. Mindestens eine Karte muss dagewesen sein. */
+  let gemessen = 0;
   for (let i = 0; i < 16; i++) {
     if (!(await seite.locator('.tour__card').count())) break;
     const karte = await seite.locator('.tour__card').boundingBox();
     if (!karte) break;
+    gemessen += 1;
     if (karte.x < 0 || karte.y < 0 || karte.x + karte.width > 1441 || karte.y + karte.height > 901) {
       throw new Error(`Karte ragt heraus: ${JSON.stringify(karte)}`);
     }
     await seite.click('.tour__foot .btn--primary');
     await seite.waitForTimeout(320);
   }
+  if (!gemessen) throw new Error('die Tour zeigte keine einzige Karte — es wurde nichts gemessen');
+  return `${gemessen} Karten`;
 });
 
 await pruefe('Tour lässt sich überspringen', async () => {

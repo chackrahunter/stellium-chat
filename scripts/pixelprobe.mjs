@@ -8,7 +8,6 @@
 import { webkit, devices } from 'playwright';
 import { probeserver } from './probeserver.mjs';
 import fs from 'node:fs';
-import zlib from 'node:zlib';
 
 const APP = process.env.STELLIUM_APP ?? 'http://localhost:5173';
 const probe = await probeserver();
@@ -42,38 +41,47 @@ const punkte = await p.evaluate(() => {
   });
 });
 
-await p.screenshot({ path: '/tmp/probe.png' });
+/* Ein eigener Name je Lauf: `/tmp/probe.png` ist so allgemein, dass zwei
+   gleichzeitige Läufe sich gegenseitig das Bild unter den Füßen wegziehen. */
+const ABZUG = `/tmp/stellium-pixelprobe-${process.pid}.png`;
+await p.screenshot({ path: ABZUG });
 await b.close();
 await probe.stop();
 
-/* PNG von Hand lesen — nur die Farbe einzelner Zeilen, ohne fremde Pakete. */
-const roh = fs.readFileSync('/tmp/probe.png');
-let pos = 8, breite = 0, hoehe = 0; const daten = [];
-while (pos < roh.length) {
-  const len = roh.readUInt32BE(pos);
-  const typ = roh.toString('ascii', pos + 4, pos + 8);
-  if (typ === 'IHDR') { breite = roh.readUInt32BE(pos + 8); hoehe = roh.readUInt32BE(pos + 12); }
-  if (typ === 'IDAT') daten.push(roh.subarray(pos + 8, pos + 8 + len));
-  pos += 12 + len;
-}
-const roh2 = zlib.inflateSync(Buffer.concat(daten));
-const proZeile = breite * 4 + 1;
+/* Der eigene PNG-Leser, der hier stand, kannte nur die Zeilenfilter 0 und 2 —
+   und gab für alles andere `null` zurück. Ein Abzug mit Farbverlauf benutzt
+   fast nur die Filter 1, 3 und 4: gemessen wurde damit an allen vier Punkten
+   nichts, und der Bericht schrieb viermal „nicht lesbar", ohne dass ein
+   Rückgabewert daraus folgte. png-lesen.mjs beherrscht alle fünf. */
+const { pngLesen } = await import('./png-lesen.mjs');
+const bild = pngLesen(ABZUG);
+const { breite, hoehe } = bild;
 const farbe = (y) => {
-  const start = y * proZeile;
-  let vorher = Buffer.alloc(breite * 4);
-  // Vereinfachung: nur Zeilen mit Filter 0 (ohne Vorhersage) direkt lesen.
-  for (let i = 0; i <= y; i += 1) {
-    const f = roh2[i * proZeile];
-    const zeile = roh2.subarray(i * proZeile + 1, (i + 1) * proZeile);
-    if (f === 0) vorher = Buffer.from(zeile);
-    else if (f === 2) { const n = Buffer.alloc(breite * 4); for (let x = 0; x < breite * 4; x += 1) n[x] = (zeile[x] + vorher[x]) & 255; vorher = n; }
-    else return null;
-  }
-  const x = Math.floor(breite / 2) * 4;
-  return `rgb(${vorher[x]}, ${vorher[x + 1]}, ${vorher[x + 2]})`;
+  if (y < 0 || y >= hoehe) return null;
+  const c = bild.punkt(Math.floor(breite / 2), y);
+  return `rgb(${c[0]}, ${c[1]}, ${c[2]})`;
 };
 
 console.log(`\nBild ${breite}×${hoehe}\n`);
+let unlesbar = 0;
 for (const s of punkte) {
-  console.log(`  ${s.name.padEnd(24)} y=${String(s.y).padStart(4)}  ${(farbe(s.y) ?? 'nicht lesbar').padEnd(20)} ${s.element}`);
+  const c = farbe(s.y);
+  if (c === null) unlesbar += 1;
+  console.log(`  ${s.name.padEnd(24)} y=${String(s.y).padStart(4)}  ${(c ?? 'nicht lesbar').padEnd(20)} ${s.element}`);
 }
+
+/* „nicht lesbar" war bisher eine Zeile im Bericht und sonst nichts — die Datei
+   endete ohne Rückgabewert. Dabei ist genau das der Normalfall auf einem
+   Verlauf: der eigene Leser hier kennt nur die Zeilenfilter 0 und 2, und ein
+   Abzug mit Farbverlauf benutzt fast nur 1, 3 und 4 (siehe png-lesen.mjs).
+   Gemessen wurde damit an den interessanten Stellen nichts. Es gibt einen
+   Leser, der alle fünf Filter kann; wer hier misst, soll ihn nehmen. */
+fs.rmSync(ABZUG, { force: true });
+
+if (unlesbar) {
+  console.log(`\n✗ ${unlesbar} von ${punkte.length} Punkten waren nicht lesbar — dort wurde nichts gemessen.`);
+  console.log('    Dieser Leser kennt nur die Zeilenfilter 0 und 2. Nimm scripts/png-lesen.mjs,');
+  console.log('    der alle fünf beherrscht (so macht es e2e-safearea.mjs).');
+  process.exit(1);
+}
+process.exit(0);

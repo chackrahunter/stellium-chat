@@ -52,14 +52,22 @@ for (const breite of [1440, 1100, 1000, 940, 900, 860, 700, 390]) {
     return `${Math.round(m.t.b)} px`;
   });
 
-  pruefe(`${breite} px: Verlauf und Thread überlappen nicht`, () => {
-    if (!m.haupt) return 'kein Verlauf sichtbar';
-    // Unter 880 legt sich der Thread bewusst darüber — dort ist das gewollt.
-    if (breite <= 880) return 'Thread liegt bewusst darüber';
-    muss(m.haupt.r <= m.t.x + 2, `Verlauf endet bei ${Math.round(m.haupt.r)}, Thread beginnt bei ${Math.round(m.t.x)}`);
-    muss(m.haupt.b > 200, `Verlauf nur ${Math.round(m.haupt.b)} px breit`);
-    return `Verlauf ${Math.round(m.haupt.b)} px`;
-  });
+  /* Unter 880 legt sich der Thread bewusst über den Verlauf — dort gibt es
+     nichts zu prüfen, und die Prüfung wird deshalb gar nicht erst angemeldet.
+     Vorher stand sie in der Liste und gab ein Häkchen zurück, ohne etwas
+     gemessen zu haben: bei drei der vier Breiten war sie ein bestandener Lauf
+     ohne Inhalt. Auch `!m.haupt` — gar kein Verlauf zu sehen — zählte dort als
+     bestanden, und das ist kein gewollter Fall, sondern ein kaputter. */
+  if (breite > 880) {
+    pruefe(`${breite} px: Verlauf und Thread überlappen nicht`, () => {
+      muss(m.haupt, 'kein Verlauf sichtbar');
+      muss(m.haupt.r <= m.t.x + 2, `Verlauf endet bei ${Math.round(m.haupt.r)}, Thread beginnt bei ${Math.round(m.t.x)}`);
+      muss(m.haupt.b > 200, `Verlauf nur ${Math.round(m.haupt.b)} px breit`);
+      return `Verlauf ${Math.round(m.haupt.b)} px`;
+    });
+  } else {
+    console.log(`  · ${breite} px: Thread liegt bewusst über dem Verlauf — nichts zu prüfen`);
+  }
 
   pruefe(`${breite} px: nichts läuft seitlich heraus`, () => {
     muss(m.seitlich <= 1, `${m.seitlich} px zu breit`);

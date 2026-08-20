@@ -107,16 +107,30 @@ await pruefe('Platzhalter sind in jeder Sprache dieselben', async () => {
     return zeile ? [...zeile[1].matchAll(/\{(\w+)\}/g)].map((m) => m[1]).sort().join(',') : null;
   };
   const schief = [];
+  let verglichen = 0;
+  /* Einmal lesen statt je Kennung und Sprache: sonst wird dieselbe Datei
+     hundertfach von der Platte geholt. */
+  const inhalte = new Map(sprachen.filter((s) => s !== 'de.ts')
+    .map((s) => [s, readFileSync(join(I18N, s), 'utf8')]));
   for (const k of geschickt.keys()) {
     const soll = platzhalter(de, k);
-    if (!soll) continue;
-    for (const sprache of sprachen) {
-      if (sprache === 'de.ts') continue;
-      const ist = platzhalter(readFileSync(join(I18N, sprache), 'utf8'), k);
-      if (ist !== null && ist !== soll) schief.push(`${sprache}:${k} „${ist}" statt „${soll}"`);
+    if (soll === null) continue;         // die Kennung steht nicht in de.ts
+    if (!soll) continue;                 // ohne Platzhalter gibt es nichts zu vergleichen
+    for (const [sprache, inhalt] of inhalte) {
+      const ist = platzhalter(inhalt, k);
+      if (ist === null) continue;
+      verglichen += 1;
+      if (ist !== soll) schief.push(`${sprache}:${k} „${ist}" statt „${soll}"`);
     }
   }
+  /* Ohne diese Zeile konnte die Prüfung nichts messen und trotzdem bestehen:
+     greift der Ausdruck oben nicht mehr — eine andere Schreibweise im
+     Wörterbuch genügt dafür —, ist `soll` überall null, die Schleife läuft
+     leer, `schief` bleibt leer, und es steht ein Häkchen da. */
+  muss(verglichen > 0,
+    'kein einziger Platzhalter verglichen — der Ausdruck greift nicht mehr auf die Wörterbücher');
   muss(schief.length === 0, `${schief.length} weichen ab, z. B. ${schief[0]}`);
+  return `${verglichen} Vergleiche`;
 });
 
 /* Die andere Richtung. Sie lässt die Prüfung nicht durchfallen: ein Eintrag

@@ -44,11 +44,18 @@ lauf('ssh', [WIRT, `set -e
   sudo systemctl restart stellium`]);
 
 console.log('→ nachsehen');
-const kopf = execFileSync('curl', ['-sI', 'https://stellium-chat.duckdns.org/'], { encoding: 'utf8' });
-const seite = execFileSync('curl', ['-s', 'https://stellium-chat.duckdns.org/'], { encoding: 'utf8' });
+/* Die Adresse steht einmal und nicht dreimal. Sie hat sich schon einmal
+   geändert — beim Umzug auf den Cloudflare-Tunnel am 20.08. wurde
+   stellium-chat.duckdns.org stillgelegt, und weil sie hier dreifach
+   ausgeschrieben war, lief die Nachschau danach ins Leere, ohne dass es
+   jemandem auffiel: `kopf` enthielt kein „200", also meldete der Lauf
+   brav einen Fehlschlag — für eine Auslieferung, die geglückt war. */
+const OEFFENTLICH = process.env.STELLIUM_SERVER?.replace(/\/+$/, '') || 'https://chat.stellium.club';
+const kopf = execFileSync('curl', ['-sI', `${OEFFENTLICH}/`], { encoding: 'utf8' });
+const seite = execFileSync('curl', ['-s', `${OEFFENTLICH}/`], { encoding: 'utf8' });
 const datei = (seite.match(/assets\/[^"]+\.css/) ?? [])[0];
 const cssKopf = datei
-  ? execFileSync('curl', ['-sI', `https://stellium-chat.duckdns.org/${datei}`], { encoding: 'utf8' })
+  ? execFileSync('curl', ['-sI', `${OEFFENTLICH}/${datei}`], { encoding: 'utf8' })
   : '';
 
 const gut = kopf.includes('200') && /content-type:\s*text\/css/i.test(cssKopf);

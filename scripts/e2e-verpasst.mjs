@@ -143,10 +143,21 @@ await pruefe('Auf Englisch steht dort kein Deutsch', async () => {
   await e.waitForTimeout(1500);
   const text = await e.locator('.panel').innerText();
   await e.context().close();
-  // Die Oberflächensprache hängt am Konto, nicht am Rechner — geprüft wird
-  // nur, dass die Texte aus dem Wörterbuch kommen und nicht fest im Code.
-  muss(!/Zusammenfassen$/m.test(text) || /Nachrichten|messages/i.test(text), 'Panel wirkt leer');
-  return 'Texte kommen aus dem Wörterbuch';
+  /* Hier stand eine Bedingung, die mit dem Namen der Prüfung nichts zu tun
+     hatte: `!/Zusammenfassen$/.test(text) || /Nachrichten|messages/.test(text)`.
+     Endete keine Zeile auf „Zusammenfassen", war der erste Teil wahr und die
+     Prüfung bestanden — gleich, in welcher Sprache das Fenster dastand.
+     „Auf Englisch steht dort kein Deutsch" wurde nie gemessen.
+
+     Jetzt wird nach deutschen Brocken gesucht, und zwar nach denen, die im
+     englischen Wörterbuch gar nicht vorkommen können. Dass überhaupt Text da
+     ist, wird mitgeprüft — ein leeres Fenster enthält auch kein Deutsch. */
+  muss(text.trim().length > 20, `das Fenster ist leer: „${text.trim().slice(0, 60)}"`);
+  const deutscheBrocken = ['Zusammenfassen', 'Nachrichten', 'Verpasst', 'Entscheidungen',
+    'Aufgaben', 'Schließen', 'Sprache', 'Zusammenfassung'];
+  const gefunden = deutscheBrocken.filter((w) => text.includes(w));
+  muss(!gefunden.length, `deutsche Reste im englischen Fenster: ${gefunden.join(', ')}`);
+  return `${text.trim().length} Zeichen, kein deutscher Rest`;
 });
 
 await a.context().close();
