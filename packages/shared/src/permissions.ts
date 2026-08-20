@@ -51,6 +51,7 @@ export type PermissionKey =
   | 'vertraulich.kanal'
   | 'vertraulich.freigabe_lesen'
   /* Verwaltung */
+  | 'release.publish'
   | 'user.invite'
   | 'user.manage'
   | 'user.delete'
@@ -191,6 +192,10 @@ export const PERMISSIONS: PermissionInfo[] = [
     hintDe: 'Wer das hat, gehört zur Verwaltung im Sinne der Freigabe — und kann mit dem Code einen vertraulichen Kanal öffnen.',
     hintEn: 'Whoever has this counts as management for a release — and can open a confidential channel with the code.' },
 
+  { key: 'release.publish', group: 'verwaltung',
+    labelDe: 'Fassungen veröffentlichen', labelEn: 'Publish releases',
+    hintDe: 'Legt neue Programmfassungen zum Herunterladen ab. Wer das hat, führt damit auf jedem angeschlossenen Rechner Code aus — aber nur das, und kann keine Konten anfassen.',
+    hintEn: 'Uploads new app versions for download. Whoever has this runs code on every connected machine — but only that, and cannot touch accounts.' },
   { key: 'user.invite', group: 'verwaltung',
     labelDe: 'Konten anlegen', labelEn: 'Create accounts',
     hintDe: 'Erzeugt ein Einmal-Passwort für neue Kolleg:innen.', hintEn: 'Generates a one-time password for new colleagues.' },

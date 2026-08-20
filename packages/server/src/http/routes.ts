@@ -1135,8 +1135,14 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   app.post('/api/releases/:platform', async (req, reply) => {
     const userId = requireUser(req);
     // Neue Versionen zu verteilen heißt, auf jedem Rechner Code auszuführen.
-    // Das bleibt der Kontoverwaltung vorbehalten.
-    requirePermission(userId, 'user.manage');
+    // Deshalb ein eigenes Recht dafür — und nicht die Kontoverwaltung.
+    //
+    // Vorher hing es an `user.manage`. Das war zu grob: der Bau-Zugang, der
+    // Fassungen hochlädt, hätte damit auch Passwörter zurücksetzen und Rollen
+    // ändern dürfen. Er soll genau eines können, und das ist dieses eine.
+    // Wer Konten verwaltet, darf es weiterhin auch — sonst müsste man sich
+    // das Recht erst selbst geben, um eine Fassung nachzuschieben.
+    if (!users.may(userId, 'user.manage')) requirePermission(userId, 'release.publish');
 
     const { platform } = req.params as { platform: string };
     const datei = await req.file({ limits: { fileSize: 600 * 1024 * 1024 } });
@@ -1169,7 +1175,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
   app.delete('/api/releases/:platform', async (req) => {
     const userId = requireUser(req);
-    requirePermission(userId, 'user.manage');
+    if (!users.may(userId, 'user.manage')) requirePermission(userId, 'release.publish');
     releases.removeRelease((req.params as { platform: string }).platform);
     return { releases: releases.listReleases() };
   });
