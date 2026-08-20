@@ -20,11 +20,17 @@
  */
 
 const ABSTAND_MS = 2 * 60 * 1000;   /* nicht öfter als alle zwei Minuten */
+/* Solange schiebt ein offener Dialog das Neuladen auf. Danach zählt nur noch
+   aktives Tippen: ein über Stunden offen gelassenes Aufgabenbrett darf eine
+   ausgelieferte Fassung nicht auf ewig festhalten — genau das passierte auf
+   dem iPhone, wo die Startbildschirm-App tagelang sichtbar herumlag. */
+const AUFSCHUB_MS = 6 * 60 * 60 * 1000;
 
 let unser: string | null = null;
 let zuletzt = 0;
 let laeuft = false;
 let seitWann = 0;      /* wann die App zuletzt aus dem Blick geriet */
+let aufgeschobenSeit = 0;   /* wann eine neue Fassung erstmals warten musste */
 
 /**
  * Der Fingerabdruck dieses Baus: ALLE eingebundenen Dateien, sortiert.
@@ -59,11 +65,33 @@ function stempelAus(html: string): string | null {
  * Fassung ist nie so dringend, dass sie das wert wäre — sie kommt beim
  * nächsten Mal in den Vordergrund immer noch.
  */
-function beschaeftigt(): boolean {
+/* Nur Felder, in die man Text tippt. Kontrollkästchen und Radios haben per
+   Spezifikation value="on" — wer eines fokussiert liegen lässt, würde sonst
+   für immer als „tippt gerade" gelten. */
+function textFeld(el: Element | null): el is HTMLInputElement | HTMLTextAreaElement {
+  if (el instanceof HTMLTextAreaElement) return true;
+  return el instanceof HTMLInputElement
+    && ['text', 'search', 'email', 'url', 'password', 'tel', 'number'].includes(el.type);
+}
+
+function tipptGerade(): boolean {
   const a = document.activeElement;
-  if (a instanceof HTMLTextAreaElement || a instanceof HTMLInputElement) {
-    if (a.value.trim().length > 0) return true;
+  return textFeld(a) && a.value.trim().length > 0;
+}
+
+/* Nach Ablauf der Aufschub-Frist schützt nicht mehr der offene Dialog selbst,
+   aber weiterhin alles Getippte — auch in Feldern, die gerade den Fokus
+   verloren haben (wer im Formular einen Knopf anklickt, hat den Text ja noch
+   nicht abgeschickt). */
+function irgendeinFeldMitText(): boolean {
+  for (const el of document.querySelectorAll('input, textarea')) {
+    if (textFeld(el) && el.value.trim().length > 0) return true;
   }
+  return false;
+}
+
+function beschaeftigt(): boolean {
+  if (tipptGerade()) return true;
   /* Auch ein offener Dialog zählt: wer gerade etwas einstellt, will nicht
      mitten darin von vorn anfangen. */
   return Boolean(document.querySelector('[role="dialog"], dialog[open]'));
@@ -80,8 +108,15 @@ async function nachsehen(erzwungen = false): Promise<void> {
     const antwort = await fetch('/', { cache: 'no-store', headers: { accept: 'text/html' } });
     if (!antwort.ok) return;
     const draussen = stempelAus(await antwort.text());
-    if (!draussen || draussen === unser) return;
-    if (beschaeftigt()) {
+    if (!draussen) return;
+    if (draussen === unser) { aufgeschobenSeit = 0; return; }
+    if (aufgeschobenSeit === 0) aufgeschobenSeit = Date.now();
+    const fristAbgelaufen = Date.now() - aufgeschobenSeit > AUFSCHUB_MS;
+    /* Innerhalb der Frist blockt beides (Tippen und offene Dialoge), danach
+       nur noch vorhandener Text — ein vergessenes leeres Aufgabenbrett darf
+       die Fassung nicht ewig festhalten, ein halb ausgefülltes Formular
+       (auch ohne Fokus!) sehr wohl. */
+    if (fristAbgelaufen ? (tipptGerade() || irgendeinFeldMitText()) : beschaeftigt()) {
       /* Später nochmal — die Sperre unten sorgt dafür, dass es beim nächsten
          Vordergrund gleich wieder versucht wird. */
       zuletzt = 0;
@@ -101,7 +136,7 @@ export function auffrischenVerbinden(): () => void {
   if (!unser) return () => {};      /* im Entwicklungsbetrieb gibt es keine Stempel */
 
   /* Kommt die App aus dem Hintergrund zurück, wird immer nachgesehen — auch
-     wenn die letzte Prüfung erst eben war. Die Sperre von fünf Minuten ist
+     wenn die letzte Prüfung erst eben war. Die Zwei-Minuten-Sperre ist
      gegen ständiges Nachfragen im laufenden Betrieb gedacht, nicht gegen den
      einen Fall, in dem am ehesten etwas Neues da ist.
      Das war der erste Entwurf, und er ist beim Ausprobieren auf dem Gerät
