@@ -1,8 +1,15 @@
-import { languageInfo, type AiSummary, type SmartReply, type RewriteTone } from '@stellium/shared';
+import {
+  istE2EChiffrat, languageInfo,
+  type AiSummary, type SmartReply, type RewriteTone, type VorschlagArt,
+} from '@stellium/shared';
 import { db } from '../db/index.js';
 import { entschluesseln, verschluesseln } from '../crypto/nachrichten.js';
 import { newId } from '../util/id.js';
+import { abweisung } from '../util/abweisung.js';
 import { assistant } from '../translation/index.js';
+import { type AssistantProvider } from '../translation/providers/types.js';
+import { alsAbweisung, mitKennung } from '../translation/fehler.js';
+import { inAbschnitte, juengsteZeilen, markenSchaetzung, verlaufsBudget } from '../translation/fenster.js';
 
 export class AiUnavailable extends Error {
   constructor() { super('KI ist nicht konfiguriert. Setze AI_PROVIDER=groq und GROQ_API_KEY.'); }
@@ -13,26 +20,150 @@ interface TranscriptRow {
   handle: string; display_name: string; parent_id: string | null;
 }
 
+/** Eine Nachricht als Zeile, wie ein Modell sie lesen soll. */
+function zeile(r: TranscriptRow): string | null {
+  // Einzige Stelle, an der hier Nachrichtentext aus der Datenbank gelesen
+  // wird — darum reicht es, ihn genau hier zu entschlüsseln.
+  if (istE2EChiffrat(r.text)) return null;
+  const klartext = entschluesseln(r.text);
+  /* Rückhalt, kein Ersatz: die Aufrufer weisen vertrauliche Kanäle schon am
+     Kanal ab. Diese Prüfung greift am Inhalt und fängt damit auch, was aus
+     einem vertraulichen Kanal weitergereicht wurde. Base64 an ein fremdes
+     Modell zu schicken ist der eine Fehler, den es nicht geben darf — und er
+     bliebe unsichtbar, weil eine Antwort ja trotzdem käme. */
+  if (istE2EChiffrat(klartext)) return null;
+  const time = new Date(r.created_at).toISOString().slice(11, 16);
+  const thread = r.parent_id ? ' (Antwort im Thread)' : '';
+  return `[${r.id}] ${time} ${r.display_name} (@${r.handle})${thread}: ${klartext}`;
+}
+
+/** Eine Zeile je Nachricht — Chiffrat fällt dabei weg. */
+function zeilen(rows: TranscriptRow[]): string[] {
+  return rows.map(zeile).filter((z): z is string => z !== null);
+}
+
 /** Nachrichtenverlauf als kompakter, für ein Modell lesbarer Text. */
 function transcript(rows: TranscriptRow[]): string {
-  return rows.map((r) => {
-    const time = new Date(r.created_at).toISOString().slice(11, 16);
-    const thread = r.parent_id ? ' (Antwort im Thread)' : '';
-    // Einzige Stelle, an der hier Nachrichtentext aus der Datenbank gelesen
-    // wird — darum reicht es, ihn genau hier zu entschlüsseln.
-    return `[${r.id}] ${time} ${r.display_name} (@${r.handle})${thread}: ${entschluesseln(r.text)}`;
-  }).join('\n');
+  return zeilen(rows).join('\n');
+}
+
+/* ── Ins Fenster passen ───────────────────────────────────────── */
+
+/**
+ * Wie viel Verlauf diese Anfrage mitnehmen darf.
+ *
+ * `fest` ist alles, was ohnehin mitgeht — Systemanweisung, Personenliste, die
+ * Frage. `antwort` ist das Budget, das die Antwort bekommen soll. Der Rest des
+ * Fensters gehört dem Verlauf, abzüglich Sicherheitsabstand (siehe
+ * translation/fenster.ts).
+ */
+function budget(ai: AssistantProvider, opts: { fest: string; antwort: number; fast?: boolean }): number {
+  return verlaufsBudget({
+    fenster: ai.kontextfenster({ fast: opts.fast }),
+    fest: opts.fest,
+    antwort: opts.antwort,
+  });
+}
+
+/** Die KI oder eine übersetzbare Absage — nie ein nackter Fehler. */
+function ki(): AssistantProvider {
+  const a = assistant();
+  if (!a) {
+    throw abweisung('fehler.kiNichtEingerichtet',
+      'Die KI ist für diesen Server nicht eingerichtet.');
+  }
+  return a;
+}
+
+/* ── Zu viel Verlauf: in Abschnitten verdichten ───────────────── */
+
+/** Was ein Teil-Auszug höchstens kosten darf. */
+const TEIL_ANTWORT = 700;
+/** So oft wird höchstens gefaltet, bevor abgeschnitten wird. */
+const RUNDEN = 3;
+
+const TEIL_ANWEISUNG = [
+  'Du verdichtest einen Abschnitt aus einem Firmen-Chat für eine spätere Zusammenfassung.',
+  'Gib eine knappe Stichpunktliste zurück, reiner Text, keine Vorrede und kein JSON.',
+  'Halte fest: worum es ging, was entschieden wurde, was offen blieb, wer was übernimmt.',
+  'Namen, @Kennungen und Kennungen in eckigen Klammern übernimmst du wörtlich — sie werden später gebraucht.',
+  'Nichts hinzuerfinden. Steht etwas nicht im Abschnitt, steht es auch nicht in deiner Liste.',
+].join('\n');
+
+/**
+ * Einen Verlauf so aufbereiten, dass er sicher ins Fenster des Modells passt.
+ *
+ * Passt er ohnehin, geht er unverändert durch — das ist der Normalfall und
+ * kostet keine zusätzliche Anfrage.
+ *
+ * Passt er nicht, wird er **verdichtet und nicht abgeschnitten**. Der
+ * Unterschied ist der ganze Punkt: ein Protokoll, dem der Anfang fehlt, ist
+ * kein kürzeres Protokoll, sondern ein falsches — und niemand sieht ihm an,
+ * dass etwas fehlt. Deshalb wird der Verlauf in Abschnitte geteilt, von denen
+ * jeder für sich hineinpasst, jeder Abschnitt für sich verdichtet, und aus den
+ * Verdichtungen entsteht die eigentliche Antwort. Reicht auch das nicht, wird
+ * noch einmal gefaltet — ein sehr langer Kanal kommt so über zwei oder drei
+ * Runden auf eine Größe, die hineinpasst.
+ *
+ * Erst wenn das nach `RUNDEN` Falten immer noch nicht reicht — ein Kanal mit
+ * Zehntausenden Nachrichten an einem winzigen Fenster —, bleibt das Neueste
+ * stehen und der Aufrufer erfährt es an `weggelassen`. Dann steht es auch im
+ * Ergebnis, statt still zu verschwinden.
+ */
+async function verlaufAufbereiten(ai: AssistantProvider, opts: {
+  zeilen: string[]; fest: string; antwort: number; fast?: boolean;
+}): Promise<{ text: string; verdichtet: number; weggelassen: number }> {
+  const platz = budget(ai, opts);
+  if (platz <= 0) {
+    /* Selbst ohne einen einzigen Verlaufseintrag passt die Anfrage nicht.
+       Dann hilft kein Kürzen, sondern nur ein anderes Modell. */
+    throw abweisung('fehler.modellFensterZuKlein',
+      'Das eingestellte Modell nimmt zu wenig Text entgegen für diese Funktion.');
+  }
+
+  let zeilen = opts.zeilen;
+  let verdichtet = 0;
+
+  for (let runde = 0; runde < RUNDEN; runde += 1) {
+    if (markenSchaetzung(zeilen.join('\n')) <= platz) break;
+
+    /* Für die Teil-Anfragen gilt dasselbe Fenster, aber eine andere feste
+       Last: nur die kurze Anweisung oben und ein kleineres Antwortbudget. */
+    const teilPlatz = budget(ai, { fest: TEIL_ANWEISUNG, antwort: TEIL_ANTWORT, fast: opts.fast });
+    const abschnitte = inAbschnitte(zeilen, teilPlatz);
+    if (abschnitte.length <= 1) break;   // kleiner wird es so nicht mehr
+
+    const verdichtete: string[] = [];
+    for (const abschnitt of abschnitte) {
+      const auszug = await ai.chat([
+        { role: 'system', content: TEIL_ANWEISUNG },
+        { role: 'user', content: abschnitt.join('\n') },
+      ], { temperature: 0.2, maxTokens: TEIL_ANTWORT, reasoning: 'low', fast: opts.fast });
+      for (const z of auszug.split('\n')) if (z.trim()) verdichtete.push(z.trim());
+    }
+    verdichtet += abschnitte.length;
+    zeilen = verdichtete;
+  }
+
+  const passend = juengsteZeilen(zeilen, platz);
+  return { text: passend.zeilen.join('\n'), verdichtet, weggelassen: passend.weggelassen };
 }
 
 function fetchMessages(
   channelId: string,
   sinceMessageId: string | null,
   limit: number,
-  ohneUserId?: string | null,
+  ohneUserId?: string | null | string[],
 ): TranscriptRow[] {
   const params: any[] = [channelId];
   let where = 'm.channel_id = ? AND m.deleted_at IS NULL AND m.system_kind IS NULL';
   if (sinceMessageId) { where += ' AND m.id > ?'; params.push(sinceMessageId); }
+  /* Mehrere Ausnahmen, weil die Vorschlagserkennung zwei braucht: den
+     Assistenten und die Systemkonten. Eine einzelne bleibt erlaubt. */
+  if (Array.isArray(ohneUserId)) {
+    for (const uid of ohneUserId) { where += ' AND m.user_id <> ?'; params.push(uid); }
+    ohneUserId = null;
+  }
   /* Die eigenen Nachrichten gehören nicht in "Was habe ich verpasst?" — man
      hat sie ja selbst geschrieben. Sie stehen dort nur im Weg und verdrängen
      das, worum es geht: was die anderen inzwischen gesagt haben. */
@@ -53,8 +184,7 @@ export async function catchUp(input: {
   /** Wessen eigene Nachrichten übersprungen werden. */
   fuerUserId?: string | null;
 }): Promise<AiSummary> {
-  const ai = assistant();
-  if (!ai) throw new AiUnavailable();
+  const ai = ki();
 
   const rows = fetchMessages(input.channelId, input.sinceMessageId, 300, input.fuerUserId ?? null);
   const lang = languageInfo(input.language);
@@ -70,27 +200,34 @@ export async function catchUp(input: {
   const people = [...new Map(rows.map((r) => [r.user_id, r])).values()]
     .map((r) => `${r.display_name} = @${r.handle} (id: ${r.user_id})`).join('; ');
 
-  const data = await ai.json<{
-    headline?: string; bullets?: string[];
-    action_items?: { text: string; assignee_id?: string | null }[];
-    decisions?: string[];
-  }>([
-    {
-      role: 'system',
-      content: [
-        `Du fasst den Verlauf eines Firmen-Chats zusammen. Antworte vollständig auf ${lang.name} (${lang.native}).`,
-        'Der Verlauf kann mehrsprachig sein — fasse trotzdem einheitlich in der Zielsprache zusammen.',
-        'Sei knapp und konkret. Keine Floskeln, keine Wiederholung des Offensichtlichen.',
-        `Bekannte Personen: ${people}`,
-        'Antworte als JSON:',
-        '{"headline": "ein Satz, max 90 Zeichen",',
-        ' "bullets": ["3-6 Stichpunkte zum Wesentlichen"],',
-        ' "action_items": [{"text": "konkrete Aufgabe", "assignee_id": "<user-id oder null>"}],',
-        ' "decisions": ["getroffene Entscheidungen, sonst leeres Array"]}',
-      ].join('\n'),
-    },
-    { role: 'user', content: `Kanal: #${input.channelName}\n\n${transcript(rows)}` },
-  ], { temperature: 0.25, maxTokens: 1200 });
+  const anweisung = [
+    `Du fasst den Verlauf eines Firmen-Chats zusammen. Antworte vollständig auf ${lang.name} (${lang.native}).`,
+    'Der Verlauf kann mehrsprachig sein — fasse trotzdem einheitlich in der Zielsprache zusammen.',
+    'Sei knapp und konkret. Keine Floskeln, keine Wiederholung des Offensichtlichen.',
+    `Bekannte Personen: ${people}`,
+    'Antworte als JSON:',
+    '{"headline": "ein Satz, max 90 Zeichen",',
+    ' "bullets": ["3-6 Stichpunkte zum Wesentlichen"],',
+    ' "action_items": [{"text": "konkrete Aufgabe", "assignee_id": "<user-id oder null>"}],',
+    ' "decisions": ["getroffene Entscheidungen, sonst leeres Array"]}',
+  ].join('\n');
+  const kopf = `Kanal: #${input.channelName}\n\n`;
+
+  const data = await mitKennung(async () => {
+    const verlauf = await verlaufAufbereiten(ai, {
+      zeilen: zeilen(rows),
+      fest: anweisung + kopf,
+      antwort: 1200,
+    });
+    return ai.json<{
+      headline?: string; bullets?: string[];
+      action_items?: { text: string; assignee_id?: string | null }[];
+      decisions?: string[];
+    }>([
+      { role: 'system', content: anweisung },
+      { role: 'user', content: kopf + verlauf.text },
+    ], { temperature: 0.25, maxTokens: 1200 });
+  });
 
   const summary: AiSummary = {
     channelId: input.channelId,
@@ -118,8 +255,7 @@ export async function catchUp(input: {
 /* ── Thread-Zusammenfassung ───────────────────────────────────── */
 
 export async function summarizeThread(parentId: string, language: string): Promise<AiSummary> {
-  const ai = assistant();
-  if (!ai) throw new AiUnavailable();
+  const ai = ki();
 
   const root = db.get<TranscriptRow & { channel_id: string }>(
     `SELECT m.id, m.channel_id, m.user_id, m.text, m.created_at, m.parent_id, u.handle, u.display_name
@@ -134,17 +270,23 @@ export async function summarizeThread(parentId: string, language: string): Promi
   );
   const lang = languageInfo(language);
 
-  const data = await ai.json<{ headline?: string; bullets?: string[]; decisions?: string[]; action_items?: { text: string; assignee_id?: string | null }[] }>([
-    {
-      role: 'system',
-      content: [
-        `Fasse diesen Chat-Thread auf ${lang.name} (${lang.native}) zusammen.`,
-        'Wichtig ist: Worum ging es, was wurde entschieden, was ist offen?',
-        'JSON: {"headline": "...", "bullets": ["..."], "decisions": ["..."], "action_items": [{"text": "...", "assignee_id": null}]}',
-      ].join('\n'),
-    },
-    { role: 'user', content: transcript([root, ...replies]) },
-  ], { temperature: 0.25, maxTokens: 900 });
+  const anweisung = [
+    `Fasse diesen Chat-Thread auf ${lang.name} (${lang.native}) zusammen.`,
+    'Wichtig ist: Worum ging es, was wurde entschieden, was ist offen?',
+    'JSON: {"headline": "...", "bullets": ["..."], "decisions": ["..."], "action_items": [{"text": "...", "assignee_id": null}]}',
+  ].join('\n');
+
+  const data = await mitKennung(async () => {
+    /* Ein Thread darf bis zu 200 Antworten haben — auch das sprengt ein
+       kleines Fenster, und auch hier gilt: verdichten statt abschneiden. */
+    const verlauf = await verlaufAufbereiten(ai, {
+      zeilen: zeilen([root, ...replies]), fest: anweisung, antwort: 900,
+    });
+    return ai.json<{ headline?: string; bullets?: string[]; decisions?: string[]; action_items?: { text: string; assignee_id?: string | null }[] }>([
+      { role: 'system', content: anweisung },
+      { role: 'user', content: verlauf.text },
+    ], { temperature: 0.25, maxTokens: 900 });
+  });
 
   return {
     channelId: root.channel_id,
@@ -165,8 +307,7 @@ export async function summarizeThread(parentId: string, language: string): Promi
 export async function smartReplies(input: {
   channelId: string; parentId: string | null; language: string; selfName: string;
 }): Promise<SmartReply[]> {
-  const ai = assistant();
-  if (!ai) throw new AiUnavailable();
+  const ai = ki();
 
   const rows = input.parentId
     ? db.all<TranscriptRow>(
@@ -179,19 +320,29 @@ export async function smartReplies(input: {
   if (rows.length === 0) return [];
   const lang = languageInfo(input.language);
 
-  const data = await ai.json<{ replies?: { text: string; tone?: string }[] }>([
-    {
-      role: 'system',
-      content: [
-        `Du schlägst kurze Antworten für ${input.selfName} in einem Firmen-Chat vor.`,
-        `Schreibe die Vorschläge auf ${lang.name} (${lang.native}).`,
-        'Genau 3 Vorschläge, jeder höchstens 120 Zeichen, klingt wie ein echter Mensch, keine Anrede-Floskeln.',
-        'Tonarten: "kurz" (Bestätigung), "freundlich", "nachfrage" (klärende Rückfrage).',
-        'JSON: {"replies": [{"text": "...", "tone": "kurz"}, ...]}',
-      ].join('\n'),
-    },
-    { role: 'user', content: transcript(rows) },
-  ], { temperature: 0.6, maxTokens: 400, fast: true });
+  const anweisung = [
+    `Du schlägst kurze Antworten für ${input.selfName} in einem Firmen-Chat vor.`,
+    `Schreibe die Vorschläge auf ${lang.name} (${lang.native}).`,
+    'Genau 3 Vorschläge, jeder höchstens 120 Zeichen, klingt wie ein echter Mensch, keine Anrede-Floskeln.',
+    'Tonarten: "kurz" (Bestätigung), "freundlich", "nachfrage" (klärende Rückfrage).',
+    'JSON: {"replies": [{"text": "...", "tone": "kurz"}, ...]}',
+  ].join('\n');
+
+  /* Zwölf Nachrichten sind selten ein Problem — bis eine davon ein
+     hineinkopierter Fehlerbericht über zweitausend Zeilen ist. Verdichtet wird
+     hier nicht: für einen Antwortvorschlag zählt das Letzte, nicht das Ganze.
+     Das Schnellmodell hat außerdem oft das kleinere Fenster, deshalb `fast`
+     auch in der Rechnung. */
+  const passend = juengsteZeilen(
+    zeilen(rows),
+    budget(ai, { fest: anweisung, antwort: 400, fast: true }),
+  );
+  if (!passend.zeilen.length) return [];
+
+  const data = await mitKennung(() => ai.json<{ replies?: { text: string; tone?: string }[] }>([
+    { role: 'system', content: anweisung },
+    { role: 'user', content: passend.zeilen.join('\n') },
+  ], { temperature: 0.6, maxTokens: 400, fast: true }));
 
   const allowed = new Set(['kurz', 'freundlich', 'formell', 'nachfrage']);
   return (data.replies ?? [])
@@ -216,8 +367,7 @@ const TONE_PROMPT: Record<RewriteTone, string> = {
 };
 
 export async function rewrite(input: { text: string; tone: RewriteTone; targetLang?: string | null }): Promise<string> {
-  const ai = assistant();
-  if (!ai) throw new AiUnavailable();
+  const ai = ki();
 
   const instructions = [TONE_PROMPT[input.tone] ?? TONE_PROMPT.polish];
   if (input.targetLang) {
@@ -229,10 +379,22 @@ export async function rewrite(input: { text: string; tone: RewriteTone; targetLa
   instructions.push('Gib ausschließlich den überarbeiteten Text zurück — keine Erklärung, keine Anführungszeichen.');
   instructions.push('Lasse Codeblöcke, Links und @Erwähnungen unverändert.');
 
-  const out = await ai.chat([
-    { role: 'system', content: instructions.join('\n') },
+  const anweisung = instructions.join('\n');
+  const antwort = Math.min(2048, Math.max(256, input.text.length * 3));
+
+  /* Hier gibt es nichts zu verdichten: umformuliert wird genau dieser eine
+     Text. Passt er nicht ins Fenster, ist eine ehrliche Absage die einzig
+     richtige Antwort — die Hälfte umzuschreiben und die andere fallen zu
+     lassen wäre schlimmer als gar nichts. */
+  if (markenSchaetzung(input.text) > budget(ai, { fest: anweisung, antwort })) {
+    throw abweisung('fehler.textZuLangFuerModell',
+      'Dieser Text ist zu lang für das eingestellte Modell. Bitte in Teilen umformulieren.');
+  }
+
+  const out = await mitKennung(() => ai.chat([
+    { role: 'system', content: anweisung },
     { role: 'user', content: input.text },
-  ], { temperature: 0.35, maxTokens: Math.min(2048, Math.max(256, input.text.length * 3)) });
+  ], { temperature: 0.35, maxTokens: antwort }));
 
   return out.replace(/^["'`]+|["'`]+$/g, '').trim();
 }
@@ -242,8 +404,7 @@ export async function rewrite(input: { text: string; tone: RewriteTone; targetLa
 export async function askChannel(input: {
   channelId: string; question: string; language: string; channelName: string;
 }): Promise<{ answer: string; citedMessageIds: string[] }> {
-  const ai = assistant();
-  if (!ai) throw new AiUnavailable();
+  const ai = ki();
 
   const rows = fetchMessages(input.channelId, null, 400);
   if (rows.length === 0) {
@@ -251,18 +412,33 @@ export async function askChannel(input: {
   }
   const lang = languageInfo(input.language);
 
-  const data = await ai.json<{ answer?: string; cited_message_ids?: string[] }>([
-    {
-      role: 'system',
-      content: [
-        `Beantworte die Frage ausschließlich anhand des Chat-Verlaufs. Antworte auf ${lang.name} (${lang.native}).`,
-        'Wenn der Verlauf die Antwort nicht hergibt, sage das klar und rate nicht.',
-        'Nenne die IDs der Nachrichten, auf die du dich stützt (die Werte in eckigen Klammern).',
-        'JSON: {"answer": "...", "cited_message_ids": ["..."]}',
-      ].join('\n'),
-    },
-    { role: 'user', content: `Kanal: #${input.channelName}\n\n${transcript(rows)}\n\nFrage: ${input.question}` },
-  ], { temperature: 0.2, maxTokens: 900 });
+  const anweisung = [
+    `Beantworte die Frage ausschließlich anhand des Chat-Verlaufs. Antworte auf ${lang.name} (${lang.native}).`,
+    'Wenn der Verlauf die Antwort nicht hergibt, sage das klar und rate nicht.',
+    'Nenne die IDs der Nachrichten, auf die du dich stützt (die Werte in eckigen Klammern).',
+    'JSON: {"answer": "...", "cited_message_ids": ["..."]}',
+  ].join('\n');
+  const rahmen = `Kanal: #${input.channelName}\n\n`;
+  const frage = `\n\nFrage: ${input.question}`;
+
+  /* Hier wird abgeschnitten und nicht verdichtet, und das mit Absicht: eine
+     Antwort soll Nachrichten mit ihrer Kennung belegen können, und eine
+     Verdichtung überlebt die Kennungen nur zufällig. Das Neueste bleibt also
+     stehen. Damit das Modell nicht behauptet, es kenne den ganzen Kanal, wird
+     ihm ausdrücklich gesagt, wie viel fehlt. */
+  const passend = juengsteZeilen(
+    zeilen(rows),
+    budget(ai, { fest: anweisung + rahmen + frage, antwort: 900 }),
+  );
+  const hinweis = passend.weggelassen
+    ? `\n\n(Nur die letzten ${passend.zeilen.length} Nachrichten liegen vor; `
+      + `${passend.weggelassen} ältere fehlen. Sage es, wenn die Antwort davon abhängen könnte.)`
+    : '';
+
+  const data = await mitKennung(() => ai.json<{ answer?: string; cited_message_ids?: string[] }>([
+    { role: 'system', content: anweisung },
+    { role: 'user', content: rahmen + passend.zeilen.join('\n') + hinweis + frage },
+  ], { temperature: 0.2, maxTokens: 900 }));
 
   const known = new Set(rows.map((r) => r.id));
   return {
@@ -286,8 +462,7 @@ export async function extractTasks(input: {
 }): Promise<{
   title: string; assigneeId: string | null; dueAt: number | null;
 }[]> {
-  const ai = assistant();
-  if (!ai) throw new AiUnavailable();
+  const ai = ki();
 
   const rows = fetchMessages(input.channelId, input.sinceMessageId ?? null, 120);
   if (!rows.length) return [];
@@ -296,21 +471,28 @@ export async function extractTasks(input: {
   const personen = [...new Map(rows.map((r) => [r.user_id, r])).values()]
     .map((r) => `${r.display_name} = ${r.user_id}`).join('; ');
 
-  const data = await ai.json<{ tasks?: { title: string; assignee_id?: string | null; due_in_days?: number | null }[] }>([
-    {
-      role: 'system',
-      content: [
-        `Du liest einen Firmen-Chat und ziehst daraus offene Aufgaben. Antworte auf ${lang.name}.`,
-        'Eine Aufgabe ist etwas, das jemand konkret tun muss und das noch offen ist.',
-        'Was bereits erledigt gemeldet wurde, ist keine Aufgabe mehr. Reine Meinungen und Fragen auch nicht.',
-        'Formuliere jeden Titel als Handlung, höchstens 90 Zeichen, ohne Namen am Anfang.',
-        'Findest du nichts Konkretes, gib eine leere Liste zurück — lieber nichts als Erfundenes.',
-        `Bekannte Personen: ${personen}`,
-        'JSON: {"tasks": [{"title": "...", "assignee_id": "<id oder null>", "due_in_days": <Zahl oder null>}]}',
-      ].join('\n'),
-    },
-    { role: 'user', content: transcript(rows) },
-  ], { temperature: 0.2, maxTokens: 1200, reasoning: 'low' });
+  const anweisung = [
+    `Du liest einen Firmen-Chat und ziehst daraus offene Aufgaben. Antworte auf ${lang.name}.`,
+    'Eine Aufgabe ist etwas, das jemand konkret tun muss und das noch offen ist.',
+    'Was bereits erledigt gemeldet wurde, ist keine Aufgabe mehr. Reine Meinungen und Fragen auch nicht.',
+    'Formuliere jeden Titel als Handlung, höchstens 90 Zeichen, ohne Namen am Anfang.',
+    'Findest du nichts Konkretes, gib eine leere Liste zurück — lieber nichts als Erfundenes.',
+    `Bekannte Personen: ${personen}`,
+    'JSON: {"tasks": [{"title": "...", "assignee_id": "<id oder null>", "due_in_days": <Zahl oder null>}]}',
+  ].join('\n');
+
+  /* Verdichten, nicht abschneiden: eine Aufgabe, die vor hundert Nachrichten
+     vereinbart wurde, ist genauso offen wie eine von eben — und der Aufruf
+     kommt oft erst am Ende eines langen Tages. */
+  const data = await mitKennung(async () => {
+    const verlauf = await verlaufAufbereiten(ai, {
+      zeilen: zeilen(rows), fest: anweisung, antwort: 1200,
+    });
+    return ai.json<{ tasks?: { title: string; assignee_id?: string | null; due_in_days?: number | null }[] }>([
+      { role: 'system', content: anweisung },
+      { role: 'user', content: verlauf.text },
+    ], { temperature: 0.2, maxTokens: 1200, reasoning: 'low' });
+  });
 
   const bekannt = new Set(rows.map((r) => r.user_id));
   return (data.tasks ?? [])
@@ -348,8 +530,7 @@ export interface Protokoll {
 export async function protokoll(input: {
   channelId: string; channelName: string; language: string; sinceMessageId?: string | null;
 }): Promise<Protokoll> {
-  const ai = assistant();
-  if (!ai) throw new AiUnavailable();
+  const ai = ki();
 
   const rows = fetchMessages(input.channelId, input.sinceMessageId ?? null, 400);
   const lang = languageInfo(input.language);
@@ -365,29 +546,49 @@ export async function protokoll(input: {
   const people = [...new Map(rows.map((r) => [r.user_id, r])).values()]
     .map((r) => `${r.display_name} = ${r.user_id}`).join('; ');
 
-  const data = await ai.json<{
-    title?: string;
-    topics?: { heading: string; points: string[] }[];
-    decisions?: string[];
-    open_questions?: string[];
-    action_items?: { text: string; assignee_id?: string | null }[];
-  }>([
-    {
-      role: 'system',
-      content: [
-        `Du schreibst ein Besprechungsprotokoll aus einem Firmen-Chat. Antworte vollständig auf ${lang.name} (${lang.native}).`,
-        'Der Verlauf kann mehrsprachig sein — das Protokoll ist trotzdem einsprachig.',
-        'Ein Protokoll hält fest, was besprochen wurde, was entschieden wurde und was offen blieb.',
-        'Nichts hinzuerfinden: steht etwas nicht im Verlauf, gehört es nicht ins Protokoll.',
-        'Gibt es keine Beschlüsse oder offenen Fragen, bleiben die Listen leer.',
-        `Bekannte Personen: ${people}`,
-        'JSON: {"title": "kurzer Titel", "topics": [{"heading": "Thema", "points": ["Stichpunkt"]}],',
-        ' "decisions": ["..."], "open_questions": ["..."],',
-        ' "action_items": [{"text": "...", "assignee_id": "<id oder null>"}]}',
-      ].join('\n'),
-    },
-    { role: 'user', content: `Kanal: #${input.channelName}\n\n${transcript(rows)}` },
-  ], { temperature: 0.2, maxTokens: 2000, reasoning: 'low' });
+  const anweisung = [
+    `Du schreibst ein Besprechungsprotokoll aus einem Firmen-Chat. Antworte vollständig auf ${lang.name} (${lang.native}).`,
+    'Der Verlauf kann mehrsprachig sein — das Protokoll ist trotzdem einsprachig.',
+    'Ein Protokoll hält fest, was besprochen wurde, was entschieden wurde und was offen blieb.',
+    'Nichts hinzuerfinden: steht etwas nicht im Verlauf, gehört es nicht ins Protokoll.',
+    'Gibt es keine Beschlüsse oder offenen Fragen, bleiben die Listen leer.',
+    `Bekannte Personen: ${people}`,
+    'JSON: {"title": "kurzer Titel", "topics": [{"heading": "Thema", "points": ["Stichpunkt"]}],',
+    ' "decisions": ["..."], "open_questions": ["..."],',
+    ' "action_items": [{"text": "...", "assignee_id": "<id oder null>"}]}',
+  ].join('\n');
+  const kopf = `Kanal: #${input.channelName}\n\n`;
+
+  /* Hier ist der Fehler entstanden: 400 Nachrichten gingen ungefragt hinaus,
+     und ein Modell mit 8k Fenster wies die Anfrage mit 10.340 Marken ab.
+     Jetzt wird vorher gerechnet — und passt es nicht, entsteht das Protokoll
+     in zwei Stufen: erst je Abschnitt ein Auszug, dann das Protokoll aus den
+     Auszügen. Ein Protokoll verträgt das, weil es ohnehin verdichtet; ein
+     abgeschnittener Verlauf verträgt es nicht, weil das Ergebnis dann falsch
+     ist, ohne falsch auszusehen. */
+  const { data, verdichtet } = await mitKennung(async () => {
+    const verlauf = await verlaufAufbereiten(ai, {
+      zeilen: zeilen(rows), fest: anweisung + kopf, antwort: 2000,
+    });
+    const antwort = await ai.json<{
+      title?: string;
+      topics?: { heading: string; points: string[] }[];
+      decisions?: string[];
+      open_questions?: string[];
+      action_items?: { text: string; assignee_id?: string | null }[];
+    }>([
+      { role: 'system', content: anweisung },
+      { role: 'user', content: kopf + verlauf.text },
+    ], { temperature: 0.2, maxTokens: 2000, reasoning: 'low' });
+    /* Steht im Protokoll des Servers und nicht im Ereignis: das Feld dafür
+       gehört in packages/shared/src/types.ts (MeetingProtocol), und das ist
+       fremdes Revier. Wer es dort ergänzt, kann es hier durchreichen — dann
+       sieht auch der Leser, dass sein Protokoll aus Auszügen entstand. */
+    if (verlauf.verdichtet) {
+      console.log(`[ai] Protokoll für ${input.channelId}: Verlauf über ${verlauf.verdichtet} Abschnitte verdichtet.`);
+    }
+    return { data: antwort, verdichtet: verlauf.verdichtet };
+  });
 
   const bekannt = new Set(rows.map((r) => r.user_id));
   const text = (x: unknown) => (typeof x === 'string' ? x.trim() : '');
@@ -414,5 +615,188 @@ export async function protokoll(input: {
       })),
     messageCount: rows.length,
     generatedAt: Date.now(),
+  };
+}
+
+/* ── Vorschläge: Aufgaben und Ideen in einem Durchgang ────────
+
+   Steht hier neben extractTasks(), weil es dasselbe tut und denselben
+   Verlauf liest. Ein zweiter Modellaufruf für Ideen wäre auf einem
+   Raspberry Pi mit einem 8k-Modell die doppelte Wartezeit für dieselbe
+   Nachrichtenmenge — deshalb kommen beide aus einem Durchgang. */
+
+/** Wie viele Marken die Antwort der Vorschlagserkennung bekommen soll. */
+const ANTWORT_MARKEN = 900;
+
+/** Wie viele Nachrichten überhaupt in Betracht kommen, bevor gekürzt wird. */
+const NACHRICHTEN_HOECHSTENS = 120;
+
+/** Wie viele Vorschläge je Durchgang höchstens herauskommen. */
+export const VORSCHLAEGE_JE_LAUF = 8;
+
+export interface KiVorschlag {
+  art: VorschlagArt;
+  titel: string;
+  /** Nachricht, aus der er stammt — geprüft gegen den gelesenen Ausschnitt. */
+  quelleMessageId: string | null;
+  /** Von der KI genannte zuständige Person, oder null. */
+  genanntUserId: string | null;
+  faelligAm: number | null;
+}
+
+/** Die KI ist nicht eingerichtet — dann entsteht gar kein Vorschlag. */
+export class KiNichtVerfuegbar extends Error {
+  constructor() { super('KI ist nicht konfiguriert.'); }
+}
+
+
+function systemAnweisung(sprache: string, personen: string): string {
+  const lang = languageInfo(sprache);
+  return [
+    `Du liest einen Firmen-Chat und schlägst vor, was daraus festgehalten gehört.`,
+    `Schreibe die Titel auf ${lang.name} (${lang.native}).`,
+    '',
+    'Zwei Arten, und der Unterschied ist wichtig:',
+    '  "aufgabe" — jemand muss konkret etwas tun, und es ist noch offen.',
+    '  "idee"    — ein Vorschlag, über den erst noch entschieden werden muss.',
+    '',
+    'Keine Aufgabe ist: was schon erledigt gemeldet wurde, eine Meinung, eine',
+    'Frage, eine Absichtserklärung ohne Gegenstand ("wir sollten mal reden").',
+    'Keine Idee ist: eine Wiederholung dessen, was ohnehin schon läuft.',
+    '',
+    'Jeder Titel ist eine Handlung, höchstens 90 Zeichen, ohne Namen am Anfang.',
+    'Nenne zu jedem Vorschlag die Kennung der Nachricht, aus der er stammt —',
+    'das ist der Wert in eckigen Klammern am Zeilenanfang. Ohne sie kann',
+    'niemand nachsehen, ob der Vorschlag stimmt.',
+    '',
+    'Findest du nichts Konkretes, gib leere Listen zurück. Lieber nichts als',
+    'Erfundenes: hier entscheidet danach ein Mensch, und er soll das Ja meinen.',
+    `Höchstens ${VORSCHLAEGE_JE_LAUF} Vorschläge insgesamt.`,
+    '',
+    `Bekannte Personen: ${personen}`,
+    'JSON: {"vorschlaege": [{"art": "aufgabe"|"idee", "titel": "...",',
+    '  "quelle": "<Nachrichtenkennung>", "zustaendig_id": "<id oder null>",',
+    '  "faellig_in_tagen": <Zahl oder null>}]}',
+  ].join('\n');
+}
+
+export interface LaufErgebnis {
+  vorschlaege: KiVorschlag[];
+  /** Wie viele Zeilen nicht mehr ins Fenster passten. */
+  weggelassen: number;
+  /** Wie viele Nachrichten tatsächlich gelesen wurden. */
+  gelesen: number;
+}
+
+/**
+ * Ein Durchgang über einen Kanalausschnitt.
+ *
+ * Der Aufrufer hat vorher zu prüfen, ob der Kanal vertraulich ist — diese
+ * Funktion liest Nachrichtentext und darf deshalb dort nie ankommen. Sie
+ * verlässt sich nicht darauf (siehe `zeilenBauen`), aber die Reihenfolge ist
+ * so gedacht: erst am Kanal abweisen, dann am Inhalt sichern.
+ */
+export async function vorschlaegeAusVerlauf(input: {
+  channelId: string;
+  channelName: string;
+  sprache: string;
+  sinceMessageId: string | null;
+  /** Konten, deren Nachrichten nicht gelesen werden (der Assistent selbst). */
+  ohneUserIds?: string[];
+}): Promise<LaufErgebnis> {
+  const ai = assistant();
+  if (!ai) throw new KiNichtVerfuegbar();
+
+  const rows = fetchMessages(
+    input.channelId, input.sinceMessageId, NACHRICHTEN_HOECHSTENS, input.ohneUserIds ?? [],
+  );
+  /* Dieselbe Zeilenform wie überall hier — und derselbe Chiffrat-Rückhalt.
+     Vorher stand dafür eine eigene Kopie in ki-vorschlaege.ts; die beiden
+     hätten eines Tages verschieden entschieden, was in eine Zeile gehört. */
+  const verlaufszeilen = zeilen(rows);
+  if (!verlaufszeilen.length) return { vorschlaege: [], weggelassen: 0, gelesen: 0 };
+
+  const personen = [...new Map(rows.map((r) => [r.user_id, r])).values()]
+    .map((r) => `${r.display_name} = ${r.user_id}`).join('; ');
+  const system = systemAnweisung(input.sprache, personen);
+  const kopf = `Kanal: #${input.channelName}\n\n`;
+
+  /* Das Fenster gehört dem Modell, nicht uns. Fragen, abziehen, hineinpassen —
+     und wenn nichts übrig bleibt, gar nicht erst abschicken. Ein roher
+     400er beim Benutzer ist genau das, was hier nicht mehr passieren soll. */
+  const fenster = ai.kontextfenster();
+  const budget = verlaufsBudget({
+    fenster,
+    fest: `${system}\n${kopf}`,
+    antwort: ANTWORT_MARKEN,
+  });
+  if (budget <= 0) {
+    throw new Error(
+      `Das Kontextfenster des Modells (${fenster} Marken) reicht für die Anweisung nicht aus.`,
+    );
+  }
+
+  const zugeschnitten = juengsteZeilen(verlaufszeilen, budget);
+  if (!zugeschnitten.zeilen.length) {
+    return { vorschlaege: [], weggelassen: verlaufszeilen.length, gelesen: 0 };
+  }
+
+  const hinweis = zugeschnitten.weggelassen > 0
+    ? `\n\n(Nur der jüngste Ausschnitt — ${zugeschnitten.weggelassen} ältere Nachrichten stehen nicht dabei.)`
+    : '';
+
+  const data = await ai.json<{
+    vorschlaege?: {
+      art?: string; titel?: string; quelle?: string | null;
+      zustaendig_id?: string | null; faellig_in_tagen?: number | null;
+    }[];
+  }>([
+    { role: 'system', content: system },
+    { role: 'user', content: `${kopf}${zugeschnitten.zeilen.join('\n')}${hinweis}` },
+  ], { temperature: 0.2, maxTokens: ANTWORT_MARKEN, reasoning: 'low' });
+
+  const bekannteIds = new Set(rows.map((r) => r.id));
+  const bekanntePersonen = new Set(rows.map((r) => r.user_id));
+
+  const vorschlaege = (data.vorschlaege ?? [])
+    .filter((v) => v && typeof v.titel === 'string' && v.titel.trim().length > 3)
+    .slice(0, VORSCHLAEGE_JE_LAUF)
+    .map((v): KiVorschlag => ({
+      // Alles, was nicht ausdrücklich "idee" heißt, ist eine Aufgabe. Eine
+      // falsch einsortierte Aufgabe kostet einen Klick, eine erfundene Art
+      // einen Absturz.
+      art: v.art === 'idee' ? 'idee' : 'aufgabe',
+      titel: v.titel!.trim().slice(0, 300),
+      // Eine erfundene Kennung ist schlimmer als keine: der Sprung dorthin
+      // ginge ins Leere, und der Vorschlag sähe belegt aus, ohne es zu sein.
+      quelleMessageId: v.quelle && bekannteIds.has(v.quelle) ? v.quelle : null,
+      genanntUserId: v.zustaendig_id && bekanntePersonen.has(v.zustaendig_id)
+        ? v.zustaendig_id : null,
+      faelligAm: typeof v.faellig_in_tagen === 'number' && v.faellig_in_tagen > 0
+        ? Date.now() + v.faellig_in_tagen * 86_400_000
+        : null,
+    }));
+
+  return {
+    vorschlaege,
+    weggelassen: zugeschnitten.weggelassen,
+    gelesen: zugeschnitten.zeilen.length,
+  };
+}
+
+/**
+ * Nur die Schätzung, ohne abzuschicken — für Prüfläufe.
+ *
+ * Ein Prüflauf, der behauptet "passt ins Fenster", ohne nachzurechnen, prüft
+ * nichts. Diese Funktion gibt die Zahlen heraus, die sonst nur intern gelten.
+ */
+export function budgetProbe(input: {
+  sprache: string; personen: string; channelName: string; fenster: number;
+}): { budget: number; anweisungMarken: number } {
+  const system = systemAnweisung(input.sprache, input.personen);
+  const kopf = `Kanal: #${input.channelName}\n\n`;
+  return {
+    budget: verlaufsBudget({ fenster: input.fenster, fest: `${system}\n${kopf}`, antwort: ANTWORT_MARKEN }),
+    anweisungMarken: markenSchaetzung(`${system}\n${kopf}`),
   };
 }

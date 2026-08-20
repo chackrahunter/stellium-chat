@@ -2,6 +2,8 @@ import { languageInfo, mentionsEveryone, extractMentions } from '@stellium/share
 import { db } from '../db/index.js';
 import { newId } from '../util/id.js';
 import { assistant as aiProvider } from '../translation/index.js';
+import { markenSchaetzung, verlaufsBudget } from '../translation/fenster.js';
+import { mitKennung } from '../translation/fehler.js';
 import { createAccount } from './users.js';
 import { encryptField, blindIndex } from '../crypto/pii.js';
 import { entschluesseln } from '../crypto/nachrichten.js';
@@ -275,17 +277,48 @@ export async function generateReply(channelId: string, ansprache: 'privat' | 'te
     'schreibe deshalb klar und ohne Wortspiele.',
   ].join('\n');
 
-  const verlauf = zeilen.map((z) => ({
+  const alle = zeilen.map((z) => ({
     role: (z.user_id === botId ? 'assistant' : 'user') as 'assistant' | 'user',
     content: z.user_id === botId ? z.text : `${z.display_name}: ${z.text}`,
   }));
 
-  const antwort = await ai.chat(
+  /* Vierzig Nachrichten klingen harmlos, bis eine davon ein hineinkopiertes
+     Protokoll ist. Die Anweisung oben ist außerdem selbst schon lang — an
+     einem Modell mit 8k Fenster bleibt für den Verlauf weniger übrig, als man
+     vermutet. Deshalb wird gerechnet statt gehofft; was nicht mehr hineinpasst,
+     fällt vorne weg. Beim Assistenten ist das richtig: er antwortet auf das
+     Letzte, nicht auf das Ganze — und anders als ein Protokoll behauptet seine
+     Antwort auch nicht, den ganzen Verlauf abzubilden. */
+  const platz = verlaufsBudget({
+    fenster: ai.kontextfenster(),
+    fest: system,
+    antwort: 1600,
+  });
+  const verlauf: typeof alle = [];
+  let kosten = 0;
+  for (let i = alle.length - 1; i >= 0; i -= 1) {
+    const preis = markenSchaetzung(alle[i].content) + 4;   // Aufschlag fürs Chat-Format
+    if (kosten + preis > platz) break;
+    verlauf.unshift(alle[i]);
+    kosten += preis;
+  }
+  /* Und wenn nicht einmal die letzte Nachricht hineinpasst: lieber die eine
+     gekürzt schicken als eine Anfrage ohne Frage. */
+  if (!verlauf.length && alle.length) {
+    const letzteZeile = alle[alle.length - 1];
+    verlauf.push({ ...letzteZeile, content: `${letzteZeile.content.slice(0, Math.max(200, platz * 3))}…` });
+  }
+
+  /* Durch `mitKennung`, und das ist hier besonders wichtig: scheitert der
+     Assistent, schreibt der Gateway den Fehlertext als Nachricht in den Kanal
+     („Ich konnte gerade nicht antworten: …"). Ohne diese Umsetzung stand dort
+     wörtlich „groq: fetch failed" — im Chat, für alle sichtbar, auf Englisch. */
+  const antwort = await mitKennung(() => ai.chat(
     [{ role: 'system', content: system }, ...verlauf],
     // Niedrige Temperatur: bei Sachfragen ist Treue zum Verlauf wichtiger als
     // sprachliche Abwechslung.
     { temperature: 0.2, maxTokens: 1600, reasoning: 'low' },
-  );
+  ));
 
   return antwort.trim().slice(0, 6000) || 'Dazu fällt mir gerade nichts ein.';
 }

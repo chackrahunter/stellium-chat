@@ -173,6 +173,25 @@ export class ModelRegistry {
 
   get current(): ModelSelection { return this.selection; }
   get discovered(): DiscoveredModel[] { return this.models; }
+
+  /**
+   * Wie viel dieses Modell überhaupt entgegennimmt.
+   *
+   * Die Zahl steht in der Modell-Liste — Groq nennt sie, llama.cpp und Ollama
+   * nennen sie mal so, mal gar nicht. Fehlt sie, gilt `MIN_CONTEXT`, und das
+   * ist bewusst die kleinste Zahl, mit der wir ein Modell überhaupt nehmen
+   * würden: lieber zu wenig annehmen und kürzen als zu viel schicken.
+   *
+   * Warum wir das überhaupt wissen wollen, statt beim Modell „mach das Fenster
+   * größer" zu bestellen: das Modell läuft auf einem fremden Rechner. Dessen
+   * Einstellungen gehören uns nicht, und beim nächsten Modell ist die Zahl
+   * wieder eine andere. Hineinpassen müssen wir.
+   */
+  kontextfenster(modelId?: string): number {
+    const id = modelId || this.selection.quality;
+    const treffer = this.models.find((m) => m.id === id);
+    return treffer?.contextWindow || MIN_CONTEXT;
+  }
   get usable(): DiscoveredModel[] {
     return this.models.filter((m) => !m.rejected && !this.broken.has(m.id));
   }

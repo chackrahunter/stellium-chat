@@ -4,6 +4,7 @@ import { translationBudget, uebersetzungsRegeln, uebersetzungsTemperatur } from 
 import { uebersetzungAusAntwort } from '../antwort.js';
 import {
   type AssistantProvider, type ChatMessage, type ChatOptions,
+  klingtNachZuLang,
   ProviderError, type TranslateRequest, type TranslateResult, type TranslationProvider,
 } from './types.js';
 
@@ -48,6 +49,21 @@ export class OpenAICompatibleProvider implements TranslationProvider, AssistantP
       if (!res.ok) {
         const detail = await res.text().catch(() => '');
 
+        /* Die Anfrage war größer als das Fenster des Modells.
+           Ausdrücklich **vor** looksLikeModelProblem(): dessen Muster enthält
+           „model", und die Meldung von ollama enthält es auch — das Modell
+           flöge sonst als kaputt aus der Liste, obwohl es nichts dafür kann
+           und der nächste Versuch mit demselben zu langen Verlauf genauso
+           endete. Nicht wiederholbar: derselbe Verlauf passt beim zweiten Mal
+           genauso wenig. Der Aufrufer muss kürzen, und mit `art` weiß er
+           auch, warum. */
+        if (klingtNachZuLang(detail)) {
+          throw new ProviderError(
+            `${this.ep.name}: Anfrage größer als das Kontextfenster des Modells`,
+            res.status, false, 'zuLang',
+          );
+        }
+
         // Das Modell hat das JSON nicht fertig bekommen — praktisch immer zu
         // wenig Token-Budget. Das ist ein vorübergehender Fehler, kein Grund,
         // das Modell auszusortieren.
@@ -76,18 +92,27 @@ export class OpenAICompatibleProvider implements TranslationProvider, AssistantP
           `${this.ep.name} ${res.status}: ${detail.slice(0, 400)}`,
           res.status,
           res.status === 429 || res.status >= 500,
+          res.status === 429 ? 'ueberlastet' : 'sonst',
         );
       }
       return await res.json();
     } catch (err) {
       if (err instanceof ProviderError) throw err;
       if ((err as Error).name === 'AbortError') {
-        throw new ProviderError(`${this.ep.name}: Zeitüberschreitung`, 408, true);
+        throw new ProviderError(`${this.ep.name}: Zeitüberschreitung`, 408, true, 'zeit');
       }
       throw new ProviderError(`${this.ep.name}: ${(err as Error).message}`, undefined, true);
     } finally {
       clearTimeout(timer);
     }
+  }
+
+  /**
+   * Wie viel dieses Modell annimmt. Kommt aus der Modell-Liste des Anbieters;
+   * fehlt die Angabe, gilt der kleinste Wert, mit dem wir überhaupt rechnen.
+   */
+  kontextfenster(opts: { fast?: boolean } = {}): number {
+    return this.registry.kontextfenster(opts.fast ? this.fastModel : this.registry.current.quality);
   }
 
   async chat(messages: ChatMessage[], opts: ChatOptions = {}): Promise<string> {

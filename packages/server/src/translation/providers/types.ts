@@ -51,11 +51,51 @@ export interface ChatOptions {
 export interface AssistantProvider {
   chat(messages: ChatMessage[], opts?: ChatOptions): Promise<string>;
   json<T>(messages: ChatMessage[], opts?: ChatOptions): Promise<T>;
+  /**
+   * Wie viele Marken das Modell insgesamt annimmt — Anfrage und Antwort
+   * zusammen. Wer einen Verlauf zusammenstellt, muss das vorher wissen; siehe
+   * translation/fenster.ts.
+   */
+  kontextfenster(opts?: { fast?: boolean }): number;
 }
 
+/**
+ * Woran es lag — grob genug, dass die Oberfläche einen Satz dazu setzen kann.
+ *
+ * Ohne diese Einordnung landete der rohe Text des Anbieters beim Benutzer:
+ * Don sah ein Meldungsfenster mit dem JSON von ollama darin, auf Englisch.
+ */
+export type Fehlerart =
+  /** Die Anfrage war größer als das Kontextfenster des Modells. */
+  | 'zuLang'
+  /** Das Modell hat nicht rechtzeitig geantwortet. */
+  | 'zeit'
+  /** Zu viele Anfragen, Modell überlastet. */
+  | 'ueberlastet'
+  /** Alles Übrige. */
+  | 'sonst';
+
 export class ProviderError extends Error {
-  constructor(message: string, readonly status?: number, readonly retryable = false) {
+  constructor(
+    message: string,
+    readonly status?: number,
+    readonly retryable = false,
+    readonly art: Fehlerart = 'sonst',
+  ) {
     super(message);
     this.name = 'ProviderError';
   }
+}
+
+/**
+ * Sagt der Anbieter, die Anfrage sei zu groß?
+ *
+ * Jeder formuliert es anders — llama.cpp/ollama mit „exceeds the available
+ * context size", OpenAI mit „maximum context length", andere mit
+ * „context_length_exceeded". Deshalb wird am Text erkannt und nicht an einem
+ * Code, den es nur bei einem von ihnen gibt.
+ */
+export function klingtNachZuLang(text: string): boolean {
+  return /exceed[s]?_?\s*(the\s+)?(available\s+)?context|context[_ ]length[_ ]exceeded|context size|too many tokens|maximum context|prompt is too long|reduce the length of the messages/i
+    .test(text);
 }
