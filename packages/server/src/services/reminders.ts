@@ -2,14 +2,31 @@ import type { Reminder } from '@stellium/shared';
 import { db } from '../db/index.js';
 import { newId } from '../util/id.js';
 
+/** Wie weit im Voraus sich etwas vormerken lässt, und wie lang die Notiz wird. */
+const VORLAUF_MAX_MS = 366 * 86_400_000;
+const NOTIZ_MAX = 500;
+/** Wie viele offene Erinnerungen ein Konto gleichzeitig haben darf. */
+const OFFEN_MAX = 200;
+
 export function createReminder(input: {
   userId: string; channelId: string; messageId?: string | null; note?: string | null; remindAt: number;
 }): Reminder {
+  if (!Number.isFinite(input.remindAt)) throw new Error('Der Zeitpunkt fehlt');
   if (input.remindAt < Date.now() + 5_000) throw new Error('Der Zeitpunkt muss in der Zukunft liegen');
+  /* Drei Grenzen, die alle gefehlt haben. Jede offene Erinnerung geht bei
+     jeder Anmeldung mit der 'ready'-Antwort hinaus, und der Zeitgeber sieht
+     sie alle fünfzehn Sekunden an. */
+  if (input.remindAt > Date.now() + VORLAUF_MAX_MS) throw new Error('Weiter als ein Jahr im Voraus geht nicht');
+  const offen = db.get<{ n: number }>(
+    'SELECT COUNT(*) AS n FROM reminders WHERE user_id = ? AND done = 0', input.userId,
+  )?.n ?? 0;
+  if (offen >= OFFEN_MAX) throw new Error(`Mehr als ${OFFEN_MAX} offene Erinnerungen gehen nicht.`);
+
   const id = newId('rm_');
   db.run(
     'INSERT INTO reminders (id, user_id, message_id, channel_id, note, remind_at, done, created_at) VALUES (?,?,?,?,?,?,0,?)',
-    id, input.userId, input.messageId ?? null, input.channelId, input.note ?? null, input.remindAt, Date.now(),
+    id, input.userId, input.messageId ?? null, input.channelId,
+    input.note?.trim().slice(0, NOTIZ_MAX) || null, input.remindAt, Date.now(),
   );
   return get(id)!;
 }
@@ -33,8 +50,27 @@ export function markDone(id: string, userId: string): boolean {
   return db.run('UPDATE reminders SET done = 1 WHERE id = ? AND user_id = ?', id, userId).changes > 0;
 }
 
-export function due(now: number) {
-  return db.all<any>('SELECT * FROM reminders WHERE done = 0 AND remind_at <= ? LIMIT 50', now).map(toReminder);
+/**
+ * Fällige Erinnerungen — wahlweise nur die von Leuten, die gerade da sind.
+ *
+ * Der Zeitgeber hakte bisher jede fällige Erinnerung ab und schickte sie
+ * danach los. War niemand verbunden, ging sie ins Leere und stand trotzdem
+ * auf erledigt: „erinnere mich morgen um neun" verschwand, wenn der Rechner
+ * um neun zu war. Nachgemessen am Probeserver — nach der Rückkehr war die
+ * Liste der offenen Erinnerungen leer.
+ *
+ * Deshalb wird jetzt nur geholt, was auch zugestellt werden kann. Das ist
+ * nicht nur sparsamer, es verhindert auch, dass fünfzig liegengebliebene
+ * Erinnerungen abwesender Leute das LIMIT füllen und die der Anwesenden
+ * nie mehr an die Reihe kommen.
+ */
+export function due(now: number, userIds?: string[]) {
+  if (userIds && !userIds.length) return [];
+  const filter = userIds ? ` AND user_id IN (${userIds.map(() => '?').join(',')})` : '';
+  return db.all<any>(
+    `SELECT * FROM reminders WHERE done = 0 AND remind_at <= ?${filter} ORDER BY remind_at ASC LIMIT 50`,
+    now, ...(userIds ?? []),
+  ).map(toReminder);
 }
 
 function toReminder(r: any): Reminder {

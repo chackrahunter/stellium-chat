@@ -1,5 +1,5 @@
 import type { Idea, IdeaComment, IdeaStatus } from '@stellium/shared';
-import { db } from '../db/index.js';
+import { db, nurSichtbareKanaele } from '../db/index.js';
 import { newId } from '../util/id.js';
 
 /**
@@ -9,6 +9,11 @@ import { newId } from '../util/id.js';
  * eine Idee erst einmal nur jemanden, der sie hatte. Erst wenn das Team
  * zustimmt, wird daraus Arbeit — deshalb die Abstimmung und der Status.
  */
+
+/* Grenzen. Titel und Schlagwort waren begrenzt, der Text der Idee nicht —
+   und der geht per Rundruf an jede offene Verbindung. */
+const TITEL_MAX = 200;
+const TEXT_MAX = 8000;
 
 function toIdea(r: any, stimmen: Map<string, { hoch: number; runter: number; meine: number }>,
                 kommentare: Map<string, number>, userId: string): Idea {
@@ -55,8 +60,18 @@ function zaehlen(ids: string[], userId: string) {
   return { stimmen, kommentare };
 }
 
+/**
+ * Das Ideenboard, wie es für dieses Konto aussieht.
+ *
+ * Ideen an einem Kanal, den es nicht sehen darf, fallen heraus — Titel und
+ * Text einer Idee sind nicht weniger vertraulich als die Nachricht, aus der
+ * sie entstanden ist.
+ */
 export function listIdeas(userId: string): Idea[] {
-  const rows = db.all<any>('SELECT * FROM ideas ORDER BY updated_at DESC LIMIT 500');
+  const rows = db.all<any>(
+    `SELECT * FROM ideas WHERE ${nurSichtbareKanaele()} ORDER BY updated_at DESC LIMIT 500`,
+    userId,
+  );
   const { stimmen, kommentare } = zaehlen(rows.map((r) => r.id), userId);
   return rows.map((r) => toIdea(r, stimmen, kommentare, userId));
 }
@@ -79,7 +94,7 @@ export function createIdea(input: {
   db.run(
     `INSERT INTO ideas (id, title, body, status, tag, channel_id, created_by, created_at, updated_at)
      VALUES (?,?,?,'new',?,?,?,?,?)`,
-    id, titel.slice(0, 200), input.body?.trim() || null,
+    id, titel.slice(0, TITEL_MAX), input.body?.trim().slice(0, TEXT_MAX) || null,
     (input.tag ?? '').trim().slice(0, 40), input.channelId ?? null,
     input.createdBy, jetzt, jetzt,
   );
@@ -100,9 +115,9 @@ export function updateIdea(id: string, patch: {
   if (patch.title !== undefined) {
     const t = patch.title.trim();
     if (t.length < 3) throw new Error('Die Idee braucht einen Titel.');
-    felder.push('title = ?'); werte.push(t.slice(0, 200));
+    felder.push('title = ?'); werte.push(t.slice(0, TITEL_MAX));
   }
-  if (patch.body !== undefined) { felder.push('body = ?'); werte.push(patch.body?.trim() || null); }
+  if (patch.body !== undefined) { felder.push('body = ?'); werte.push(patch.body?.trim().slice(0, TEXT_MAX) || null); }
   if (patch.tag !== undefined) { felder.push('tag = ?'); werte.push(patch.tag.trim().slice(0, 40)); }
   if (patch.channelId !== undefined) { felder.push('channel_id = ?'); werte.push(patch.channelId); }
   if (felder.length) {
@@ -122,7 +137,7 @@ export function setStatus(id: string, status: IdeaStatus, userId: string, begrue
     status, jetzt,
     entschieden ? jetzt : null,
     entschieden ? userId : null,
-    entschieden ? (begruendung?.trim() || null) : null,
+    entschieden ? (begruendung?.trim().slice(0, TEXT_MAX) || null) : null,
     id,
   );
   const idee = getIdea(id, userId);
@@ -176,6 +191,13 @@ export function deleteComment(commentId: string, userId: string, darfFremde: boo
     throw new Error('Fremde Kommentare darf nur die Moderation löschen.');
   }
   db.run('DELETE FROM idea_comments WHERE id = ?', commentId);
+}
+
+/** Wie tasks.idsImKanal() — siehe dort. */
+export function idsImKanal(channelId: string): string[] {
+  return db.all<{ id: string }>(
+    'SELECT id FROM ideas WHERE channel_id = ? LIMIT 500', channelId,
+  ).map((r) => r.id);
 }
 
 export function deleteIdea(id: string): void {

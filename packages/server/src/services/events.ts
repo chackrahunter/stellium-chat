@@ -1,5 +1,5 @@
 import { EVENT_KINDS, type AttendeeResponse, type CalendarEvent, type EventKind } from '@stellium/shared';
-import { db } from '../db/index.js';
+import { db, nurSichtbareKanaele } from '../db/index.js';
 import { newId } from '../util/id.js';
 
 /**
@@ -9,6 +9,17 @@ import { newId } from '../util/id.js';
  * in die Ortszeit macht die Oberfläche — bei einem Team über mehrere Zeitzonen
  * ist das der einzige Weg, der für alle stimmt.
  */
+
+/* Grenzen, die für das Anlegen wie für das Ändern gelten. Sie standen bisher
+   nur in createEvent(); über updateEvent() ging alles durch — eine
+   Beschreibung mit fünfzigtausend Zeichen inbegriffen, und der Termin geht
+   danach per Rundruf an jede offene Verbindung. */
+const TITEL_MAX = 300;
+const BESCHREIBUNG_MAX = 8000;
+const ORT_MAX = 300;
+
+/** Was eine Zusage sein darf. Die Spalte kannte diese Liste bisher nur als Kommentar. */
+const ANTWORTEN: AttendeeResponse[] = ['pending', 'yes', 'no', 'maybe'];
 
 function toEvent(r: any, teilnehmende: { userId: string; response: AttendeeResponse }[] = []): CalendarEvent {
   return {
@@ -41,12 +52,24 @@ function attendeesOf(eventIds: string[]): Map<string, { userId: string; response
   return out;
 }
 
-/** Termine, die sich mit dem Zeitraum überschneiden. */
-export function listEvents(from: number, to: number): CalendarEvent[] {
-  const rows = db.all<any>(
-    'SELECT * FROM events WHERE starts_at < ? AND ends_at > ? ORDER BY starts_at ASC LIMIT 500',
-    to, from,
-  );
+/**
+ * Termine, die sich mit dem Zeitraum überschneiden.
+ *
+ * `sichtbarFuer` hält zurück, was an einem Kanal hängt, den dieses Konto
+ * nicht sehen darf — ein Termin trägt Titel, Ort und Beschreibung, und wenn
+ * er aus einem privaten Kanal kommt, gehört er auch nur dorthin.
+ */
+export function listEvents(from: number, to: number, sichtbarFuer?: string): CalendarEvent[] {
+  const rows = sichtbarFuer
+    ? db.all<any>(
+        `SELECT * FROM events WHERE starts_at < ? AND ends_at > ? AND ${nurSichtbareKanaele()}
+         ORDER BY starts_at ASC LIMIT 500`,
+        to, from, sichtbarFuer,
+      )
+    : db.all<any>(
+        'SELECT * FROM events WHERE starts_at < ? AND ends_at > ? ORDER BY starts_at ASC LIMIT 500',
+        to, from,
+      );
   const teilnehmende = attendeesOf(rows.map((r) => r.id));
   return rows.map((r) => toEvent(r, teilnehmende.get(r.id) ?? []));
 }
@@ -62,8 +85,13 @@ export function createEvent(input: {
   location?: string | null; channelId?: string | null;
   attendeeIds?: string[]; createdBy: string;
 }): CalendarEvent {
-  const title = input.title.trim().slice(0, 300);
+  const title = input.title.trim().slice(0, TITEL_MAX);
   if (title.length < 2) throw new Error('Der Termin braucht einen Titel.');
+  // Ohne diese Zeile kam ein NaN oder eine Zeichenkette bis in die Spalte:
+  // beide Vergleiche darunter sind mit NaN falsch und ließen alles durch.
+  if (!Number.isFinite(input.startsAt) || !Number.isFinite(input.endsAt)) {
+    throw new Error('Beginn und Ende müssen Zeitpunkte sein.');
+  }
   if (input.endsAt <= input.startsAt) throw new Error('Das Ende muss nach dem Beginn liegen.');
   if (input.endsAt - input.startsAt > 366 * 86_400_000) throw new Error('Ein Termin darf höchstens ein Jahr dauern.');
 
@@ -76,9 +104,9 @@ export function createEvent(input: {
       `INSERT INTO events (id, title, description, kind, starts_at, ends_at, all_day,
                            location, channel_id, created_by, created_at, updated_at)
        VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
-      id, title, input.description?.trim().slice(0, 8000) || null, kind,
+      id, title, input.description?.trim().slice(0, BESCHREIBUNG_MAX) || null, kind,
       input.startsAt, input.endsAt, input.allDay ? 1 : 0,
-      input.location?.trim().slice(0, 300) || null, input.channelId ?? null,
+      input.location?.trim().slice(0, ORT_MAX) || null, input.channelId ?? null,
       input.createdBy, jetzt, jetzt,
     );
     // Wer einlädt, ist selbst dabei — und hat automatisch zugesagt.
@@ -103,19 +131,23 @@ export function updateEvent(id: string, patch: {
 
   const beginn = patch.startsAt ?? alt.startsAt;
   const ende = patch.endsAt ?? alt.endsAt;
+  if (!Number.isFinite(beginn) || !Number.isFinite(ende)) {
+    throw new Error('Beginn und Ende müssen Zeitpunkte sein.');
+  }
   if (ende <= beginn) throw new Error('Das Ende muss nach dem Beginn liegen.');
+  if (ende - beginn > 366 * 86_400_000) throw new Error('Ein Termin darf höchstens ein Jahr dauern.');
 
   const sets: string[] = [];
   const werte: any[] = [];
   if (patch.title !== undefined) {
     if (patch.title.trim().length < 2) throw new Error('Der Termin braucht einen Titel.');
-    sets.push('title = ?'); werte.push(patch.title.trim());
+    sets.push('title = ?'); werte.push(patch.title.trim().slice(0, TITEL_MAX));
   }
-  if (patch.description !== undefined) { sets.push('description = ?'); werte.push(patch.description?.trim() || null); }
+  if (patch.description !== undefined) { sets.push('description = ?'); werte.push(patch.description?.trim().slice(0, BESCHREIBUNG_MAX) || null); }
   if (patch.startsAt !== undefined) { sets.push('starts_at = ?'); werte.push(patch.startsAt); }
   if (patch.endsAt !== undefined) { sets.push('ends_at = ?'); werte.push(patch.endsAt); }
   if (patch.allDay !== undefined) { sets.push('all_day = ?'); werte.push(patch.allDay ? 1 : 0); }
-  if (patch.location !== undefined) { sets.push('location = ?'); werte.push(patch.location?.trim() || null); }
+  if (patch.location !== undefined) { sets.push('location = ?'); werte.push(patch.location?.trim().slice(0, ORT_MAX) || null); }
   if (patch.kind !== undefined && (EVENT_KINDS as string[]).includes(patch.kind)) {
     sets.push('kind = ?'); werte.push(patch.kind);
   }
@@ -126,6 +158,11 @@ export function updateEvent(id: string, patch: {
 }
 
 export function respond(eventId: string, userId: string, response: AttendeeResponse): CalendarEvent {
+  /* Die Art des Termins wurde beim Anlegen gegen EVENT_KINDS geprüft, die
+     Zusage dagegen gar nicht — sie ging so, wie sie kam, in die Spalte. Damit
+     stand in der Teilnehmerliste, was der Client hineinschrieb, und
+     startingSoon() entschied anhand von `=== 'no'`, wen es benachrichtigt. */
+  if (!ANTWORTEN.includes(response)) throw new Error('Unbekannte Antwort.');
   if (!getEvent(eventId)) throw new Error('Termin nicht gefunden.');
   db.run(
     `INSERT INTO event_attendees (event_id, user_id, response) VALUES (?,?,?)
@@ -152,13 +189,20 @@ export function setAttendees(eventId: string, add: string[] = [], remove: string
   return getEvent(eventId)!;
 }
 
+/** Wie tasks.idsImKanal() — siehe dort. */
+export function idsImKanal(channelId: string): string[] {
+  return db.all<{ id: string }>(
+    'SELECT id FROM events WHERE channel_id = ? LIMIT 500', channelId,
+  ).map((r) => r.id);
+}
+
 export function deleteEvent(id: string): void {
   db.run('DELETE FROM events WHERE id = ?', id);
 }
 
 /** Wer ist wann abwesend? Für die Übersicht im Kalender. */
-export function absences(from: number, to: number): CalendarEvent[] {
-  return listEvents(from, to).filter((e) => e.kind === 'absence' || e.kind === 'holiday');
+export function absences(from: number, to: number, sichtbarFuer?: string): CalendarEvent[] {
+  return listEvents(from, to, sichtbarFuer).filter((e) => e.kind === 'absence' || e.kind === 'holiday');
 }
 
 /** Termine, die bald beginnen — für die Erinnerung. */

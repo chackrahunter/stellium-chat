@@ -58,6 +58,41 @@ export function istNeuer(neu: string, alt: string): boolean {
   return false;
 }
 
+/** Wie lang die Änderungsliste einer Fassung höchstens wird. */
+const ANMERKUNGEN_MAX = 20_000;
+
+/**
+ * Prüfsumme und Größe einer Datei, ohne sie in den Speicher zu holen.
+ *
+ * Hier stand `fs.readFileSync(tempPath)`. Für ein App-Paket sind das die
+ * hundertfünfzig bis sechshundert Megabyte, die die Route durchlässt — auf
+ * einem Raspberry Pi mit einem Gigabyte ist das kein Ausschlag im Diagramm,
+ * sondern der Tod des Prozesses, und zwar genau in dem Augenblick, in dem
+ * jemand ein Update verteilen will. Gemessen am Probeserver: der belegte
+ * Speicher wuchs bei einer Datei von 160 MB um 178 MB.
+ *
+ * Bewusst mit readSync und nicht mit einem Strom: publish() ist synchron, und
+ * das soll es bleiben — die Route ruft es zwischen zwei Dateioperationen auf,
+ * deren Reihenfolge über die Wiederherstellbarkeit entscheidet.
+ */
+function summeUndGroesse(datei: string): { sha256: string; groesse: number } {
+  const hash = createHash('sha256');
+  const puffer = Buffer.allocUnsafe(1024 * 1024);
+  const fd = fs.openSync(datei, 'r');
+  let groesse = 0;
+  try {
+    for (;;) {
+      const gelesen = fs.readSync(fd, puffer, 0, puffer.length, null);
+      if (!gelesen) break;
+      hash.update(puffer.subarray(0, gelesen));
+      groesse += gelesen;
+    }
+  } finally {
+    fs.closeSync(fd);
+  }
+  return { sha256: hash.digest('hex'), groesse };
+}
+
 export function publish(input: {
   platform: ReleasePlatform; version: string; notes?: string | null;
   fileName: string; tempPath: string; publishedBy: string;
@@ -68,8 +103,7 @@ export function publish(input: {
   }
 
   const ziel = path.join(config.releaseDir, `${input.platform}-${path.basename(input.fileName)}`);
-  const daten = fs.readFileSync(input.tempPath);
-  const sha256 = createHash('sha256').update(daten).digest('hex');
+  const { sha256, groesse } = summeUndGroesse(input.tempPath);
 
   // Erst die neue Datei ablegen, dann die Datenbank umschreiben und ganz zum
   // Schluss die alte Datei entfernen — bricht etwas dazwischen ab, zeigt die
@@ -88,8 +122,8 @@ export function publish(input: {
        version = excluded.version, notes = excluded.notes, file_name = excluded.file_name,
        path = excluded.path, size = excluded.size, sha256 = excluded.sha256,
        published_by = excluded.published_by, published_at = excluded.published_at`,
-    input.platform, input.version, input.notes?.trim() || null,
-    path.basename(input.fileName), ziel, daten.byteLength, sha256,
+    input.platform, input.version, input.notes?.trim().slice(0, ANMERKUNGEN_MAX) || null,
+    path.basename(input.fileName), ziel, groesse, sha256,
     input.publishedBy, Date.now(),
   );
 

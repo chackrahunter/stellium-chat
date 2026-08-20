@@ -1,5 +1,5 @@
 import type { Channel } from '@stellium/shared';
-import { db } from '../db/index.js';
+import { db, removeChannelFromIndex } from '../db/index.js';
 import { newId } from '../util/id.js';
 import { getChannel, isMember, toChannel } from './store.js';
 import { assistantUserId } from './assistant.js';
@@ -168,7 +168,14 @@ export function deleteChannel(channelId: string): { name: string; messages: numb
     ...db.all<{ path: string }>('SELECT path FROM files WHERE channel_id = ?', channelId),
   ].map((r) => r.path);
 
-  db.run('DELETE FROM channels WHERE id = ?', channelId);
+  /* Zeilen und Index in einem Zug. Der Volltextindex hängt an keiner
+     Fremdschlüsselbeziehung — was ON DELETE CASCADE hier abräumt, muss dort
+     von Hand nach. Beides in einer Transaktion, damit nicht der eine Teil
+     verschwindet und der andere bleibt. */
+  db.transaction(() => {
+    removeChannelFromIndex(channelId);
+    db.run('DELETE FROM channels WHERE id = ?', channelId);
+  });
 
   /* Was der Kanal hinterlässt, liegt in zwei Formen da: Blöcke für alles, was
      in den Blockspeicher gewandert ist, und ganze Dateien für alles andere.
@@ -197,7 +204,11 @@ export function hideChannel(channelId: string, userId: string): void {
 
 /** Wieder einblenden, sobald neue Aktivität kommt. */
 export function unhideForAll(channelId: string): void {
-  db.run('UPDATE channel_members SET hidden = 0 WHERE channel_id = ?', channelId);
+  /* `AND hidden = 1`, weil das bei jeder einzelnen Nachricht läuft: ohne die
+     Bedingung schreibt SQLite jede Mitgliedszeile des Kanals neu, auch wenn
+     sich nichts ändert — bei zwanzig Mitgliedern also zwanzig Zeilen ins WAL
+     für jede Zeile Text. */
+  db.run('UPDATE channel_members SET hidden = 0 WHERE channel_id = ? AND hidden = 1', channelId);
 }
 
 export function setMembers(channelId: string, add: string[] = [], remove: string[] = []): Channel {

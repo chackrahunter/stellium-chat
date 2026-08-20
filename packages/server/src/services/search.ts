@@ -21,7 +21,17 @@ export function search(query: SearchQuery): SearchHit[] {
   const q = query.q.trim();
   if (q.length < 2) return [];
 
-  const limit = Math.min(query.limit ?? 40, 100);
+  /* Nach oben war die Grenze da, nach unten nicht. Math.min(-1, 100) ist -1,
+     und `LIMIT -2` heißt in SQLite „ohne Grenze": der Server holte jede
+     passende Zeile aus dem Index, zog die zugehörigen Nachrichten nach — und
+     gab dann genau einen Treffer heraus, weil `hits.length >= -1` sofort
+     zutraf. Viel Arbeit, kein Ergebnis.
+
+     Eine Zahl, die keine brauchbare Grenze ist, wird auf die Vorgabe
+     zurückgesetzt und nicht auf 1 gestutzt: wer `limit=-1` schickt, meint
+     „ist mir gleich" und nicht „genau einen Treffer bitte". Dieselbe Regel
+     gilt am Verlauf in 'channel:open'. */
+  const limit = grenze(query.limit, 40, 100);
   /* Vertrauliche Kanäle fallen heraus, bevor überhaupt gesucht wird.
      Sie zu durchsuchen wäre nicht gefährlich, sondern sinnlos: der Server hat
      dort nur Chiffrat. Aber ein Suchlauf, der einen Kanal stillschweigend
@@ -62,6 +72,12 @@ export function search(query: SearchQuery): SearchHit[] {
     if (hits.length >= limit) break;
   }
   return hits;
+}
+
+/** Eine Anzahl vom Client: brauchbar, oder die Vorgabe. Nie unter 1, nie über `hoechstens`. */
+export function grenze(wert: unknown, vorgabe: number, hoechstens: number): number {
+  const n = Math.trunc(Number(wert));
+  return Number.isFinite(n) && n >= 1 ? Math.min(n, hoechstens) : vorgabe;
 }
 
 interface RawHit { message_id: string; lang: string; snippet: string | null; score: number }

@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import { abweisung } from '../util/abweisung.js';
 import {
-  effectivePermissions, PERMISSION_KEYS,
+  effectivePermissions, permissionInfo, PERMISSION_KEYS,
   type MemberRoleName, type PermissionKey,
 } from '@stellium/shared';
 import { db } from '../db/index.js';
@@ -26,6 +26,43 @@ export function generateOneTimePassword(): string {
     gruppen.push(teil);
   }
   return gruppen.join('-');   // z.B. K7QM-3XAF-9TRW-DP2H
+}
+
+/* ── Laufende Sitzungen beenden ───────────────────────────────── */
+
+/**
+ * Offene Leitungen dieses Kontos kappen.
+ *
+ * `verifyToken` weist ein entwertetes Token ab, sobald es wieder vorgezeigt
+ * wird — bei jedem HTTP-Abruf und bei jedem Verbindungsaufbau. Eine schon
+ * offene WebSocket-Leitung zeigt es aber nie wieder vor: sie hat sich beim
+ * Verbinden ausgewiesen und trägt ihre Kennung seitdem in der Sitzung. Ohne
+ * diesen Ruf läse ein gesperrtes Konto also weiter mit, solange es die
+ * Leitung offen hält — stundenlang, tagelang.
+ *
+ * Der Gateway wird erst hier geholt und nicht oben eingebunden: er bindet
+ * seinerseits diese Datei ein, und ein Ring aus zwei Modulen, die beim Laden
+ * aufeinander warten, ist ein Startfehler, den niemand mehr zuordnet. So
+ * entsteht die Verbindung erst, wenn sie gebraucht wird — und in den
+ * Werkzeugen, die nie einen Gateway starten (Saat, Tresor), gar nicht.
+ */
+function sitzungenKappen(userId: string): void {
+  void import('../ws/gateway.js')
+    .then((gateway) => gateway.sitzungenBeenden(userId))
+    .catch(() => { /* kein Gateway in diesem Prozess — dann gibt es auch keine Sitzung */ });
+}
+
+/**
+ * Ab jetzt gelten nur noch neue Token.
+ *
+ * Wird bei jedem Passwortwechsel gerufen, der nicht die Ersteinrichtung ist.
+ * Ein Passwort zu wechseln ist die übliche Antwort auf „jemand hat meinen
+ * Rechner gehabt" — sie hilft nur, wenn dabei auch die Sitzungen fallen, die
+ * derjenige mitgenommen hat.
+ */
+function sitzungenEntwerten(userId: string, ab = Date.now()): void {
+  db.run('UPDATE users SET sitzungen_ab = ? WHERE id = ?', ab, userId);
+  sitzungenKappen(userId);
 }
 
 const INVITE_TTL = 14 * 86_400_000;
@@ -95,6 +132,20 @@ export function setPermission(userId: string, permission: PermissionKey, allowed
   const ziel = db.get<{ role: string }>('SELECT role FROM users WHERE id = ?', userId);
   if (!ziel) throw abweisung('fehler.kontoNichtGefunden', 'Konto nicht gefunden');
   if (ziel.role === 'owner') throw abweisung('fehler.ownerRechte', 'Dem Owner lassen sich keine Rechte nehmen.');
+
+  /* Drei Rechte tragen `ownerOnly`: Konten löschen, Rechte vergeben und
+     Freigaben lesen. Die Oberfläche sperrt sie für alle außer den Owner — der
+     Server tat das bisher nicht. Solange nur der Owner „Rechte vergeben" hat,
+     fällt das nicht auf; gibt er es einmal weiter, gilt plötzlich die
+     Beschriftung und nicht mehr die Regel, und wer es hat, holt sich damit
+     auch das Lesen fremder Freigaben. Durchgesetzt wird auf dem Server. */
+  if (permissionInfo(permission)?.ownerOnly) {
+    const setzer = db.get<{ role: string }>('SELECT role FROM users WHERE id = ?', setBy);
+    if (setzer?.role !== 'owner') {
+      throw abweisung('fehler.nurOwnerRecht',
+        'Dieses Recht vergibt nur der Inhaber.', { recht: permission });
+    }
+  }
 
   if (allowed === null) {
     db.run('DELETE FROM user_permissions WHERE user_id = ? AND permission = ?', userId, permission);
@@ -206,10 +257,15 @@ export function resetPassword(userId: string, byUserId: string): string {
   if (!ziel) throw abweisung('fehler.kontoNichtGefunden', 'Konto nicht gefunden');
 
   const passwort = generateOneTimePassword();
+  const jetzt = Date.now();
   db.run(
     'UPDATE users SET password_hash = ?, must_change_password = 1, password_set_at = ? WHERE id = ?',
-    hashPassword(passwort), Date.now(), userId,
+    hashPassword(passwort), jetzt, userId,
   );
+  /* Ein Zurücksetzen ist fast immer die Antwort darauf, dass jemand nicht mehr
+     hereinkommt — oder dass jemand hereinkam, der nicht sollte. In beiden
+     Fällen darf das alte Token nicht weiterlaufen. */
+  sitzungenEntwerten(userId, jetzt);
   recordInvite(userId, byUserId);
   return passwort;
 }
@@ -218,6 +274,11 @@ export function setDisabled(userId: string, disabled: boolean): void {
   const ziel = db.get<{ role: string }>('SELECT role FROM users WHERE id = ?', userId);
   if (ziel?.role === 'owner' && disabled) throw abweisung('fehler.ownerSperren', 'Der Owner lässt sich nicht sperren.');
   db.run('UPDATE users SET disabled = ? WHERE id = ?', disabled ? 1 : 0, userId);
+  /* Sperren hieß bisher nur: die Anmeldung geht nicht mehr. Wer schon ein
+     Token hatte, arbeitete damit weiter — bis zu dreißig Tage lang, in jedem
+     Kanal, in dem er stand. Die Prüfung in `verifyToken` schließt jeden neuen
+     Abruf; hier fällt zusätzlich die Leitung, die schon offen ist. */
+  if (disabled) sitzungenKappen(userId);
 }
 
 /**
@@ -251,6 +312,9 @@ export function deleteAccount(userId: string): void {
     db.run('DELETE FROM scheduled_messages WHERE user_id = ?', userId);
     db.run('DELETE FROM saved_messages WHERE user_id = ?', userId);
   });
+  /* Auch hier und nicht nur in der Route: wer künftig von anderswoher löscht,
+     soll die Sitzungen nicht eigens mitbedenken müssen. */
+  sitzungenKappen(userId);
 }
 
 /* ── Ersteinrichtung durch die Person selbst ──────────────────── */
@@ -267,7 +331,14 @@ export function completeSetup(userId: string, input: {
      könnte das Passwort austauschen, ohne es je gekannt zu haben. Die Sperre
      hängt weiter unten an der WHERE-Bedingung des UPDATE und nicht an einer
      vorgeschalteten Abfrage — so kann zwischen Prüfen und Schreiben nichts
-     dazwischenkommen. */
+     dazwischenkommen.
+
+     Und nur hier wird `sitzungen_ab` bewusst nicht mitgesetzt, obwohl ein
+     Passwort geschrieben wird: dieser Weg läuft mit genau dem Token, das er
+     sonst entwerten würde. Die Person steht mitten in ihrer Einrichtung, die
+     App hat noch keine Anmeldung mit dem neuen Passwort — sie flöge auf halbem
+     Weg heraus. Ein Verzicht ist es nicht: das Token stammt aus dem
+     Einmal-Passwort, das gerade eben verbraucht wurde. */
   const felder: string[] = ['password_hash = ?', 'must_change_password = 0', 'password_set_at = ?'];
   const werte: any[] = [hashPassword(input.newPassword), Date.now()];
 
@@ -311,10 +382,15 @@ export function changeOwnPassword(userId: string, altes: string, neues: string,
   if (neues.length < 10) throw abweisung('fehler.passwortZuKurz', 'Das neue Passwort braucht mindestens 10 Zeichen.');
   const row = db.get<{ password_hash: string }>('SELECT password_hash FROM users WHERE id = ?', userId);
   if (!row || !pruefe(altes, row.password_hash)) throw abweisung('fehler.altesPasswortFalsch', 'Das bisherige Passwort stimmt nicht.');
+  const jetzt = Date.now();
   db.run(
     'UPDATE users SET password_hash = ?, must_change_password = 0, password_set_at = ? WHERE id = ?',
-    hashPassword(neues), Date.now(), userId,
+    hashPassword(neues), jetzt, userId,
   );
+  /* Auch die eigene Sitzung fällt. Das ist beabsichtigt: ein Wechsel, der
+     alles Alte stehen lässt, wäre gegen genau den Fall wirkungslos, für den
+     man ihn macht. Wer sein Passwort ändert, meldet sich danach neu an. */
+  sitzungenEntwerten(userId, jetzt);
 }
 
 /* ── Klartext für die Anzeige ─────────────────────────────────── */

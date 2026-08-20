@@ -2,7 +2,7 @@ import {
   TASK_PRIORITIES, TASK_STATUSES,
   type Task, type TaskEvent, type TaskPriority, type TaskStatus,
 } from '@stellium/shared';
-import { db } from '../db/index.js';
+import { db, nurSichtbareKanaele } from '../db/index.js';
 import { newId } from '../util/id.js';
 
 /**
@@ -13,6 +13,11 @@ import { newId } from '../util/id.js';
  * jede Person die Spalten in ihrer eigenen Sprache, ohne dass die Daten
  * doppelt vorliegen.
  */
+
+/** Wie lang eine Aufgabenbeschreibung höchstens wird — beim Anlegen wie beim Ändern. */
+const BESCHREIBUNG_MAX = 8000;
+/** Wie lang ein Aufgabentitel höchstens wird. */
+const TITEL_MAX = 300;
 
 function toTask(r: any, watchers: string[] = []): Task {
   return {
@@ -54,10 +59,25 @@ function protokoll(taskId: string, userId: string, kind: TaskEvent['kind'],
 
 /* ── Lesen ────────────────────────────────────────────────────── */
 
-export function listTasks(filter: { channelId?: string | null; assigneeId?: string | null; includeFinished?: boolean } = {}): Task[] {
+export function listTasks(filter: {
+  channelId?: string | null; assigneeId?: string | null; includeFinished?: boolean;
+  /**
+   * Wer fragt. Ohne diese Angabe kommt alles heraus — das ist nur für
+   * serverinterne Aufrufe gedacht (Aufgabenerkennung, Morgenübersicht), die
+   * ohnehin schon geprüft haben, worum es geht.
+   */
+  sichtbarFuer?: string;
+} = {}): Task[] {
   const bedingungen: string[] = [];
   const werte: any[] = [];
 
+  /* Kanalgebundene Aufgaben nur an den Kanalkreis. Der Filter steht bewusst
+     vor den anderen Bedingungen: er ist der einzige, der nicht bloß auswählt,
+     sondern zurückhält. */
+  if (filter.sichtbarFuer) {
+    bedingungen.push(nurSichtbareKanaele());
+    werte.push(filter.sichtbarFuer);
+  }
   if (filter.channelId !== undefined && filter.channelId !== null) {
     bedingungen.push('channel_id = ?');
     werte.push(filter.channelId);
@@ -113,9 +133,8 @@ export function createTask(input: {
   createdBy: string;
 }): Task {
   // Ohne Grenze ließe sich die Datenbank mit einer einzigen Aufgabe fluten.
-  const title = input.title.trim().slice(0, 300);
+  const title = input.title.trim().slice(0, TITEL_MAX);
   if (title.length < 2) throw new Error('Die Aufgabe braucht einen Titel.');
-  if (title.length > 300) throw new Error('Titel zu lang (max. 300 Zeichen).');
 
   const status = input.status && TASK_STATUSES.includes(input.status) ? input.status : 'pending';
   const priority = input.priority && TASK_PRIORITIES.includes(input.priority) ? input.priority : 'normal';
@@ -136,7 +155,7 @@ export function createTask(input: {
       `INSERT INTO tasks (id, title, description, status, priority, assignee_id, channel_id,
                           message_id, due_at, created_by, created_at, updated_at, position)
        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-      id, title, input.description?.trim().slice(0, 8000) || null, status, priority,
+      id, title, input.description?.trim().slice(0, BESCHREIBUNG_MAX) || null, status, priority,
       input.assigneeId ?? null, input.channelId ?? null, input.messageId ?? null,
       input.dueAt ?? null, input.createdBy, jetzt, jetzt, position,
     );
@@ -170,13 +189,16 @@ export function updateTask(id: string, patch: TaskPatch, userId: string): Task {
   const notieren: (() => void)[] = [];
 
   if (patch.title !== undefined) {
-    const titel = patch.title.trim().slice(0, 300);
+    const titel = patch.title.trim().slice(0, TITEL_MAX);
     if (titel.length < 2) throw new Error('Die Aufgabe braucht einen Titel.');
     sets.push('title = ?'); werte.push(titel);
     notieren.push(() => protokoll(id, userId, 'title', alt.title, titel));
   }
   if (patch.description !== undefined) {
-    sets.push('description = ?'); werte.push(patch.description?.trim() || null);
+    /* Dieselbe Grenze wie in createTask(). Sie stand dort allein, und damit
+       war sie wirkungslos: anlegen mit kurzem Text, ändern mit beliebig
+       langem — die Aufgabe geht danach per Rundruf an das ganze Team. */
+    sets.push('description = ?'); werte.push(patch.description?.trim().slice(0, BESCHREIBUNG_MAX) || null);
   }
   if (patch.status !== undefined) {
     if (!TASK_STATUSES.includes(patch.status)) throw new Error('Unbekannter Status.');
@@ -197,6 +219,9 @@ export function updateTask(id: string, patch: TaskPatch, userId: string): Task {
     notieren.push(() => protokoll(id, userId, 'assignee', alt.assigneeId, patch.assigneeId ?? null));
   }
   if (patch.dueAt !== undefined) {
+    // Eine Fälligkeit, die keine Zahl ist, landete bisher als Zeichenkette in
+    // einer INTEGER-Spalte — SQLite nimmt das an, jede Sortierung danach nicht.
+    if (patch.dueAt !== null && !Number.isFinite(patch.dueAt)) throw new Error('Ungültige Fälligkeit.');
     sets.push('due_at = ?'); werte.push(patch.dueAt);
     notieren.push(() => protokoll(id, userId, 'due',
       alt.dueAt ? String(alt.dueAt) : null, patch.dueAt ? String(patch.dueAt) : null));
@@ -252,6 +277,20 @@ export function setWatching(id: string, userId: string, watching: boolean): Task
   const t = getTask(id);
   if (!t) throw new Error('Aufgabe nicht gefunden.');
   return t;
+}
+
+/**
+ * Was in diesem Kanal hängt — nur die Kennungen.
+ *
+ * Für den Fall, dass jemand den Kanal verliert: sein Brett hält die Einträge
+ * als Zuordnung und räumt sie erst auf ein `*:removed` hin weg. Ohne diese
+ * Liste bliebe stehen, was er gerade nicht mehr sehen darf, bis er die App
+ * neu lädt — und das kann Tage dauern.
+ */
+export function idsImKanal(channelId: string): string[] {
+  return db.all<{ id: string }>(
+    'SELECT id FROM tasks WHERE channel_id = ? LIMIT 500', channelId,
+  ).map((r) => r.id);
 }
 
 export function deleteTask(id: string): void {

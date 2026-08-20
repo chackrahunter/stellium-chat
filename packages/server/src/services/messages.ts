@@ -96,9 +96,10 @@ export function createMessage(input: CreateMessageInput): Message {
   const verschlossen = istE2EChiffrat(text);
   const grenze = verschlossen ? 20_000 : 12_000;
   if (text.length > grenze) {
-    throw new Error(verschlossen
-      ? 'Nachricht zu lang (max. 12.000 Zeichen)'
-      : `Nachricht zu lang (max. ${grenze / 1000}.000 Zeichen)`);
+    /* Die beiden Zweige waren vertauscht: in einem vertraulichen Kanal wurde
+       bei 20.000 Zeichen abgewiesen und dazu „max. 12.000" gemeldet. Wer die
+       Nachricht kürzte, kürzte auf einen Wert, der gar nicht galt. */
+    throw new Error(`Nachricht zu lang (max. ${grenze / 1000}.000 Zeichen)`);
   }
 
   /* Vor dem Anlegen und nicht mittendrin: eine abgewiesene Nachricht soll gar
@@ -193,6 +194,11 @@ export function editMessage(messageId: string, userId: string, text: string, may
 
   const verschlossen = istE2EChiffrat(clean);
   const detected = verschlossen ? 'unknown' : detectLanguage(clean).lang;
+  /* Text, Erwähnungen, Übersetzungen und Volltextindex gehören zusammen und
+     lagen bisher zur Hälfte außerhalb der Transaktion. Bricht es dazwischen
+     ab, steht der neue Text da, während die Übersetzung noch den alten
+     wiedergibt und die Suche ihn noch unter den alten Wörtern führt — beides
+     sieht aus wie ein Fehler des Modells und ist keiner. */
   db.transaction(() => {
     db.run(
       'UPDATE messages SET text = ?, source_lang = ?, edited_at = ? WHERE id = ?',
@@ -205,11 +211,10 @@ export function editMessage(messageId: string, userId: string, text: string, may
         if (user) db.run('INSERT OR IGNORE INTO message_mentions (message_id, user_id) VALUES (?,?)', messageId, user.id);
       }
     }
+    // Alte Übersetzungen passen nicht mehr zum neuen Text.
+    dropMessageTranslations(messageId);
+    reindexMessage(messageId);
   });
-
-  // Alte Übersetzungen passen nicht mehr zum neuen Text.
-  dropMessageTranslations(messageId);
-  reindexMessage(messageId);
   return getMessage(messageId)!;
 }
 
@@ -241,9 +246,15 @@ export function deleteMessage(
     throw new Error('Für alle zurücknehmen geht nur in den ersten zwei Stunden. Du kannst sie noch für dich ausblenden.');
   }
 
-  db.run("UPDATE messages SET deleted_at = ?, text = '', pinned = 0 WHERE id = ?", Date.now(), messageId);
-  db.run('DELETE FROM message_translations WHERE message_id = ?', messageId);
-  removeFromIndex(messageId);
+  /* Auch hier alles auf einmal: eine Nachricht, deren Text weg ist, die aber
+     noch im Index steht, wäre über die Suche weiter auffindbar — und ihre
+     gespeicherte Übersetzung gäbe den Inhalt wieder, den das Löschen gerade
+     entfernt hat. */
+  db.transaction(() => {
+    db.run("UPDATE messages SET deleted_at = ?, text = '', pinned = 0 WHERE id = ?", Date.now(), messageId);
+    db.run('DELETE FROM message_translations WHERE message_id = ?', messageId);
+    removeFromIndex(messageId);
+  });
   return { channelId: row.channel_id, scope: 'all' };
 }
 
@@ -257,6 +268,17 @@ export function hiddenFor(userId: string, messageIds: string[]): Set<string> {
   return new Set(rows.map((r) => r.message_id));
 }
 
+/**
+ * Wie viele verschiedene Reaktionen an einer Nachricht hängen dürfen.
+ *
+ * Die Länge eines einzelnen Zeichens war begrenzt, ihre Anzahl nicht: eine
+ * einzige Person konnte beliebig viele verschiedene daranhängen. Jede davon
+ * geht danach mit jeder Auslieferung der Nachricht mit hinaus — der Verlauf
+ * eines Kanals wächst also mit, ohne dass jemand etwas geschrieben hätte.
+ * Fünfzig ist großzügig; auf einem Bildschirm sind zwölf schon viel.
+ */
+const REAKTIONSARTEN_MAX = 50;
+
 export function toggleReaction(messageId: string, userId: string, emoji: string): { channelId: string } {
   const row = db.get<{ channel_id: string }>('SELECT channel_id FROM messages WHERE id = ?', messageId);
   if (!row) throw new Error('Nachricht nicht gefunden');
@@ -265,6 +287,15 @@ export function toggleReaction(messageId: string, userId: string, emoji: string)
   if (!clean) throw new Error('Emoji fehlt');
 
   const existing = db.get('SELECT 1 AS x FROM reactions WHERE message_id = ? AND user_id = ? AND emoji = ?', messageId, userId, clean);
+  if (!existing) {
+    // Zurücknehmen geht immer; nur das Hinzufügen einer *neuen* Art ist begrenzt.
+    const arten = db.get<{ n: number }>(
+      'SELECT COUNT(DISTINCT emoji) AS n FROM reactions WHERE message_id = ?', messageId,
+    )?.n ?? 0;
+    if (arten >= REAKTIONSARTEN_MAX) {
+      throw new Error(`An einer Nachricht sind höchstens ${REAKTIONSARTEN_MAX} verschiedene Reaktionen möglich.`);
+    }
+  }
   if (existing) {
     db.run('DELETE FROM reactions WHERE message_id = ? AND user_id = ? AND emoji = ?', messageId, userId, clean);
   } else {
@@ -296,12 +327,20 @@ export function markRead(channelId: string, userId: string, lastMessageId: strin
 
 /* ── Geplante Nachrichten ─────────────────────────────────────── */
 
+/** Wie weit im Voraus sich eine Nachricht planen lässt. */
+const PLANUNG_MAX_MS = 366 * 86_400_000;
+
 export function scheduleMessage(input: {
   channelId: string; userId: string; text: string; sendAt: number; parentId?: string | null;
 }) {
   const text = input.text.trim();
   if (!text) throw new Error('Leere Nachricht');
+  if (!Number.isFinite(input.sendAt)) throw new Error('Sendezeitpunkt muss ein Zeitpunkt sein');
   if (input.sendAt < Date.now() + 10_000) throw new Error('Sendezeitpunkt muss mindestens 10 Sekunden in der Zukunft liegen');
+  /* Nach oben fehlte die Grenze ganz. Eine geplante Nachricht in fünfhundert
+     Jahren wäre für immer im Speicher der Sitzung und in jeder Antwort auf
+     'ready' — und der Zeitgeber sähe sie nie wieder an. */
+  if (input.sendAt > Date.now() + PLANUNG_MAX_MS) throw new Error('Später als ein Jahr im Voraus geht nicht');
 
   // Dieselbe Prüfung wie beim sofortigen Senden, nur früher: fiele sie erst
   // beim Absetzen im Ticker auf, verschwände die geplante Nachricht dort
