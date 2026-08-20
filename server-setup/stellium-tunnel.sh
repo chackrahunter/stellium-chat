@@ -95,12 +95,59 @@ NGINX
   fi
 }
 
+# ── Fremde Mitfahrer im Tunnel ──────────────────────────────────
+#
+# cloudflared ist nicht mehr allein unser Dienst. Auf diesem Pi trägt derselbe
+# Tunnel auch stellium.club und www.stellium.club — die Seite eines Kollegen,
+# die auf caddy an :8080 läuft. Wer cloudflared abschaltet oder mit
+# "cloudflared service install <token>" neu aufsetzt, nimmt ihre öffentliche
+# Adresse mit weg, ohne es zu merken: der Dienst läuft danach zwar, aber die
+# ingress-Regeln aus /etc/cloudflared/config.yml sind nicht mehr in Gebrauch.
+#
+# Genau dieselbe Falle stand einmal in dienste/pi-beschleunigen.sh, dort für
+# caddy selbst. Siehe FREMDE-DIENSTE.md.
+#
+# Diese Prüfung zählt die Namen in der Tunnelkonfiguration, die nicht auf
+# unseren Chat-Port zeigen. Ist einer dabei, wird nichts angefasst.
+CF_KONFIG="/etc/cloudflared/config.yml"
+
+fremde_im_tunnel() {
+  [[ -r "$CF_KONFIG" ]] || return 1
+  # Jede hostname-Zeile mit dem service, der in der nächsten Zeile steht.
+  # Alles, was nicht auf 127.0.0.1:$PORT_HTTP oder :8787 zeigt, ist nicht unseres.
+  awk '
+    /^[[:space:]]*-[[:space:]]*hostname:/ { name=$NF; next }
+    /^[[:space:]]*service:/ && name != "" {
+      if ($NF !~ /127\.0\.0\.1:(8787|'"$PORT_HTTP"')$/) print name
+      name=""
+    }
+  ' "$CF_KONFIG"
+}
+
+# Bricht ab, wenn cloudflared noch für jemand anderen arbeitet.
+cloudflared_ist_unser_allein() {
+  local fremde
+  fremde="$(fremde_im_tunnel || true)"
+  [[ -z "$fremde" ]] && return 0
+  warn "cloudflared trägt hier nicht nur den Chat:"
+  printf '      %s\n' $fremde
+  warn "Diese Namen zeigen auf einen anderen Dienst — laut $CF_KONFIG."
+  fehler "Abgebrochen: cloudflared bleibt unangetastet, sonst geht eine fremde Seite vom Netz.
+   Nur den Chat aus dem Tunnel nehmen: den Eintrag chat.* aus $CF_KONFIG
+   entfernen und  sudo systemctl reload cloudflared."
+}
+
 tunnel_aus() {
-  for dienst in stellium-tunnel cloudflared; do
-    systemctl disable --now "$dienst" >/dev/null 2>&1 || true
-  done
+  # Unser eigener Schnelltunnel darf immer weg — den hat niemand sonst.
+  systemctl disable --now stellium-tunnel >/dev/null 2>&1 || true
   rm -f /etc/systemd/system/stellium-tunnel.service "$ADRESSDATEI"
   systemctl daemon-reload
+
+  # cloudflared dagegen nur, wenn wirklich nichts Fremdes daran hängt.
+  if systemctl list-unit-files --no-legend 2>/dev/null | grep -q '^cloudflared\.service'; then
+    cloudflared_ist_unser_allein
+    systemctl disable --now cloudflared >/dev/null 2>&1 || true
+  fi
   ok "Tunnel abgeschaltet"
 }
 
@@ -225,6 +272,12 @@ ANLEITUNG
   nginx_fuer_tunnel
 
   schritt "Tunnel einrichten"
+  # "cloudflared service install <token>" schreibt die Einheit neu und stellt
+  # den Dienst auf den Token um. Eine vorhandene /etc/cloudflared/config.yml
+  # ist danach wirkungslos — samt aller Namen, die dort für andere stehen.
+  # Deshalb vorher nachsehen, wer sonst noch mitfährt.
+  cloudflared_ist_unser_allein
+
   systemctl disable --now stellium-tunnel >/dev/null 2>&1 || true
   rm -f /etc/systemd/system/stellium-tunnel.service
   cloudflared service uninstall >/dev/null 2>&1 || true

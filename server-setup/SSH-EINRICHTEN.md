@@ -86,6 +86,16 @@ Vom Mac aus dann:
 ssh -p 2222 aryan@deine-adresse.duckdns.org
 ```
 
+> **Ein Weg ist kein Weg.** Diese Adresse hängt an Anschluss, Router und
+> DuckDNS. Fällt eines davon aus, kommt niemand mehr herein — am 20.08.2026
+> ist genau das beinahe passiert. Leg dir einen zweiten Weg an, der eine
+> andere Ursache hat:
+>
+> * **Tailscale** — auf dem Mac installieren, demselben Tailnet beitreten,
+>   dann `ssh -p 2222 aryan@100.102.168.44`. Braucht keinen offenen Port.
+> * **Cloudflare-Tunnel** — `fernzugang/ssh-durch-tunnel.sh` auf dem Pi,
+>   danach `ssh stellium-tunnel` vom Mac. Braucht keinen Router.
+
 ### Warum Port 2222 und nicht 22
 
 Port 22 wird im Internet rund um die Uhr durchprobiert — ein frisch geöffneter

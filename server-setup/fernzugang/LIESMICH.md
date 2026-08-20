@@ -30,8 +30,19 @@ Danach liegt der Zettel an zwei Stellen und ist über HTTPS abrufbar:
 ```
 /var/lib/stellium/zugang.json                      ← der Urstand
 /opt/stellium/packages/desktop/dist/zugang.json    ← der ausgelieferte
-https://stellium-chat.duckdns.org/zugang.json
+https://stellium-chat.duckdns.org/zugang.json      ← seit 20.08. tot, siehe unten
 ```
+
+> **Stand 20.08.2026.** Die HTTPS-Stelle antwortet nicht mehr. Beim Umzug auf
+> den Cloudflare-Tunnel wurde die nginx-Seite ausgehängt (`sites-enabled` ist
+> leer) und das Zertifikat entfernt; auf 443 und 9443 lauscht nichts mehr.
+> Nachgemessen: `https://stellium-chat.duckdns.org/zugang.json` liefert gar
+> nichts, `https://chat.stellium.club/zugang.json` liefert 404 — der
+> Node-Dienst kennt diesen Pfad nicht, den hat nginx ausgeliefert.
+> Der Zettel steht also nur noch lokal auf dem Pi. Wer ihn wieder über HTTPS
+> braucht, muss ihn im Node-Dienst ausliefern lassen oder die nginx-Seite
+> wieder einhängen. **Zum Hereinkommen braucht man ihn nicht:** Tailscale und
+> der Tunnel führen beide ohne Zettel zum Ziel.
 
 Inhalt:
 

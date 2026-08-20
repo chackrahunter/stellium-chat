@@ -85,9 +85,14 @@ fi
 
 # ── Unter welchem Namen ist der Pi zu finden? ───────────────────
 #
-# Die DuckDNS-Adresse, denn die zeigt immer auf den aktuellen Anschluss —
-# darum kümmert sich stellium-duckdns. Ohne Einrichtung bleibt nur die
-# öffentliche Adresse selbst, die sich jederzeit ändern kann.
+# Die DuckDNS-Adresse. ACHTUNG, Stand 20.08.2026: auf diesem Pi hält sie
+# niemand mehr aktuell — beim Umzug auf den Cloudflare-Tunnel wurden
+# stellium-duckdns.service und .timer entfernt. Solange sich die Adresse des
+# Anschlusses nicht ändert, stimmt der Name; ändert sie sich, zeigt er ins
+# Leere, und dieser Zettel weist auf einen Anschluss, der nicht mehr antwortet.
+# Verlässlich ist der Weg über Tailscale (siehe mac-ssh-config.sh) oder über
+# den Tunnel (fernzugang/ssh-durch-tunnel.sh).
+# Ohne Einrichtung bleibt nur die öffentliche Adresse selbst.
 HOST=""
 if [[ -r /etc/stellium-einrichtung.conf ]]; then
   # shellcheck source=/dev/null

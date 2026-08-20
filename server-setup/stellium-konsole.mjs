@@ -239,7 +239,12 @@ function version() {
 function adressen() {
   const liste = [];
   try {
-    const conf = fs.readFileSync('/etc/nginx/sites-available/stellium', 'utf8');
+    // sites-enabled, nicht sites-available: eine Datei, die zwar dasteht, aber
+    // nicht verlinkt ist, bedient niemanden. Zieht der Zugang auf einen Tunnel
+    // um, bleibt die alte Datei liegen — die Konsole nannte dann weiter die
+    // tote DuckDNS-Adresse, und weil dort „listen … ssl" steht, sogar als
+    // gesicherte Verbindung. Eine falsche Adresse ist schlechter als keine.
+    const conf = fs.readFileSync('/etc/nginx/sites-enabled/stellium', 'utf8');
     // Auch 'listen 192.168.1.66:443 ssl;' oder 'listen 9443 ssl;' zählen.
     const tls = /listen[^;]*\bssl\b/.test(conf);
     const namen = [...conf.matchAll(/server_name\s+([^;]+);/g)]
@@ -283,7 +288,9 @@ function zertifikat() {
      jedem, der anklopft. Vorher stand hier deshalb „kein Zertifikat", obwohl
      eines da war — die Konsole läuft nun einmal nicht als root. */
   try {
-    const conf = fs.readFileSync('/etc/nginx/sites-available/stellium', 'utf8');
+    // Auch hier der verlinkte Stand: an einer nicht eingeschalteten Seite ist
+    // kein Zertifikat abzuholen, und das Nachfragen liefe ins Leere.
+    const conf = fs.readFileSync('/etc/nginx/sites-enabled/stellium', 'utf8');
     const name = (conf.match(/server_name\s+([^;\s]+)/) ?? [])[1];
     /* Wohin nginx wirklich lauscht, steht in der Zeile selbst — auf einer
        festen Adresse ist unter 127.0.0.1 nichts zu holen. Deshalb wird jede

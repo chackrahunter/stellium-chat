@@ -1,5 +1,33 @@
 #!/usr/bin/env bash
 #
+# ╔══════════════════════════════════════════════════════════════════════╗
+# ║  ÜBERHOLT — Stand 20.08.2026. Auf DIESEM Pi nicht mehr anwendbar.    ║
+# ╚══════════════════════════════════════════════════════════════════════╝
+#
+# Dieses Skript setzt drei Dinge voraus, die es hier alle nicht mehr gibt.
+# Nachgemessen am 20.08.:
+#
+#   1. ein Zertifikat für die Domain
+#      -> /etc/letsencrypt/live/ ist leer, beim Umzug entfernt
+#   2. nginx, das auf 443 lauscht und die Chat-Seite ausliefert
+#      -> /etc/nginx/sites-enabled/ ist leer, auf 443 und 9443 lauscht nichts
+#   3. einen von außen erreichbaren Port 443 am Router, unter einem Namen,
+#      den jemand aktuell hält
+#      -> genau diese Abhängigkeit hat den Zugang gekostet; der DuckDNS-Name
+#         wird seit dem Umzug von niemandem mehr gepflegt
+#
+# Der Nachfolger ist  fernzugang/ssh-durch-tunnel.sh  — der kommt ohne Router,
+# ohne feste Adresse und ohne Zertifikat aus, weil der Tunnel die Verbindung
+# von innen nach außen aufbaut.
+#
+# WARUM ES TROTZDEM STEHEN BLEIBT: die Technik ist richtig und für einen
+# anderen Fall die beste Antwort — ein Anschluss, an dem nur 443 durchkommt,
+# ohne Cloudflare und ohne Tailscale. Wer dorthin gerät, findet hier einen
+# erprobten Weg statt einer Lücke. Vor einem Einsatz sind die drei Punkte
+# oben zu prüfen; stimmen sie wieder, funktioniert das Skript wie beschrieben.
+#
+# ──────────────────────────────────────────────────────────────────────
+#
 # SSH durch den Port, der ohnehin schon offen ist.
 #
 #   sudo bash stellium-ssh-durch-https.sh 'ssh-ed25519 AAAA... kommentar'

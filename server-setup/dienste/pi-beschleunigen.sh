@@ -24,8 +24,31 @@ set -euo pipefail
 # eines anderen vom Netz, ohne es zu merken. Siehe ../FREMDE-DIENSTE.md.
 UNNOETIG=(cups cups-browsed ModemManager nfs-blkmap libretranslate)
 
+# Ein zweiter Riegel, unabhaengig von der Liste oben. Wer hier kuenftig etwas
+# eintraegt, kommt an dieser Sperre nicht vorbei — und zwar auch dann nicht,
+# wenn der Dienst im Moment gar nicht laeuft und deshalb harmlos aussieht.
+# Genau diese Verwechslung hat caddy beinahe das Genick gebrochen.
+#
+#   caddy, cloudflared  tragen die Seite eines Kollegen (siehe FREMDE-DIENSTE.md)
+#   tailscaled          zweiter Rueckweg auf diesen Pi; faellt er aus, waehrend
+#                       der Router zickt, kommt niemand mehr heran
+#   ssh, sshd           der erste Rueckweg
+#   stellium, nginx     der Chat selbst
+UNANTASTBAR=(caddy cloudflared tailscaled ssh sshd stellium nginx)
+
+ist_unantastbar() {
+  local kandidat="${1%.service}" d
+  for d in "${UNANTASTBAR[@]}"; do
+    [ "$kandidat" = "$d" ] && return 0
+  done
+  return 1
+}
+
 if [ "${1:-}" = "zurueck" ]; then
-  for d in "${UNNOETIG[@]}"; do systemctl enable --now "$d" >/dev/null 2>&1 || true; done
+  for d in "${UNNOETIG[@]}"; do
+    ist_unantastbar "$d" && continue
+    systemctl enable --now "$d" >/dev/null 2>&1 || true
+  done
   rm -f /etc/systemd/system/stellium-takt.service /etc/sysctl.d/60-stellium.conf
   systemctl daemon-reload
   sysctl -p /etc/sysctl.conf >/dev/null 2>&1 || true
@@ -62,6 +85,10 @@ sysctl -q --system
 
 echo "→ Dienste, die hier niemand braucht"
 for d in "${UNNOETIG[@]}"; do
+  if ist_unantastbar "$d"; then
+    echo "   ÜBERSPRUNGEN: $d steht auf der Sperrliste und wird nicht abgeschaltet"
+    continue
+  fi
   if systemctl is-enabled "$d" >/dev/null 2>&1; then
     systemctl disable --now "$d" >/dev/null 2>&1 && echo "   aus: $d"
   fi

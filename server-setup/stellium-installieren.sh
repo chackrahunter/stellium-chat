@@ -681,6 +681,14 @@ NGINX
 # Zertifikat, wo es zum ersten Mal darauf ankommt.
 
 port_frei() {
+  # Belegt heißt nicht nur "lauscht gerade". Ein Port, der einem fremden Dienst
+  # gehört, ist auch dann tabu, wenn der Dienst zufällig gerade nicht läuft —
+  # sonst nimmt nginx ihn weg und der andere kommt nach seinem nächsten Start
+  # nicht mehr hoch. Genau so wäre caddy (:8080, die Seite eines Kollegen)
+  # beinahe verlorengegangen. Siehe FREMDE-DIENSTE.md.
+  case "$1" in
+    8080|2019) return 1 ;;
+  esac
   ! ss -ltn "sport = :$1" 2>/dev/null | grep -q LISTEN
 }
 
@@ -705,7 +713,9 @@ fi
 # Belegung für eine fremde und weicht ohne Not auf 8080/8443 aus.
 systemctl stop nginx >/dev/null 2>&1 || true
 
-PORT_HTTP="$(waehle_port 80 8080 8880 8008)"
+# 8080 steht bewusst nicht mehr in der Liste: dort liegt die Seite eines
+# Kollegen (caddy). 8880/8008 tun denselben Dienst und gehören niemandem.
+PORT_HTTP="$(waehle_port 80 8880 8008)"
 PORT_HTTPS="$(waehle_port 443 8443 9443 4443)"
 
 # Sofort wieder an: bricht die Einrichtung später ab — etwa am DuckDNS-Test —,
@@ -912,15 +922,33 @@ fi
 # ── Absichern ───────────────────────────────────────────────────
 schritt "Firewall und Einbruchsschutz"
 
+# Welche Ports hört sshd wirklich ab? "ufw allow OpenSSH" öffnet nur 22. Läuft
+# SSH längst woanders — auf diesem Pi etwa auf 2222, von ssh-zugang.sh dorthin
+# gelegt —, dann räumt der reset die einzige Regel weg, über die noch jemand
+# hereinkommt. Beim nächsten Lauf wäre der Pi zu, und niemand käme mehr dran.
+# Deshalb die tatsächlichen Ports erfragen, statt 22 anzunehmen.
+SSH_PORTS="$(sshd -T 2>/dev/null | awk '/^port /{print $2}' | sort -un)"
+[[ -z "$SSH_PORTS" ]] && SSH_PORTS=22
+
 ufw --force reset >/dev/null 2>&1
 ufw default deny incoming >/dev/null
 ufw default allow outgoing >/dev/null
-ufw allow OpenSSH >/dev/null
+for P in $SSH_PORTS; do
+  ufw allow "$P/tcp" >/dev/null
+done
 ufw allow "$PORT_HTTP/tcp"  >/dev/null
 ufw allow "$PORT_HTTPS/tcp" >/dev/null
-info "Offen: SSH, $PORT_HTTP, $PORT_HTTPS — sonst nichts"
+info "Offen: SSH ($(echo $SSH_PORTS | tr ' ' ',')), $PORT_HTTP, $PORT_HTTPS — sonst nichts"
 ufw --force enable >/dev/null
 ok "Firewall aktiv"
+
+# Nachsehen statt vertrauen: steht für jeden SSH-Port wirklich eine Regel?
+# Ein reset, der die eigene Rückfahrkarte einzieht, fällt sonst erst auf,
+# wenn die Verbindung schon weg ist.
+for P in $SSH_PORTS; do
+  ufw status | grep -qE "^$P/tcp" \
+    || warn "ACHTUNG: für SSH-Port $P steht keine Regel — Zugang prüfen, bevor du die Sitzung schließt!"
+done
 
 # Der Chat-Port selbst ist von außen ohnehin nicht erreichbar: der Dienst
 # hört auf 127.0.0.1. Die Firewall ist die zweite Linie, nicht die erste.
@@ -1142,7 +1170,15 @@ if [[ -d "$BLOECKE" ]]; then
     done
   } | sort -u > "$ARBEIT/behalten"
 
-  find "$SPIEGEL" -type f -printf '%f\n' 2>/dev/null | sort -u > "$ARBEIT/gespiegelt"
+  # Das || true ist kein Schmuck: find meldet auch dann einen Fehler, wenn es
+  # die Dateien längst gefunden hat — etwa weil es sein Arbeitsverzeichnis
+  # nicht zurückstellen konnte oder ein Block-Unterverzeichnis mitten im Lauf
+  # verschwand (der Server gibt Blöcke frei, während wir zählen). Mit pipefail
+  # bräche das Skript hier ab: die Sicherung wäre geschrieben, aber der
+  # Spiegel nie aufgeräumt und LIESMICH.txt nie erneuert — und der Dienst
+  # stünde auf "failed", ohne dass etwas fehlte. Das Gegenstück oben ist aus
+  # demselben Grund abgesichert.
+  find "$SPIEGEL" -type f -printf '%f\n' 2>/dev/null | sort -u > "$ARBEIT/gespiegelt" || true
   comm -23 "$ARBEIT/gespiegelt" "$ARBEIT/behalten" | while read -r SUMME; do
     [[ ${#SUMME} -ge 4 ]] || continue
     rm -f "$SPIEGEL/${SUMME:0:2}/${SUMME:2:2}/$SUMME"

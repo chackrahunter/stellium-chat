@@ -42,6 +42,10 @@ den Pi weitergeleitet.
 
 **2 · DuckDNS.** Wenn du keine Domain hast. Du bekommst kostenlos eine Adresse
 wie `meinefirma.duckdns.org`, ebenfalls mit echtem Let's-Encrypt-Zertifikat.
+Bedenke dabei: dieser Weg hängt an einer Portfreigabe im Router und daran,
+dass jemand den Namen aktuell hält (`stellium-duckdns.timer`). Wer beides
+nicht dauerhaft sicherstellen kann, fährt mit einem Tunnel besser — siehe
+`fernzugang/ssh-durch-tunnel.sh` und den Abschnitt in `FREMDE-DIENSTE.md`.
 Das Skript hält sie aktuell, auch wenn euer Anschluss die IP-Adresse wechselt.
 
 **4 · Tunnel.** Der Pi baut die Verbindung selbst nach außen auf, statt auf

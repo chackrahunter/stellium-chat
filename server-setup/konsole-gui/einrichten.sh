@@ -42,9 +42,41 @@ cat > /usr/local/bin/stellium-konsole-hintergrund <<'ENDE'
 if pgrep -f "^/usr/bin/python3 /usr/local/lib/stellium/konsole-gui.py --hintergrund" >/dev/null; then
   exit 0
 fi
+
+# Ein Absturz nach Stunden ist etwas anderes als einer nach einer halben
+# Sekunde. Das erste ist ein Aussetzer und gehört sofort behoben; das zweite
+# heißt fast immer, dass gar keine Anzeige da ist — dann startet hier sonst
+# alle drei Sekunden für immer ein Python, das nur wieder aufgibt. Auf einem
+# Pi, der nebenbei den Firmenchat trägt, ist das keine Kleinigkeit, und weil
+# alles nach /dev/null geht, sieht es auch niemand.
+#
+# Deshalb: schnelle Fehlstarts zählen, die Wartezeit verdoppeln und nach zehn
+# in Folge aufhören — mit einer Zeile im Journal, die sagt warum.
+FEHLSTARTS=0
+WARTE=3
 while true; do
+  BEGINN=$(date +%s)
   /usr/bin/python3 /usr/local/lib/stellium/konsole-gui.py --hintergrund
-  sleep 3
+  DAUER=$(( $(date +%s) - BEGINN ))
+
+  if [ "$DAUER" -ge 60 ]; then
+    # Lief lange genug, um echt gewesen zu sein: von vorn zählen.
+    FEHLSTARTS=0
+    WARTE=3
+  else
+    FEHLSTARTS=$(( FEHLSTARTS + 1 ))
+    if [ "$FEHLSTARTS" -ge 10 ]; then
+      logger -t stellium-konsole "Hintergrund gibt auf: zehnmal in Folge sofort beendet (Anzeige da? WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-nicht gesetzt})"
+      exit 1
+    fi
+  fi
+  sleep "$WARTE"
+  # Erst nach dem Warten verdoppeln, damit der erste Versuch die vollen drei
+  # Sekunden behält — und nie über eine Minute hinaus.
+  if [ "$FEHLSTARTS" -gt 0 ]; then
+    WARTE=$(( WARTE * 2 ))
+    [ "$WARTE" -gt 60 ] && WARTE=60
+  fi
 done
 ENDE
 chmod 755 /usr/local/bin/stellium-konsole-hintergrund
