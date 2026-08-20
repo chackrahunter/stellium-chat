@@ -3,7 +3,10 @@ import { chromium } from 'playwright';
 import fs from 'node:fs';
 import { APP, LOGIN, PW, SERVER as S } from './zugang.mjs';
 
-const SERVER = 'http://localhost:8787';
+/* Fest verdrahtet stand hier localhost:8787 — damit lief dieser eine Lauf
+   immer gegen den Entwicklungsserver, egal was STELLIUM_SERVER sagt, während
+   alle anderen Prüfläufe der Umgebung folgen. */
+const SERVER = S;
 /* Hier stand der Kratzordner einer einzelnen Sitzung fest im Quelltext —
    ein Pfad unter /private/tmp/claude-501/…, den es auf keinem zweiten Rechner
    gibt und der nach einem Neustart auch auf diesem weg ist. Die Bilder gehen
@@ -236,7 +239,10 @@ await zu();
 
 /* ── Nichts kaputt ───────────────────────────────────────── */
 await pruefe('Chat funktioniert weiterhin', async () => {
-  await seite.locator('.sidebar__scroll .group').last().locator('.chan').first().click();
+  /* Nicht „erster Kanal der letzten Gruppe": auf einer frischen Datenbank
+     ist die letzte Gruppe leer (noch keine Direktnachrichten), und der Klick
+     wartete vergebens. Der letzte Kanal überhaupt erfüllt denselben Zweck. */
+  await seite.locator('.sidebar__scroll .chan').last().click();
   await seite.waitForTimeout(600);
   await seite.locator('.composer__input').fill('Test nach dem Umbau');
   await seite.keyboard.press('Enter');

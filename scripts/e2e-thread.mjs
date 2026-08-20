@@ -12,8 +12,18 @@ const muss = (b, m) => { if (!b) throw new Error(m); };
 
 const b = await chromium.launch({ headless: true });
 
-for (const breite of [1440, 1100, 1000, 940, 900, 860, 700, 390]) {
-  const p = await (await b.newContext({ viewport: { width: breite, height: 760 }, locale: 'de-DE' })).newPage();
+/* Neben den Schreibtischbreiten: Tablet-Breiten (1280/1024 quer, 820/768
+   hoch) und flache Touch-Fenster (Handy quer, mit dem Pro Max auch >880 px
+   breit — der Eintrag prüft die Schubladen-Weiche für flache Fenster). */
+for (const [breite, hoehe = 760, beruehrung = false] of [
+  [1440], [1280], [1100], [1024], [1000], [940], [900], [860], [820], [768], [700], [390],
+  [932, 430, true], [844, 390, true], [667, 375, true],
+]) {
+  const p = await (await b.newContext({
+    viewport: { width: breite, height: hoehe },
+    hasTouch: beruehrung,
+    locale: 'de-DE',
+  })).newPage();
   await p.goto(APP);
   await p.evaluate((s) => { localStorage.setItem('stellium.serverUrl', s); localStorage.setItem('stellium.tourGesehen', 'ja'); }, S);
   await p.reload(); await p.waitForTimeout(1200);
@@ -58,7 +68,10 @@ for (const breite of [1440, 1100, 1000, 940, 900, 860, 700, 390]) {
      gemessen zu haben: bei drei der vier Breiten war sie ein bestandener Lauf
      ohne Inhalt. Auch `!m.haupt` — gar kein Verlauf zu sehen — zählte dort als
      bestanden, und das ist kein gewollter Fall, sondern ein kaputter. */
-  if (breite > 880) {
+  /* Flache Touch-Fenster (Handy quer) fahren die Schublade auch oberhalb
+     von 880 px — dort überlagert der Thread den Verlauf genauso bewusst. */
+  const ueberlagert = breite <= 880 || (hoehe <= 500 && beruehrung);
+  if (!ueberlagert) {
     pruefe(`${breite} px: Verlauf und Thread überlappen nicht`, () => {
       muss(m.haupt, 'kein Verlauf sichtbar');
       muss(m.haupt.r <= m.t.x + 2, `Verlauf endet bei ${Math.round(m.haupt.r)}, Thread beginnt bei ${Math.round(m.t.x)}`);

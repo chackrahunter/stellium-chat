@@ -13,13 +13,24 @@ const pruefe = async (n, f) => {
   try { const x = await f(); ergebnisse.push(1); console.log(`  ✓ ${n}${x ? ` — ${x}` : ''}`); }
   catch (e) { ergebnisse.push(0); console.log(`  ✗ ${n} — ${e.message.split('\n')[0]}`); }
 };
+const muss = (b, m) => { if (!b) throw new Error(m); };
 
 const b = await chromium.launch({ headless: true });
 
-/** Bei mehreren Fenstergrößen prüfen — auf einem kleinen fällt mehr auf. */
-for (const [breite, hoehe] of [[1440, 900], [1180, 720], [900, 620]]) {
-  console.log(`\n${breite}×${hoehe}`);
-  const p = await (await b.newContext({ viewport: { width: breite, height: hoehe }, locale: 'de-DE' })).newPage();
+/** Bei mehreren Fenstergrößen prüfen — auf einem kleinen fällt mehr auf.
+    Die Einträge mit drittem Wert sind Tablets: gleiche Messungen, aber mit
+    Fingereingabe (pointer: coarse), hoch wie quer — diese Zone lag vorher
+    komplett außerhalb jedes Prüflaufs. */
+for (const [breite, hoehe, beruehrung] of [
+  [1440, 900], [1180, 720], [900, 620],
+  [1280, 800, true], [1024, 768, true], [820, 1180, true], [768, 1024, true],
+]) {
+  console.log(`\n${breite}×${hoehe}${beruehrung ? ' (Touch)' : ''}`);
+  const p = await (await b.newContext({
+    viewport: { width: breite, height: hoehe },
+    hasTouch: Boolean(beruehrung),
+    locale: 'de-DE',
+  })).newPage();
   await p.goto(APP);
   await p.evaluate((s) => { localStorage.setItem('stellium.serverUrl', s); localStorage.setItem('stellium.tourGesehen', 'ja'); }, S);
   await p.reload(); await p.waitForTimeout(1000);
@@ -74,6 +85,16 @@ for (const [breite, hoehe] of [[1440, 900], [1180, 720], [900, 620]]) {
       if (!(await p.locator('.scrim, .kontextmenue').count())) break;
       await p.keyboard.press('Escape');
       await p.waitForTimeout(260);
+    }
+    /* Die Kanal-Schublade hört nicht auf Escape, und ihr Schleier heißt
+       schublade-schleier, nicht scrim — er blieb nach dem Kontextmenü-Test
+       liegen und fing alle weiteren Klicks ab (gemessen bei 820×1180).
+       Er schließt per Klick; rechts außen trifft der Klick sicher den
+       Schleier, nicht die Schublade (links). Scrims sind hier immer schon
+       weg — die Escape-Schleife oben läuft, bis keiner mehr da ist. */
+    if (await p.locator('.app--schublade .schublade-schleier').count()) {
+      await p.mouse.click(breite - 24, Math.floor(hoehe / 2));
+      await p.waitForTimeout(300);
     }
   };
 
@@ -165,7 +186,17 @@ for (const [breite, hoehe] of [[1440, 900], [1180, 720], [900, 620]]) {
   });
   await zu();
 
+  /* Unter 880 px (auch Tablet hochkant) steckt die Kanalliste in der
+     Schublade — für Prüfungen, die einen Kanal anfassen, erst öffnen. */
+  const kanalListeOeffnen = async () => {
+    if (!(await p.locator('.chan').first().isVisible())) {
+      await p.locator('.header__menue').click();
+      await p.waitForTimeout(400);
+    }
+  };
+
   await pruefe('Emoji-Auswahl', async () => {
+    await kanalListeOeffnen();
     await p.locator('.chan').filter({ hasText: 'allgemein' }).first().click();
     await p.waitForTimeout(700);
     await p.locator('.composer__bar button').nth(1).click();
@@ -182,6 +213,7 @@ for (const [breite, hoehe] of [[1440, 900], [1180, 720], [900, 620]]) {
   await zu();
 
   await pruefe('Kontextmenü am Kanal', async () => {
+    await kanalListeOeffnen();
     await p.locator('.chan').filter({ hasText: 'allgemein' }).first().click({ button: 'right' });
     await p.waitForSelector('.kontextmenue', { timeout: 6000 });
     await p.waitForTimeout(400);

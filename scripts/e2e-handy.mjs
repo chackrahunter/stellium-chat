@@ -12,7 +12,9 @@ const muss = (b, m) => { if (!b) throw new Error(m); };
 
 const b = await chromium.launch({ headless: true });
 
-for (const name of ['iPhone 13', 'iPhone SE', 'Pixel 5']) {
+/* Auch quer: dort liegen Kamera und Home-Leiste an anderen Kanten, und die
+   Höhe ist knapper als jede geprüfte Breite schmal. */
+for (const name of ['iPhone 13', 'iPhone SE', 'Pixel 5', 'iPhone 13 landscape', 'iPhone SE landscape']) {
   const geraet = devices[name];
   console.log(`\n${name} (${geraet.viewport.width}×${geraet.viewport.height})`);
   const ctx = await b.newContext({ ...geraet, locale: 'de-DE' });
@@ -65,6 +67,32 @@ for (const name of ['iPhone 13', 'iPhone SE', 'Pixel 5']) {
     return `Schrift ${groesse} px`;
   });
 
+  await pruefe('Sicherheitsabstände wirken (Insel, Home-Leiste, Kamera)', async () => {
+    /* Headless gibt es kein env() — die Werte kommen über dieselben Variablen,
+       die sichere-bereiche.ts in der echten App setzt. */
+    const vorher = await p.locator('.header').boundingBox();
+    await p.evaluate(() => {
+      const s = document.documentElement.style;
+      s.setProperty('--sicher-oben', '59px');
+      s.setProperty('--sicher-unten', '34px');
+      s.setProperty('--sicher-links', '47px');
+    });
+    const kopf = await p.locator('.header').boundingBox();
+    const wuchs = Math.round(kopf.height - vorher.height);
+    muss(wuchs >= 55, `Kopfzeile wächst nur um ${wuchs} px statt 59`);
+    const polster = await p.locator('.composer-wrap')
+      .evaluate((el) => parseFloat(getComputedStyle(el).paddingBottom));
+    muss(polster >= 40, `Composer-Abstand zur Home-Leiste nur ${polster} px`);
+    const rand = await p.locator('.rahmen')
+      .evaluate((el) => parseFloat(getComputedStyle(el).paddingLeft));
+    muss(rand >= 46, `seitlicher Abstand nur ${rand} px`);
+    await p.evaluate(() => {
+      const s = document.documentElement.style;
+      for (const n of ['--sicher-oben', '--sicher-unten', '--sicher-links']) s.removeProperty(n);
+    });
+    return `Kopfzeile +${wuchs} px, Composer ${polster} px, seitlich ${rand} px`;
+  });
+
   await pruefe('Schreiben geht', async () => {
     const text = `Vom Telefon ${Date.now().toString(36).slice(-4)}`;
     await p.locator('.composer__input').fill(text);
@@ -77,6 +105,12 @@ for (const name of ['iPhone 13', 'iPhone SE', 'Pixel 5']) {
   });
 
   await pruefe('Fenster füllen den Bildschirm ohne herauszuragen', async () => {
+    /* Auf Telefonen steckt die Symbolleiste in der geschlossenen Schublade —
+       erst über den Griff öffnen, sonst ist der Knopf nicht anklickbar. */
+    if (!(await p.locator('.rail [data-tour="tasks"]').isVisible())) {
+      await p.locator('.header__menue').click();
+      await p.waitForTimeout(400);
+    }
     await p.locator('.rail [data-tour="tasks"]').click();
     await p.waitForSelector('.panel', { timeout: 8000 });
     await p.waitForTimeout(700);

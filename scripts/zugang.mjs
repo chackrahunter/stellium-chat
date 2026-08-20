@@ -29,7 +29,12 @@ const datei = ausDatei();
 
 export const LOGIN = process.env.STELLIUM_TEST_LOGIN || datei?.login || '';
 export const PW = process.env.STELLIUM_TEST_PASSWORT || datei?.passwort || '';
-export const SERVER = (process.env.STELLIUM_SERVER || 'http://localhost:8787').replace(/\/+$/, '');
+/* Bewusst NICHT STELLIUM_SERVER: das ist in diesem Repo die dokumentierte
+   PRODUKTIONS-Adresse (veroeffentlichen.mjs, AUSLIEFERN.md) und steht in der
+   Shell oft dauerhaft exportiert. Die Prüfläufe legen Nachrichten, Aufgaben
+   und Ideen an — ein vergessener Export hätte sie in den Firmen-Chat
+   geschrieben. Prüfläufe haben deshalb ihre eigene Variable. */
+export const SERVER = (process.env.STELLIUM_TEST_SERVER || 'http://localhost:8787').replace(/\/+$/, '');
 export const APP = process.env.STELLIUM_APP || 'http://localhost:5173';
 
 if (!LOGIN || !PW) {
