@@ -239,6 +239,14 @@ export type ServerEvent =
   | { t: 'projekt:deleted'; projektId: string }
   /** Die Einstellung „KI trägt selbst ein" wurde umgelegt. */
   | { t: 'ai:einstellung'; selbstEintragen: boolean }
+  /**
+   * Was die letzte Antwort gekostet hat — Marken hinein, Marken heraus.
+   *
+   * Geht an denselben Kreis wie „denkt nach": wer der KI zusieht, soll auch
+   * sehen, woran sie kaut. Bei einem Modell auf eigener Maschine ist das die
+   * einzige Auskunft darüber, warum es dauert.
+   */
+  | { t: 'ai:verbrauch'; channelId: string; eingabe: number; ausgabe: number; modell: string | null }
   | { t: 'task:upsert'; task: Task }
   | { t: 'task:removed'; taskId: string }
   | { t: 'task:history'; taskId: string; events: TaskEvent[] }

@@ -3428,3 +3428,14 @@ button.msg__author:hover { color: var(--violet-soft); text-decoration: underline
   .pruefen__zeile { flex-wrap: wrap; }
   .pruefen__knoepfe { width: 100%; justify-content: flex-end; }
 }
+
+/* Die Markenzahl neben „denkt nach" — eine Auskunft, kein Aushang:
+   dieselbe Zeile, kleiner und blasser, damit sie beim Lesen nicht stört. */
+.typing__marken {
+  margin-inline-start: 8px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--tx-lo);
+  opacity: 0.85;
+}
+.typing--ki .typing__marken { color: var(--violet-soft); }

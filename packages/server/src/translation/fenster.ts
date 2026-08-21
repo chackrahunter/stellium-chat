@@ -53,25 +53,12 @@ const ABSTAND_FEST = 512;
 /** Und noch ein Anteil des Fensters — bei großen Fenstern ist der Aufschlag größer. */
 const ABSTAND_ANTEIL = 0.08;
 
-/** Nur lateinische Buchstaben, Ziffern, Leerraum und übliche Satzzeichen. */
-const SPARSAM = /[\p{Script=Latin}\p{Nd}\s.,;:!?'"()\[\]{}\-–—/\\@#*_=+<>|~^$%&`]/u;
+/* Die Schätzung selbst liegt in @stellium/shared: die Oberfläche zeigt beim
+   Tippen live an, was die Frage kosten wird, und muss dabei auf dieselbe Zahl
+   kommen wie die Rechnung hier. Zwei Kopien wären zwei Wahrheiten. */
+import { markenSchaetzung } from '@stellium/shared';
 
-/**
- * Wie viele Marken dieser Text ungefähr kostet — nach oben geschätzt.
- *
- * Bewusst zeichenweise und nicht über eine Division durch die Gesamtlänge:
- * ein Verlauf, in dem ein deutscher und ein chinesischer Absatz nebeneinander
- * stehen, wird sonst nach dem Durchschnitt bewertet und damit für den
- * chinesischen Teil zu niedrig.
- */
-export function markenSchaetzung(text: string): number {
-  let sparsam = 0;
-  let teuer = 0;
-  for (const zeichen of text) {
-    if (SPARSAM.test(zeichen)) sparsam += 1; else teuer += 1;
-  }
-  return Math.ceil(sparsam / 3) + teuer;
-}
+export { markenSchaetzung };
 
 /**
  * Wie viel Platz für den Verlauf bleibt.

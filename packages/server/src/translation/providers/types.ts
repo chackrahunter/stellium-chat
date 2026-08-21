@@ -48,6 +48,23 @@ export interface ChatOptions {
 }
 
 /** Provider, die mehr können als übersetzen (Groq, OpenAI-kompatible). */
+/**
+ * Was eine Anfrage gekostet hat.
+ *
+ * Der Anbieter schickt das in jeder Antwort mit; bisher fiel es weg. Sichtbar
+ * gemacht ist es der Unterschied zwischen „die KI denkt nach" und „sie liest
+ * gerade 12.000 Marken" — und bei einem Modell auf eigener Maschine die
+ * einzige Auskunft darüber, warum es dauert.
+ */
+export interface Verbrauch {
+  /** Marken der Anfrage (Anweisung, Verlauf, Frage). */
+  eingabe: number;
+  /** Marken der Antwort. */
+  ausgabe: number;
+  /** Welches Modell geantwortet hat. */
+  modell: string | null;
+}
+
 export interface AssistantProvider {
   chat(messages: ChatMessage[], opts?: ChatOptions): Promise<string>;
   json<T>(messages: ChatMessage[], opts?: ChatOptions): Promise<T>;
@@ -65,6 +82,14 @@ export interface AssistantProvider {
    * auch mal mit 4096. Das tatsächliche Maß wird deshalb gelernt und unter
    * dieser Kennung gemerkt (translation/fenster.ts). */
   readonly kennung: string;
+  /**
+   * Der Verbrauch der zuletzt beantworteten Anfrage — oder null.
+   *
+   * Bewusst eine Auskunft und kein Rückgabewert: sonst müsste jede der
+   * fünfzehn Aufrufstellen ein zweites Feld durchreichen, nur damit eine
+   * Anzeige eine Zahl bekommt.
+   */
+  letzterVerbrauch(): Verbrauch | null;
 }
 
 /**

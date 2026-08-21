@@ -6,6 +6,7 @@ import {
   type AssistantProvider, type ChatMessage, type ChatOptions,
   klingtNachZuLang,
   ProviderError, type TranslateRequest, type TranslateResult, type TranslationProvider,
+  type Verbrauch,
 } from './types.js';
 
 interface Endpoint {
@@ -130,6 +131,13 @@ export class OpenAICompatibleProvider implements TranslationProvider, AssistantP
     return this.registry.kontextfenster(opts.fast ? this.fastModel : this.registry.current.quality);
   }
 
+  /* Der Verbrauch der letzten Anfrage. Steht am Anbieter und nicht im
+     Rückgabewert: sonst müsste jede Aufrufstelle ein zweites Feld
+     durchreichen, nur damit eine Anzeige eine Zahl bekommt. */
+  #verbrauch: Verbrauch | null = null;
+
+  letzterVerbrauch(): Verbrauch | null { return this.#verbrauch; }
+
   async chat(messages: ChatMessage[], opts: ChatOptions = {}): Promise<string> {
     const modelId = opts.fast ? this.fastModel : this.registry.current.quality;
     const data = await this.request({
@@ -139,6 +147,18 @@ export class OpenAICompatibleProvider implements TranslationProvider, AssistantP
       ...reasoningOptions(modelId, opts.reasoning ?? 'low'),
       ...(opts.json ? { response_format: { type: 'json_object' } } : {}),
     }, modelId);
+
+    /* Kommt aus der Antwort des Anbieters. Fehlt sie (llama.cpp lässt sie
+       gelegentlich weg), bleibt der letzte Stand stehen statt einer 0 —
+       eine 0 wäre eine Behauptung, kein fehlender Wert. */
+    const nutzung = data?.usage;
+    if (nutzung) {
+      this.#verbrauch = {
+        eingabe: Number(nutzung.prompt_tokens ?? 0),
+        ausgabe: Number(nutzung.completion_tokens ?? 0),
+        modell: modelId ?? null,
+      };
+    }
 
     const content = data?.choices?.[0]?.message?.content;
     if (typeof content !== 'string') throw new ProviderError(`${this.ep.name}: leere Antwort`);

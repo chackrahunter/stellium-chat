@@ -9,7 +9,7 @@ import { verifyToken } from '../auth.js';
 import { db } from '../db/index.js';
 import { config } from '../config.js';
 import { newId } from '../util/id.js';
-import { aiCapabilities, roundTrip, translate, translateMessage, translatePoll, translateChannel } from '../translation/index.js';
+import { aiCapabilities, assistant, roundTrip, translate, translateMessage, translatePoll, translateChannel } from '../translation/index.js';
 import * as ai from '../services/ai.js';
 import * as channels from '../services/channels.js';
 import * as messages from '../services/messages.js';
@@ -2570,6 +2570,18 @@ function vielleichtAntworten(channelId: string, text: string, authorId: string):
         mayMention: false, mayMentionEveryone: false,
       });
       deliverMessage(msg);
+      /* Was die Antwort gekostet hat. Nach dem Zustellen: die Nachricht ist
+         das Wichtige, die Zahl daneben das Beiwerk. */
+      const verbrauch = assistant()?.letzterVerbrauch();
+      if (verbrauch) {
+        broadcast({
+          t: 'ai:verbrauch',
+          channelId,
+          eingabe: verbrauch.eingabe,
+          ausgabe: verbrauch.ausgabe,
+          modell: verbrauch.modell,
+        }, empfaenger);
+      }
     })
     .catch((err) => {
       console.warn('[ki]', (err as Error).message);

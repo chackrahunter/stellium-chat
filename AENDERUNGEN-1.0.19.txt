@@ -1,0 +1,2 @@
+Ist die KI gar nicht erreichbar, sagt die Meldung das — statt einen Fehler zu vermuten, den es nicht gibt.
+Die KI lernt, wie viel Text ihr Modell wirklich annimmt, statt jede Anfrage am gleichen zu großen Fenster scheitern zu lassen.

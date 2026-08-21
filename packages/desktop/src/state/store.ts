@@ -163,6 +163,8 @@ interface StoreState {
   highlightMessageId: string | null;
   /** Kanäle, in denen der Assistent gerade eine Antwort formuliert. */
   aiThinking: Record<string, boolean>;
+  /** Was die letzte KI-Antwort je Kanal gekostet hat — Marken hinein/heraus. */
+  aiVerbrauch: Record<string, { eingabe: number; ausgabe: number; modell: string | null }>;
 
   /* Aktionen */
   boot: () => Promise<void>;
@@ -655,6 +657,7 @@ export const useStore = create<StoreState>((set, get) => ({
   profileUserId: null,
   highlightMessageId: null,
   aiThinking: {},
+  aiVerbrauch: {},
 
   /* ── Start ──────────────────────────────────────────────── */
 
@@ -1837,6 +1840,15 @@ socket.onEvent((ev: ServerEvent) => {
 
     case 'ai:thinking':
       useStore.setState((s) => ({ aiThinking: { ...s.aiThinking, [ev.channelId]: ev.active } }));
+      return;
+
+    case 'ai:verbrauch':
+      useStore.setState((s) => ({
+        aiVerbrauch: {
+          ...s.aiVerbrauch,
+          [ev.channelId]: { eingabe: ev.eingabe, ausgabe: ev.ausgabe, modell: ev.modell },
+        },
+      }));
       break;
 
     /* ── Vertrauliche Kanäle ────────────────────────────────
