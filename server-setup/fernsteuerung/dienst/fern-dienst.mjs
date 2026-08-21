@@ -15,6 +15,23 @@
  *    Rückstau von zwei Sekunden macht die Fernsteuerung unbenutzbar. Nur
  *    Schlüsselbilder werden nie verworfen — ohne sie bleibt das Bild stehen.
  *
+ *    Diese Regel stand hier von Anfang an, griff aber jahrelang ins Leere.
+ *    Gemessen wurde `ws.bufferedAmount`, und der zählt nur, was INNERHALB von
+ *    Node wartet. Der Stau lag woanders: im Sendepuffer des Kerns, den TCP bei
+ *    langer Laufzeit selbsttätig auf mehrere hundert KB vergrößert. Node gab
+ *    die Bilder ab, der Kern nahm sie an, der Zähler blieb bei null — und die
+ *    Schwelle löste nie aus. Auf dem Gerät gemessen (21.08.2026): 350–642 KB
+ *    dauerhaft im Kern, dazu `verworfen 0` in der Anzeige. Das waren gut
+ *    anderthalb Sekunden Bild, die dem Betrachter davonliefen.
+ *    Deshalb wird der Rückstau jetzt dort gelesen, wo er wirklich liegt —
+ *    siehe `sendestau()`.
+ *
+ * 4. **Die Bitrate folgt der Leitung.** Fest eingestellt waren 6000 kbit/s;
+ *    die Leitung trug gemessen 1,6–2,5. Wer mehr erzeugt, als durchpasst,
+ *    baut genau den Rückstau auf, den Punkt 2 verhindern soll — Verwerfen
+ *    repariert dann nur noch die Folgen. `rateNachziehen()` regelt deshalb
+ *    an der Ursache.
+ *
  * 3. **Immer nur einer.** Ein zweiter Zuschauer würde denselben Abgriff
  *    doppelt kosten, und ein Schreibtisch, an dem zwei gleichzeitig die Maus
  *    bewegen, ist unbrauchbar.
@@ -35,10 +52,17 @@ const H_BILD = 1, H_ABLAGE = 2, H_MELDUNG = 3;
 /* Nachrichtenarten auf der Leitung. */
 const N_BILD = 1, N_ABLAGE = 2, N_INFO = 3, N_EINGABE = 4, N_STEUER = 5;
 
-/* Mehr als das im Ausgang heißt: die Leitung kommt nicht nach. Ein Bild in
-   1280x720 ist grob 20–60 KB; 256 KB sind also etwa vier bis zehn Bilder
-   Rückstand — ab da lieber verwerfen. */
-const STAU_GRENZE = 256 * 1024;
+/* Mehr als das unterwegs heißt: die Leitung kommt nicht nach. Ein Bild in
+   960x540 ist grob 10–40 KB; 96 KB sind also etwa drei bis neun Bilder
+   Rückstand — ab da lieber verwerfen.
+   Deutlich kleiner als die früheren 256 KB, und das mit Absicht: bei den
+   gemessenen 2 Mbit/s sind 256 KB gut eine Sekunde Verzögerung. Genau die
+   soll gar nicht erst entstehen. */
+const STAU_GRENZE = 96 * 1024;
+
+/* Wie oft der Rückstau aus /proc gelesen wird. Bei 45 Bildern/s wäre einmal
+   je Bild verschwendet — die Zahl ändert sich nicht so schnell. */
+const STAU_TAKT_MS = 200;
 
 const kennung = kennungLaden(ORDNER);
 
@@ -87,11 +111,21 @@ function versuchGelungen(adresse) { fehlversuche.delete(adresse); }
 /* ── Der Abgreifer ───────────────────────────────────────────── */
 
 function hostStarten(sitzung, einstellungen) {
+  /* 960x540 bei 45 Bildern statt 1280x720 bei 30 — beides nachgemessen.
+     Die halbe Fläche kostet beim Lesen 22,7 statt 24,1 ms und beim Wandeln
+     und Kodieren rund die Hälfte; erst dadurch sind 45 überhaupt erreichbar.
+     Und sie passen in die Bitrate: 1280x720 in Bewegung braucht mehr, als
+     diese Leitung trägt.
+     Die Rate ist nur die OBERGRENZE — `rateNachziehen` regelt darunter. */
+  const rateMax = einstellungen.rate ?? 2500;
   const args = [
-    '--bilder', String(einstellungen.bilder ?? 30),
-    '--rate',   String(einstellungen.rate ?? 6000),
-    '--ausgabe', `${einstellungen.breite ?? 1280}x${einstellungen.hoehe ?? 720}`,
+    '--bilder', String(einstellungen.bilder ?? 45),
+    '--rate',   String(rateMax),
+    '--ausgabe', `${einstellungen.breite ?? 960}x${einstellungen.hoehe ?? 540}`,
+    '--auftraege', String(einstellungen.auftraege ?? 2),
   ];
+  sitzung.rateMax = rateMax;
+  sitzung.rateJetzt = rateMax;
   const kind = spawn(HOST_BIN, args, {
     stdio: ['pipe', 'pipe', 'pipe'],
     env: {
@@ -148,12 +182,93 @@ function istSchluesselbild(buf) {
   return false;
 }
 
+/*
+ * Der echte Rückstau: was der Kern noch nicht losgeworden ist.
+ *
+ * `ws.bufferedAmount` taugt dafür nicht (siehe Kopf, Punkt 2). Was zählt,
+ * steht in /proc/net/tcp: Feld 4 ist `tx_queue:rx_queue`, und tx_queue sind
+ * genau die Bytes, die geschrieben, aber noch nicht bestätigt sind.
+ *
+ * Gefunden wird die Zeile über den Port der Gegenstelle — der ist je
+ * Verbindung eindeutig, anders als die Adresse. IPv6 zuerst, weil eine
+ * IPv4-Verbindung auf einem Lauscher ohne Bindung als ::ffff:… dort steht.
+ *
+ * Nur Linux. Das ist kein Mangel: dieser Dienst läuft auf dem Pi und nirgends
+ * sonst. Fehlt die Datei, liefert die Funktion 0 und es gilt wieder allein
+ * der Node-Zähler — schlechter als vorher wird es dadurch nie.
+ */
+function sendestau(sitzung) {
+  const jetzt = Date.now();
+  if (jetzt - (sitzung.stauGelesen ?? 0) < STAU_TAKT_MS) return sitzung.stau ?? 0;
+  sitzung.stauGelesen = jetzt;
+
+  const port = sitzung.ws?._socket?.remotePort;
+  if (!port) { sitzung.stau = 0; return 0; }
+  const hex = port.toString(16).toUpperCase().padStart(4, '0');
+
+  for (const datei of ['/proc/net/tcp6', '/proc/net/tcp']) {
+    let text;
+    try { text = fs.readFileSync(datei, 'utf8'); } catch { continue; }
+    for (const zeile of text.split('\n')) {
+      const f = zeile.trim().split(/\s+/);
+      if (f.length < 5 || !f[2] || !f[4]) continue;
+      if (!f[2].endsWith(':' + hex)) continue;
+      const tx = parseInt(f[4].split(':')[0], 16);
+      if (Number.isFinite(tx)) { sitzung.stau = tx; return tx; }
+    }
+  }
+  sitzung.stau = 0;
+  return 0;
+}
+
+/*
+ * Die Bitrate an das anpassen, was wirklich durchgeht.
+ *
+ * Bewusst unsymmetrisch — schnell runter, langsam hoch. Ein zu hoher Wert
+ * kostet sofort Verzögerung und ist eine Sekunde später noch zu spüren; ein
+ * zu niedriger kostet nur etwas Schärfe. Wer beim Runterregeln zögert,
+ * bezahlt das mit genau dem Ruckeln, das hier abgestellt werden soll.
+ *
+ * Der Rückstau ist dabei das bessere Maß als die reine Durchsatzmessung: er
+ * sagt nicht nur, wie viel ankommt, sondern ob der Betrachter hinterherhängt.
+ */
+function rateNachziehen(sitzung) {
+  const jetzt = Date.now();
+  if (jetzt - (sitzung.rateGeprueft ?? 0) < 2000) return;
+  sitzung.rateGeprueft = jetzt;
+  if (!sitzung.kind || !sitzung.rateMax) return;
+
+  const stau = sendestau(sitzung) + (sitzung.ws?.bufferedAmount ?? 0);
+  const jetzige = sitzung.rateJetzt ?? sitzung.rateMax;
+  let neu = jetzige;
+
+  if (stau > STAU_GRENZE) {
+    neu = Math.round(jetzige * 0.75);          /* Rückstau: deutlich runter */
+  } else if (stau < STAU_GRENZE / 4) {
+    neu = Math.round(jetzige * 1.08);          /* Luft: vorsichtig hoch */
+  }
+  neu = Math.max(400, Math.min(sitzung.rateMax, neu));
+  if (neu === jetzige) return;
+
+  sitzung.rateJetzt = neu;
+  /* Wie überall sonst hier erst auf `writable` prüfen: nach einem
+     Neustart des Abgreifers zeigt `kind` kurz auf einen Kanal, der schon zu
+     ist, und ein Wurf im Bildpfad kostet dort ein Bild. */
+  if (!sitzung.kind.stdin?.writable) return;
+  try { sitzung.kind.stdin.write(`b${neu}\n`); } catch { /* Host ist weg */ }
+}
+
 function hostRahmen(sitzung, art, inhalt) {
   const ws = sitzung.ws;
   if (!ws || ws.readyState !== ws.OPEN) return;
 
   if (art === H_BILD) {
-    if (ws.bufferedAmount > STAU_GRENZE && !istSchluesselbild(inhalt)) {
+    rateNachziehen(sitzung);
+    /* Beide Zähler zusammen: was in Node wartet UND was der Kern noch nicht
+       losgeworden ist. Der zweite ist auf einer langsamen Leitung der weitaus
+       größere — genau ihn hat die Regel früher übersehen. */
+    const unterwegs = sendestau(sitzung) + ws.bufferedAmount;
+    if (unterwegs > STAU_GRENZE && !istSchluesselbild(inhalt)) {
       sitzung.verworfen += 1;
       return;                       /* siehe Kopf: verwerfen statt stauen */
     }
@@ -166,7 +281,8 @@ function hostRahmen(sitzung, art, inhalt) {
     senden(sitzung, N_INFO, Buffer.from(JSON.stringify({
       takt: sitzung.letzteMeldung,
       verworfen: sitzung.verworfen,
-      stau: ws.bufferedAmount,
+      stau: sendestau(sitzung) + ws.bufferedAmount,
+      rate: sitzung.rateJetzt ?? sitzung.rateMax ?? 0,
     })));
     sitzung.verworfen = 0;
   }

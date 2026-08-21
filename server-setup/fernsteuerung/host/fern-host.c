@@ -207,12 +207,21 @@ static enum AVPixelFormat nach_ffmpeg(uint32_t f) {
 /* ── Kodierer (eigener Faden) ────────────────────────────────── */
 
 static bool kodierer_starten(int breite, int hoehe) {
-  /* Gesendet wird in der Zielgröße, nicht in der des Schirms. Der Abgriff
-     kostet immer die vollen 32 ms — die kann niemand einsparen, das ist die
-     Geschwindigkeit, mit der sich Grafikspeicher lesen lässt. Das Kodieren
-     dagegen wächst mit der Fläche, und in 1280x720 ist es nur noch ein
-     knappes Drittel. Verkleinert wird beim Farbwandeln, also im selben
-     Durchgang und damit gratis. */
+  /* Gesendet wird in der Zielgröße, nicht in der des Schirms. Verkleinert
+     wird beim Farbwandeln, also im selben Durchgang und damit gratis.
+
+     Hier stand, der Abgriff koste immer die vollen 32 ms und daran sei nichts
+     zu ändern. Das stimmt nicht: er wächst mit der Fläche. Am 21.08.2026
+     nachgemessen, reines Lesen ohne Farbe und Kodierung:
+         1920x917 (1,76 MP)  →  58,9 ms
+         1280x720 (0,92 MP)  →  24,1 ms
+          960x540 (0,52 MP)  →  22,7 ms
+     Unter etwa einem Megapixel bleibt ein fester Rest von rund 22 ms stehen —
+     das ist Wartezeit auf den Compositor, keine Speicherbandbreite, und genau
+     die lässt sich mit zwei gleichzeitigen Anforderungen überlappen.
+     Praktisch heißt das: wer den Schirm selbst kleiner macht, spart doppelt —
+     beim Lesen und beim Wandeln. Bei einem headless-Ausgang kostet das nichts
+     als eine Zeile in wlr-randr. */
   x264_param_t p;
   /* ultrafast + zerolatency: keine B-Bilder, keine Vorausschau, kein Puffern.
      Jedes eingegebene Bild kommt sofort wieder heraus. Bei Fernsteuerung ist
@@ -418,6 +427,34 @@ static size_t base64_lesen(const char *ein, char *aus, size_t platz) {
 
 /* Ein Befehl je Zeile. Bewusst Text: so lässt sich der Strom mitlesen und
    von Hand nachstellen, wenn etwas nicht ankommt. */
+/*
+ * Die Bitrate im laufenden Betrieb nachziehen.
+ *
+ * Der Grund dafuer steht nicht im Kodierer, sondern in der Leitung: die
+ * Bandbreite zum Zuschauer ist keine feste Groesse. Auf dem Geraet gemessen
+ * schwankte sie zwischen 1,56 und 2,48 Mbit/s, waehrend fest 6000 eingestellt
+ * waren. Was zuviel erzeugt wird, verschwindet nicht — es sammelt sich im
+ * Sendepuffer des Kerns und laeuft dem Betrachter als Verzoegerung davon.
+ *
+ * `x264_encoder_reconfig` aendert die Rate, ohne den Kodierer neu
+ * aufzusetzen. Das ist der springende Punkt: ein Neustart wuerde ein
+ * Schluesselbild und eine sichtbare Unterbrechung kosten, und bei einer
+ * Anpassung alle paar Sekunden waere das schlimmer als das Problem.
+ */
+static void rate_setzen(int kbit) {
+  if (!L.x264 || kbit == L.rate_kbit) return;
+  x264_param_t p;
+  x264_encoder_parameters(L.x264, &p);
+  p.rc.i_bitrate = kbit;
+  p.rc.i_vbv_max_bitrate = kbit;
+  /* Der VBV-Puffer bestimmt, wie weit der Kodierer ueber die Rate hinausgehen
+     darf, bevor er gegensteuert. Eine halbe Sekunde: kuerzer wuerde jede
+     Bildaenderung hart abwuergen, laenger baut genau den Rueckstau auf, den
+     die ganze Anpassung vermeiden soll. */
+  p.rc.i_vbv_buffer_size = kbit / 2;
+  if (x264_encoder_reconfig(L.x264, &p) == 0) L.rate_kbit = kbit;
+}
+
 static void befehl_ausfuehren(char *zeile) {
   if (!L.eingabe || !*zeile) return;
   char art = zeile[0];
@@ -463,6 +500,11 @@ static void befehl_ausfuehren(char *zeile) {
       }
       break;
     }
+    case 'b': {                              /* Bitrate im Betrieb aendern */
+      int kbit = atoi(rest);
+      if (kbit >= 200 && kbit <= 20000) rate_setzen(kbit);
+      break;
+    }
     default: break;
   }
 }
@@ -503,13 +545,20 @@ static void ablage_geaendert(const char *text, size_t laenge, void *nutzer) {
 
 int main(int argc, char **argv) {
   L.ziel_bilder = 30; L.rate_kbit = 6000; L.zeiger = true; L.nur_bei_aenderung = true;
-  /* Gemessen, nicht geschätzt (1280x720, Bilder/s):
+  /* Erste Messreihe (1280x720, Bilder/s), als Kodieren noch 20 ms kostete:
        Aufträge 1 · Fäden 1 → 12,6      Aufträge 2 · Fäden 1 → 13,4
        Aufträge 1 · Fäden 2 → 14,8      Aufträge 2 · Fäden 2 → 18,5
        Aufträge 1 · Fäden 3 → 20,3      Aufträge 2 · Fäden 3 → 17,9
-     Mehrere Anforderungen gleichzeitig bringen nichts: der Compositor
-     arbeitet sie ohnehin nacheinander ab und reiht sie nur ein. */
-  L.n_auftraege = 1; L.x_faeden = 3;
+     Daraus stand hier lange: "Mehrere Anforderungen bringen nichts." Das galt,
+     solange der Kodierer der Engpass war. Er ist es nicht mehr — mit drei
+     Fäden kostet er 3,6 ms statt 20. Am 21.08.2026 neu gemessen, reines Lesen
+     bei 1280x720:
+       Aufträge 1 → 43,2 B/s bei 22,8 ms      Aufträge 3 → 54,8 B/s bei 47,5 ms
+       Aufträge 2 → 51,1 B/s bei 36,5 ms
+     Zwei sind der Punkt, an dem es sich lohnt: gut ein Viertel mehr Durchsatz.
+     Drei bringen kaum noch etwas, kosten aber weitere elf Millisekunden
+     Verzögerung — und bei Fernsteuerung ist Verzögerung teurer als Durchsatz. */
+  L.n_auftraege = 2; L.x_faeden = 3;
   for (int i = 1; i < argc; i++) {
     if (!strcmp(argv[i], "--bilder") && i + 1 < argc)     L.ziel_bilder = atoi(argv[++i]);
     else if (!strcmp(argv[i], "--rate") && i + 1 < argc)  L.rate_kbit   = atoi(argv[++i]);

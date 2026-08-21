@@ -64,7 +64,42 @@ const paket = JSON.parse(fs.readFileSync(paketDatei, 'utf8'));
 const jetzige = paket.version;
 
 const gesetzt = args.find((a) => /^\d+\.\d+\.\d+$/.test(a));
+
+/* Die zuletzt WIRKLICH veröffentlichte Fassung — aus den Marken, nicht aus
+   package.json. Die Marke entsteht erst beim Veröffentlichen; die Datei kann
+   längst weitergezählt sein. */
+function letzteMarke() {
+  try {
+    lauf('git', ['fetch', '--tags', '--quiet']);
+  } catch { /* ohne Netz eben mit dem, was da ist */ }
+  try {
+    const alle = lauf('git', ['tag', '--list', 'v*.*.*']).trim().split('\n').filter(Boolean);
+    const zahlen = alle
+      .map((t) => t.replace(/^v/, '').split('.').map(Number))
+      .filter((z) => z.length === 3 && z.every(Number.isFinite))
+      .sort((a, b) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2]);
+    return zahlen.length ? zahlen[zahlen.length - 1].join('.') : null;
+  } catch { return null; }
+}
+
+function hoeher(a, b) {
+  const [x, y] = [a.split('.').map(Number), b.split('.').map(Number)];
+  for (let i = 0; i < 3; i++) if (x[i] !== y[i]) return x[i] > y[i];
+  return false;
+}
+
 const naechste = gesetzt ?? (() => {
+  const marke = letzteMarke();
+  /* Steht in package.json schon eine Fassung, die nie veröffentlicht wurde,
+     dann IST das die nächste — hochzählen würde eine Nummer überspringen.
+     Genau das drohte am 21.08.2026: die Datei stand auf 1.0.21, der Server
+     lief auf 1.0.20, und der Vorschlag lautete 1.0.22. Die Änderungsliste
+     hieß bereits AENDERUNGEN-1.0.21.txt — sie hätte nicht mehr gepasst. */
+  if (marke && hoeher(jetzige, marke)) {
+    sag(`  ${F.gelb}!${F.aus} ${jetzige} war vorbereitet, aber nie veröffentlicht `
+      + `${F.grau}(letzte Marke v${marke}) — sie wird jetzt ausgeliefert${F.aus}`);
+    return jetzige;
+  }
   const [gross, mittel, klein] = jetzige.split('.').map(Number);
   if (stufe === 'major') return `${gross + 1}.0.0`;
   if (stufe === 'minor') return `${gross}.${mittel + 1}.0`;
@@ -78,6 +113,22 @@ const freierText = args.find((a) => !a.startsWith('--') && a !== gesetzt);
 let notizen = notizenDatei
   ? fs.readFileSync(path.resolve(wurzel, notizenDatei), 'utf8').trim()
   : (freierText ?? '').trim();
+
+/* Trägt die Datei eine Fassung im Namen, muss sie die sein, die ausgeliefert
+   wird. Sonst geht eine Änderungsliste für 1.0.21 als 1.0.22 hinaus, und
+   niemand merkt es — der Text ist ja fehlerfrei, nur eben zur falschen
+   Fassung. Genau das drohte am 21.08.2026. */
+if (notizenDatei) {
+  const drin = notizenDatei.match(/(\d+\.\d+\.\d+)/);
+  if (drin && drin[1] !== naechste) {
+    sag(`  ${F.rot}✗${F.aus} ${notizenDatei} gehört zu ${drin[1]}, `
+      + `ausgeliefert würde aber ${F.fett}${naechste}${F.aus}.`);
+    sag(`    ${F.grau}Entweder die Datei umbenennen oder die Fassung `
+      + `ausdrücklich mitgeben:${F.aus}`);
+    sag(`    ${F.grau}node scripts/ausliefern.mjs ${drin[1]} --notizen=${notizenDatei}${F.aus}`);
+    process.exit(1);
+  }
+}
 
 /**
  * Ohne Angabe die Änderungsliste aus den Commits seit der letzten Fassung
@@ -284,9 +335,36 @@ if (!ohneGit && !probe) {
       koerper ? `\n${koerper}` : '',
       '\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>',
     ].join('\n');
-    lauf('git', ['commit', '-q', '-F', '-'], { input: nachricht });
+    /* Committen und Schieben getrennt, und das ist keine Förmlichkeit.
+       Vorher standen beide in einem try: `git commit` endet mit einem
+       Fehlercode, wenn nichts vorliegt — etwa weil schon von Hand committet
+       wurde —, und dann sprang der Ablauf in den catch, BEVOR geschoben
+       wurde. Ergebnis am 21.08.2026: die Marke v1.0.21 stand auf GitHub,
+       der Quelltext dazu lag noch lokal. Wer das später sucht, findet eine
+       Fassung ohne den Stand, aus dem sie gebaut wurde.
+       Geschoben wird deshalb IMMER — auch wenn es hier nichts zu committen
+       gab, können ältere Commits offen sein. */
+    let etwasCommittet = false;
+    try {
+      lauf('git', ['commit', '-q', '-F', '-'], { input: nachricht });
+      etwasCommittet = true;
+    } catch (err) {
+      const text = (err.stdout || err.stderr || err.message);
+      if (/nichts zu committen|nothing to commit/i.test(text)) {
+        sag(`  ${F.grau}nichts Neues zu committen${F.aus}`);
+      } else {
+        warn(`Commit übersprungen: ${text.slice(0, 200)}`);
+      }
+    }
     lauf('git', ['push', '-q', 'origin', 'HEAD']);
-    ok(`committet und geschoben (${betreff})`);
+    /* Nachsehen statt hoffen: bleibt hier etwas offen, ist die Fassung
+       draußen, aber niemand kann sie nachvollziehen. */
+    const offen = lauf('git', ['rev-list', '--count', '@{u}..HEAD']).trim();
+    if (offen !== '0') {
+      warn(`${offen} Commits stehen noch aus — 'git push' von Hand nachholen`);
+    } else {
+      ok(etwasCommittet ? `committet und geschoben (${betreff})` : 'geschoben, Stand ist vollständig');
+    }
   } catch (err) {
     warn(`Git übersprungen: ${(err.stdout || err.stderr || err.message).slice(0, 200)}`);
   }
