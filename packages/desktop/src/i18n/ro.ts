@@ -1075,6 +1075,7 @@ export const ro = {
   'fehler.dateiAndererKreis': 'Acest fișier a fost criptat pentru alt cerc.',
   'fehler.kiFehlgeschlagen': 'IA nu a putut face asta acum.',
   'fehler.kiNichtEingerichtet': 'IA nu este configurată pe acest server.',
+  'fehler.kiUnerreichbar': 'AI nu este disponibil momentan — rulează modelul?',
   'fehler.kiUeberlastet': 'IA este ocupată acum. Încearcă din nou în câteva momente.',
   'fehler.kiZeitueberschreitung': 'IA nu a răspuns la timp. Încearcă din nou.',
   'fehler.modellFensterZuKlein': 'Modelul selectat acceptă prea puțin text pentru această funcție.',

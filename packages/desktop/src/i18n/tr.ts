@@ -1075,6 +1075,7 @@ export const tr = {
   'fehler.dateiAndererKreis': 'Bu dosya başka bir çevre için şifrelendi.',
   'fehler.kiFehlgeschlagen': 'Yapay zekâ bunu şu anda yapamadı.',
   'fehler.kiNichtEingerichtet': 'Yapay zekâ bu sunucuda kurulu değil.',
+  'fehler.kiUnerreichbar': 'Yapay zeka şu anda ulaşılamıyor — model çalışıyor mu?',
   'fehler.kiUeberlastet': 'Yapay zekâ şu anda meşgul. Birazdan tekrar dene.',
   'fehler.kiZeitueberschreitung': 'Yapay zekâ zamanında yanıt vermedi. Lütfen tekrar dene.',
   'fehler.modellFensterZuKlein': 'Seçili model bu işlev için çok az metin kabul ediyor.',

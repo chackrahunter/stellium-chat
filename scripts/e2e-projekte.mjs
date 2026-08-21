@@ -96,6 +96,13 @@ await pruefe('Technische Konten sind nicht erwähnbar', async () => {
 });
 
 await pruefe('KI-Einstellung steht in den Einstellungen', async () => {
+  /* Erst aufräumen, was der vorige Schritt offen gelassen hat: ein Fenster
+     darüber fängt den Klick auf die Leiste ab, und die Prüfung scheitert an
+     der Reihenfolge statt an der Sache. */
+  for (let i = 0; i < 6 && await p.locator('.scrim').count(); i++) {
+    await p.keyboard.press('Escape');
+    await p.waitForTimeout(250);
+  }
   await p.locator('.rail [data-tour="settings"]').click();
   await p.waitForTimeout(900);
   const text = await p.locator('.panel').last().innerText();

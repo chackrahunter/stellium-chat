@@ -101,7 +101,17 @@ export class OpenAICompatibleProvider implements TranslationProvider, AssistantP
       if ((err as Error).name === 'AbortError') {
         throw new ProviderError(`${this.ep.name}: Zeitüberschreitung`, 408, true, 'zeit');
       }
-      throw new ProviderError(`${this.ep.name}: ${(err as Error).message}`, undefined, true);
+      /* „fetch failed", ECONNREFUSED, DNS — der Dienst war nicht da. Das ist
+         keine KI-Panne, sondern ein ausgeschalteter Rechner oder ein Netz
+         dazwischen, und die Meldung soll das sagen: „Die KI konnte das gerade
+         nicht erledigen" schickt sonst jemanden auf die Suche nach einem
+         Fehler in der Anfrage. */
+      const nachricht = (err as Error).message ?? '';
+      const wegGewesen = /fetch failed|ECONNREFUSED|ENOTFOUND|EHOSTUNREACH|ENETUNREACH|socket hang up|ETIMEDOUT/i
+        .test(nachricht) || /fetch failed/i.test(String((err as { cause?: unknown }).cause ?? ''));
+      throw new ProviderError(
+        `${this.ep.name}: ${nachricht}`, undefined, true, wegGewesen ? 'unerreichbar' : 'sonst',
+      );
     } finally {
       clearTimeout(timer);
     }
@@ -111,6 +121,11 @@ export class OpenAICompatibleProvider implements TranslationProvider, AssistantP
    * Wie viel dieses Modell annimmt. Kommt aus der Modell-Liste des Anbieters;
    * fehlt die Angabe, gilt der kleinste Wert, mit dem wir überhaupt rechnen.
    */
+  /* Modell und Anbieter zusammen: dasselbe Modell hinter zwei Diensten kann
+     verschieden große Fenster haben, und genau das ist der Fall, den das
+     gelernte Maß fangen soll. */
+  get kennung(): string { return `${this.name}:${this.registry.current.quality ?? this.model ?? '?'}`; }
+
   kontextfenster(opts: { fast?: boolean } = {}): number {
     return this.registry.kontextfenster(opts.fast ? this.fastModel : this.registry.current.quality);
   }

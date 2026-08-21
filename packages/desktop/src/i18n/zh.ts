@@ -1075,6 +1075,7 @@ export const zh = {
   'fehler.dateiAndererKreis': '此文件是为另一个圈子加密的。',
   'fehler.kiFehlgeschlagen': 'AI 暂时无法完成该操作。',
   'fehler.kiNichtEingerichtet': '此服务器未配置 AI。',
+  'fehler.kiUnerreichbar': 'AI 目前无法访问 — 模型正在运行吗？',
   'fehler.kiUeberlastet': 'AI 目前繁忙。请稍后重试。',
   'fehler.kiZeitueberschreitung': 'AI 未及时回复。请重试。',
   'fehler.modellFensterZuKlein': '所选模型能接收的文本太少，不足以使用该功能。',

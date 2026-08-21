@@ -1075,6 +1075,7 @@ export const da = {
   'fehler.dateiAndererKreis': 'Denne fil blev krypteret til en anden kreds.',
   'fehler.kiFehlgeschlagen': 'AI’en kunne ikke klare det lige nu.',
   'fehler.kiNichtEingerichtet': 'AI’en er ikke sat op på denne server.',
+  'fehler.kiUnerreichbar': 'AI’en er i øjeblikket ikke tilgængelig — kører modellen?',
   'fehler.kiUeberlastet': 'AI’en er optaget lige nu. Prøv igen om et øjeblik.',
   'fehler.kiZeitueberschreitung': 'AI’en svarede ikke i tide. Prøv igen.',
   'fehler.modellFensterZuKlein': 'Den valgte model tager imod for lidt tekst til denne funktion.',

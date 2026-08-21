@@ -57,6 +57,14 @@ export interface AssistantProvider {
    * translation/fenster.ts.
    */
   kontextfenster(opts?: { fast?: boolean }): number;
+  /**
+   * Woran sich das gelernte Kontextfenster merken lässt.
+   *
+   * Die Angabe eines Modells über sein Fenster ist eine Behauptung über die
+   * Gewichte, keine über den Dienst davor — ollama bedient ein 32k-Modell
+   * auch mal mit 4096. Das tatsächliche Maß wird deshalb gelernt und unter
+   * dieser Kennung gemerkt (translation/fenster.ts). */
+  readonly kennung: string;
 }
 
 /**
@@ -72,6 +80,8 @@ export type Fehlerart =
   | 'zeit'
   /** Zu viele Anfragen, Modell überlastet. */
   | 'ueberlastet'
+  /** Der Dienst war gar nicht erst zu erreichen (Rechner aus, Netz weg). */
+  | 'unerreichbar'
   /** Alles Übrige. */
   | 'sonst';
 

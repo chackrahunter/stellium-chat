@@ -1075,6 +1075,7 @@ export const sv = {
   'fehler.dateiAndererKreis': 'Den här filen krypterades för en annan krets.',
   'fehler.kiFehlgeschlagen': 'AI:n kunde inte göra det just nu.',
   'fehler.kiNichtEingerichtet': 'AI:n är inte uppsatt på den här servern.',
+  'fehler.kiUnerreichbar': 'AI:n är för närvarande inte nåbar – körs modellen?',
   'fehler.kiUeberlastet': 'AI:n är upptagen just nu. Försök igen om en stund.',
   'fehler.kiZeitueberschreitung': 'AI:n svarade inte i tid. Försök igen.',
   'fehler.modellFensterZuKlein': 'Den valda modellen tar emot för lite text för den här funktionen.',

@@ -1075,6 +1075,7 @@ export const uk = {
   'fehler.dateiAndererKreis': 'Цей файл зашифровано для іншого кола.',
   'fehler.kiFehlgeschlagen': 'ШІ зараз не зміг це зробити.',
   'fehler.kiNichtEingerichtet': 'ШІ не налаштований на цьому сервері.',
+  'fehler.kiUnerreichbar': 'Штучний інтелект зараз недоступний — чи запущена модель?',
   'fehler.kiUeberlastet': 'ШІ зараз завантажений. Спробуйте за мить.',
   'fehler.kiZeitueberschreitung': 'ШІ не відповів вчасно. Спробуйте ще раз.',
   'fehler.modellFensterZuKlein': 'Вибрана модель приймає замало тексту для цієї функції.',

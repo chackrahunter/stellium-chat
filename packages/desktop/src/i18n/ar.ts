@@ -1075,6 +1075,7 @@ export const ar = {
   'fehler.dateiAndererKreis': 'شُفِّر هذا الملف لدائرة أخرى.',
   'fehler.kiFehlgeschlagen': 'لم يتمكن الذكاء الاصطناعي من تنفيذ ذلك الآن.',
   'fehler.kiNichtEingerichtet': 'الذكاء الاصطناعي غير مُعدّ على هذا الخادم.',
+  'fehler.kiUnerreichbar': 'الذكاء الاصطناعي غير متاح حالياً — هل النموذج يعمل؟',
   'fehler.kiUeberlastet': 'الذكاء الاصطناعي مشغول الآن. حاول مرة أخرى بعد قليل.',
   'fehler.kiZeitueberschreitung': 'لم يستجب الذكاء الاصطناعي في الوقت المناسب. حاول مرة أخرى.',
   'fehler.modellFensterZuKlein': 'النموذج المحدد يقبل نصًا أقل مما تحتاجه هذه الميزة.',

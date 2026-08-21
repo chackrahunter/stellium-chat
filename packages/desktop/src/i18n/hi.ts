@@ -1075,6 +1075,7 @@ export const hi = {
   'fehler.dateiAndererKreis': 'यह फ़ाइल किसी दूसरे समूह के लिए एन्क्रिप्ट की गई थी।',
   'fehler.kiFehlgeschlagen': 'AI अभी यह काम नहीं कर सका।',
   'fehler.kiNichtEingerichtet': 'इस सर्वर पर AI सेट अप नहीं है।',
+  'fehler.kiUnerreichbar': 'AI अभी उपलब्ध नहीं है — क्या मॉडल चल रहा है?',
   'fehler.kiUeberlastet': 'AI अभी व्यस्त है। कृपया थोड़ी देर बाद फिर कोशिश करें।',
   'fehler.kiZeitueberschreitung': 'AI ने समय पर उत्तर नहीं दिया। कृपया फिर से कोशिश करें।',
   'fehler.modellFensterZuKlein': 'चयनित मॉडल इस सुविधा के लिए बहुत कम पाठ स्वीकार करता है।',

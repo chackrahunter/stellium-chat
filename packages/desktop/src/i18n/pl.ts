@@ -1075,6 +1075,7 @@ export const pl = {
   'fehler.dateiAndererKreis': 'Ten plik zaszyfrowano dla innego kręgu.',
   'fehler.kiFehlgeschlagen': 'SI nie mogła tego teraz wykonać.',
   'fehler.kiNichtEingerichtet': 'SI nie jest skonfigurowana na tym serwerze.',
+  'fehler.kiUnerreichbar': 'AI jest obecnie nieosiągalna — czy model jest uruchomiony?',
   'fehler.kiUeberlastet': 'SI jest teraz zajęta. Spróbuj ponownie za chwilę.',
   'fehler.kiZeitueberschreitung': 'SI nie odpowiedziała na czas. Spróbuj ponownie.',
   'fehler.modellFensterZuKlein': 'Wybrany model przyjmuje zbyt mało tekstu do tej funkcji.',

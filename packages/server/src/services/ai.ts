@@ -9,7 +9,10 @@ import { abweisung } from '../util/abweisung.js';
 import { assistant } from '../translation/index.js';
 import { type AssistantProvider } from '../translation/providers/types.js';
 import { alsAbweisung, mitKennung } from '../translation/fehler.js';
-import { inAbschnitte, juengsteZeilen, markenSchaetzung, verlaufsBudget } from '../translation/fenster.js';
+import {
+  fensterFuer, fensterVerkleinern, inAbschnitte, juengsteZeilen,
+  markenSchaetzung, verlaufsBudget,
+} from '../translation/fenster.js';
 
 export class AiUnavailable extends Error {
   constructor() { super('KI ist nicht konfiguriert. Setze AI_PROVIDER=groq und GROQ_API_KEY.'); }
@@ -59,10 +62,32 @@ function transcript(rows: TranscriptRow[]): string {
  */
 function budget(ai: AssistantProvider, opts: { fest: string; antwort: number; fast?: boolean }): number {
   return verlaufsBudget({
-    fenster: ai.kontextfenster({ fast: opts.fast }),
+    /* Das gelernte Maß, nicht das behauptete: hat dieses Modell schon einmal
+       wegen Länge abgelehnt, gilt seither die kleinere Zahl — sonst liefe
+       jede Funktion einzeln in dieselbe Wand. */
+    fenster: fensterFuer(ai.kennung, ai.kontextfenster({ fast: opts.fast })),
     fest: opts.fest,
     antwort: opts.antwort,
   });
+}
+
+/**
+ * Eine KI-Anfrage, die eine Absage wegen Länge nicht als Fehler nimmt.
+ *
+ * Lehnt das Modell ab, wird sein Maß halbiert (und gemerkt) und der Aufbau
+ * wiederholt — der Aufrufer baut seinen Verlauf dabei neu, jetzt kleiner.
+ * Alles andere fliegt durch: ein Netzfehler wird durch Kürzen nicht besser.
+ */
+async function mitFensterRueckfall<T>(ai: AssistantProvider, versuch: () => Promise<T>): Promise<T> {
+  for (;;) {
+    try {
+      return await versuch();
+    } catch (err) {
+      if ((err as { art?: string }).art !== 'zuLang') throw err;
+      const fenster = fensterFuer(ai.kennung, ai.kontextfenster());
+      if (!fensterVerkleinern(ai.kennung, fenster)) throw err;
+    }
+  }
 }
 
 /** Die KI oder eine übersetzbare Absage — nie ein nackter Fehler. */
@@ -213,7 +238,7 @@ export async function catchUp(input: {
   ].join('\n');
   const kopf = `Kanal: #${input.channelName}\n\n`;
 
-  const data = await mitKennung(async () => {
+  const data = await mitKennung(async () => mitFensterRueckfall(ai, async () => {
     const verlauf = await verlaufAufbereiten(ai, {
       zeilen: zeilen(rows),
       fest: anweisung + kopf,
@@ -227,7 +252,7 @@ export async function catchUp(input: {
       { role: 'system', content: anweisung },
       { role: 'user', content: kopf + verlauf.text },
     ], { temperature: 0.25, maxTokens: 1200 });
-  });
+  }));
 
   const summary: AiSummary = {
     channelId: input.channelId,
@@ -276,7 +301,7 @@ export async function summarizeThread(parentId: string, language: string): Promi
     'JSON: {"headline": "...", "bullets": ["..."], "decisions": ["..."], "action_items": [{"text": "...", "assignee_id": null}]}',
   ].join('\n');
 
-  const data = await mitKennung(async () => {
+  const data = await mitKennung(async () => mitFensterRueckfall(ai, async () => {
     /* Ein Thread darf bis zu 200 Antworten haben — auch das sprengt ein
        kleines Fenster, und auch hier gilt: verdichten statt abschneiden. */
     const verlauf = await verlaufAufbereiten(ai, {
@@ -286,7 +311,7 @@ export async function summarizeThread(parentId: string, language: string): Promi
       { role: 'system', content: anweisung },
       { role: 'user', content: verlauf.text },
     ], { temperature: 0.25, maxTokens: 900 });
-  });
+  }));
 
   return {
     channelId: root.channel_id,
@@ -566,7 +591,11 @@ export async function protokoll(input: {
      Auszügen. Ein Protokoll verträgt das, weil es ohnehin verdichtet; ein
      abgeschnittener Verlauf verträgt es nicht, weil das Ergebnis dann falsch
      ist, ohne falsch auszusehen. */
-  const { data, verdichtet } = await mitKennung(async () => {
+  const { data, verdichtet } = await mitKennung(async () => mitFensterRueckfall(ai, async () => {
+    /* Der Verlauf wird INNERHALB des Rückfalls aufgebaut: lehnt das Modell
+       wegen Länge ab, gilt beim nächsten Durchgang das kleinere Maß, und der
+       Verlauf wird danach neu verdichtet. Außerhalb aufgebaut wäre er beim
+       zweiten Anlauf genauso lang wie beim ersten. */
     const verlauf = await verlaufAufbereiten(ai, {
       zeilen: zeilen(rows), fest: anweisung + kopf, antwort: 2000,
     });
@@ -588,7 +617,7 @@ export async function protokoll(input: {
       console.log(`[ai] Protokoll für ${input.channelId}: Verlauf über ${verlauf.verdichtet} Abschnitte verdichtet.`);
     }
     return { data: antwort, verdichtet: verlauf.verdichtet };
-  });
+  }));
 
   const bekannt = new Set(rows.map((r) => r.user_id));
   const text = (x: unknown) => (typeof x === 'string' ? x.trim() : '');
@@ -731,40 +760,53 @@ export async function vorschlaegeAusVerlauf(input: {
   const system = systemAnweisung(input.sprache, personen);
   const kopf = `Kanal: #${input.channelName}\n\n`;
 
-  /* Das Fenster gehört dem Modell, nicht uns. Fragen, abziehen, hineinpassen —
-     und wenn nichts übrig bleibt, gar nicht erst abschicken. Ein roher
-     400er beim Benutzer ist genau das, was hier nicht mehr passieren soll. */
-  const fenster = ai.kontextfenster();
-  const budget = verlaufsBudget({
-    fenster,
-    fest: `${system}\n${kopf}`,
-    antwort: ANTWORT_MARKEN,
-  });
-  if (budget <= 0) {
-    throw new Error(
-      `Das Kontextfenster des Modells (${fenster} Marken) reicht für die Anweisung nicht aus.`,
-    );
-  }
-
-  const zugeschnitten = juengsteZeilen(verlaufszeilen, budget);
-  if (!zugeschnitten.zeilen.length) {
-    return { vorschlaege: [], weggelassen: verlaufszeilen.length, gelesen: 0 };
-  }
-
-  const hinweis = zugeschnitten.weggelassen > 0
-    ? `\n\n(Nur der jüngste Ausschnitt — ${zugeschnitten.weggelassen} ältere Nachrichten stehen nicht dabei.)`
-    : '';
-
-  const data = await ai.json<{
+  /* Das Fenster gehört dem Modell, nicht uns — aber die Angabe des Modells
+     gehört dem Dienst davor. Ollama bedient ein 32k-Modell nach Belieben mit
+     4096 Marken; unsere Rechnung stimmte damit auf dem Papier, und die
+     Anfrage kam trotzdem alle fünf Minuten zurück. Deshalb: rechnen, und bei
+     einer Absage halbieren und das Maß merken. */
+  const modell = ai.kennung;
+  let fenster = fensterFuer(modell, ai.kontextfenster());
+  let zugeschnitten = { zeilen: [] as string[], weggelassen: 0 };
+  let data: {
     vorschlaege?: {
       art?: string; titel?: string; quelle?: string | null;
       zustaendig_id?: string | null; faellig_in_tagen?: number | null;
       beginnt_in_stunden?: number | null; dauer_minuten?: number | null;
     }[];
-  }>([
-    { role: 'system', content: system },
-    { role: 'user', content: `${kopf}${zugeschnitten.zeilen.join('\n')}${hinweis}` },
-  ], { temperature: 0.2, maxTokens: ANTWORT_MARKEN, reasoning: 'low' });
+  } | null = null;
+
+  while (data === null) {
+    const budget = verlaufsBudget({ fenster, fest: `${system}\n${kopf}`, antwort: ANTWORT_MARKEN });
+    if (budget <= 0) {
+      throw new Error(
+        `Das Kontextfenster des Modells (${fenster} Marken) reicht für die Anweisung nicht aus.`,
+      );
+    }
+
+    zugeschnitten = juengsteZeilen(verlaufszeilen, budget);
+    if (!zugeschnitten.zeilen.length) {
+      return { vorschlaege: [], weggelassen: verlaufszeilen.length, gelesen: 0 };
+    }
+
+    const hinweis = zugeschnitten.weggelassen > 0
+      ? `\n\n(Nur der jüngste Ausschnitt — ${zugeschnitten.weggelassen} ältere Nachrichten stehen nicht dabei.)`
+      : '';
+
+    try {
+      data = await ai.json([
+        { role: 'system', content: system },
+        { role: 'user', content: `${kopf}${zugeschnitten.zeilen.join('\n')}${hinweis}` },
+      ], { temperature: 0.2, maxTokens: ANTWORT_MARKEN, reasoning: 'low' });
+    } catch (err) {
+      /* Nur die Absage wegen Länge wird kleiner versucht. Ein Netzfehler
+         bleibt ein Netzfehler — den kleiner zu wiederholen hilft niemandem. */
+      if ((err as { art?: string }).art !== 'zuLang') throw err;
+      const kleiner = fensterVerkleinern(modell, fenster);
+      if (!kleiner) throw err;
+      fenster = kleiner;
+    }
+  }
 
   const bekannteIds = new Set(rows.map((r) => r.id));
   const bekanntePersonen = new Set(rows.map((r) => r.user_id));

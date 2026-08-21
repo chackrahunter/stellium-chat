@@ -1075,6 +1075,7 @@ export const it = {
   'fehler.dateiAndererKreis': 'Questo file è stato cifrato per un altro gruppo.',
   'fehler.kiFehlgeschlagen': 'L’IA non è riuscita a farlo in questo momento.',
   'fehler.kiNichtEingerichtet': 'L’IA non è configurata su questo server.',
+  'fehler.kiUnerreichbar': 'L\'IA non è al momento raggiungibile — il modello è in esecuzione?',
   'fehler.kiUeberlastet': 'L’IA è occupata in questo momento. Riprova tra poco.',
   'fehler.kiZeitueberschreitung': 'L’IA non ha risposto in tempo. Riprova.',
   'fehler.modellFensterZuKlein': 'Il modello selezionato accetta troppo poco testo per questa funzione.',

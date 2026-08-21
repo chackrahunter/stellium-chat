@@ -150,3 +150,40 @@ export function juengsteZeilen(
   }
   return { zeilen: genommen, weggelassen: zeilen.length - genommen.length };
 }
+
+/**
+ * Was ein Modell WIRKLICH verkraftet — gemerkt statt geglaubt.
+ *
+ * Die Angabe eines Modells über sein Kontextfenster ist eine Behauptung über
+ * die Gewichte, keine über den Dienst davor. Ollama bedient dasselbe Modell
+ * je nach Einstellung mit 4096 Marken, auch wenn es 32768 kann. Unsere
+ * Rechnung stimmte damit auf dem Papier und ging trotzdem jedes Mal zurück:
+ * „Anfrage größer als das Kontextfenster des Modells", alle fünf Minuten,
+ * über Stunden.
+ *
+ * Deshalb wird das Maß nicht mehr geglaubt, sondern gelernt: Wer eine Absage
+ * bekommt, halbiert und merkt sich, womit es ging. Der nächste Lauf fängt
+ * gleich dort an — und niemand muss irgendwo eine Zahl eintragen.
+ */
+const gelernt = new Map<string, number>();
+
+/** Das gelernte Maß, sonst das behauptete. */
+export function fensterFuer(modell: string, behauptet: number): number {
+  const wert = gelernt.get(modell);
+  return wert && wert < behauptet ? wert : behauptet;
+}
+
+/**
+ * Eine Absage verarbeiten: ab jetzt gilt die Hälfte.
+ *
+ * Gibt das neue Maß zurück, oder 0, wenn auch das Kleinste nicht mehr reicht —
+ * dann liegt es nicht an der Länge.
+ */
+export function fensterVerkleinern(modell: string, zuletzt: number): number {
+  const KLEINSTES = 1024;
+  const neu = Math.floor(zuletzt / 2);
+  if (neu < KLEINSTES) return 0;
+  gelernt.set(modell, neu);
+  console.log(`[ai] ${modell}: Kontextfenster auf ${neu} Marken heruntergesetzt (das Modell hat abgelehnt).`);
+  return neu;
+}

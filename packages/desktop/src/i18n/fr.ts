@@ -1075,6 +1075,7 @@ export const fr = {
   'fehler.dateiAndererKreis': 'Ce fichier a été chiffré pour un autre cercle.',
   'fehler.kiFehlgeschlagen': 'L’IA n’a pas pu faire cela pour le moment.',
   'fehler.kiNichtEingerichtet': 'L’IA n’est pas configurée sur ce serveur.',
+  'fehler.kiUnerreichbar': 'L’IA n’est pas disponible pour le moment — le modèle fonctionne‑t‑il ?',
   'fehler.kiUeberlastet': 'L’IA est occupée pour le moment. Réessaie dans un instant.',
   'fehler.kiZeitueberschreitung': 'L’IA n’a pas répondu à temps. Réessaie.',
   'fehler.modellFensterZuKlein': 'Le modèle sélectionné accepte trop peu de texte pour cette fonction.',

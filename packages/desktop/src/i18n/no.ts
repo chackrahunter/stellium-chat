@@ -1075,6 +1075,7 @@ export const no = {
   'fehler.dateiAndererKreis': 'Denne filen ble kryptert for en annen krets.',
   'fehler.kiFehlgeschlagen': 'KI-en klarte ikke det akkurat nå.',
   'fehler.kiNichtEingerichtet': 'KI-en er ikke satt opp på denne serveren.',
+  'fehler.kiUnerreichbar': 'AI-en er ikke tilgjengelig akkurat nå – kjører modellen?',
   'fehler.kiUeberlastet': 'KI-en er opptatt akkurat nå. Prøv igjen om et øyeblikk.',
   'fehler.kiZeitueberschreitung': 'KI-en svarte ikke i tide. Prøv igjen.',
   'fehler.modellFensterZuKlein': 'Den valgte modellen tar imot for lite tekst til denne funksjonen.',

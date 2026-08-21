@@ -1075,6 +1075,7 @@ export const ja = {
   'fehler.dateiAndererKreis': 'このファイルは別の相手向けに暗号化されています。',
   'fehler.kiFehlgeschlagen': 'AI は今それを実行できませんでした。',
   'fehler.kiNichtEingerichtet': 'このサーバーでは AI が設定されていません。',
+  'fehler.kiUnerreichbar': 'AIは現在利用できません ― モデルは実行中ですか？',
   'fehler.kiUeberlastet': 'AI は現在混み合っています。少し待ってからお試しください。',
   'fehler.kiZeitueberschreitung': 'AI が時間内に応答しませんでした。もう一度お試しください。',
   'fehler.modellFensterZuKlein': '選択中のモデルは、この機能に必要なだけのテキストを受け取れません。',

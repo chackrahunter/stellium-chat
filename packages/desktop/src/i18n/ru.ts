@@ -1075,6 +1075,7 @@ export const ru = {
   'fehler.dateiAndererKreis': 'Этот файл зашифрован для другого круга.',
   'fehler.kiFehlgeschlagen': 'ИИ сейчас не смог это сделать.',
   'fehler.kiNichtEingerichtet': 'ИИ не настроен на этом сервере.',
+  'fehler.kiUnerreichbar': 'ИИ сейчас недоступен — запущена ли модель?',
   'fehler.kiUeberlastet': 'ИИ сейчас загружен. Попробуйте через мгновение.',
   'fehler.kiZeitueberschreitung': 'ИИ не ответил вовремя. Попробуйте ещё раз.',
   'fehler.modellFensterZuKlein': 'Выбранная модель принимает слишком мало текста для этой функции.',

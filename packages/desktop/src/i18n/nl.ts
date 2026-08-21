@@ -1075,6 +1075,7 @@ export const nl = {
   'fehler.dateiAndererKreis': 'Dit bestand is voor een andere kring versleuteld.',
   'fehler.kiFehlgeschlagen': 'De AI kon dat op dit moment niet doen.',
   'fehler.kiNichtEingerichtet': 'De AI is op deze server niet ingesteld.',
+  'fehler.kiUnerreichbar': 'De KI is momenteel niet bereikbaar — draait het model?',
   'fehler.kiUeberlastet': 'De AI is op dit moment bezet. Probeer het zo opnieuw.',
   'fehler.kiZeitueberschreitung': 'De AI heeft niet op tijd geantwoord. Probeer het opnieuw.',
   'fehler.modellFensterZuKlein': 'Het gekozen model accepteert te weinig tekst voor deze functie.',

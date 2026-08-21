@@ -1110,6 +1110,7 @@ export const en: Partial<Dictionary> = {
   'fehler.dateiAndererKreis': 'This file was encrypted for a different circle.',
   'fehler.kiFehlgeschlagen': 'The AI could not do that right now.',
   'fehler.kiNichtEingerichtet': 'The AI is not set up on this server.',
+  'fehler.kiUnerreichbar': 'The AI cannot be reached right now — is the model running?',
   'fehler.kiUeberlastet': 'The AI is busy right now. Please try again in a moment.',
   'fehler.kiZeitueberschreitung': 'The AI did not answer in time. Please try again.',
   'fehler.modellFensterZuKlein': 'The selected model accepts too little text for this function.',

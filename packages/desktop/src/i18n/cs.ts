@@ -1075,6 +1075,7 @@ export const cs = {
   'fehler.dateiAndererKreis': 'Tento soubor byl zašifrován pro jiný okruh.',
   'fehler.kiFehlgeschlagen': 'AI to teď nedokázala provést.',
   'fehler.kiNichtEingerichtet': 'AI není na tomto serveru nastavená.',
+  'fehler.kiUnerreichbar': 'AI momentálně není dostupná — běží model?',
   'fehler.kiUeberlastet': 'AI je právě vytížená. Zkus to za chvíli znovu.',
   'fehler.kiZeitueberschreitung': 'AI neodpověděla včas. Zkus to znovu.',
   'fehler.modellFensterZuKlein': 'Zvolený model přijímá pro tuto funkci příliš málo textu.',

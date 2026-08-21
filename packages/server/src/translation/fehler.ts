@@ -36,6 +36,10 @@ export function alsAbweisung(fehler: unknown): Abweisung {
       return abweisung('fehler.kiUeberlastet',
         'Die KI ist gerade ausgelastet. Bitte gleich noch einmal versuchen.');
     }
+    if (fehler.art === 'unerreichbar') {
+      return abweisung('fehler.kiUnerreichbar',
+        'Die KI ist gerade nicht erreichbar — läuft das Modell?');
+    }
   }
 
   /* Der ursprüngliche Text geht nicht verloren — er steht im Protokoll des

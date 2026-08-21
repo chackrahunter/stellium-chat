@@ -1075,6 +1075,7 @@ export const fi = {
   'fehler.dateiAndererKreis': 'Tämä tiedosto salattiin toiselle piirille.',
   'fehler.kiFehlgeschlagen': 'Tekoäly ei pystynyt tekemään sitä juuri nyt.',
   'fehler.kiNichtEingerichtet': 'Tekoälyä ei ole määritetty tälle palvelimelle.',
+  'fehler.kiUnerreichbar': 'Kohteeseen AI ei saada yhteyttä juuri nyt — onko malli käynnissä?',
   'fehler.kiUeberlastet': 'Tekoäly on juuri nyt varattu. Yritä hetken kuluttua uudelleen.',
   'fehler.kiZeitueberschreitung': 'Tekoäly ei vastannut ajoissa. Yritä uudelleen.',
   'fehler.modellFensterZuKlein': 'Valittu malli ottaa vastaan liian vähän tekstiä tähän toimintoon.',

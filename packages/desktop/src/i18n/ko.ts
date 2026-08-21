@@ -1075,6 +1075,7 @@ export const ko = {
   'fehler.dateiAndererKreis': '이 파일은 다른 그룹을 위해 암호화되었습니다.',
   'fehler.kiFehlgeschlagen': 'AI가 지금은 처리하지 못했습니다.',
   'fehler.kiNichtEingerichtet': '이 서버에는 AI가 설정되어 있지 않습니다.',
+  'fehler.kiUnerreichbar': 'AI에 현재 연결할 수 없습니다 — 모델이 실행 중인가요?',
   'fehler.kiUeberlastet': 'AI가 지금 바쁩니다. 잠시 후 다시 시도하세요.',
   'fehler.kiZeitueberschreitung': 'AI가 제때 응답하지 않았습니다. 다시 시도하세요.',
   'fehler.modellFensterZuKlein': '선택한 모델은 이 기능에 필요한 만큼의 텍스트를 받지 못합니다.',

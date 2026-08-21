@@ -1126,6 +1126,7 @@ export const de = {
   'fehler.dateiAndererKreis': 'Diese Datei wurde für einen anderen Kreis verschlüsselt.',
   'fehler.kiFehlgeschlagen': 'Die KI konnte das gerade nicht erledigen.',
   'fehler.kiNichtEingerichtet': 'Die KI ist für diesen Server nicht eingerichtet.',
+  'fehler.kiUnerreichbar': 'Die KI ist gerade nicht erreichbar — läuft das Modell?',
   'fehler.kiUeberlastet': 'Die KI ist gerade ausgelastet. Bitte gleich noch einmal versuchen.',
   'fehler.kiZeitueberschreitung': 'Die KI hat nicht rechtzeitig geantwortet. Bitte noch einmal versuchen.',
   'fehler.modellFensterZuKlein': 'Das eingestellte Modell nimmt für diese Funktion zu wenig Text entgegen.',
