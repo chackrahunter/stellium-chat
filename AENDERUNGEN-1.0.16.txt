@@ -1,0 +1,2 @@
+Lehnt der Tunnel große Pakete ab, nimmt das Ausliefern von selbst den Weg über SSH auf den Server.
+Kontextmenü, Statusmenü, Aufgaben-Pop und Tour-Karte weichen jetzt Kamera-Aussparung und Home-Leiste aus.
