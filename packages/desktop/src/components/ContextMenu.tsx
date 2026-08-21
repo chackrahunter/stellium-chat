@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { motion } from 'framer-motion';
+import { sichereRaender } from '../lib/klemmen.js';
 
 /**
  * Kontextmenü für den Rechtsklick.
@@ -40,9 +41,17 @@ export function ContextMenu({ position, eintraege, onClose }: {
     const el = ref.current;
     if (!el) return;
     const kasten = el.getBoundingClientRect();
+    /* Kamera-Aussparung und Home-Leiste mitrechnen — sonst liegt das Menü im
+       Querformat unter der Kamera bzw. in der Wischzone. */
+    const rand = sichereRaender();
     let { x, y } = position;
-    if (x + kasten.width > window.innerWidth - 8) x = window.innerWidth - kasten.width - 8;
-    if (y + kasten.height > window.innerHeight - 8) y = Math.max(8, position.y - kasten.height);
+    if (x + kasten.width > window.innerWidth - 8 - rand.rechts) {
+      x = window.innerWidth - kasten.width - 8 - rand.rechts;
+    }
+    x = Math.max(8 + rand.links, x);
+    if (y + kasten.height > window.innerHeight - 8 - rand.unten) {
+      y = Math.max(8 + rand.oben, position.y - kasten.height);
+    }
     setOrt({ x, y });
   }, [position]);
 

@@ -7,6 +7,7 @@ import {
 import { useStore } from '../state/store.js';
 import { useT } from '../i18n/index.js';
 import type { TranslationKey } from '../i18n/index.js';
+import { sichereRaender } from '../lib/klemmen.js';
 
 /**
  * Geführte Einführung — direkt in der echten Oberfläche.
@@ -314,12 +315,17 @@ function kartenPosition(
   const breite = window.innerWidth;
   const hoehe = window.innerHeight;
   const rand = 16;
+  /* Kamera-Aussparung und Home-Leiste zählen zum Rand dazu — die Karte wird
+     frei positioniert, die CSS-Polsterung des Rahmens greift hier nicht. */
+  const geraet = sichereRaender();
   /* Auf schmalen Fenstern schrumpft die Karte per CSS mit. Ohne dasselbe
      Maß hier rechneten wir mit einer Breite, die es auf dem Schirm nicht gibt. */
-  const kartenBreite = Math.min(KARTE_BREIT, breite - rand * 2);
+  const kartenBreite = Math.min(KARTE_BREIT, breite - rand * 2 - geraet.links - geraet.rechts);
 
-  const imFensterX = (x: number) => Math.min(Math.max(rand, x), breite - kartenBreite - rand);
-  const imFensterY = (y: number) => Math.min(Math.max(rand, y), hoehe - KARTE_HOCH - rand);
+  const imFensterX = (x: number) =>
+    Math.min(Math.max(rand + geraet.links, x), breite - kartenBreite - rand - geraet.rechts);
+  const imFensterY = (y: number) =>
+    Math.min(Math.max(rand + geraet.oben, y), hoehe - KARTE_HOCH - rand - geraet.unten);
 
   if (!ziel) {
     return { top: Math.max(rand, (hoehe - KARTE_HOCH) / 2), left: (breite - kartenBreite) / 2 };

@@ -9,6 +9,7 @@ import { useT, type TranslationKey } from '../i18n/index.js';
 import { dayLabel, sameDay, timeOfDay } from '../lib/format.js';
 import { Avatar } from './Avatar.jsx';
 import '../styles/status.css';
+import { sichereRaender } from '../lib/klemmen.js';
 
 /**
  * Das eigene Profilbild mit Statusmenü.
@@ -237,8 +238,12 @@ export function StatusMenu() {
      */
     const vonRechts = getComputedStyle(document.documentElement).direction === 'rtl';
     const gewuenscht = vonRechts ? k.left - mBreite - 10 : k.right + 10;
-    const left = Math.max(8, Math.min(gewuenscht, breite - mBreite - 8));
-    const top = Math.max(oben + 8, Math.min(k.bottom - h, oben + hoehe - h - 8));
+    /* Zusätzlich zu Fensterrand und Tastatur: die Geräteränder (Kamera im
+       Querformat, Home-Leiste) — frei positioniert hilft die CSS-Polsterung
+       des Rahmens hier nicht. */
+    const rand = sichereRaender();
+    const left = Math.max(8 + rand.links, Math.min(gewuenscht, breite - mBreite - 8 - rand.rechts));
+    const top = Math.max(oben + 8 + rand.oben, Math.min(k.bottom - h, oben + hoehe - h - 8 - rand.unten));
     setOrt({ left, top, maxHeight });
   }, []);
 

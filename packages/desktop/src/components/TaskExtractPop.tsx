@@ -5,6 +5,7 @@ import { AlertCircle, Check, Inbox, ListChecks, Loader2 } from 'lucide-react';
 import { useStore } from '../state/store.js';
 import { useVorschlaege } from '../state/vorschlaege.js';
 import { useT } from '../i18n/index.js';
+import { sichereRaender } from '../lib/klemmen.js';
 
 const BREITE = 300;
 const RAND = 10;
@@ -32,9 +33,15 @@ export function TaskExtractPop({ ankerRef, onClose }: {
   useLayoutEffect(() => {
     const anker = ankerRef.current?.getBoundingClientRect();
     if (!anker) return;
+    /* Geräteränder mitrechnen — im Querformat säße das Pop sonst unter der
+       Kamera-Aussparung. */
+    const rand = sichereRaender();
     setOrt({
-      left: Math.min(window.innerWidth - BREITE - RAND, Math.max(RAND, anker.right - BREITE)),
-      top: Math.min(window.innerHeight - 120, anker.bottom + 8),
+      left: Math.min(
+        window.innerWidth - BREITE - RAND - rand.rechts,
+        Math.max(RAND + rand.links, anker.right - BREITE),
+      ),
+      top: Math.min(window.innerHeight - 120 - rand.unten, anker.bottom + 8),
     });
   }, [ankerRef, laeuft, ergebnis, fehler]);
 
