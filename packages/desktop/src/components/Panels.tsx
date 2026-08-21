@@ -383,7 +383,11 @@ export function Shell({ title, icon, onClose, width, subtitle, actions, children
             <h2>{title}</h2>
             {subtitle && <p className="panel__sub">{subtitle}</p>}
           </div>
-          <div style={{ marginLeft: 'auto', display: 'flex', gap: 6, alignItems: 'center' }}>
+          {/* Eigene Klasse statt Inline-Stil: die Knopfreihe muss umbrechen
+              können. Mit zwei zusätzlichen Bedienelementen im Aufgabenbrett
+              lief sie bei 525 px Fensterbreite 79 px über den Rand hinaus —
+              „Neue Aufgabe" und das Kreuz zum Schließen lagen außerhalb. */}
+          <div className="panel__aktionen">
             {actions}
             <button className="icon-btn" onClick={onClose}><X size={17} /></button>
           </div>

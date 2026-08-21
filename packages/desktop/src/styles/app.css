@@ -3439,3 +3439,27 @@ button.msg__author:hover { color: var(--violet-soft); text-decoration: underline
   opacity: 0.85;
 }
 .typing--ki .typing__marken { color: var(--violet-soft); }
+
+/* Die Knopfreihe in der Kopfzeile eines Fensters.
+   Sie muss umbrechen dürfen: Bretter mit vielen Bedienelementen (Aufgaben mit
+   Projektwahl und Prüfen-Reiter) schoben sonst den letzten Knopf und das
+   Kreuz zum Schließen aus dem Fenster — bei 525 px gemessen 79 px daneben. */
+.panel__aktionen {
+  margin-inline-start: auto;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+/* Bricht die Reihe um, darf die Überschrift daneben schrumpfen statt zu
+   drängeln — sonst bleibt für die Knöpfe eine Zeile mit zwei Zeichen Platz. */
+.panel__head { flex-wrap: wrap; }
+.panel__head > div:first-of-type { min-width: 0; }
+
+@media (max-width: 620px) {
+  /* Auf schmalen Fenstern zählt der Griff, nicht die Beschriftung: die
+     Auswahl bleibt lesbar, die Knöpfe schrumpfen auf ihr Zeichen. */
+  .panel__aktionen .pill--select { max-width: 140px; }
+}
