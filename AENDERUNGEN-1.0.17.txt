@@ -1,0 +1,3 @@
+Auf Wunsch trägt die KI Aufgaben, Ideen und Termine selbst ein — im Reiter „Prüfen" sieht man alles nach und bestätigt es mit einem Griff.
+Technische Konten sind für normale Benutzer unsichtbar: nicht erwähnbar, nicht anschreibbar, nur noch in der Kontenverwaltung zu sehen.
+Ein Projekt bündelt Aufgaben: anlegen, Farbe geben, Aufgaben hineinlegen und den Fortschritt sehen.
