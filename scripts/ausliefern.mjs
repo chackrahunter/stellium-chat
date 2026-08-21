@@ -260,8 +260,13 @@ if (!ohneGit && !probe) {
   schritt('Quelltext festhalten');
   try {
     lauf('git', ['add', '-A']);
-    const betreff = notizen.split('\n')[0].slice(0, 68);
-    const koerper = notizen.split('\n').slice(1).join('\n').trim();
+    /* „Fassung 1.0.17" statt der ersten Zeile der Änderungsliste.
+       Die wurde bei 68 Zeichen abgeschnitten — und weil die nächste
+       Änderungsliste aus den Commit-Betreffen entsteht, stand dieser
+       halbe Satz später in den Notizen der Folgefassung. Der Betreff
+       benennt jetzt, was der Commit ist; die Liste selbst steht im Körper. */
+    const betreff = `Fassung ${naechste}`;
+    const koerper = notizen.trim();
     const nachricht = [
       betreff,
       koerper ? `\n${koerper}` : '',
