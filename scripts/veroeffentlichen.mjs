@@ -224,24 +224,6 @@ if (!anmeldung.ok) raus(`Anmeldung fehlgeschlagen (${anmeldung.status}).`);
 const { token } = await anmeldung.json();
 ok(`als ${login}`);
 
-/* Vor dem ersten Byte: Ist genug Platz drüben, und steht der Umweg?
-   Ein Pi mit voller Karte nimmt das Paket an, schreibt es halb und lässt
-   danach weder Server noch Sicherung laufen. */
-if (!sshErreichbar()) {
-  warn(`Der Umweg über SSH (${sshZiel}) steht nicht — bei Paketen über 100 MB `
-    + 'lehnt der Tunnel ab, und dann gibt es keinen zweiten Weg.');
-} else {
-  try {
-    const frei = Number(lauf('ssh', [sshZiel, "df --output=avail -k \"$HOME\" | tail -1"]).trim());
-    const gebraucht = hochzuladen.reduce((s, [, p]) => s + fs.statSync(p).size, 0) / 1024;
-    /* Doppelt: einmal die Zwischenablage, einmal die Release-Ablage. */
-    if (frei && frei < gebraucht * 2) {
-      raus(`Auf dem Server sind nur ${(frei / 1024 / 1024).toFixed(1)} GB frei, `
-        + `gebraucht werden rund ${(gebraucht * 2 / 1024 / 1024).toFixed(1)} GB.`);
-    }
-  } catch { /* Kein df, kein Urteil — dann eben ohne. */ }
-}
-
 schritt('Hochladen');
 const hochzuladen = Object.entries(dateien)
   .filter(([, d]) => d)
@@ -397,6 +379,29 @@ function ueberSsh(system, pfad, datei) {
     { input: `${token}\n` },
   );
   return JSON.parse(koerper).release;
+}
+
+/* Vor dem ersten Byte: Steht der Umweg, und ist drüben genug Platz?
+   Ein Pi mit voller Karte nimmt das Paket an, schreibt es halb und lässt
+   danach weder Server noch Sicherung laufen.
+
+   Die Prüfung steht hier und nicht weiter oben, obwohl sie früher mehr
+   nützte: `hochzuladen` und `sshZiel` entstehen erst darüber. Weiter oben
+   aufgerufen brach das ganze Ausliefern mit "Cannot access 'sshZiel' before
+   initialization" ab — nach dem Bauen, also nach einer Viertelstunde. */
+if (!sshErreichbar()) {
+  warn(`Der Umweg über SSH (${sshZiel}) steht nicht — bei Paketen über 100 MB `
+    + 'lehnt der Tunnel ab, und dann gibt es keinen zweiten Weg.');
+} else {
+  try {
+    const frei = Number(lauf('ssh', [sshZiel, "df --output=avail -k \"$HOME\" | tail -1"]).trim());
+    const gebraucht = hochzuladen.reduce((s, [, p]) => s + fs.statSync(p).size, 0) / 1024;
+    /* Doppelt: einmal die Zwischenablage, einmal die Release-Ablage. */
+    if (frei && frei < gebraucht * 2) {
+      raus(`Auf dem Server sind nur ${(frei / 1024 / 1024).toFixed(1)} GB frei, `
+        + `gebraucht werden rund ${(gebraucht * 2 / 1024 / 1024).toFixed(1)} GB.`);
+    }
+  } catch { /* Kein df, kein Urteil — dann eben ohne. */ }
 }
 
 for (const [system, pfad] of hochzuladen) {
