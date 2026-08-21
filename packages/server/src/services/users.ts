@@ -133,8 +133,8 @@ export function setPermission(userId: string, permission: PermissionKey, allowed
   if (!ziel) throw abweisung('fehler.kontoNichtGefunden', 'Konto nicht gefunden');
   if (ziel.role === 'owner') throw abweisung('fehler.ownerRechte', 'Dem Owner lassen sich keine Rechte nehmen.');
 
-  /* Drei Rechte tragen `ownerOnly`: Konten löschen, Rechte vergeben und
-     Freigaben lesen. Die Oberfläche sperrt sie für alle außer den Owner — der
+  /* Vier Rechte tragen `ownerOnly`: Konten löschen, Rechte vergeben,
+     Freigaben lesen und den Fernzugang einrichten. Die Oberfläche sperrt sie für alle außer den Owner — der
      Server tat das bisher nicht. Solange nur der Owner „Rechte vergeben" hat,
      fällt das nicht auf; gibt er es einmal weiter, gilt plötzlich die
      Beschriftung und nicht mehr die Regel, und wer es hat, holt sich damit

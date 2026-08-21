@@ -31,22 +31,19 @@ html, body, #root { height: 100%; margin: 0; }
    ab und bringt seinen eigenen Grund mit. */
 html {
   background:
-    /* ZUERST, also ganz oben im Stapel: die Blende an der Unterkante.
-       Auf dem Geraet gegen github.com verglichen. Deren Seite laeuft hinter
-       Safaris Leiste weiter — man liest den Text quer durch die
-       durchscheinende URL-Pille. Das geht, weil ihr Dokument laenger ist als
-       der Ausschnitt. Unseres ist eine App auf genau Ausschnitthoehe, und
-       fuer die 98 Punkte darunter nimmt Safari ausschliesslich die
-       Hintergrund-FARBE der Seite — den Verlauf malt es dort nicht.
-       Nachgeprueft: html auf 100lvh zu setzen aendert daran nichts, die
-       Farbe blieb flach --grund-rand.
-       Bleibt also nur, die Naht unsichtbar zu machen statt sie zu fuellen.
-       Vorher stand dort rgb(43,84,102) gegen rgb(23,39,53) — dreifache
-       Helligkeit auf einem Punkt Abstand. Diese Blende fuehrt die letzten
-       140 Punkte in genau die Farbe ueber, die darunter weitergeht.
-       In der Startbildschirm-App gibt es die Leiste nicht; dort liegt die
-       Blende am echten Schirmrand und faellt nicht auf. */
-    linear-gradient(to top, var(--grund-rand), transparent 140px),
+    /* Die erste Ebene ist die Blende an der Unterkante — auf dem Geraet
+       gesetzt, am Schreibtisch `none`. Warum es sie braucht: die Seite hoert
+       nicht am Bildschirmrand auf. Darunter liegen noch Safaris Leiste und
+       die Wischleiste, und fuer diese Flaechen nimmt ein Browser
+       ausschliesslich die Hintergrund-FARBE der Seite — den Verlauf malt er
+       dort nicht. Laeuft die Aurora bis zur letzten Zeile hell weiter, steht
+       dort eine sichtbare Kante: auf dem Geraet gemessen rgb(43,84,102)
+       gegen rgb(23,39,53) einen Punkt daneben.
+       Zum Vergleich github.com auf demselben Geraet: deren Seite laeuft
+       hinter der Leiste weiter, weil ihr Dokument laenger ist als der
+       Ausschnitt. Unseres ist eine App auf genau Ausschnitthoehe. Nachgeprueft:
+       html auf 100lvh zu setzen aendert daran nichts, die Farbe blieb flach. */
+    var(--rand-blende),
     radial-gradient(1200px 700px at 78% -8%, var(--aurora-1), transparent 62%),
     radial-gradient(900px 620px at 10% 108%, var(--aurora-2), transparent 60%),
     radial-gradient(760px 520px at 96% 82%, var(--aurora-3), transparent 62%),
@@ -145,27 +142,6 @@ a:hover { text-decoration: underline; }
      Blasen. Was man nicht malt, kann auch nicht abgeschnitten werden. */
 }
 
-/* Die zweite Hälfte der Blende — die erste steht im html-Hintergrund.
-   Zwei Ebenen, weil zwei Dinge die Unterkante aufhellen: der Seitenverlauf
-   selbst (den fängt die html-Blende) und die Sterne und Blasen DIESER
-   Fläche, die darüber gemalt werden (die fängt nur eine Blende, die
-   ebenfalls hier liegt).
-   Auf dem Gerät nachgemessen, Startbildschirm-App, Naht bei 812 Punkten:
-     ohne alles          rgb(43,84,102) gegen rgb(23,39,53)   harte Kante
-     nur html-Blende     rgb(23,45,59)  gegen rgb(23,39,53)   sechs Stufen
-     beide Blenden       deckungsgleich
-   Anders als früher hängt sie nicht mehr an .viewport-beschnitten: die
-   Naht gibt es auch in Safari, dort unter der Adressleiste. */
-.cosmos::after {
-  content: '';
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  height: 120px;
-  background: linear-gradient(to bottom, transparent, var(--grund-rand));
-  pointer-events: none;
-}
 
 .cosmos__stars { position: absolute; inset: 0; width: 100%; height: 100%; opacity: var(--star-alpha); }
 

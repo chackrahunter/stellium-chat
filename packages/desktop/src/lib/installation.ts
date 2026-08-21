@@ -108,6 +108,14 @@ export function lageBestimmen(): Lage {
  */
 export function einrichtungNoetig(): boolean {
   if (window.stellium) return false;
+  /* Die Prüfläufe steuern einen Browser fern und stellen dabei ein Telefon
+     nach — genau der Fall, den diese Seite abfängt. Prüfen sollen sie aber
+     die App und nicht die Anleitung, und zwölf Skripte tun das.
+     `navigator.webdriver` ist dafür das richtige Merkmal: gesetzt ist es
+     genau dann, wenn ein Programm den Browser steuert, und an sich selbst
+     setzen kann es niemand. Bewusst KEIN Adresszusatz als Ausstieg — den
+     könnte jeder anhängen und die Einrichtung damit umgehen. */
+  if (navigator.webdriver) return false;
   const lage = lageBestimmen();
   return lage.mobil && !lage.eigenstaendig;
 }

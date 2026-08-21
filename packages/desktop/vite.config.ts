@@ -47,13 +47,22 @@ export default defineConfig({
        von Hand aus dem Umschalter zu werfen — sie hält ihre Seite sonst
        tagelang fest. */
     host: true,
-    /* Damit die Oberfläche vom Telefon aus denselben Server benutzt wie
-       sonst. Ohne das zeigte `serverUrl()` auf den Entwicklungsserver, und
-       jede Anfrage liefe ins Leere. */
-    proxy: {
-      '/api': { target: 'https://chat.stellium.club', changeOrigin: true, secure: true },
-      '/ws': { target: 'wss://chat.stellium.club', ws: true, changeOrigin: true, secure: true },
-    },
+    /* Weiterleitung auf den echten Server — NUR auf ausdrücklichen Zuruf:
+     *
+     *     STELLIUM_ECHT=1 npm run dev:desktop
+     *
+     * Gebraucht wird sie, um die Oberfläche vom Telefon aus mit echten Daten
+     * zu sehen. Als Voreinstellung wäre sie gefährlich: dann schriebe jeder,
+     * der `npm run dev` startet, auf das Livesystem, und `npm run e2e` legt
+     * dort Konten an. Ohne die Variable bleibt alles bei localhost:8787. */
+    ...(process.env.STELLIUM_ECHT
+      ? {
+          proxy: {
+            '/api': { target: 'https://chat.stellium.club', changeOrigin: true, secure: true },
+            '/ws': { target: 'wss://chat.stellium.club', ws: true, changeOrigin: true, secure: true },
+          },
+        }
+      : {}),
   },
   build: {
     outDir: 'dist',

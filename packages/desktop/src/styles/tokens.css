@@ -13,10 +13,13 @@
   /* Was Dynamic Island, Kameraloch und Home-Leiste verdecken. Auf Geräten ohne
      solche Ränder sind die Werte null — die Regeln kosten dort also nichts,
      und man muss nicht nach Gerät unterscheiden.
-     ACHTUNG: In der iOS-Startbildschirm-App übersteuert lib/sichere-bereiche.ts
-     oben/unten zur Laufzeit per Inline-Style auf :root (WebKit #301994 meldet
-     dort falsche env-Werte). Wer hier misst und env sieht, aber 0 bekommt,
-     sucht dort weiter. */
+     ACHTUNG: Seit das Viewport-Meta ohne `viewport-fit=cover` auskommt, sind
+     diese Werte auf dem Telefon IMMER null — env meldet nur dann etwas, wenn
+     die Seite über die sicheren Ränder hinausreichen darf. Das ist Absicht
+     (siehe lib/sichere-bereiche.ts): der Ausschnitt liegt dafür unter der
+     Statusleiste und reicht bis zur letzten Bildschirmzeile.
+     Wer einen Abstand zur Wischleiste braucht, nimmt --wischzone. Wer hier
+     misst und sich über die Null wundert, sucht dort weiter. */
   --sicher-oben:   env(safe-area-inset-top, 0px);
   --sicher-unten:  env(safe-area-inset-bottom, 0px);
   --sicher-links:  env(safe-area-inset-left, 0px);
@@ -124,6 +127,12 @@
      Deshalb hier nicht der nackte Grund, sondern die Farbe, die der Schimmer
      an der Unterkante wirklich hat — gemessen am Bildpunkt: rgb(23, 39, 54). */
   --grund-rand: #172736;
+
+  /* Die Blende an der Unterkante. Standardmaessig KEINE: sie gehoert an den
+     Geraeterand, nicht ins Fenster am Schreibtisch — dort waere sie nur ein
+     dunkler Schleier ueber den untersten Zeilen. Die Geraeteschicht in
+     mobil.css setzt sie. */
+  --rand-blende: none;
 
   color-scheme: dark;
 }

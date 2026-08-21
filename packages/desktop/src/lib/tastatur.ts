@@ -52,10 +52,10 @@ export function tastaturVerbinden(): void {
          Gerüst bliebe zurück. Normalerweise 0, weil die Seite selbst nicht
          scrollt — aber verlassen sollte man sich darauf nicht. */
       wurzel.style.setProperty('--vv-oben', `${Math.round(vv.offsetTop)}px`);
-      /* Als Klasse, nicht als Variable: --sicher-unten hat mit
-         sichere-bereiche.ts bereits einen Schreiber. Zwei Stellen, die
-         dieselbe Variable setzen, überschreiben sich gegenseitig je nach
-         Reihenfolge der Ereignisse. */
+      /* Als Klasse, nicht als Variable: --sicher-unten wird auch aus
+         tokens.css gespeist. Zwei Stellen, die dieselbe Variable setzen,
+         überschreiben sich gegenseitig je nach Reihenfolge der Ereignisse —
+         eine Klasse kann das nicht. */
       wurzel.classList.add('tastatur-offen');
       gesetzt = true;
     } else if (gesetzt) {

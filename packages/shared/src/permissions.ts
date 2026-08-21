@@ -287,6 +287,13 @@ const TEAMLEITUNG: PermissionKey[] = [
   ...MITGLIED,
   'mention.everyone', 'channel.create_private', 'channel.manage', 'channel.members',
   'user.invite', 'user.manage', 'task.delete', 'event.manage', 'idea.manage',
+  /* Den Pi fernsteuern darf die Leitung von Haus aus — steht der Rechner
+     still, hängt das ganze Team, und dann soll niemand erst den Inhaber
+     suchen müssen. NUR das Benutzen: `fern.verwalten`, also Adresse und
+     Passwort hinterlegen, bleibt beim Inhaber und den Administratoren.
+     Wer den Zugang benutzt, bekommt ihn dabei nie zu sehen — die App holt
+     ihn sich selbst. */
+  'fern.zugriff',
 ];
 
 /**

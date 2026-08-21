@@ -450,4 +450,33 @@
      Tipp auf die Nachricht (msg--aktionen, gesetzt in MessageItem), ein
      zweiter schließt sie. */
   .msg:hover:not(.msg--aktionen) .msg__actions { opacity: 0; pointer-events: none; }
+
+  /* ══ BLENDE AN DER UNTERKANTE ═════════════════════════════════
+     Hier und nicht in app.css: sie gehört an den Geräterand. Am
+     Schreibtisch wäre sie nur ein dunkler Schleier über den untersten
+     Zeilen des Fensters — dort gibt es keine Naht, die zu kaschieren wäre.
+     Deshalb steht sie unter `pointer: coarse` und nicht unter einer
+     Breitenregel: ein Tablet im Querformat ist breiter als 880 Punkte und
+     hat trotzdem denselben Rand.
+
+     Zwei Ebenen, weil zwei Dinge die Unterkante aufhellen: der Seitenverlauf
+     selbst — den fängt --rand-blende im Hintergrund von html — und die
+     Sterne und Blasen der Kosmos-Fläche, die darüber gemalt werden; die
+     fängt nur eine Blende, die ebenfalls dort liegt.
+     Auf dem Gerät nachgemessen, Naht bei 812 Punkten:
+       ohne alles        rgb(43,84,102) gegen rgb(23,39,53)   harte Kante
+       nur html-Blende   rgb(23,45,59)  gegen rgb(23,39,53)   sechs Stufen
+       beide Blenden     deckungsgleich, höchstens drei Stufen */
+  :root { --rand-blende: linear-gradient(to top, var(--grund-rand), transparent 140px); }
+
+  .cosmos::after {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 120px;
+    background: linear-gradient(to bottom, transparent, var(--grund-rand));
+    pointer-events: none;
+  }
 }
