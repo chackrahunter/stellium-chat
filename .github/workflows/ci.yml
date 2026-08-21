@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Ohne Verlauf und Marken findet der Nachrüst-Prüflauf das Schema
+          # der letzten Fassung nicht.
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Typen prüfen
+        run: npm run typecheck
+
+      - name: Bauen
+        run: npm run build
+
+      - name: Keine fest verdrahteten Texte
+        run: node scripts/deutsch-finden.mjs
+
+      - name: Server startet und antwortet
+        run: |
+          cd packages/server
+          node --experimental-sqlite dist/index.js &
+          for i in $(seq 1 30); do
+            curl -sf http://localhost:8787/api/health && break
+            sleep 2
+          done
+          curl -sf http://localhost:8787/api/health | grep -q '"ok":true'
+
+      # Der eigentliche Grund für diese Datei: Ein frisch angelegter Server
+      # kommt immer hoch — dort bringt CREATE TABLE jede neue Spalte gleich
+      # mit. Draußen gibt es die Tabellen schon, und dort zählt allein
+      # db/migrate.ts. Fassung 1.0.17 ist genau daran gescheitert
+      # ("no such column: projekt_id") und musste zurückgenommen werden.
+      #
+      # Braucht die Fassungsmarken, deshalb fetch-depth: 0 oben.
+      - name: Server kommt auf einer alten Datenbank hoch
+        run: node scripts/e2e-nachruesten.mjs
