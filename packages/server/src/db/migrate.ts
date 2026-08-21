@@ -93,6 +93,25 @@ export function migrate(): void {
     console.log(`[db] Spalte ${table}.${column} ergänzt`);
   }
 
+  /* Indizes auf nachgerüstete Spalten gehören hierher, nicht in schema.sql:
+     die läuft VOR dieser Nachrüstung, und auf einer bestehenden Datenbank
+     gibt es die Spalte dort noch nicht. Fassung 1.0.17 ist genau daran auf
+     dem Server nicht hochgekommen ("no such column: projekt_id") — auf einer
+     frischen Datenbank fiel es nicht auf, weil CREATE TABLE die Spalten
+     gleich mitbringt. */
+  for (const [name, ausdruck] of [
+    ['idx_tasks_projekt', 'tasks(projekt_id)'],
+    ['idx_tasks_pruefen', 'tasks(von_ki, geprueft_am)'],
+  ] as const) {
+    try {
+      db.exec(`CREATE INDEX IF NOT EXISTS ${name} ON ${ausdruck}`);
+    } catch (err) {
+      /* Fehlt die Tabelle noch (ganz frische Datenbank in einer anderen
+         Reihenfolge), ist das kein Grund, den Start zu verweigern. */
+      console.warn(`[db] Index ${name}:`, (err as Error).message);
+    }
+  }
+
   // Die alten UNIQUE-Bedingungen hingen am Klartext. Nach der Verschlüsselung
   // muss die Eindeutigkeit über die Suchwerte laufen.
   try {

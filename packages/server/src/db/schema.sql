@@ -334,8 +334,10 @@ CREATE TABLE IF NOT EXISTS tasks (
   von_ki      INTEGER NOT NULL DEFAULT 0,
   geprueft_am INTEGER
 );
-CREATE INDEX IF NOT EXISTS idx_tasks_projekt ON tasks(projekt_id);
-CREATE INDEX IF NOT EXISTS idx_tasks_pruefen ON tasks(von_ki, geprueft_am);
+-- Die Indizes auf projekt_id, von_ki und geprueft_am stehen NICHT hier,
+-- sondern in migrate.ts: diese Datei läuft VOR der Spalten-Nachrüstung, und
+-- auf einer bestehenden Datenbank gibt es die Spalten hier noch nicht.
+-- (Genau daran ist Fassung 1.0.17 auf dem Server gescheitert.)
 CREATE INDEX IF NOT EXISTS idx_tasks_status   ON tasks(status, position);
 CREATE INDEX IF NOT EXISTS idx_tasks_assignee ON tasks(assignee_id, status);
 CREATE INDEX IF NOT EXISTS idx_tasks_channel  ON tasks(channel_id);

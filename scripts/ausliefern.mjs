@@ -197,6 +197,18 @@ try {
   raus(`Typprüfung fehlgeschlagen:\n${(err.stdout || err.message).slice(0, 1500)}`);
 }
 
+/* Kommt der Server auf der Datenbank hoch, die draußen wirklich liegt?
+   Die Prüfläufe legen ihre Datenbank frisch an — dort bringt CREATE TABLE
+   jede neue Spalte gleich mit, und ein Fehler in der Nachrüstung fällt nie
+   auf. Fassung 1.0.17 ist genau daran auf dem Server gescheitert und musste
+   zurückgenommen werden. Deshalb steht diese Probe vor dem Bauen. */
+try {
+  lauf('node', ['scripts/e2e-nachruesten.mjs']);
+  ok('Server kommt auf einer alten Datenbank hoch');
+} catch (err) {
+  raus(`Nachrüstung der Datenbank fehlgeschlagen:\n${(err.stdout || err.message).slice(0, 1200)}`);
+}
+
 try {
   const bericht = lauf('node', ['scripts/deutsch-finden.mjs']);
   const zahl = Number((bericht.match(/Gesamt: (\d+)/) ?? [])[1] ?? 0);
