@@ -1,0 +1,2 @@
+Fassung 1.0.17 kam auf dem Server nicht hoch: ein Index zeigte auf eine Spalte, die erst danach angelegt wird — behoben und mit einem eigenen Prüflauf abgesichert.
+Der Commit einer Auslieferung heißt jetzt nach seiner Fassung, statt einen abgeschnittenen Satz in die nächste Änderungsliste zu tragen.

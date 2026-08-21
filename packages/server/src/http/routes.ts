@@ -219,6 +219,11 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   app.get('/api/health', async () => ({
     verbunden: verbindungen(),
     ok: true,
+    /* Welche Fassung hier wirklich läuft. Ohne diese Zeile endete das
+       Ausliefern mit „veröffentlicht", ohne dass jemand nachsehen konnte, ob
+       der Server sie auch übernommen hat — 1.0.17 lag danach eine halbe
+       Stunde unbemerkt auf dem alten Stand. */
+    version: config.version,
     workspace: config.workspaceName,
     ai: aiCapabilities(),
     languages: LANGUAGES.length,

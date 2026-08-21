@@ -17,6 +17,7 @@
  * jede Zeile wird den anderen nach dem Update als eigener Punkt gezeigt.
  */
 import { execFileSync } from 'node:child_process';
+import crypto from 'node:crypto';
 import { execSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -25,11 +26,12 @@ import readline from 'node:readline/promises';
 import { fileURLToPath } from 'node:url';
 
 const wurzel = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const F = { aus: '\x1b[0m', fett: '\x1b[1m', grau: '\x1b[90m', gruen: '\x1b[38;5;42m', rot: '\x1b[38;5;203m', blau: '\x1b[38;5;111m' };
+const F = { aus: '\x1b[0m', fett: '\x1b[1m', grau: '\x1b[90m', gruen: '\x1b[38;5;42m', rot: '\x1b[38;5;203m', gelb: '\x1b[38;5;221m', blau: '\x1b[38;5;111m' };
 const sag = (t = '') => process.stdout.write(`${t}\n`);
 const ok = (t) => sag(`  ${F.gruen}✓${F.aus} ${t}`);
 const schritt = (t) => sag(`\n${F.blau}${F.fett}▸ ${t}${F.aus}`);
 const raus = (t) => { sag(`\n${F.rot}✗ ${t}${F.aus}\n`); process.exit(1); };
+const warn = (t) => sag(`  ${F.gelb}!${F.aus} ${t}`);
 
 const args = process.argv.slice(2);
 const nurHochladen = args.includes('--nur-hochladen');
@@ -222,6 +224,24 @@ if (!anmeldung.ok) raus(`Anmeldung fehlgeschlagen (${anmeldung.status}).`);
 const { token } = await anmeldung.json();
 ok(`als ${login}`);
 
+/* Vor dem ersten Byte: Ist genug Platz drüben, und steht der Umweg?
+   Ein Pi mit voller Karte nimmt das Paket an, schreibt es halb und lässt
+   danach weder Server noch Sicherung laufen. */
+if (!sshErreichbar()) {
+  warn(`Der Umweg über SSH (${sshZiel}) steht nicht — bei Paketen über 100 MB `
+    + 'lehnt der Tunnel ab, und dann gibt es keinen zweiten Weg.');
+} else {
+  try {
+    const frei = Number(lauf('ssh', [sshZiel, "df --output=avail -k \"$HOME\" | tail -1"]).trim());
+    const gebraucht = hochzuladen.reduce((s, [, p]) => s + fs.statSync(p).size, 0) / 1024;
+    /* Doppelt: einmal die Zwischenablage, einmal die Release-Ablage. */
+    if (frei && frei < gebraucht * 2) {
+      raus(`Auf dem Server sind nur ${(frei / 1024 / 1024).toFixed(1)} GB frei, `
+        + `gebraucht werden rund ${(gebraucht * 2 / 1024 / 1024).toFixed(1)} GB.`);
+    }
+  } catch { /* Kein df, kein Urteil — dann eben ohne. */ }
+}
+
 schritt('Hochladen');
 const hochzuladen = Object.entries(dateien)
   .filter(([, d]) => d)
@@ -241,6 +261,24 @@ if (nurZiele) {
    server-setup/SSH-EINRICHTEN.md, übersteuerbar per STELLIUM_SSH. */
 const sshZiel = process.env.STELLIUM_SSH || 'stellium';
 let sshBereit = false;
+
+/**
+ * Steht der Umweg überhaupt, bevor wir ihn brauchen?
+ *
+ * Der Deckel des Tunnels fällt erst beim Hochladen auf — nach dem Bauen, also
+ * nach einer Viertelstunde. Ist dann auch noch der SSH-Weg zu, war die
+ * Viertelstunde umsonst. Diese Probe kostet eine Sekunde und läuft vorher.
+ * Sie meldet nur; scheitern soll daran nichts: vielleicht bleibt das Paket ja
+ * unter dem Deckel.
+ */
+function sshErreichbar() {
+  try {
+    lauf('ssh', ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=8', sshZiel, 'true'], { timeout: 20_000 });
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 function sshVorbereiten() {
   if (sshBereit) return;
@@ -293,6 +331,19 @@ echo "$KOERPER"
  */
 const BLOCK = 1048576;
 
+/**
+ * Die Prüfsumme der Datei, die hier liegt.
+ *
+ * Der Server rechnet seine eigene und schickt sie zurück; stimmen beide
+ * überein, ist das Paket unterwegs nicht verstümmelt worden. Ohne diesen
+ * Abgleich wäre der wiederaufsetzende Transport ein blindes Vertrauen: eine
+ * um einen Block verrutschte Fortsetzung sieht in der Größe richtig aus und
+ * ergibt trotzdem ein kaputtes Archiv.
+ */
+function pruefsumme(pfad) {
+  return crypto.createHash('sha256').update(fs.readFileSync(pfad)).digest('hex');
+}
+
 function schieben(pfad, datei) {
   const fern = `$HOME/fassung-${version}/${datei}`;
   const gesamt = fs.statSync(pfad).size;
@@ -300,22 +351,42 @@ function schieben(pfad, datei) {
     lauf('ssh', [sshZiel, `stat -c%s "${fern}" 2>/dev/null || echo 0`]).trim(),
   ) || 0;
 
-  for (let versuch = 1; versuch <= 5; versuch++) {
+  /* Nicht „fünf Versuche", sondern „so lange, wie es vorangeht".
+     Beim Ausliefern von 1.0.18 riss die Leitung bei 2, 3 und 19 MB — mit
+     einer festen Zahl wäre nach fünf Abbrüchen Schluss gewesen, obwohl jeder
+     Anlauf ein Stück weiter kam. Aufgegeben wird erst, wenn ein Durchgang
+     nichts mehr hinzufügt: dann ist die Leitung wirklich zu und nicht nur
+     wackelig. */
+  const OHNE_FORTSCHRITT_MAX = 4;
+  let ohneFortschritt = 0;
+  let zuletzt = -1;
+
+  while (ohneFortschritt < OHNE_FORTSCHRITT_MAX) {
     let da = dortSchon();
     if (da > gesamt) { lauf('ssh', [sshZiel, `rm -f "${fern}"`]); da = 0; }
     if (da === gesamt) return;
-    if (versuch > 1) {
-      sag(`  ${F.grau}… ${(da / 1024 / 1024).toFixed(0)} von ${(gesamt / 1024 / 1024).toFixed(0)} MB — weiter${F.aus}`);
+
+    if (da > zuletzt) { ohneFortschritt = 0; } else { ohneFortschritt += 1; }
+    if (zuletzt >= 0) {
+      const anteil = ((da / gesamt) * 100).toFixed(0);
+      sag(`  ${F.grau}… ${(da / 1024 / 1024).toFixed(0)} von ${(gesamt / 1024 / 1024).toFixed(0)} MB `
+        + `(${anteil} %) — weiter${F.aus}`);
     }
+    zuletzt = da;
+
     const bloecke = Math.floor(da / BLOCK);
     try {
       lauf('bash', ['-c',
         `dd if=${JSON.stringify(pfad)} bs=${BLOCK} skip=${bloecke} 2>/dev/null | `
-        + `ssh -o ServerAliveInterval=15 ${sshZiel} `
+        + `ssh -o ServerAliveInterval=15 -o ServerAliveCountMax=3 ${sshZiel} `
         + `'dd of="${fern}" bs=${BLOCK} seek=${bloecke} conv=notrunc 2>/dev/null'`]);
     } catch { /* Leitung weg — der nächste Durchgang setzt an der Bruchstelle an. */ }
   }
-  if (dortSchon() !== gesamt) throw new Error(`${datei} kam nicht vollständig an`);
+  const angekommen = dortSchon();
+  throw new Error(`${datei} kam nicht vollständig an `
+    + `(${(angekommen / 1024 / 1024).toFixed(0)} von ${(gesamt / 1024 / 1024).toFixed(0)} MB; `
+    + `${OHNE_FORTSCHRITT_MAX} Anläufe ohne Fortschritt). Der Rest liegt drüben — `
+    + 'ein neuer Lauf setzt dort auf.');
 }
 
 function ueberSsh(system, pfad, datei) {
@@ -378,7 +449,61 @@ for (const [system, pfad] of hochzuladen) {
       await new Promise((f) => setTimeout(f, versuch * 4000));
     }
   }
+  /* Der Abgleich, der aus „angekommen" ein „unversehrt angekommen" macht.
+     Weicht die Summe ab, liegt draußen ein Paket, das sich nicht auspacken
+     lässt — und die Clients hätten es sich schon geholt. Lieber hier laut
+     scheitern. */
+  const hier = pruefsumme(pfad);
+  if (release.sha256 && release.sha256 !== hier) {
+    raus(`${system}: Das Paket ist unterwegs beschädigt worden.\n`
+      + `  hier  ${hier}\n  dort  ${release.sha256}\n`
+      + '  Noch einmal ausliefern; die Übertragung setzt an der Bruchstelle auf.');
+  }
   ok(`${system} · ${release.version} · ${release.sha256.slice(0, 12)}…`);
+}
+
+/* ── Kommt der Server wirklich hoch? ─────────────────────────────
+   Bisher endete das Ausliefern mit „veröffentlicht" — was der Server damit
+   macht, sah niemand. Fassung 1.0.17 lief genau so: hochgeladen, gemeldet,
+   fertig; der Pi versuchte einzuspielen, kam nicht hoch, legte den alten
+   Stand zurück, und wir haben es erst eine halbe Stunde später zufällig im
+   Journal gefunden.
+
+   Jetzt wird das Einspielen angestoßen und zugesehen. Scheitert es, steht
+   der Grund hier — und der Rückweg des Servers hat ohnehin schon gegriffen. */
+if (mitServer && !nurZiele) {
+  schritt('Server einspielen');
+  try {
+    /* Der Dienst blockiert bis zum Ende (Ankündigung, Sicherung, Bauen,
+       Neustart) — auf einem Pi sind das ein paar Minuten. */
+    lauf('ssh', [sshZiel, 'sudo systemctl start stellium-selbstupdate.service'], { timeout: 45 * 60_000 });
+    ok('eingespielt');
+  } catch {
+    /* systemctl meldet den Fehlschlag; das Warum steht im Journal. */
+    let grund = '';
+    try {
+      const log = lauf('ssh', [sshZiel, 'journalctl -u stellium-selbstupdate -n 60 --no-pager']);
+      grund = (log.match(/Start fehlgeschlagen: .*/) ?? log.match(/✗ .*/) ?? [])[0] ?? '';
+    } catch { /* kein Journal erreichbar */ }
+    warn('Der Server hat die neue Fassung NICHT übernommen — der alte Stand läuft weiter.'
+      + (grund ? `\n    ${grund}` : '')
+      + '\n    Die Apps haben ihre Fassung trotzdem bekommen.'
+      + '\n    Nachsehen:  ssh ' + sshZiel + ' journalctl -u stellium-selbstupdate -n 60 --no-pager');
+  }
+
+  /* Und die Gegenprobe: Was läuft dort jetzt wirklich? Eine Meldung „läuft"
+     ohne Nachfrage wäre dieselbe Sorte Vertrauen, die uns 1.0.17 gekostet
+     hat. */
+  try {
+    const antwort = lauf('ssh', [sshZiel,
+      'curl -s --max-time 10 http://127.0.0.1:8787/api/health']).trim();
+    const laeuft = JSON.parse(antwort).version ?? '?';
+    if (laeuft === version) ok(`Server läuft auf ${laeuft}`);
+    /* Ältere Server kennen die Auskunft noch nicht — das ist kein Fehlschlag,
+       nur eine Auskunft, die es erst ab dieser Fassung gibt. */
+    else if (laeuft === '?') sag(`  ${F.grau}Server meldet seine Fassung noch nicht${F.aus}`);
+    else warn(`Der Server läuft auf ${laeuft}, nicht auf ${version}.`);
+  } catch { /* Auskunft ist Beiwerk, kein Grund zu scheitern. */ }
 }
 
 sag(`
