@@ -2,13 +2,14 @@ import { useEffect, useMemo, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
   CalendarDays, Check, ChevronLeft, ChevronRight, Clock, HelpCircle, MapPin,
-  Plus, Trash2, X,
+  Plus, Sparkles, Trash2, X,
 } from 'lucide-react';
 import { EVENT_KINDS, type CalendarEvent, type EventKind } from '@stellium/shared';
 import { useStore } from '../state/store.js';
 import { useT } from '../i18n/index.js';
 import { Avatar } from './Avatar.jsx';
 import { Shell } from './Panels.jsx';
+import { PruefListe } from './PruefListe.jsx';
 import { clsx, localTimeFor } from '../lib/format.js';
 
 const ART_FARBE: Record<EventKind, string> = {
@@ -37,11 +38,13 @@ export function CalendarPanel({ onClose }: { onClose: () => void }) {
   const t = useT();
   const events = useStore((s) => s.events);
   const self = useStore((s) => s.self);
-  const { loadEvents } = useStore.getState();
+  const { loadEvents, terminGeprueft, deleteEvent } = useStore.getState();
 
   const [anker, setAnker] = useState(() => wochenStart(Date.now()));
   const [neuOffen, setNeuOffen] = useState<number | null>(null);
   const [offenerTermin, setOffenerTermin] = useState<string | null>(null);
+  /** Der Reiter „Prüfen": nur, was die KI selbst eingetragen hat. */
+  const [pruefen, setPruefen] = useState(false);
 
   const bis = anker + 7 * TAG;
   useEffect(() => { loadEvents(anker, bis); }, [anker, bis, loadEvents]);
@@ -64,6 +67,15 @@ export function CalendarPanel({ onClose }: { onClose: () => void }) {
   const heute = new Date().setHours(0, 0, 0, 0);
   const sprache = self?.language ?? 'de';
 
+  const ungeprueft = useMemo(
+    () => Object.values(events).filter((e) => e.vonKi && !e.geprueft),
+    [events],
+  );
+  /* Leerer Reiter führt ins Nichts — dann zurück auf die Woche. */
+  useEffect(() => {
+    if (pruefen && !ungeprueft.length) setPruefen(false);
+  }, [pruefen, ungeprueft.length]);
+
   return (
     <Shell
       title={t('calendar.title')}
@@ -76,12 +88,34 @@ export function CalendarPanel({ onClose }: { onClose: () => void }) {
           <button className="icon-btn" onClick={() => setAnker((a) => a - 7 * TAG)}><ChevronLeft size={16} /></button>
           <button className="pill" onClick={() => setAnker(wochenStart(Date.now()))}>{t('calendar.today')}</button>
           <button className="icon-btn" onClick={() => setAnker((a) => a + 7 * TAG)}><ChevronRight size={16} /></button>
+          {ungeprueft.length > 0 && (
+            <button
+              className={clsx('pill', pruefen ? 'pill--accent' : 'pill--warn')}
+              onClick={() => setPruefen((v) => !v)}
+            >
+              <Sparkles size={13} /> {t('pruefen.count', { n: ungeprueft.length })}
+            </button>
+          )}
           <button className="pill pill--accent" onClick={() => setNeuOffen(Date.now())}>
             <Plus size={13} /> {t('calendar.new')}
           </button>
         </>
       }
     >
+      {pruefen ? (
+        <PruefListe
+          eintraege={ungeprueft.map((e) => ({
+            id: e.id,
+            titel: e.title,
+            neben: new Date(e.startsAt).toLocaleString(sprache, {
+              weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
+            }),
+          }))}
+          onOeffnen={(id) => { setPruefen(false); setOffenerTermin(id); }}
+          onPasst={(id) => terminGeprueft(id)}
+          onWeg={(id) => { if (confirm(t('calendar.delete'))) deleteEvent(id); }}
+        />
+      ) : (
       <div className="week">
         {tage.map((tag) => {
           const liste = proTag.get(tag) ?? [];
@@ -124,6 +158,7 @@ export function CalendarPanel({ onClose }: { onClose: () => void }) {
           );
         })}
       </div>
+      )}
 
       <AnimatePresence>
         {neuOffen !== null && <EventDialog key="neu" start={neuOffen} onClose={() => setNeuOffen(null)} />}
@@ -221,7 +256,7 @@ function EventDialog({ start, onClose }: { start: number; onClose: () => void })
       <div className="field">
         <label className="field__label">{t('calendar.attendees')}</label>
         <div className="chip-grid">
-          {Object.values(users).filter((u) => !u.disabled && u.role !== 'bot' && u.id !== self?.id).map((u) => {
+          {Object.values(users).filter((u) => !u.disabled && u.role !== 'bot' && !u.technisch && u.id !== self?.id).map((u) => {
             const drin = teilnehmer.has(u.id);
             const zeit = localTimeFor(u.timezone);
             return (

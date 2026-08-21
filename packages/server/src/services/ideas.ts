@@ -35,6 +35,9 @@ function toIdea(r: any, stimmen: Map<string, { hoch: number; runter: number; mei
     downvotes: s.runter,
     myVote: s.meine as 1 | -1 | 0,
     commentCount: kommentare.get(r.id) ?? 0,
+    vonKi: Boolean(r.von_ki),
+    /* Was ein Mensch eingebracht hat, ist geprüft — nur die KI wartet. */
+    geprueft: !r.von_ki || Boolean(r.geprueft_am),
   };
 }
 
@@ -85,6 +88,8 @@ export function getIdea(id: string, userId: string): Idea | null {
 
 export function createIdea(input: {
   title: string; body?: string | null; tag?: string; channelId?: string | null; createdBy: string;
+  /** Von der KI selbst eingetragen — landet dann im Reiter „Prüfen". */
+  vonKi?: boolean;
 }): Idea {
   const titel = input.title.trim();
   if (titel.length < 3) throw new Error('Die Idee braucht einen Titel.');
@@ -92,15 +97,19 @@ export function createIdea(input: {
   const id = newId('id_');
   const jetzt = Date.now();
   db.run(
-    `INSERT INTO ideas (id, title, body, status, tag, channel_id, created_by, created_at, updated_at)
-     VALUES (?,?,?,'new',?,?,?,?,?)`,
+    `INSERT INTO ideas (id, title, body, status, tag, channel_id, created_by, created_at, updated_at, von_ki)
+     VALUES (?,?,?,'new',?,?,?,?,?,?)`,
     id, titel.slice(0, TITEL_MAX), input.body?.trim().slice(0, TEXT_MAX) || null,
     (input.tag ?? '').trim().slice(0, 40), input.channelId ?? null,
-    input.createdBy, jetzt, jetzt,
+    input.createdBy, jetzt, jetzt, input.vonKi ? 1 : 0,
   );
-  // Wer eine Idee einbringt, ist offensichtlich dafür.
-  db.run('INSERT INTO idea_votes (idea_id, user_id, wert, created_at) VALUES (?,?,1,?)',
-    id, input.createdBy, jetzt);
+  /* Wer eine Idee einbringt, ist offensichtlich dafür — die KI aber nicht.
+     Eine Stimme von ihr wäre eine erfundene Meinung, und der Vergleich
+     „acht dafür, zwei dagegen" wäre nichts mehr wert. */
+  if (!input.vonKi) {
+    db.run('INSERT INTO idea_votes (idea_id, user_id, wert, created_at) VALUES (?,?,1,?)',
+      id, input.createdBy, jetzt);
+  }
   return getIdea(id, input.createdBy)!;
 }
 
@@ -202,4 +211,11 @@ export function idsImKanal(channelId: string): string[] {
 
 export function deleteIdea(id: string): void {
   db.run('DELETE FROM ideas WHERE id = ?', id);
+}
+
+/** „Passt" — ein Mensch hat die KI-Idee angesehen; sie verlässt den Reiter „Prüfen". */
+export function ideeGeprueft(id: string, userId: string): Idea | null {
+  if (!db.get('SELECT 1 AS x FROM ideas WHERE id = ?', id)) return null;
+  db.run('UPDATE ideas SET geprueft_am = ?, updated_at = ? WHERE id = ?', Date.now(), Date.now(), id);
+  return getIdea(id, userId);
 }

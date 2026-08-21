@@ -88,13 +88,13 @@ export const fr = {
   'msg.showTranslation': 'Afficher la traduction',
   'msg.translatedFrom': 'Traduit de {language}',
   'msg.writtenIn': 'Rédigé en {language}',
-  'fehler.keineSelbstanmeldung': "Les comptes sont créés par la direction de l'équipe. Demande un mot de passe à usage unique.",
+  'fehler.keineSelbstanmeldung': 'Les comptes sont créés par la direction de l\'équipe. Demande un mot de passe à usage unique.',
   'fehler.zugangsdatenFehlen': 'Identifiants manquants',
   'fehler.zuVieleVersuche': 'Trop de tentatives. Patiente une minute.',
-  'fehler.loginFalsch': "Nom d'utilisateur ou mot de passe incorrect",
-  'fehler.kontoGesperrt': "Ce compte est bloqué. Contacte la direction de l'équipe.",
-  'fehler.keinRecht': "Tu n'as pas le droit de faire cela.",
-  'fehler.keineDatei': "Aucun fichier n'a été envoyé.",
+  'fehler.loginFalsch': 'Nom d\'utilisateur ou mot de passe incorrect',
+  'fehler.kontoGesperrt': 'Ce compte est bloqué. Contacte la direction de l\'équipe.',
+  'fehler.keinRecht': 'Tu n\'as pas le droit de faire cela.',
+  'fehler.keineDatei': 'Aucun fichier n\'a été envoyé.',
   'fehler.nichtAngemeldet': 'Non connecté',
   'fehler.dateiNichtGefunden': 'Fichier introuvable',
   'msg.originalIn': 'Original · {language}',
@@ -500,8 +500,6 @@ export const fr = {
   'ideas.status.working': 'En cours',
   'ideas.status.done': 'Terminé',
   'ideas.status.rejected': 'Rejeté',
-
-  /* Vorschläge der KI — angenommen, abgelehnt oder geändert wird hier */
   'vorschlaege.title': 'Suggestions',
   'vorschlaege.nav': 'Suggestions de StelliumAI',
   'vorschlaege.subtitle': 'En attente : {n} — l’IA propose, tu décides.',
@@ -808,8 +806,6 @@ export const fr = {
   'kat.automatisch': 'Classer automatiquement',
   'kat.hinweis': 'Les nouveaux comptes sont placés sous « Nouveau », les bots sous « Technique », les supprimés sous « Supprimé ». La sélection manuelle a priorité.',
   'kat.verschoben': 'Catégorie modifiée',
-
-  /* App herunterladen — nur im Browser sichtbar */
   'download.nav': 'Télécharger l’application',
   'download.title': 'Télécharger l’application',
   'download.subtitle': 'Toujours la dernière version, directement depuis votre propre serveur.',
@@ -830,7 +826,6 @@ export const fr = {
   'download.checksumHint': 'Comparez-la après le téléchargement : vous saurez ainsi que le fichier est arrivé intact.',
   'download.checksumCopy': 'Copier la somme de contrôle',
   'download.checksumCopied': 'Copiée',
-
   'status.title': 'Mon statut',
   'status.online': 'En ligne',
   'status.away': 'Absent',
@@ -923,8 +918,6 @@ export const fr = {
   'fehler.serverStumm': 'Le serveur n’a pas répondu.',
   'fehler.codePasstNicht': 'Le code ne correspond pas à cette libération.',
   'fehler.dateiKopfUnlesbar': 'Ce fichier n’a pas d’en-tête lisible.',
-
-  /* Beschriftungen, die vorher fest im Code standen */
   'msg.someone': 'quelqu’un',
   'common.active': 'actif',
   'common.ctrlKey': 'Ctrl',
@@ -974,8 +967,6 @@ export const fr = {
   'toast.rewriteFailed': 'La reformulation a échoué',
   'toast.scheduled': 'Programmé',
   'voice.stopRecording': 'Arrêter l’enregistrement',
-
-  /* Texte, die der Server schickt — er sendet die Kennung, hier steht der Satz */
   'fehler.nichtGefunden': 'Introuvable',
   'hinweis.lokalStumm': 'Le modèle à {adresse} ne répond pas ({fehler}). Les messages restent non traduits jusqu’à son retour.',
   'hinweis.lokalOhneModell': 'Aucun modèle n’est chargé sur {adresse}. Démarres-en un, sinon rien n’est traduit.',
@@ -983,7 +974,6 @@ export const fr = {
   'hinweis.keinAssistent': '{anbieter} traduit, mais ne sait pas faire de résumés par IA. Pour tout avoir, choisis Groq, OpenAI ou un modèle local.',
   'hinweis.keinAbtippen': 'Les messages vocaux ne sont pas transcrits. Il faudrait le service vocal sur le serveur (server-setup/dienste/stimme-einrichten.sh) ou une clé Groq.',
   'hinweis.stimmeBeiGroq': 'Le modèle de texte tourne sur votre réseau, mais les messages vocaux partent chez Groq. Avec server-setup/dienste/stimme-einrichten.sh ils restent ici aussi.',
-
   'anhang.wirdGeoeffnet': 'Ouverture …',
   'anhang.unlesbar': 'Illisible',
   'anhang.unlesbarHinweis': 'La clé de ce fichier manque. Après un changement d’appareil, le code de récupération aide.',
@@ -996,8 +986,6 @@ export const fr = {
   'files.oeffentlichHinweis': 'Toute l’équipe peut ouvrir ce fichier.',
   'files.downloadFehler': 'Échec du téléchargement',
   'toast.filesFailed': 'Impossible de charger la bibliothèque',
-
-  /* Meldungen der Ereignisleitung — der Server schickt die Kennung */
   'fehler.privatUnverschluesselt': 'Ce fichier devait être privé, mais il est arrivé en clair. Mets l’app à jour.',
   'fehler.anmeldungAbgelaufen': 'Session expirée',
   'fehler.anmeldungFehlgeschlagen': 'Échec de la connexion. Réessaie.',
@@ -1010,6 +998,7 @@ export const fr = {
   'fehler.keinRechtAlleErwaehnen': 'Il te manque le droit de mentionner tout le monde.',
   'fehler.keinRechtErwaehnen': 'Il te manque le droit de mentionner des personnes.',
   'fehler.keinRechtName': 'Il te manque le droit « {recht} ».',
+  'fehler.technischesKonto': 'Les comptes techniques n’acceptent pas les messages.',
   'fehler.keinRechtUebergeben': 'Confier des tâches à d’autres est un droit à part.',
   'fehler.keinUmfrageZugang': 'Tu n’as pas accès à ce sondage.',
   'fehler.keinUrsprungZugriff': 'Aucun accès au message d’origine',
@@ -1037,8 +1026,6 @@ export const fr = {
   'fehler.threadNichtGefunden': 'Fil introuvable',
   'fehler.vertraulichGeplantNoetig': 'Ce canal est confidentiel. Un message programmé doit être chiffré dès la programmation — sinon il resterait en clair sur le serveur jusqu’à l’envoi.',
   'fehler.zielkanalNichtGefunden': 'Canal de destination introuvable',
-
-  /* Abweisungen der Schnittstelle — der Server schickt die Kennung */
   'fehler.altesPasswortFalsch': 'L’ancien mot de passe est incorrect.',
   'fehler.anbieterUnbekannt': 'Fournisseur inconnu « {anbieter} ».',
   'fehler.begriffFehlt': 'Terme manquant',
@@ -1106,8 +1093,6 @@ export const fr = {
   'fehler.vorschlagEntschieden': 'Cette suggestion a déjà été tranchée.',
   'fehler.vorschlagTitel': 'La suggestion a besoin d’un titre.',
   'fehler.zusammensetzen': 'Échec de l’assemblage : {grund}',
-
-  /* Fernsteuerung des Pi */
   'fern.titel': 'Piloter le Pi à distance',
   'fern.nurApp': 'Le pilotage à distance n’existe que dans l’application Stellium.',
   'fern.verbinden': 'Se connecter',
@@ -1118,4 +1103,32 @@ export const fr = {
   'fern.steuertAn': 'Pilotage activé',
   'fern.steuertAus': 'observer seulement',
   'fern.steuernHilfe': 'Envoyer clavier et souris au Pi',
+  'projekte.title': 'Projets',
+  'projekte.none': 'Aucun projet',
+  'projekte.all': 'Tous les projets',
+  'projekte.new': 'Nouveau projet',
+  'projekte.name': 'Nom',
+  'projekte.namePlaceholder': 'Sur quoi travaillez‑vous ?',
+  'projekte.description': 'À quoi ça sert ?',
+  'projekte.color': 'Couleur',
+  'projekte.create': 'Créer',
+  'projekte.save': 'Enregistrer',
+  'projekte.empty': 'Pas encore de projet. Créez‑en un et ajoutez‑y des tâches.',
+  'projekte.progress': '{done} sur {total} terminés',
+  'projekte.archive': 'Archiver',
+  'projekte.unarchive': 'Restaurer',
+  'projekte.archived': 'Archivé',
+  'projekte.delete': 'Supprimer le projet',
+  'projekte.deleteConfirm': 'Supprimer ce projet ? Les tâches restent et seront sans projet ensuite.',
+  'projekte.assign': 'Projet',
+  'pruefen.tab': 'Révision',
+  'pruefen.count': 'Révision ({n})',
+  'pruefen.title': 'Ajouté par l’IA',
+  'pruefen.hint': 'L’IA a créé cela automatiquement. Vérifiez : si c’est correct, laissez‑le, sinon supprimez‑le.',
+  'pruefen.ok': 'Correct',
+  'pruefen.empty': 'Rien à réviser. L’IA n’a rien ajouté de nouveau.',
+  'pruefen.badge': 'Non révisé',
+  'pruefen.fromAi': 'De l’IA',
+  'ki.selbstEintragen': 'L’IA ajoute elle‑même',
+  'ki.selbstEintragenHint': 'Off : les découvertes arrivent comme suggestions et attendent un oui. On : tâches, idées et événements apparaissent immédiatement sur les tableaux — marqués et regroupés dans l’onglet « Révision ».',
 };

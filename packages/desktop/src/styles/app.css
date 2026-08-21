@@ -3339,3 +3339,92 @@ button.msg__author:hover { color: var(--violet-soft); text-decoration: underline
   .rail::-webkit-scrollbar { display: none; }
   .rail__logo, .rail-btn, .rail__spacer { flex: none; }
 }
+
+/* ── Projekte und der Reiter „Prüfen" ─────────────────────────────
+   Beides hängt an denselben Karten wie das Aufgabenbrett — deshalb keine
+   eigene Farbwelt, nur ein Punkt und eine Marke. */
+
+.projekt-punkt {
+  display: inline-block;
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  flex: none;
+}
+
+.projekt-liste { display: flex; flex-direction: column; gap: 2px; margin-top: var(--sp-4); }
+
+.projekt-zeile {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 10px;
+  border-radius: var(--r-md);
+  transition: background var(--t-fast);
+}
+.projekt-zeile:hover { background: var(--bg-hover); }
+/* Archivierte Projekte bleiben lesbar, treten aber zurück. */
+.projekt-zeile--archiv { opacity: 0.55; }
+.projekt-zeile__text { flex: 1; min-width: 0; display: grid; gap: 1px; }
+.projekt-zeile__name { font-size: 13.5px; font-weight: 600; }
+.projekt-zeile__zahl { font-size: 11.5px; color: var(--tx-lo); }
+
+.farbwahl { display: flex; gap: 8px; }
+.farbwahl__punkt {
+  width: 24px; height: 24px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  transition: transform var(--t-fast), border-color var(--t-fast);
+}
+.farbwahl__punkt:hover { transform: scale(1.12); }
+.farbwahl__punkt--an { border-color: var(--tx-hi); transform: scale(1.12); }
+
+/* Die Marke auf einer Karte, die die KI selbst angelegt hat. */
+.task-card__ki {
+  display: inline-flex; align-items: center; gap: 3px;
+  align-self: flex-start;
+  margin-top: 2px;
+  padding: 1px 6px;
+  border-radius: 99px;
+  background: color-mix(in srgb, var(--amber) 18%, transparent);
+  color: var(--amber);
+  font-size: 10.5px; font-weight: 650;
+}
+
+.pruefen { display: flex; flex-direction: column; gap: 6px; padding: var(--sp-2) 0; }
+.pruefen__hinweis {
+  margin: 0 0 var(--sp-2);
+  font-size: 12.5px; color: var(--tx-lo);
+}
+.pruefen__zeile {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--bg-panel);
+}
+.pruefen__text {
+  flex: 1; min-width: 0;
+  display: grid; gap: 2px;
+  text-align: start;
+}
+.pruefen__titel { font-size: 13.5px; line-height: 1.35; overflow-wrap: anywhere; }
+.pruefen__neben { font-size: 11.5px; color: var(--tx-lo); }
+.pruefen__knoepfe { display: flex; align-items: center; gap: 6px; flex: none; }
+
+/* Ein Hinweis-Knopf, der nicht schreit: dieselbe Form wie die anderen,
+   nur in der Farbe, die „sieh mal nach" bedeutet. */
+.pill--warn {
+  border-color: color-mix(in srgb, var(--amber) 45%, transparent);
+  color: var(--amber);
+}
+.pill--select {
+  padding-inline-end: 6px;
+  background: transparent;
+  color: inherit;
+  max-width: 190px;
+}
+
+@media (max-width: 560px) {
+  /* Auf dem Telefon steht die Zeile zweizeilig — nebeneinander bliebe für
+     den Titel nichts übrig. */
+  .pruefen__zeile { flex-wrap: wrap; }
+  .pruefen__knoepfe { width: 100%; justify-content: flex-end; }
+}

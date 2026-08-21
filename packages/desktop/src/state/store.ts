@@ -5,7 +5,7 @@ import {
   type Draft, type LinkPreview, type Message, type Poll, type Reminder,
   type RewriteTone, type ScheduledMessage, type SearchHit,
   type ClientEvent, type SelfUser, type ServerEvent, type SmartReply, type User, type UserStatus,
-  type VoiceNote, type Task, type TaskEvent, type TaskStatus, type CalendarEvent,
+  type VoiceNote, type Task, type TaskEvent, type TaskStatus, type CalendarEvent, type Projekt,
   type StoredFile, type StorageUsage, type MeetingProtocol,
   type Idea, type IdeaComment, type IdeaStatus, type ReleaseInfo,
   type Freigabe,
@@ -69,6 +69,8 @@ interface StoreState {
 
   /* UI */
   tasks: Record<string, Task>;
+  /** Projekte — Schubladen für Aufgaben. */
+  projekte: Record<string, Projekt>;
   events: Record<string, CalendarEvent>;
   files: StoredFile[];
   storageUsage: StorageUsage | null;
@@ -239,12 +241,24 @@ interface StoreState {
   setSchublade: (offen: boolean) => void;
 
   loadTasks: (filter?: { channelId?: string; assigneeId?: string }) => void;
+  loadProjekte: () => void;
+  createProjekt: (input: { name: string; beschreibung?: string | null; farbe?: string }) => void;
+  updateProjekt: (projektId: string, patch: {
+    name?: string; beschreibung?: string | null; farbe?: string; archiviert?: boolean;
+  }) => void;
+  deleteProjekt: (projektId: string) => void;
+  /** „Passt" — der von der KI angelegte Eintrag ist angesehen. */
+  aufgabeGeprueft: (taskId: string) => void;
+  ideeGeprueft: (ideaId: string) => void;
+  terminGeprueft: (eventId: string) => void;
+  kiSelbstEintragen: (an: boolean) => void;
   createTask: (input: {
     title: string; description?: string | null; assigneeId?: string | null;
     channelId?: string | null; dueAt?: number | null; priority?: Task['priority'];
+    projektId?: string | null;
   }) => void;
   updateTask: (taskId: string, patch: Partial<Pick<Task,
-    'title' | 'description' | 'status' | 'priority' | 'assigneeId' | 'dueAt' | 'channelId'>>) => void;
+    'title' | 'description' | 'status' | 'priority' | 'assigneeId' | 'dueAt' | 'channelId' | 'projektId'>>) => void;
   moveTask: (taskId: string, status: TaskStatus, afterId?: string | null) => void;
   commentTask: (taskId: string, text: string) => void;
   watchTask: (taskId: string, watching: boolean) => void;
@@ -600,6 +614,7 @@ export const useStore = create<StoreState>((set, get) => ({
   roundTrips: {},
 
   tasks: {},
+  projekte: {},
   events: {},
   files: [],
   storageUsage: null,
@@ -1077,6 +1092,14 @@ export const useStore = create<StoreState>((set, get) => ({
   /* ── Aufgaben ─────────────────────────────────────────── */
 
   loadTasks: (filter) => socket.send({ t: 'task:list', ...filter }) as unknown as void,
+  loadProjekte: () => socket.send({ t: 'projekt:list' }) as unknown as void,
+  createProjekt: (input) => socket.send({ t: 'projekt:create', ...input }) as unknown as void,
+  updateProjekt: (projektId, patch) => socket.send({ t: 'projekt:update', projektId, patch }) as unknown as void,
+  deleteProjekt: (projektId) => socket.send({ t: 'projekt:delete', projektId }) as unknown as void,
+  aufgabeGeprueft: (taskId) => socket.send({ t: 'task:geprueft', taskId }) as unknown as void,
+  ideeGeprueft: (ideaId) => socket.send({ t: 'idea:geprueft', ideaId }) as unknown as void,
+  terminGeprueft: (eventId) => socket.send({ t: 'event:geprueft', eventId }) as unknown as void,
+  kiSelbstEintragen: (an) => socket.send({ t: 'ki:selbst-eintragen', an }) as unknown as void,
   createTask: (input) => socket.send({ t: 'task:create', ...input }) as unknown as void,
   updateTask: (taskId, patch) => socket.send({ t: 'task:update', taskId, patch }) as unknown as void,
   moveTask: (taskId, status, afterId) => socket.send({ t: 'task:move', taskId, status, afterId }) as unknown as void,
@@ -1646,6 +1669,25 @@ socket.onEvent((ev: ServerEvent) => {
     }
 
     /* ── Aufgaben ─────────────────────────────────────────── */
+
+    case 'projekt:list':
+      useStore.setState({ projekte: Object.fromEntries(ev.projekte.map((p) => [p.id, p])) });
+      return;
+
+    case 'projekt:upsert':
+      useStore.setState((s) => ({ projekte: { ...s.projekte, [ev.projekt.id]: ev.projekt } }));
+      return;
+
+    case 'projekt:deleted':
+      useStore.setState((s) => {
+        const { [ev.projektId]: _weg, ...rest } = s.projekte;
+        return { projekte: rest };
+      });
+      return;
+
+    case 'ai:einstellung':
+      useStore.setState((s) => (s.ai ? { ai: { ...s.ai, selbstEintragen: ev.selbstEintragen } } : {}));
+      return;
 
     case 'task:list':
       useStore.setState({ tasks: Object.fromEntries(ev.tasks.map((t) => [t.id, t])) });

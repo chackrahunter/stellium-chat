@@ -500,8 +500,6 @@ export const cs = {
   'ideas.status.working': 'Ve vývoji',
   'ideas.status.done': 'Hotovo',
   'ideas.status.rejected': 'Odmítnuto',
-
-  /* Vorschläge der KI — angenommen, abgelehnt oder geändert wird hier */
   'vorschlaege.title': 'Návrhy',
   'vorschlaege.nav': 'Návrhy od StelliumAI',
   'vorschlaege.subtitle': 'Otevřené: {n} — AI navrhuje, ty rozhoduješ.',
@@ -808,8 +806,6 @@ export const cs = {
   'kat.automatisch': 'Automaticky zařadit',
   'kat.hinweis': 'Nové účty jsou zařazeny pod „Nové“, boty pod „Technické“, smazané pod „Smazáno“. Ručně zvolená kategorie má přednost.',
   'kat.verschoben': 'Kategorie změněna',
-
-  /* App herunterladen — nur im Browser sichtbar */
   'download.nav': 'Stáhnout aplikaci',
   'download.title': 'Stáhnout aplikaci',
   'download.subtitle': 'Vždy nejnovější verze, přímo z vašeho vlastního serveru.',
@@ -830,7 +826,6 @@ export const cs = {
   'download.checksumHint': 'Po stažení ho porovnejte — pak víte, že soubor dorazil beze změny.',
   'download.checksumCopy': 'Kopírovat kontrolní součet',
   'download.checksumCopied': 'Zkopírováno',
-
   'status.title': 'Můj stav',
   'status.online': 'Online',
   'status.away': 'Nepřítomen',
@@ -923,8 +918,6 @@ export const cs = {
   'fehler.serverStumm': 'Server neodpověděl.',
   'fehler.codePasstNicht': 'Kód k tomuto uvolnění nepatří.',
   'fehler.dateiKopfUnlesbar': 'Tento soubor nemá čitelnou hlavičku.',
-
-  /* Beschriftungen, die vorher fest im Code standen */
   'msg.someone': 'někoho',
   'common.active': 'aktivní',
   'common.ctrlKey': 'Ctrl',
@@ -974,8 +967,6 @@ export const cs = {
   'toast.rewriteFailed': 'Přeformulování se nezdařilo',
   'toast.scheduled': 'Naplánováno',
   'voice.stopRecording': 'Ukončit nahrávání',
-
-  /* Texte, die der Server schickt — er sendet die Kennung, hier steht der Satz */
   'fehler.nichtGefunden': 'Nenalezeno',
   'hinweis.lokalStumm': 'Model na {adresse} neodpovídá ({fehler}). Zprávy zůstanou nepřeložené, dokud zase nepoběží.',
   'hinweis.lokalOhneModell': 'Na {adresse} není načtený žádný model. Spusť tam nějaký, jinak se nic nepřeloží.',
@@ -983,7 +974,6 @@ export const cs = {
   'hinweis.keinAssistent': '{anbieter} překládá, ale neumí shrnutí od AI. Pro všechno zvol Groq, OpenAI nebo místní model.',
   'hinweis.keinAbtippen': 'Hlasové zprávy se nepřepisují. Je k tomu potřeba hlasová služba na serveru (server-setup/dienste/stimme-einrichten.sh) nebo klíč Groq.',
   'hinweis.stimmeBeiGroq': 'Textový model běží ve vlastní síti, hlasové zprávy ale jdou do Groq. Se server-setup/dienste/stimme-einrichten.sh zůstanou tady i ony.',
-
   'anhang.wirdGeoeffnet': 'Otevírá se …',
   'anhang.unlesbar': 'Nelze přečíst',
   'anhang.unlesbarHinweis': 'K tomuto souboru chybí klíč. Po výměně zařízení pomůže obnovovací kód.',
@@ -996,8 +986,6 @@ export const cs = {
   'files.oeffentlichHinweis': 'Soubor může otevřít každý v týmu.',
   'files.downloadFehler': 'Stahování selhalo',
   'toast.filesFailed': 'Úložiště se nepodařilo načíst',
-
-  /* Meldungen der Ereignisleitung — der Server schickt die Kennung */
   'fehler.privatUnverschluesselt': 'Tento soubor měl být soukromý, ale dorazil nezašifrovaný. Aktualizuj aplikaci.',
   'fehler.anmeldungAbgelaufen': 'Přihlášení vypršelo',
   'fehler.anmeldungFehlgeschlagen': 'Přihlášení selhalo. Zkus to znovu.',
@@ -1010,6 +998,7 @@ export const cs = {
   'fehler.keinRechtAlleErwaehnen': 'Chybí ti právo zmínit všechny.',
   'fehler.keinRechtErwaehnen': 'Chybí ti právo zmiňovat osoby.',
   'fehler.keinRechtName': 'Chybí ti právo „{recht}".',
+  'fehler.technischesKonto': 'Technické účty nepřijímají zprávy.',
   'fehler.keinRechtUebergeben': 'Předávat úkoly druhým je samostatné právo.',
   'fehler.keinUmfrageZugang': 'K této anketě nemáš přístup.',
   'fehler.keinUrsprungZugriff': 'Nemáš přístup k původní zprávě',
@@ -1037,8 +1026,6 @@ export const cs = {
   'fehler.threadNichtGefunden': 'Vlákno nenalezeno',
   'fehler.vertraulichGeplantNoetig': 'Tento kanál je důvěrný. Naplánovaná zpráva musí být zašifrovaná už při plánování — jinak by ležela na serveru otevřená až do odeslání.',
   'fehler.zielkanalNichtGefunden': 'Cílový kanál nenalezen',
-
-  /* Abweisungen der Schnittstelle — der Server schickt die Kennung */
   'fehler.altesPasswortFalsch': 'Dosavadní heslo nesouhlasí.',
   'fehler.anbieterUnbekannt': 'Neznámý poskytovatel „{anbieter}".',
   'fehler.begriffFehlt': 'Chybí pojem',
@@ -1106,8 +1093,6 @@ export const cs = {
   'fehler.vorschlagEntschieden': 'O tomto návrhu už bylo rozhodnuto.',
   'fehler.vorschlagTitel': 'Návrh potřebuje název.',
   'fehler.zusammensetzen': 'Sestavení selhalo: {grund}',
-
-  /* Fernsteuerung des Pi */
   'fern.titel': 'Ovládat Pi na dálku',
   'fern.nurApp': 'Vzdálené ovládání je jen v aplikaci Stellium.',
   'fern.verbinden': 'Připojit',
@@ -1118,4 +1103,32 @@ export const cs = {
   'fern.steuertAn': 'Ovládání zapnuto',
   'fern.steuertAus': 'jen sledovat',
   'fern.steuernHilfe': 'Posílat klávesnici a myš do Pi',
+  'projekte.title': 'Projekty',
+  'projekte.none': 'Bez projektu',
+  'projekte.all': 'Všechny projekty',
+  'projekte.new': 'Nový projekt',
+  'projekte.name': 'Název',
+  'projekte.namePlaceholder': 'Na čem pracujete?',
+  'projekte.description': 'K čemu to je?',
+  'projekte.color': 'Barva',
+  'projekte.create': 'Vytvořit',
+  'projekte.save': 'Uložit',
+  'projekte.empty': 'Zatím žádný projekt. Vytvořte jej a přidejte úkoly.',
+  'projekte.progress': '{done} z {total} dokončeno',
+  'projekte.archive': 'Archivovat',
+  'projekte.unarchive': 'Obnovit',
+  'projekte.archived': 'Archivováno',
+  'projekte.delete': 'Smazat projekt',
+  'projekte.deleteConfirm': 'Smazat tento projekt? Úkoly zůstanou a budou bez projektu.',
+  'projekte.assign': 'Projekt',
+  'pruefen.tab': 'Kontrola',
+  'pruefen.count': 'Kontrola ({n})',
+  'pruefen.title': 'Přidáno AI',
+  'pruefen.hint': 'AI to přidala sama. Podívejte se: pokud to sedí, zůstane — jinak to odstraňte.',
+  'pruefen.ok': 'Vypadá dobře',
+  'pruefen.empty': 'Nic k revizi. AI nic nového nepřidala.',
+  'pruefen.badge': 'Nehodnoceno',
+  'pruefen.fromAi': 'Od AI',
+  'ki.selbstEintragen': 'AI přidává položky sama',
+  'ki.selbstEintragenHint': 'Vyp: nálezy přicházejí jako návrhy a čekají na schválení. Zap: úkoly, nápady a události se okamžitě objevují na deskách — označeny a sbírané v kartě „Kontrola“. ',
 };

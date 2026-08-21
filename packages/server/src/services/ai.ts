@@ -642,6 +642,10 @@ export interface KiVorschlag {
   /** Von der KI genannte zuständige Person, oder null. */
   genanntUserId: string | null;
   faelligAm: number | null;
+  /** Nur bei "termin": wann es losgeht. Ohne Beginn wird daraus eine Aufgabe. */
+  beginntAm: number | null;
+  /** Nur bei "termin": wie lange es dauert. Vorgabe eine Stunde. */
+  dauerMinuten: number;
 }
 
 /** Die KI ist nicht eingerichtet — dann entsteht gar kein Vorschlag. */
@@ -656,13 +660,17 @@ function systemAnweisung(sprache: string, personen: string): string {
     `Du liest einen Firmen-Chat und schlägst vor, was daraus festgehalten gehört.`,
     `Schreibe die Titel auf ${lang.name} (${lang.native}).`,
     '',
-    'Zwei Arten, und der Unterschied ist wichtig:',
+    'Drei Arten, und der Unterschied ist wichtig:',
     '  "aufgabe" — jemand muss konkret etwas tun, und es ist noch offen.',
     '  "idee"    — ein Vorschlag, über den erst noch entschieden werden muss.',
+    '  "termin"  — etwas findet zu einer genannten Zeit statt: Besprechung,',
+    '              Abgabe, Abwesenheit. Nur mit erkennbarem Zeitpunkt.',
     '',
     'Keine Aufgabe ist: was schon erledigt gemeldet wurde, eine Meinung, eine',
     'Frage, eine Absichtserklärung ohne Gegenstand ("wir sollten mal reden").',
     'Keine Idee ist: eine Wiederholung dessen, was ohnehin schon läuft.',
+    'Kein Termin ist: "demnächst", "bald", "irgendwann nächste Woche mal" —',
+    'ohne Tag und möglichst Uhrzeit ist es höchstens eine Aufgabe.',
     '',
     'Jeder Titel ist eine Handlung, höchstens 90 Zeichen, ohne Namen am Anfang.',
     'Nenne zu jedem Vorschlag die Kennung der Nachricht, aus der er stammt —',
@@ -674,9 +682,11 @@ function systemAnweisung(sprache: string, personen: string): string {
     `Höchstens ${VORSCHLAEGE_JE_LAUF} Vorschläge insgesamt.`,
     '',
     `Bekannte Personen: ${personen}`,
-    'JSON: {"vorschlaege": [{"art": "aufgabe"|"idee", "titel": "...",',
+    'JSON: {"vorschlaege": [{"art": "aufgabe"|"idee"|"termin", "titel": "...",',
     '  "quelle": "<Nachrichtenkennung>", "zustaendig_id": "<id oder null>",',
-    '  "faellig_in_tagen": <Zahl oder null>}]}',
+    '  "faellig_in_tagen": <Zahl oder null>,',
+    '  "beginnt_in_stunden": <Zahl oder null, nur bei "termin">,',
+    '  "dauer_minuten": <Zahl oder null, nur bei "termin">}]}',
   ].join('\n');
 }
 
@@ -749,6 +759,7 @@ export async function vorschlaegeAusVerlauf(input: {
     vorschlaege?: {
       art?: string; titel?: string; quelle?: string | null;
       zustaendig_id?: string | null; faellig_in_tagen?: number | null;
+      beginnt_in_stunden?: number | null; dauer_minuten?: number | null;
     }[];
   }>([
     { role: 'system', content: system },
@@ -762,10 +773,14 @@ export async function vorschlaegeAusVerlauf(input: {
     .filter((v) => v && typeof v.titel === 'string' && v.titel.trim().length > 3)
     .slice(0, VORSCHLAEGE_JE_LAUF)
     .map((v): KiVorschlag => ({
-      // Alles, was nicht ausdrücklich "idee" heißt, ist eine Aufgabe. Eine
-      // falsch einsortierte Aufgabe kostet einen Klick, eine erfundene Art
-      // einen Absturz.
-      art: v.art === 'idee' ? 'idee' : 'aufgabe',
+      /* Alles, was nicht ausdrücklich "idee" oder "termin" heißt, ist eine
+         Aufgabe. Eine falsch einsortierte Aufgabe kostet einen Klick, eine
+         erfundene Art einen Absturz.
+         Ein "termin" ohne Beginn bleibt Aufgabe: ein Kalendereintrag ohne
+         Zeitpunkt ist keiner, und geraten wird hier nichts. */
+      art: v.art === 'idee' ? 'idee'
+        : (v.art === 'termin' && typeof v.beginnt_in_stunden === 'number') ? 'termin'
+          : 'aufgabe',
       titel: v.titel!.trim().slice(0, 300),
       // Eine erfundene Kennung ist schlimmer als keine: der Sprung dorthin
       // ginge ins Leere, und der Vorschlag sähe belegt aus, ohne es zu sein.
@@ -775,6 +790,19 @@ export async function vorschlaegeAusVerlauf(input: {
       faelligAm: typeof v.faellig_in_tagen === 'number' && v.faellig_in_tagen > 0
         ? Date.now() + v.faellig_in_tagen * 86_400_000
         : null,
+      /* Termine: Beginn relativ zu jetzt, Dauer in Minuten. Relativ, weil
+         das Modell keine verlässliche Vorstellung vom heutigen Datum hat —
+         "in 18 Stunden" trifft es, "2026-08-22T09:00" rät es.
+         Grenzen: höchstens ein Jahr voraus, Dauer zwischen 15 Minuten und
+         einem Tag. Was darüber liegt, ist verrechnet und nicht gemeint. */
+      beginntAm: typeof v.beginnt_in_stunden === 'number'
+        && v.beginnt_in_stunden > -24 && v.beginnt_in_stunden < 24 * 366
+        ? Date.now() + v.beginnt_in_stunden * 3_600_000
+        : null,
+      dauerMinuten: typeof v.dauer_minuten === 'number'
+        && v.dauer_minuten >= 15 && v.dauer_minuten <= 1440
+        ? Math.round(v.dauer_minuten)
+        : 60,
     }));
 
   return {

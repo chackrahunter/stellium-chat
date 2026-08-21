@@ -500,8 +500,6 @@ export const hi = {
   'ideas.status.working': 'प्रगति में',
   'ideas.status.done': 'पूरा हुआ',
   'ideas.status.rejected': 'अस्वीकृत',
-
-  /* Vorschläge der KI — angenommen, abgelehnt oder geändert wird hier */
   'vorschlaege.title': 'सुझाव',
   'vorschlaege.nav': 'StelliumAI के सुझाव',
   'vorschlaege.subtitle': 'बाक़ी: {n} — AI सुझाता है, फ़ैसला आपका।',
@@ -808,8 +806,6 @@ export const hi = {
   'kat.automatisch': 'स्वतः वर्गीकृत करें',
   'kat.hinweis': 'नए खाते “नया” में आते हैं, बॉट्स “तकनीकी” में। हटाए गए “हटाया गया” में। मैन्युअल चयन को प्राथमिकता है।',
   'kat.verschoben': 'श्रेणी बदल गई',
-
-  /* App herunterladen — nur im Browser sichtbar */
   'download.nav': 'ऐप डाउनलोड करें',
   'download.title': 'ऐप डाउनलोड करें',
   'download.subtitle': 'हमेशा नवीनतम संस्करण, सीधे आपके अपने सर्वर से।',
@@ -830,7 +826,6 @@ export const hi = {
   'download.checksumHint': 'डाउनलोड के बाद इसकी तुलना करें — तब पक्का हो जाता है कि फ़ाइल बिना बदलाव पहुँची।',
   'download.checksumCopy': 'चेकसम कॉपी करें',
   'download.checksumCopied': 'कॉपी हो गया',
-
   'status.title': 'मेरी स्थिति',
   'status.online': 'ऑनलाइन',
   'status.away': 'अनुपस्थित',
@@ -923,8 +918,6 @@ export const hi = {
   'fehler.serverStumm': 'सर्वर ने उत्तर नहीं दिया।',
   'fehler.codePasstNicht': 'यह कोड इस रिलीज़ से मेल नहीं खाता।',
   'fehler.dateiKopfUnlesbar': 'इस फ़ाइल का शीर्ष भाग पढ़ा नहीं जा सकता।',
-
-  /* Beschriftungen, die vorher fest im Code standen */
   'msg.someone': 'किसी',
   'common.active': 'सक्रिय',
   'common.ctrlKey': 'Ctrl',
@@ -974,8 +967,6 @@ export const hi = {
   'toast.rewriteFailed': 'पुनर्लेखन विफल',
   'toast.scheduled': 'निर्धारित',
   'voice.stopRecording': 'रिकॉर्डिंग रोकें',
-
-  /* Texte, die der Server schickt — er sendet die Kennung, hier steht der Satz */
   'fehler.nichtGefunden': 'नहीं मिला',
   'hinweis.lokalStumm': '{adresse} पर मॉडल जवाब नहीं दे रहा ({fehler})। जब तक वह वापस न चले, संदेश बिना अनुवाद के रहेंगे।',
   'hinweis.lokalOhneModell': '{adresse} पर कोई मॉडल लोड नहीं है। वहाँ एक शुरू करें, वरना कुछ भी अनुवाद नहीं होगा।',
@@ -983,7 +974,6 @@ export const hi = {
   'hinweis.keinAssistent': '{anbieter} अनुवाद करता है, पर AI सारांश नहीं बना सकता। सब कुछ चाहिए तो Groq, OpenAI या स्थानीय मॉडल चुनें।',
   'hinweis.keinAbtippen': 'वॉइस संदेश लिखे नहीं जाते। इसके लिए सर्वर पर वाक् सेवा (server-setup/dienste/stimme-einrichten.sh) या Groq कुंजी चाहिए।',
   'hinweis.stimmeBeiGroq': 'टेक्स्ट मॉडल आपके अपने नेटवर्क में चलता है, पर वॉइस संदेश Groq को जाते हैं। server-setup/dienste/stimme-einrichten.sh से वे भी यहीं रहेंगे।',
-
   'anhang.wirdGeoeffnet': 'खोला जा रहा है …',
   'anhang.unlesbar': 'पढ़ा नहीं जा सकता',
   'anhang.unlesbarHinweis': 'इस फ़ाइल की कुंजी मौजूद नहीं है। डिवाइस बदलने के बाद रिकवरी कोड काम आता है।',
@@ -996,8 +986,6 @@ export const hi = {
   'files.oeffentlichHinweis': 'टीम का हर व्यक्ति यह फ़ाइल खोल सकता है।',
   'files.downloadFehler': 'डाउनलोड विफल',
   'toast.filesFailed': 'भंडार लोड नहीं हो सका',
-
-  /* Meldungen der Ereignisleitung — der Server schickt die Kennung */
   'fehler.privatUnverschluesselt': 'यह फ़ाइल निजी होनी चाहिए थी, पर बिना एन्क्रिप्शन के आई। कृपया ऐप अपडेट करें।',
   'fehler.anmeldungAbgelaufen': 'सत्र समाप्त हो गया',
   'fehler.anmeldungFehlgeschlagen': 'साइन इन विफल रहा। कृपया फिर से कोशिश करें।',
@@ -1010,6 +998,7 @@ export const hi = {
   'fehler.keinRechtAlleErwaehnen': 'आपके पास सभी का उल्लेख करने का अधिकार नहीं है।',
   'fehler.keinRechtErwaehnen': 'आपके पास लोगों का उल्लेख करने का अधिकार नहीं है।',
   'fehler.keinRechtName': 'आपके पास „{recht}" का अधिकार नहीं है।',
+  'fehler.technischesKonto': 'तकनीकी खाते संदेश स्वीकार नहीं करते।',
   'fehler.keinRechtUebergeben': 'दूसरों को कार्य सौंपना एक अलग अधिकार है।',
   'fehler.keinUmfrageZugang': 'इस पोल तक आपकी पहुँच नहीं है।',
   'fehler.keinUrsprungZugriff': 'मूल संदेश तक पहुँच नहीं है',
@@ -1037,8 +1026,6 @@ export const hi = {
   'fehler.threadNichtGefunden': 'थ्रेड नहीं मिला',
   'fehler.vertraulichGeplantNoetig': 'यह चैनल गोपनीय है। निर्धारित संदेश को शेड्यूल करते समय ही एन्क्रिप्ट होना चाहिए — वरना वह भेजे जाने तक सर्वर पर खुला पड़ा रहेगा।',
   'fehler.zielkanalNichtGefunden': 'लक्ष्य चैनल नहीं मिला',
-
-  /* Abweisungen der Schnittstelle — der Server schickt die Kennung */
   'fehler.altesPasswortFalsch': 'मौजूदा पासवर्ड सही नहीं है।',
   'fehler.anbieterUnbekannt': 'अज्ञात प्रदाता „{anbieter}"।',
   'fehler.begriffFehlt': 'शब्द नहीं दिया गया',
@@ -1106,8 +1093,6 @@ export const hi = {
   'fehler.vorschlagEntschieden': 'इस सुझाव पर पहले ही फ़ैसला हो चुका है।',
   'fehler.vorschlagTitel': 'सुझाव को एक शीर्षक चाहिए।',
   'fehler.zusammensetzen': 'जोड़ना विफल: {grund}',
-
-  /* Fernsteuerung des Pi */
   'fern.titel': 'Pi को दूर से चलाएँ',
   'fern.nurApp': 'दूर से नियंत्रण केवल Stellium ऐप में है।',
   'fern.verbinden': 'जोड़ें',
@@ -1118,4 +1103,32 @@ export const hi = {
   'fern.steuertAn': 'नियंत्रण चालू',
   'fern.steuertAus': 'केवल देखें',
   'fern.steuernHilfe': 'कीबोर्ड और माउस Pi को भेजें',
+  'projekte.title': 'परियोजनाएँ',
+  'projekte.none': 'कोई परियोजना नहीं',
+  'projekte.all': 'सभी परियोजनाएँ',
+  'projekte.new': 'नई परियोजना',
+  'projekte.name': 'नाम',
+  'projekte.namePlaceholder': 'आप क्या कर रहे हैं?',
+  'projekte.description': 'यह किस लिए है?',
+  'projekte.color': 'रंग',
+  'projekte.create': 'बनाएँ',
+  'projekte.save': 'सहेजें',
+  'projekte.empty': 'अभी तक कोई परियोजना नहीं। एक बनाएँ और कार्य उसमें रखें।',
+  'projekte.progress': '{done} में से {total} पूरा',
+  'projekte.archive': 'आर्काइव करें',
+  'projekte.unarchive': 'बहाल करें',
+  'projekte.archived': 'आर्काइव्ड',
+  'projekte.delete': 'परियोजना हटाएँ',
+  'projekte.deleteConfirm': 'यह परियोजना हटाएँ? कार्य रहेंगे और फिर बिना परियोजना के रहेंगे।',
+  'projekte.assign': 'परियोजना',
+  'pruefen.tab': 'समीक्षा',
+  'pruefen.count': 'समीक्षा ({n})',
+  'pruefen.title': 'AI द्वारा जोड़ा गया',
+  'pruefen.hint': 'AI ने इसे स्वयं जोड़ा है। देखें: अगर ठीक है तो रखें — नहीं तो हटा दें।',
+  'pruefen.ok': 'ठीक है',
+  'pruefen.empty': 'समीक्षा के लिए कुछ नहीं। AI ने कुछ नया नहीं जोड़ा।',
+  'pruefen.badge': 'असमीक्षित',
+  'pruefen.fromAi': 'AI से',
+  'ki.selbstEintragen': 'AI स्वयं प्रविष्टियाँ जोड़ता है',
+  'ki.selbstEintragenHint': 'बंद: खोजें सुझाव के रूप में आती हैं और हाँ का इंतजार करती हैं। चालू: कार्य, विचार और घटनाएँ तुरंत बोर्ड पर दिखती हैं — चिह्नित और "समीक्षा" टैब में एकत्रित।',
 };

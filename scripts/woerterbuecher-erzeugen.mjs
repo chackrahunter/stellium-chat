@@ -31,11 +31,17 @@ const raus = (t) => { sag(`\n${F.rot}✗ ${t}${F.aus}\n`); process.exit(1); };
 function woerterbuchLesen(datei) {
   const text = fs.readFileSync(datei, 'utf8');
   const eintraege = {};
-  // Zeilen der Form   'schlüssel': 'wert',
-  const muster = /^\s{2}'([^']+)':\s*'((?:[^'\\]|\\.)*)',\s*$/gm;
+  /* Zeilen der Form   'schlüssel': 'wert',   ODER   'schlüssel': "wert",
+     Beide Schreibweisen kommen vor: Werte mit Apostroph (französisch
+     "l'équipe") stehen zwangsläufig in doppelten Anführungszeichen. Wer nur
+     die einfachen liest, hält sie für nicht vorhanden — und die Prüfung
+     weiter unten bricht dann zu Recht den ganzen Lauf ab. */
+  const muster = /^\s{2}'([^']+)':\s*(?:'((?:[^'\\]|\\.)*)'|"((?:[^"\\]|\\.)*)")\s*,\s*$/gm;
   let treffer;
   while ((treffer = muster.exec(text))) {
-    eintraege[treffer[1]] = treffer[2].replace(/\\'/g, "'").replace(/\\\\/g, '\\');
+    const roh = treffer[2] ?? treffer[3] ?? '';
+    eintraege[treffer[1]] = roh
+      .replace(/\\'/g, "'").replace(/\\"/g, '"').replace(/\\\\/g, '\\');
   }
 
   /* Der Zähler oben versteht nur einfach gequotete Werte in genau zwei

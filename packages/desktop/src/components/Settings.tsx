@@ -182,6 +182,25 @@ export function Settings({ onClose }: { onClose: () => void }) {
 
                 {kiHinweis(ai) && <p className="muted" style={{ fontSize: 12.5, margin: '6px 0 0' }}>{kiHinweis(ai)}</p>}
               </div>
+
+              {/* Trägt die KI selbst ein? Eine Entscheidung für den ganzen
+                  Arbeitsbereich — deshalb nur für die, die auch das Modell
+                  wählen dürfen, und mit dem ganzen Satz dazu, was sie
+                  bedeutet. */}
+              {/* Auch ohne eingerichtete KI sichtbar: die Einstellung sagt, was
+                  passieren SOLL, wenn die KI läuft — sie erst dann anzuzeigen,
+                  wenn sie schon läuft, versteckt genau die Entscheidung, die
+                  man vorher trifft. */}
+              {self.permissions['ai.model_select'] && (
+                <div style={{ marginTop: 'var(--sp-3)' }}>
+                  <Row
+                    title={t('ki.selbstEintragen')}
+                    sub={t('ki.selbstEintragenHint')}
+                    checked={Boolean(ai?.selbstEintragen)}
+                    onChange={(v) => useStore.getState().kiSelbstEintragen(v)}
+                  />
+                </div>
+              )}
             </>
           )}
 

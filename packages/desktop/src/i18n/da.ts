@@ -500,8 +500,6 @@ export const da = {
   'ideas.status.working': 'I gang',
   'ideas.status.done': 'Færdig',
   'ideas.status.rejected': 'Afvist',
-
-  /* Vorschläge der KI — angenommen, abgelehnt oder geändert wird hier */
   'vorschlaege.title': 'Forslag',
   'vorschlaege.nav': 'Forslag fra StelliumAI',
   'vorschlaege.subtitle': 'Åbne: {n} — AI’en foreslår, du beslutter.',
@@ -808,8 +806,6 @@ export const da = {
   'kat.automatisch': 'Sortér automatisk',
   'kat.hinweis': 'Nye konti placeres under “Ny”, bots under “Teknisk”, slettede under “Slettet”. Manuelt valgt har forrang.',
   'kat.verschoben': 'Kategori ændret',
-
-  /* App herunterladen — nur im Browser sichtbar */
   'download.nav': 'Hent appen',
   'download.title': 'Hent appen',
   'download.subtitle': 'Altid den nyeste version, direkte fra jeres egen server.',
@@ -830,7 +826,6 @@ export const da = {
   'download.checksumHint': 'Sammenlign den efter download — så ved du, at filen kom uændret frem.',
   'download.checksumCopy': 'Kopiér kontrolsum',
   'download.checksumCopied': 'Kopieret',
-
   'status.title': 'Min status',
   'status.online': 'Online',
   'status.away': 'Ikke til stede',
@@ -923,8 +918,6 @@ export const da = {
   'fehler.serverStumm': 'Serveren svarede ikke.',
   'fehler.codePasstNicht': 'Koden passer ikke til denne frigivelse.',
   'fehler.dateiKopfUnlesbar': 'Denne fil har ingen læsbar header.',
-
-  /* Beschriftungen, die vorher fest im Code standen */
   'msg.someone': 'nogen',
   'common.active': 'aktiv',
   'common.ctrlKey': 'Ctrl',
@@ -974,8 +967,6 @@ export const da = {
   'toast.rewriteFailed': 'Omskrivning mislykkedes',
   'toast.scheduled': 'Planlagt',
   'voice.stopRecording': 'Stop optagelsen',
-
-  /* Texte, die der Server schickt — er sendet die Kennung, hier steht der Satz */
   'fehler.nichtGefunden': 'Ikke fundet',
   'hinweis.lokalStumm': 'Modellen på {adresse} svarer ikke ({fehler}). Beskeder forbliver uoversatte, indtil den kører igen.',
   'hinweis.lokalOhneModell': 'Der er ikke indlæst nogen model på {adresse}. Start en dér, ellers bliver intet oversat.',
@@ -983,7 +974,6 @@ export const da = {
   'hinweis.keinAssistent': '{anbieter} oversætter, men kan ikke lave AI-opsummeringer. Vælg Groq, OpenAI eller en lokal model for det hele.',
   'hinweis.keinAbtippen': 'Talebeskeder bliver ikke skrevet ned. Det kræver taletjenesten på serveren (server-setup/dienste/stimme-einrichten.sh) eller en Groq-nøgle.',
   'hinweis.stimmeBeiGroq': 'Tekstmodellen kører på jeres eget net, men talebeskeder går til Groq. Med server-setup/dienste/stimme-einrichten.sh bliver også de her.',
-
   'anhang.wirdGeoeffnet': 'Åbner …',
   'anhang.unlesbar': 'Kan ikke læses',
   'anhang.unlesbarHinweis': 'Nøglen til denne fil mangler. Efter et enhedsskift hjælper gendannelseskoden.',
@@ -996,8 +986,6 @@ export const da = {
   'files.oeffentlichHinweis': 'Alle i teamet kan åbne denne fil.',
   'files.downloadFehler': 'Download mislykkedes',
   'toast.filesFailed': 'Kan ikke indlæse arkivet',
-
-  /* Meldungen der Ereignisleitung — der Server schickt die Kennung */
   'fehler.privatUnverschluesselt': 'Denne fil skulle være privat, men kom ukrypteret frem. Opdatér appen.',
   'fehler.anmeldungAbgelaufen': 'Sessionen er udløbet',
   'fehler.anmeldungFehlgeschlagen': 'Login mislykkedes. Prøv igen.',
@@ -1010,6 +998,7 @@ export const da = {
   'fehler.keinRechtAlleErwaehnen': 'Du mangler retten til at nævne alle.',
   'fehler.keinRechtErwaehnen': 'Du mangler retten til at nævne personer.',
   'fehler.keinRechtName': 'Du mangler retten “{recht}”.',
+  'fehler.technischesKonto': 'Tekniske konti accepterer ikke beskeder.',
   'fehler.keinRechtUebergeben': 'At give opgaver videre til andre er en ret for sig.',
   'fehler.keinUmfrageZugang': 'Du har ikke adgang til denne afstemning.',
   'fehler.keinUrsprungZugriff': 'Ingen adgang til den oprindelige besked',
@@ -1037,8 +1026,6 @@ export const da = {
   'fehler.threadNichtGefunden': 'Tråden blev ikke fundet',
   'fehler.vertraulichGeplantNoetig': 'Denne kanal er fortrolig. En planlagt besked skal krypteres allerede ved planlægningen — ellers ligger den ubeskyttet på serveren indtil afsendelsen.',
   'fehler.zielkanalNichtGefunden': 'Målkanalen blev ikke fundet',
-
-  /* Abweisungen der Schnittstelle — der Server schickt die Kennung */
   'fehler.altesPasswortFalsch': 'Den nuværende adgangskode er forkert.',
   'fehler.anbieterUnbekannt': 'Ukendt udbyder “{anbieter}”.',
   'fehler.begriffFehlt': 'Der mangler et begreb',
@@ -1106,8 +1093,6 @@ export const da = {
   'fehler.vorschlagEntschieden': 'Der er allerede taget stilling til dette forslag.',
   'fehler.vorschlagTitel': 'Forslaget skal have en titel.',
   'fehler.zusammensetzen': 'Sammensætningen mislykkedes: {grund}',
-
-  /* Fernsteuerung des Pi */
   'fern.titel': 'Fjernstyr Pi’en',
   'fern.nurApp': 'Fjernstyring findes kun i Stellium-appen.',
   'fern.verbinden': 'Forbind',
@@ -1118,4 +1103,32 @@ export const da = {
   'fern.steuertAn': 'Styring til',
   'fern.steuertAus': 'kun se med',
   'fern.steuernHilfe': 'Send tastatur og mus til Pi’en',
+  'projekte.title': 'Projekter',
+  'projekte.none': 'Uden projekt',
+  'projekte.all': 'Alle projekter',
+  'projekte.new': 'Nyt projekt',
+  'projekte.name': 'Navn',
+  'projekte.namePlaceholder': 'Hvad arbejder I på?',
+  'projekte.description': 'Hvad er det til?',
+  'projekte.color': 'Farve',
+  'projekte.create': 'Opret',
+  'projekte.save': 'Gem',
+  'projekte.empty': 'Endnu intet projekt. Opret et og læg opgaver i det.',
+  'projekte.progress': '{done} af {total} færdig',
+  'projekte.archive': 'Arkiver',
+  'projekte.unarchive': 'Gendan',
+  'projekte.archived': 'Arkiveret',
+  'projekte.delete': 'Slet projekt',
+  'projekte.deleteConfirm': 'Slette dette projekt? Opgaverne forbliver og får ingen projekt tilknyttet.',
+  'projekte.assign': 'Projekt',
+  'pruefen.tab': 'Gennemse',
+  'pruefen.count': 'Gennemse ({n})',
+  'pruefen.title': 'Tilføjet af AI’en',
+  'pruefen.hint': 'AI’en har tilføjet dette selv. Se på det: hvis det passer, bliver det – ellers fjern det.',
+  'pruefen.ok': 'Passer',
+  'pruefen.empty': 'Intet at gennemse. AI’en har ikke tilføjet noget nyt.',
+  'pruefen.badge': 'Ugjennomgået',
+  'pruefen.fromAi': 'Fra AI’en',
+  'ki.selbstEintragen': 'AI’en tilføjer selv',
+  'ki.selbstEintragenHint': 'Fra: fundne elementer kommer som forslag og venter på et ja. Til: opgaver, idéer og begivenheder vises straks på tavlerne – markeret og samlet under fanen “Gennemse”.',
 };

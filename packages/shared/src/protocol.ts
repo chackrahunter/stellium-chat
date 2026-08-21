@@ -5,7 +5,7 @@ import type {
 } from './vertraulich.js';
 import type {
   AiSummary, CalendarEvent, Channel, ChannelState, Draft, LinkPreview, Message,
-  Idea, IdeaComment, IdeaStatus, MeetingProtocol, Poll, Reaction, ReleaseInfo, Reminder, ScheduledMessage, SelfUser, SmartReply, StoredFile, StorageUsage,
+  Idea, IdeaComment, IdeaStatus, MeetingProtocol, Poll, Projekt, Reaction, ReleaseInfo, Reminder, ScheduledMessage, SelfUser, SmartReply, StoredFile, StorageUsage,
   Task, TaskEvent, TaskPriority, TaskStatus, TranslationView, User,
   UserStatus, VoiceNote,
   Vorschlag, VorschlagAenderung,
@@ -87,13 +87,21 @@ export type ClientEvent =
 
   /* Aufgaben */
   | { t: 'task:list'; channelId?: string | null; assigneeId?: string | null }
-  | { t: 'task:create'; title: string; description?: string | null; assigneeId?: string | null; channelId?: string | null; messageId?: string | null; dueAt?: number | null; priority?: TaskPriority; status?: TaskStatus }
-  | { t: 'task:update'; taskId: string; patch: { title?: string; description?: string | null; status?: TaskStatus; priority?: TaskPriority; assigneeId?: string | null; dueAt?: number | null } }
+  | { t: 'task:create'; title: string; description?: string | null; assigneeId?: string | null; channelId?: string | null; messageId?: string | null; dueAt?: number | null; priority?: TaskPriority; status?: TaskStatus; projektId?: string | null }
+  | { t: 'task:update'; taskId: string; patch: { title?: string; description?: string | null; status?: TaskStatus; priority?: TaskPriority; assigneeId?: string | null; dueAt?: number | null; projektId?: string | null } }
   | { t: 'task:move'; taskId: string; status: TaskStatus; afterId?: string | null }
   | { t: 'task:comment'; taskId: string; text: string }
   | { t: 'task:watch'; taskId: string; watching: boolean }
   | { t: 'task:delete'; taskId: string }
   | { t: 'task:history'; taskId: string }
+  /** „Passt" — die von der KI angelegte Aufgabe ist angesehen. */
+  | { t: 'task:geprueft'; taskId: string }
+
+  /* Projekte — Schubladen für Aufgaben */
+  | { t: 'projekt:list' }
+  | { t: 'projekt:create'; name: string; beschreibung?: string | null; farbe?: string }
+  | { t: 'projekt:update'; projektId: string; patch: { name?: string; beschreibung?: string | null; farbe?: string; archiviert?: boolean } }
+  | { t: 'projekt:delete'; projektId: string }
   | { t: 'ai:extract-tasks'; requestId: string; channelId: string }
   | { t: 'ai:protocol'; channelId: string; sinceMessageId?: string | null }
 
@@ -107,6 +115,8 @@ export type ClientEvent =
   | { t: 'idea:comment'; ideaId: string; text: string }
   | { t: 'idea:comment-delete'; commentId: string; ideaId: string }
   | { t: 'idea:delete'; ideaId: string }
+  /** „Passt" — die von der KI eingebrachte Idee ist angesehen. */
+  | { t: 'idea:geprueft'; ideaId: string }
 
   /* Vorschlagseingang */
   | { t: 'vorschlag:list' }
@@ -129,6 +139,10 @@ export type ClientEvent =
   | { t: 'event:respond'; eventId: string; response: 'yes' | 'no' | 'maybe' }
   | { t: 'event:attendees'; eventId: string; add?: string[]; remove?: string[] }
   | { t: 'event:delete'; eventId: string }
+  /** „Passt" — der von der KI eingetragene Termin ist angesehen. */
+  | { t: 'event:geprueft'; eventId: string }
+  /** Trägt die KI selbst ein, statt nur vorzuschlagen? Nur mit Verwaltungsrecht. */
+  | { t: 'ki:selbst-eintragen'; an: boolean }
 
   /* Dateiablage */
   | { t: 'file:list'; channelId?: string | null; folder?: string }
@@ -220,6 +234,11 @@ export type ServerEvent =
   | { t: 'ai:thinking'; channelId: string; active: boolean }
 
   | { t: 'task:list'; tasks: Task[] }
+  | { t: 'projekt:list'; projekte: Projekt[] }
+  | { t: 'projekt:upsert'; projekt: Projekt }
+  | { t: 'projekt:deleted'; projektId: string }
+  /** Die Einstellung „KI trägt selbst ein" wurde umgelegt. */
+  | { t: 'ai:einstellung'; selbstEintragen: boolean }
   | { t: 'task:upsert'; task: Task }
   | { t: 'task:removed'; taskId: string }
   | { t: 'task:history'; taskId: string; events: TaskEvent[] }
@@ -319,6 +338,13 @@ export interface AiCapabilities {
   modelsAvailable: number | null;
   translation: boolean;
   assistant: boolean;
+  /**
+   * Trägt die KI selbst ein, statt nur vorzuschlagen?
+   *
+   * An heißt: gefundene Aufgaben, Ideen und Termine stehen sofort auf den
+   * Brettern — gekennzeichnet als ungeprüft und gesammelt im Reiter „Prüfen".
+   */
+  selbstEintragen: boolean;
   /** Läuft das Modell im eigenen Netz (Ollama, llama.cpp)? */
   lokal: boolean;
   /** Adresse des lokalen Dienstes — nur zur Anzeige. */

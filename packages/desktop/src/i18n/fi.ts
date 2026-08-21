@@ -500,8 +500,6 @@ export const fi = {
   'ideas.status.working': 'Käsittelyssä',
   'ideas.status.done': 'Valmis',
   'ideas.status.rejected': 'Hylätty',
-
-  /* Vorschläge der KI — angenommen, abgelehnt oder geändert wird hier */
   'vorschlaege.title': 'Ehdotukset',
   'vorschlaege.nav': 'StelliumAI:n ehdotukset',
   'vorschlaege.subtitle': 'Avoinna: {n} — tekoäly ehdottaa, sinä päätät.',
@@ -808,8 +806,6 @@ export const fi = {
   'kat.automatisch': 'Lajittele automaattisesti',
   'kat.hinweis': 'Uudet tilit päätyvät "Uusiin", botit "Teknisiin", poistuneet "Poistettuihin". Manuaalinen valinta on etusijalla.',
   'kat.verschoben': 'Luokka muutettu',
-
-  /* App herunterladen — nur im Browser sichtbar */
   'download.nav': 'Lataa sovellus',
   'download.title': 'Lataa sovellus',
   'download.subtitle': 'Aina uusin versio, suoraan omalta palvelimeltanne.',
@@ -830,7 +826,6 @@ export const fi = {
   'download.checksumHint': 'Vertaa sitä latauksen jälkeen — silloin tiedät, että tiedosto tuli perille muuttumattomana.',
   'download.checksumCopy': 'Kopioi tarkistussumma',
   'download.checksumCopied': 'Kopioitu',
-
   'status.title': 'Oma tila',
   'status.online': 'Paikalla',
   'status.away': 'Poissa',
@@ -923,8 +918,6 @@ export const fi = {
   'fehler.serverStumm': 'Palvelin ei vastannut.',
   'fehler.codePasstNicht': 'Koodi ei kuulu tähän vapautukseen.',
   'fehler.dateiKopfUnlesbar': 'Tässä tiedostossa ei ole luettavaa otsaketta.',
-
-  /* Beschriftungen, die vorher fest im Code standen */
   'msg.someone': 'tuntematon',
   'common.active': 'aktiivinen',
   'common.ctrlKey': 'Ctrl',
@@ -974,8 +967,6 @@ export const fi = {
   'toast.rewriteFailed': 'Uudelleenmuotoilu epäonnistui',
   'toast.scheduled': 'Ajastettu',
   'voice.stopRecording': 'Lopeta nauhoitus',
-
-  /* Texte, die der Server schickt — er sendet die Kennung, hier steht der Satz */
   'fehler.nichtGefunden': 'Ei löytynyt',
   'hinweis.lokalStumm': 'Malli osoitteessa {adresse} ei vastaa ({fehler}). Viestit jäävät kääntämättä, kunnes se toimii taas.',
   'hinweis.lokalOhneModell': 'Osoitteessa {adresse} ei ole ladattuna mallia. Käynnistä siellä yksi, muuten mitään ei käännetä.',
@@ -983,7 +974,6 @@ export const fi = {
   'hinweis.keinAssistent': '{anbieter} kääntää, mutta ei osaa tekoälytiivistelmiä. Valitse Groq, OpenAI tai paikallinen malli, niin kaikki toimii.',
   'hinweis.keinAbtippen': 'Ääniviestejä ei kirjoiteta auki. Siihen tarvitaan palvelimen puhepalvelu (server-setup/dienste/stimme-einrichten.sh) tai Groq-avain.',
   'hinweis.stimmeBeiGroq': 'Tekstimalli pyörii omassa verkossa, mutta ääniviestit menevät Groqille. Komennolla server-setup/dienste/stimme-einrichten.sh myös ne pysyvät täällä.',
-
   'anhang.wirdGeoeffnet': 'Avataan …',
   'anhang.unlesbar': 'Ei luettavissa',
   'anhang.unlesbarHinweis': 'Tämän tiedoston avain puuttuu. Laitteen vaihdon jälkeen auttaa palautuskoodi.',
@@ -996,8 +986,6 @@ export const fi = {
   'files.oeffentlichHinweis': 'Kaikki tiimissä voivat avata tämän tiedoston.',
   'files.downloadFehler': 'Lataus epäonnistui',
   'toast.filesFailed': 'Arkistoa ei voi ladata',
-
-  /* Meldungen der Ereignisleitung — der Server schickt die Kennung */
   'fehler.privatUnverschluesselt': 'Tämän tiedoston piti olla yksityinen, mutta se saapui salaamattomana. Päivitä sovellus.',
   'fehler.anmeldungAbgelaufen': 'Istunto on vanhentunut',
   'fehler.anmeldungFehlgeschlagen': 'Kirjautuminen epäonnistui. Yritä uudelleen.',
@@ -1010,6 +998,7 @@ export const fi = {
   'fehler.keinRechtAlleErwaehnen': 'Sinulla ei ole oikeutta mainita kaikkia.',
   'fehler.keinRechtErwaehnen': 'Sinulla ei ole oikeutta mainita henkilöitä.',
   'fehler.keinRechtName': 'Sinulla ei ole oikeutta ”{recht}”.',
+  'fehler.technischesKonto': 'Tekniset tilit eivät vastaanota viestejä.',
   'fehler.keinRechtUebergeben': 'Tehtävien antaminen muille on oma oikeutensa.',
   'fehler.keinUmfrageZugang': 'Sinulla ei ole pääsyä tähän kyselyyn.',
   'fehler.keinUrsprungZugriff': 'Ei pääsyä alkuperäiseen viestiin',
@@ -1037,8 +1026,6 @@ export const fi = {
   'fehler.threadNichtGefunden': 'Ketjua ei löytynyt',
   'fehler.vertraulichGeplantNoetig': 'Tämä kanava on luottamuksellinen. Ajastettu viesti on salattava jo ajastettaessa — muuten se olisi palvelimella suojaamattomana lähetykseen asti.',
   'fehler.zielkanalNichtGefunden': 'Kohdekanavaa ei löytynyt',
-
-  /* Abweisungen der Schnittstelle — der Server schickt die Kennung */
   'fehler.altesPasswortFalsch': 'Nykyinen salasana ei täsmää.',
   'fehler.anbieterUnbekannt': 'Tuntematon palveluntarjoaja ”{anbieter}”.',
   'fehler.begriffFehlt': 'Termi puuttuu',
@@ -1106,8 +1093,6 @@ export const fi = {
   'fehler.vorschlagEntschieden': 'Tästä ehdotuksesta on jo päätetty.',
   'fehler.vorschlagTitel': 'Ehdotus tarvitsee otsikon.',
   'fehler.zusammensetzen': 'Kokoaminen epäonnistui: {grund}',
-
-  /* Fernsteuerung des Pi */
   'fern.titel': 'Ohjaa Pi:tä etänä',
   'fern.nurApp': 'Etäohjaus on vain Stellium-sovelluksessa.',
   'fern.verbinden': 'Yhdistä',
@@ -1118,4 +1103,32 @@ export const fi = {
   'fern.steuertAn': 'Ohjaus päällä',
   'fern.steuertAus': 'vain katselu',
   'fern.steuernHilfe': 'Lähetä näppäimistö ja hiiri Pi:lle',
+  'projekte.title': 'Projektit',
+  'projekte.none': 'Ei projektia',
+  'projekte.all': 'Kaikki projektit',
+  'projekte.new': 'Uusi projekti',
+  'projekte.name': 'Nimi',
+  'projekte.namePlaceholder': 'Mistä teette töitä?',
+  'projekte.description': 'Mihin se on tarkoitettu?',
+  'projekte.color': 'Väri',
+  'projekte.create': 'Luo',
+  'projekte.save': 'Tallenna',
+  'projekte.empty': 'Ei vielä projekteja. Luo yksi ja lisää tehtäviä siihen.',
+  'projekte.progress': '{done} / {total} valmis',
+  'projekte.archive': 'Arkistoi',
+  'projekte.unarchive': 'Palauta',
+  'projekte.archived': 'Arkistoitu',
+  'projekte.delete': 'Poista projekti',
+  'projekte.deleteConfirm': 'Poistetaanko projekti? Tehtävät säilyvät ilman projektia.',
+  'projekte.assign': 'Projekti',
+  'pruefen.tab': 'Tarkista',
+  'pruefen.count': 'Tarkista ({n})',
+  'pruefen.title': 'Koneälyn lisäämä',
+  'pruefen.hint': 'Koneäly on lisännyt tämän itse. Katso: jos se sopii, se pysyy — muuten poista.',
+  'pruefen.ok': 'Sopii',
+  'pruefen.empty': 'Ei tarkistettavaa. Koneäly ei ole lisännyt uutta.',
+  'pruefen.badge': 'Tarkistamaton',
+  'pruefen.fromAi': 'Koneälyltä',
+  'ki.selbstEintragen': 'Koneäly lisää itse',
+  'ki.selbstEintragenHint': 'Pois: löydökset tulevat ehdotuksina ja odottavat hyväksyntää. Päällä: tehtävät, ideat ja tapahtumat ilmestyvät tauluille heti — merkittyinä ja kerättyinä "Tarkista"-välilehdelle.',
 };

@@ -95,7 +95,7 @@ export const it = {
   'fehler.kontoGesperrt': 'Questo account è bloccato. Rivolgiti alla direzione del team.',
   'fehler.keinRecht': 'Non hai il permesso per farlo.',
   'fehler.keineDatei': 'Non è stato inviato alcun file.',
-  'fehler.nichtAngemeldet': "Non hai effettuato l'accesso",
+  'fehler.nichtAngemeldet': 'Non hai effettuato l\'accesso',
   'fehler.dateiNichtGefunden': 'File non trovato',
   'msg.originalIn': 'Originale · {language}',
   'msg.notTranslated': 'Originale in {{language}} — impossibile tradurre',
@@ -500,8 +500,6 @@ export const it = {
   'ideas.status.working': 'In corso',
   'ideas.status.done': 'Completato',
   'ideas.status.rejected': 'Rifiutato',
-
-  /* Vorschläge der KI — angenommen, abgelehnt oder geändert wird hier */
   'vorschlaege.title': 'Proposte',
   'vorschlaege.nav': 'Proposte di StelliumAI',
   'vorschlaege.subtitle': 'In attesa: {n} — l’IA propone, decidi tu.',
@@ -808,8 +806,6 @@ export const it = {
   'kat.automatisch': 'Ordinare automaticamente',
   'kat.hinweis': 'I nuovi account finiscono in «Nuovo», i bot in «Tecnico», gli eliminati in «Eliminato». La scelta manuale ha la precedenza.',
   'kat.verschoben': 'Categoria modificata',
-
-  /* App herunterladen — nur im Browser sichtbar */
   'download.nav': 'Scarica l’app',
   'download.title': 'Scarica l’app',
   'download.subtitle': 'Sempre la versione più recente, direttamente dal vostro server.',
@@ -830,7 +826,6 @@ export const it = {
   'download.checksumHint': 'Confrontalo dopo il download: così sai che il file è arrivato intatto.',
   'download.checksumCopy': 'Copia il checksum',
   'download.checksumCopied': 'Copiato',
-
   'status.title': 'Il mio stato',
   'status.online': 'Online',
   'status.away': 'Assente',
@@ -923,8 +918,6 @@ export const it = {
   'fehler.serverStumm': 'Il server non ha risposto.',
   'fehler.codePasstNicht': 'Il codice non corrisponde a questo sblocco.',
   'fehler.dateiKopfUnlesbar': 'Questo file non ha un’intestazione leggibile.',
-
-  /* Beschriftungen, die vorher fest im Code standen */
   'msg.someone': 'qualcuno',
   'common.active': 'attivo',
   'common.ctrlKey': 'Ctrl',
@@ -974,8 +967,6 @@ export const it = {
   'toast.rewriteFailed': 'Riformulazione non riuscita',
   'toast.scheduled': 'Programmato',
   'voice.stopRecording': 'Termina la registrazione',
-
-  /* Texte, die der Server schickt — er sendet die Kennung, hier steht der Satz */
   'fehler.nichtGefunden': 'Non trovato',
   'hinweis.lokalStumm': 'Il modello su {adresse} non risponde ({fehler}). I messaggi restano non tradotti finché non torna.',
   'hinweis.lokalOhneModell': 'Su {adresse} non è caricato nessun modello. Avviane uno, altrimenti nulla viene tradotto.',
@@ -983,7 +974,6 @@ export const it = {
   'hinweis.keinAssistent': '{anbieter} traduce, ma non sa fare riassunti con l’IA. Per tutte le funzioni scegli Groq, OpenAI o un modello locale.',
   'hinweis.keinAbtippen': 'I messaggi vocali non vengono trascritti. Servirebbe il servizio vocale sul server (server-setup/dienste/stimme-einrichten.sh) o una chiave Groq.',
   'hinweis.stimmeBeiGroq': 'Il modello di testo gira nella vostra rete, ma i messaggi vocali vanno a Groq. Con server-setup/dienste/stimme-einrichten.sh restano qui anche loro.',
-
   'anhang.wirdGeoeffnet': 'Apertura …',
   'anhang.unlesbar': 'Non leggibile',
   'anhang.unlesbarHinweis': 'Manca la chiave di questo file. Dopo un cambio di dispositivo aiuta il codice di ripristino.',
@@ -996,8 +986,6 @@ export const it = {
   'files.oeffentlichHinweis': 'Tutto il team può aprire questo file.',
   'files.downloadFehler': 'Download non riuscito',
   'toast.filesFailed': 'Impossibile caricare l’archivio',
-
-  /* Meldungen der Ereignisleitung — der Server schickt die Kennung */
   'fehler.privatUnverschluesselt': 'Questo file doveva essere privato, ma è arrivato in chiaro. Aggiorna l’app.',
   'fehler.anmeldungAbgelaufen': 'Sessione scaduta',
   'fehler.anmeldungFehlgeschlagen': 'Accesso non riuscito. Riprova.',
@@ -1010,6 +998,7 @@ export const it = {
   'fehler.keinRechtAlleErwaehnen': 'Ti manca il permesso di menzionare tutti.',
   'fehler.keinRechtErwaehnen': 'Ti manca il permesso di menzionare persone.',
   'fehler.keinRechtName': 'Ti manca il permesso «{recht}».',
+  'fehler.technischesKonto': 'Gli account tecnici non accettano messaggi.',
   'fehler.keinRechtUebergeben': 'Assegnare attività ad altri è un permesso a sé.',
   'fehler.keinUmfrageZugang': 'Non hai accesso a questo sondaggio.',
   'fehler.keinUrsprungZugriff': 'Nessun accesso al messaggio originale',
@@ -1037,8 +1026,6 @@ export const it = {
   'fehler.threadNichtGefunden': 'Thread non trovato',
   'fehler.vertraulichGeplantNoetig': 'Questo canale è riservato. Un messaggio programmato va cifrato già alla programmazione, altrimenti resterebbe in chiaro sul server fino all’invio.',
   'fehler.zielkanalNichtGefunden': 'Canale di destinazione non trovato',
-
-  /* Abweisungen der Schnittstelle — der Server schickt die Kennung */
   'fehler.altesPasswortFalsch': 'La password attuale non è corretta.',
   'fehler.anbieterUnbekannt': 'Fornitore sconosciuto «{anbieter}».',
   'fehler.begriffFehlt': 'Manca il termine',
@@ -1106,8 +1093,6 @@ export const it = {
   'fehler.vorschlagEntschieden': 'Su questa proposta è già stato deciso.',
   'fehler.vorschlagTitel': 'La proposta ha bisogno di un titolo.',
   'fehler.zusammensetzen': 'Ricomposizione non riuscita: {grund}',
-
-  /* Fernsteuerung des Pi */
   'fern.titel': 'Controlla il Pi da remoto',
   'fern.nurApp': 'Il controllo remoto esiste solo nell’app Stellium.',
   'fern.verbinden': 'Connetti',
@@ -1118,4 +1103,32 @@ export const it = {
   'fern.steuertAn': 'Controllo attivo',
   'fern.steuertAus': 'solo guardare',
   'fern.steuernHilfe': 'Invia tastiera e mouse al Pi',
+  'projekte.title': 'Progetti',
+  'projekte.none': 'Nessun progetto',
+  'projekte.all': 'Tutti i progetti',
+  'projekte.new': 'Nuovo progetto',
+  'projekte.name': 'Nome',
+  'projekte.namePlaceholder': 'Su cosa state lavorando?',
+  'projekte.description': 'A cosa serve?',
+  'projekte.color': 'Colore',
+  'projekte.create': 'Crea',
+  'projekte.save': 'Salva',
+  'projekte.empty': 'Ancora nessun progetto. Creane uno e aggiungi le attività.',
+  'projekte.progress': '{done} di {total} completati',
+  'projekte.archive': 'Archivia',
+  'projekte.unarchive': 'Ripristina',
+  'projekte.archived': 'Archiviato',
+  'projekte.delete': 'Elimina progetto',
+  'projekte.deleteConfirm': 'Eliminare questo progetto? Le attività rimarranno senza progetto.',
+  'projekte.assign': 'Progetto',
+  'pruefen.tab': 'Revisione',
+  'pruefen.count': 'Revisione ({n})',
+  'pruefen.title': 'Aggiunto dall\'IA',
+  'pruefen.hint': 'L\'IA ha creato questo autonomamente. Controlla: se va bene, resta, altrimenti rimuovilo.',
+  'pruefen.ok': 'Va bene',
+  'pruefen.empty': 'Niente da revisionare. L\'IA non ha aggiunto nulla di nuovo.',
+  'pruefen.badge': 'Non revisionato',
+  'pruefen.fromAi': 'Dall\'IA',
+  'ki.selbstEintragen': 'L\'IA aggiunge voci da sola',
+  'ki.selbstEintragenHint': 'Off: i risultati arrivano come suggerimenti e attendono conferma. On: attività, idee ed eventi compaiono subito sulle bacheche — contrassegnati e raccolti nella scheda “Revisione”.',
 };

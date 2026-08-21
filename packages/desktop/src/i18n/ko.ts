@@ -500,8 +500,6 @@ export const ko = {
   'ideas.status.working': '진행 중',
   'ideas.status.done': '완료',
   'ideas.status.rejected': '거절됨',
-
-  /* Vorschläge der KI — angenommen, abgelehnt oder geändert wird hier */
   'vorschlaege.title': '제안',
   'vorschlaege.nav': 'StelliumAI의 제안',
   'vorschlaege.subtitle': '남은 항목: {n} — AI가 제안하고, 결정은 당신이 합니다.',
@@ -808,8 +806,6 @@ export const ko = {
   'kat.automatisch': '자동 분류',
   'kat.hinweis': '새 계정은 “새로”에, 봇은 “기술”에, 삭제된 것은 “삭제됨”에 배치됩니다. 수동 선택이 우선합니다.',
   'kat.verschoben': '카테고리 변경',
-
-  /* App herunterladen — nur im Browser sichtbar */
   'download.nav': '앱 내려받기',
   'download.title': '앱 내려받기',
   'download.subtitle': '언제나 최신 버전을, 우리 서버에서 바로.',
@@ -830,7 +826,6 @@ export const ko = {
   'download.checksumHint': '내려받은 뒤 비교하면 파일이 그대로 도착했는지 확인할 수 있습니다.',
   'download.checksumCopy': '체크섬 복사',
   'download.checksumCopied': '복사됨',
-
   'status.title': '내 상태',
   'status.online': '온라인',
   'status.away': '자리 비움',
@@ -923,8 +918,6 @@ export const ko = {
   'fehler.serverStumm': '서버가 응답하지 않았습니다.',
   'fehler.codePasstNicht': '코드가 이 공개와 맞지 않습니다.',
   'fehler.dateiKopfUnlesbar': '이 파일에는 읽을 수 있는 헤더가 없습니다.',
-
-  /* Beschriftungen, die vorher fest im Code standen */
   'msg.someone': '알 수 없음',
   'common.active': '활성',
   'common.ctrlKey': 'Ctrl',
@@ -974,8 +967,6 @@ export const ko = {
   'toast.rewriteFailed': '다시 쓰기에 실패했습니다',
   'toast.scheduled': '예약됨',
   'voice.stopRecording': '녹음 중지',
-
-  /* Texte, die der Server schickt — er sendet die Kennung, hier steht der Satz */
   'fehler.nichtGefunden': '찾을 수 없음',
   'hinweis.lokalStumm': '{adresse}의 모델이 응답하지 않습니다 ({fehler}). 다시 작동할 때까지 메시지는 번역되지 않습니다.',
   'hinweis.lokalOhneModell': '{adresse}에 로드된 모델이 없습니다. 거기서 하나 시작하지 않으면 아무것도 번역되지 않습니다.',
@@ -983,7 +974,6 @@ export const ko = {
   'hinweis.keinAssistent': '{anbieter}는 번역은 하지만 AI 요약은 못 합니다. 모두 쓰려면 Groq, OpenAI 또는 로컬 모델을 고르세요.',
   'hinweis.keinAbtippen': '음성 메시지는 받아쓰지 않습니다. 서버의 음성 서비스(server-setup/dienste/stimme-einrichten.sh)나 Groq 키가 필요합니다.',
   'hinweis.stimmeBeiGroq': '텍스트 모델은 자체 망에서 돌지만 음성 메시지는 Groq으로 갑니다. server-setup/dienste/stimme-einrichten.sh를 쓰면 음성도 여기 남습니다.',
-
   'anhang.wirdGeoeffnet': '여는 중 …',
   'anhang.unlesbar': '읽을 수 없음',
   'anhang.unlesbarHinweis': '이 파일의 키가 없습니다. 기기를 바꿨다면 복구 코드가 도움이 됩니다.',
@@ -996,8 +986,6 @@ export const ko = {
   'files.oeffentlichHinweis': '팀의 모두가 이 파일을 열 수 있습니다.',
   'files.downloadFehler': '내려받기 실패',
   'toast.filesFailed': '보관함을 불러올 수 없습니다',
-
-  /* Meldungen der Ereignisleitung — der Server schickt die Kennung */
   'fehler.privatUnverschluesselt': '이 파일은 비공개여야 하는데 암호화되지 않은 채 도착했습니다. 앱을 업데이트하세요.',
   'fehler.anmeldungAbgelaufen': '세션이 만료되었습니다',
   'fehler.anmeldungFehlgeschlagen': '로그인에 실패했습니다. 다시 시도하세요.',
@@ -1010,6 +998,7 @@ export const ko = {
   'fehler.keinRechtAlleErwaehnen': '전체를 멘션할 권한이 없습니다.',
   'fehler.keinRechtErwaehnen': '사람을 멘션할 권한이 없습니다.',
   'fehler.keinRechtName': '‘{recht}’ 권한이 없습니다.',
+  'fehler.technischesKonto': '기술 계정은 메시지를 받을 수 없습니다.',
   'fehler.keinRechtUebergeben': '다른 사람에게 작업을 넘기는 것은 별도 권한입니다.',
   'fehler.keinUmfrageZugang': '이 투표에 접근할 수 없습니다.',
   'fehler.keinUrsprungZugriff': '원본 메시지에 접근할 수 없습니다',
@@ -1037,8 +1026,6 @@ export const ko = {
   'fehler.threadNichtGefunden': '스레드를 찾을 수 없습니다',
   'fehler.vertraulichGeplantNoetig': '이 채널은 기밀입니다. 예약 메시지는 예약하는 시점에 암호화되어야 합니다. 그렇지 않으면 전송될 때까지 서버에 그대로 남습니다.',
   'fehler.zielkanalNichtGefunden': '대상 채널을 찾을 수 없습니다',
-
-  /* Abweisungen der Schnittstelle — der Server schickt die Kennung */
   'fehler.altesPasswortFalsch': '현재 비밀번호가 올바르지 않습니다.',
   'fehler.anbieterUnbekannt': '알 수 없는 공급자 ‘{anbieter}’입니다.',
   'fehler.begriffFehlt': '용어가 없습니다',
@@ -1106,8 +1093,6 @@ export const ko = {
   'fehler.vorschlagEntschieden': '이 제안은 이미 결정되었습니다.',
   'fehler.vorschlagTitel': '제안에는 제목이 필요합니다.',
   'fehler.zusammensetzen': '병합 실패: {grund}',
-
-  /* Fernsteuerung des Pi */
   'fern.titel': 'Pi 원격 제어',
   'fern.nurApp': '원격 제어는 Stellium 앱에서만 됩니다.',
   'fern.verbinden': '연결',
@@ -1118,4 +1103,32 @@ export const ko = {
   'fern.steuertAn': '제어 켜짐',
   'fern.steuertAus': '보기만',
   'fern.steuernHilfe': '키보드와 마우스를 Pi로 보내기',
+  'projekte.title': '프로젝트',
+  'projekte.none': '프로젝트 없음',
+  'projekte.all': '전체 프로젝트',
+  'projekte.new': '새 프로젝트',
+  'projekte.name': '이름',
+  'projekte.namePlaceholder': '무엇을 작업하고 있나요?',
+  'projekte.description': '무엇을 위한 것인가요?',
+  'projekte.color': '색상',
+  'projekte.create': '생성',
+  'projekte.save': '저장',
+  'projekte.empty': '아직 프로젝트가 없습니다. 하나 만들고 작업을 추가하세요.',
+  'projekte.progress': '{done}/{total} 완료',
+  'projekte.archive': '보관',
+  'projekte.unarchive': '복원',
+  'projekte.archived': '보관됨',
+  'projekte.delete': '프로젝트 삭제',
+  'projekte.deleteConfirm': '이 프로젝트를 삭제하시겠습니까? 작업은 남으며 프로젝트가 없는 상태가 됩니다.',
+  'projekte.assign': '프로젝트',
+  'pruefen.tab': '검토',
+  'pruefen.count': '검토 ({n})',
+  'pruefen.title': 'AI가 추가함',
+  'pruefen.hint': 'AI가 스스로 추가했습니다. 확인해 보세요: 맞으면 유지하고, 아니면 삭제하세요.',
+  'pruefen.ok': '맞음',
+  'pruefen.empty': '검토할 항목이 없습니다. AI가 새 항목을 추가하지 않았습니다.',
+  'pruefen.badge': '미검토',
+  'pruefen.fromAi': 'AI 제공',
+  'ki.selbstEintragen': 'AI가 직접 입력',
+  'ki.selbstEintragenHint': 'Off: 발견된 항목은 제안으로 표시되고 승인을 기다립니다. On: 작업, 아이디어, 일정이 바로 보드에 표시되고 "검토" 탭에 모아집니다.',
 };

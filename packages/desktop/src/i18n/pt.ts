@@ -500,8 +500,6 @@ export const pt = {
   'ideas.status.working': 'Em andamento',
   'ideas.status.done': 'Concluído',
   'ideas.status.rejected': 'Rejeitado',
-
-  /* Vorschläge der KI — angenommen, abgelehnt oder geändert wird hier */
   'vorschlaege.title': 'Sugestões',
   'vorschlaege.nav': 'Sugestões do StelliumAI',
   'vorschlaege.subtitle': 'Em aberto: {n} — a IA propõe, tu decides.',
@@ -808,8 +806,6 @@ export const pt = {
   'kat.automatisch': 'Classificar automaticamente',
   'kat.hinweis': 'Novas contas vão para “Novo”, bots para “Técnico”, excluídas para “Excluído”. A escolha manual tem prioridade.',
   'kat.verschoben': 'Categoria alterada',
-
-  /* App herunterladen — nur im Browser sichtbar */
   'download.nav': 'Baixar o app',
   'download.title': 'Baixar o app',
   'download.subtitle': 'Sempre a versão mais recente, direto do servidor de vocês.',
@@ -830,7 +826,6 @@ export const pt = {
   'download.checksumHint': 'Compare depois de baixar — assim você sabe que o arquivo chegou sem alterações.',
   'download.checksumCopy': 'Copiar a soma de verificação',
   'download.checksumCopied': 'Copiado',
-
   'status.title': 'Meu estado',
   'status.online': 'Online',
   'status.away': 'Ausente',
@@ -923,8 +918,6 @@ export const pt = {
   'fehler.serverStumm': 'O servidor não respondeu.',
   'fehler.codePasstNicht': 'O código não corresponde a esta libertação.',
   'fehler.dateiKopfUnlesbar': 'Este ficheiro não tem um cabeçalho legível.',
-
-  /* Beschriftungen, die vorher fest im Code standen */
   'msg.someone': 'alguém',
   'common.active': 'ativo',
   'common.ctrlKey': 'Ctrl',
@@ -974,8 +967,6 @@ export const pt = {
   'toast.rewriteFailed': 'A reformulação falhou',
   'toast.scheduled': 'Agendado',
   'voice.stopRecording': 'Parar a gravação',
-
-  /* Texte, die der Server schickt — er sendet die Kennung, hier steht der Satz */
   'fehler.nichtGefunden': 'Não encontrado',
   'hinweis.lokalStumm': 'O modelo em {adresse} não responde ({fehler}). As mensagens ficam sem tradução até voltar.',
   'hinweis.lokalOhneModell': 'Em {adresse} não há nenhum modelo carregado. Inicia um, senão nada é traduzido.',
@@ -983,7 +974,6 @@ export const pt = {
   'hinweis.keinAssistent': '{anbieter} traduz, mas não faz resumos com IA. Para tudo, escolhe Groq, OpenAI ou um modelo local.',
   'hinweis.keinAbtippen': 'As mensagens de voz não são transcritas. Seria preciso o serviço de voz no servidor (server-setup/dienste/stimme-einrichten.sh) ou uma chave Groq.',
   'hinweis.stimmeBeiGroq': 'O modelo de texto corre na vossa própria rede, mas as mensagens de voz vão para a Groq. Com server-setup/dienste/stimme-einrichten.sh também ficam aqui.',
-
   'anhang.wirdGeoeffnet': 'A abrir …',
   'anhang.unlesbar': 'Não legível',
   'anhang.unlesbarHinweis': 'Falta a chave deste ficheiro. Depois de trocar de dispositivo, o código de recuperação ajuda.',
@@ -996,8 +986,6 @@ export const pt = {
   'files.oeffentlichHinweis': 'Toda a equipa pode abrir este ficheiro.',
   'files.downloadFehler': 'Falha ao transferir',
   'toast.filesFailed': 'Não é possível carregar o arquivo',
-
-  /* Meldungen der Ereignisleitung — der Server schickt die Kennung */
   'fehler.privatUnverschluesselt': 'Este ficheiro devia ser privado, mas chegou sem cifra. Atualiza a app.',
   'fehler.anmeldungAbgelaufen': 'Sessão expirada',
   'fehler.anmeldungFehlgeschlagen': 'Falha ao entrar. Tenta novamente.',
@@ -1010,6 +998,7 @@ export const pt = {
   'fehler.keinRechtAlleErwaehnen': 'Falta-te a permissão para mencionar toda a gente.',
   'fehler.keinRechtErwaehnen': 'Falta-te a permissão para mencionar pessoas.',
   'fehler.keinRechtName': 'Falta-te a permissão «{recht}».',
+  'fehler.technischesKonto': 'Contas técnicas não aceitam mensagens.',
   'fehler.keinRechtUebergeben': 'Atribuir tarefas a outras pessoas é uma permissão própria.',
   'fehler.keinUmfrageZugang': 'Não tens acesso a esta sondagem.',
   'fehler.keinUrsprungZugriff': 'Sem acesso à mensagem original',
@@ -1037,8 +1026,6 @@ export const pt = {
   'fehler.threadNichtGefunden': 'Tópico não encontrado',
   'fehler.vertraulichGeplantNoetig': 'Este canal é confidencial. Uma mensagem agendada tem de ser cifrada logo ao agendar — senão ficaria em claro no servidor até ser enviada.',
   'fehler.zielkanalNichtGefunden': 'Canal de destino não encontrado',
-
-  /* Abweisungen der Schnittstelle — der Server schickt die Kennung */
   'fehler.altesPasswortFalsch': 'A palavra-passe atual não está correta.',
   'fehler.anbieterUnbekannt': 'Fornecedor desconhecido «{anbieter}».',
   'fehler.begriffFehlt': 'Falta o termo',
@@ -1106,8 +1093,6 @@ export const pt = {
   'fehler.vorschlagEntschieden': 'Esta sugestão já foi decidida.',
   'fehler.vorschlagTitel': 'A sugestão precisa de um título.',
   'fehler.zusammensetzen': 'Falha ao juntar: {grund}',
-
-  /* Fernsteuerung des Pi */
   'fern.titel': 'Controlar o Pi à distância',
   'fern.nurApp': 'O controlo remoto só existe na aplicação Stellium.',
   'fern.verbinden': 'Ligar',
@@ -1118,4 +1103,32 @@ export const pt = {
   'fern.steuertAn': 'Controlo ligado',
   'fern.steuertAus': 'apenas ver',
   'fern.steuernHilfe': 'Enviar teclado e rato para o Pi',
+  'projekte.title': 'Projetos',
+  'projekte.none': 'Sem projeto',
+  'projekte.all': 'Todos os projetos',
+  'projekte.new': 'Novo projeto',
+  'projekte.name': 'Nome',
+  'projekte.namePlaceholder': 'No que vocês estão trabalhando?',
+  'projekte.description': 'Para que serve?',
+  'projekte.color': 'Cor',
+  'projekte.create': 'Criar',
+  'projekte.save': 'Salvar',
+  'projekte.empty': 'Ainda não há projetos. Crie um e adicione tarefas.',
+  'projekte.progress': '{done} de {total} concluído',
+  'projekte.archive': 'Arquivar',
+  'projekte.unarchive': 'Restaurar',
+  'projekte.archived': 'Arquivado',
+  'projekte.delete': 'Excluir projeto',
+  'projekte.deleteConfirm': 'Excluir este projeto? As tarefas permanecem e ficarão sem projeto.',
+  'projekte.assign': 'Projeto',
+  'pruefen.tab': 'Revisar',
+  'pruefen.count': 'Revisar ({n})',
+  'pruefen.title': 'Adicionado pela IA',
+  'pruefen.hint': 'A IA adicionou isso automaticamente. Verifique: se estiver adequado, fica — caso contrário, remova.',
+  'pruefen.ok': 'Está bom',
+  'pruefen.empty': 'Nada para revisar. A IA não adicionou nada novo.',
+  'pruefen.badge': 'Não revisado',
+  'pruefen.fromAi': 'Da IA',
+  'ki.selbstEintragen': 'A IA insere sozinha',
+  'ki.selbstEintragenHint': 'Desligado: as descobertas chegam como sugestões e aguardam confirmação. Ligado: tarefas, ideias e eventos aparecem imediatamente nos quadros — marcados e reunidos na aba “Revisar”.',
 };

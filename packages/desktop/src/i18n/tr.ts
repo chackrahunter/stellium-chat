@@ -500,8 +500,6 @@ export const tr = {
   'ideas.status.working': 'Devam ediyor',
   'ideas.status.done': 'Tamamlandı',
   'ideas.status.rejected': 'Reddedildi',
-
-  /* Vorschläge der KI — angenommen, abgelehnt oder geändert wird hier */
   'vorschlaege.title': 'Öneriler',
   'vorschlaege.nav': 'StelliumAI’nin önerileri',
   'vorschlaege.subtitle': 'Açık: {n} — yapay zekâ önerir, sen karar verirsin.',
@@ -808,8 +806,6 @@ export const tr = {
   'kat.automatisch': 'Otomatik olarak sınıflandır',
   'kat.hinweis': 'Yeni hesaplar “Yeni” altında, botlar “Teknik” altında, silinenler “Silinmiş” altında yer alır. Elle seçilen kategori önceliklidir.',
   'kat.verschoben': 'Kategori değiştirildi',
-
-  /* App herunterladen — nur im Browser sichtbar */
   'download.nav': 'Uygulamayı indir',
   'download.title': 'Uygulamayı indir',
   'download.subtitle': 'Her zaman en yeni sürüm, doğrudan kendi sunucunuzdan.',
@@ -830,7 +826,6 @@ export const tr = {
   'download.checksumHint': 'İndirdikten sonra karşılaştırın — böylece dosyanın değişmeden geldiğinden emin olursunuz.',
   'download.checksumCopy': 'Sağlama toplamını kopyala',
   'download.checksumCopied': 'Kopyalandı',
-
   'status.title': 'Durumum',
   'status.online': 'Çevrimiçi',
   'status.away': 'Uzakta',
@@ -923,8 +918,6 @@ export const tr = {
   'fehler.serverStumm': 'Sunucu yanıt vermedi.',
   'fehler.codePasstNicht': 'Kod bu serbest bırakmaya ait değil.',
   'fehler.dateiKopfUnlesbar': 'Bu dosyanın okunabilir bir başlığı yok.',
-
-  /* Beschriftungen, die vorher fest im Code standen */
   'msg.someone': 'biri',
   'common.active': 'etkin',
   'common.ctrlKey': 'Ctrl',
@@ -974,8 +967,6 @@ export const tr = {
   'toast.rewriteFailed': 'Yeniden yazma başarısız',
   'toast.scheduled': 'Planlandı',
   'voice.stopRecording': 'Kaydı durdur',
-
-  /* Texte, die der Server schickt — er sendet die Kennung, hier steht der Satz */
   'fehler.nichtGefunden': 'Bulunamadı',
   'hinweis.lokalStumm': '{adresse} adresindeki model yanıt vermiyor ({fehler}). Model geri gelene kadar mesajlar çevrilmeden kalır.',
   'hinweis.lokalOhneModell': '{adresse} adresinde yüklü model yok. Orada bir tane başlat, yoksa hiçbir şey çevrilmez.',
@@ -983,7 +974,6 @@ export const tr = {
   'hinweis.keinAssistent': '{anbieter} çeviriyor ama yapay zekâ özeti çıkaramıyor. Hepsi için Groq, OpenAI ya da yerel bir model seç.',
   'hinweis.keinAbtippen': 'Sesli mesajlar yazıya dökülmüyor. Bunun için sunucudaki ses hizmeti (server-setup/dienste/stimme-einrichten.sh) ya da bir Groq anahtarı gerekir.',
   'hinweis.stimmeBeiGroq': 'Metin modeli kendi ağınızda çalışıyor ama sesli mesajlar Groq’a gidiyor. server-setup/dienste/stimme-einrichten.sh ile onlar da burada kalır.',
-
   'anhang.wirdGeoeffnet': 'Açılıyor …',
   'anhang.unlesbar': 'Okunamıyor',
   'anhang.unlesbarHinweis': 'Bu dosyanın anahtarı eksik. Cihaz değişiminden sonra kurtarma kodu yardımcı olur.',
@@ -996,8 +986,6 @@ export const tr = {
   'files.oeffentlichHinweis': 'Ekipteki herkes bu dosyayı açabilir.',
   'files.downloadFehler': 'İndirme başarısız',
   'toast.filesFailed': 'Arşiv yüklenemiyor',
-
-  /* Meldungen der Ereignisleitung — der Server schickt die Kennung */
   'fehler.privatUnverschluesselt': 'Bu dosya özel olmalıydı ama şifrelenmemiş geldi. Lütfen uygulamayı güncelle.',
   'fehler.anmeldungAbgelaufen': 'Oturum süresi doldu',
   'fehler.anmeldungFehlgeschlagen': 'Giriş başarısız. Lütfen tekrar dene.',
@@ -1010,6 +998,7 @@ export const tr = {
   'fehler.keinRechtAlleErwaehnen': 'Herkesten bahsetme yetkin yok.',
   'fehler.keinRechtErwaehnen': 'Kişilerden bahsetme yetkin yok.',
   'fehler.keinRechtName': '“{recht}” yetkin yok.',
+  'fehler.technischesKonto': 'Teknik hesaplar mesaj kabul etmez.',
   'fehler.keinRechtUebergeben': 'Görevleri başkalarına vermek ayrı bir yetkidir.',
   'fehler.keinUmfrageZugang': 'Bu ankete erişimin yok.',
   'fehler.keinUrsprungZugriff': 'Özgün mesaja erişimin yok',
@@ -1037,8 +1026,6 @@ export const tr = {
   'fehler.threadNichtGefunden': 'Konu bulunamadı',
   'fehler.vertraulichGeplantNoetig': 'Bu kanal gizli. Zamanlanmış bir mesaj daha zamanlanırken şifrelenmelidir — yoksa gönderilene kadar sunucuda açık kalır.',
   'fehler.zielkanalNichtGefunden': 'Hedef kanal bulunamadı',
-
-  /* Abweisungen der Schnittstelle — der Server schickt die Kennung */
   'fehler.altesPasswortFalsch': 'Mevcut parola doğru değil.',
   'fehler.anbieterUnbekannt': 'Bilinmeyen sağlayıcı “{anbieter}”.',
   'fehler.begriffFehlt': 'Terim eksik',
@@ -1106,8 +1093,6 @@ export const tr = {
   'fehler.vorschlagEntschieden': 'Bu öneri hakkında zaten karar verildi.',
   'fehler.vorschlagTitel': 'Önerinin bir başlığa ihtiyacı var.',
   'fehler.zusammensetzen': 'Birleştirme başarısız: {grund}',
-
-  /* Fernsteuerung des Pi */
   'fern.titel': 'Pi’yi uzaktan yönet',
   'fern.nurApp': 'Uzaktan yönetim yalnızca Stellium uygulamasında var.',
   'fern.verbinden': 'Bağlan',
@@ -1118,4 +1103,32 @@ export const tr = {
   'fern.steuertAn': 'Yönetim açık',
   'fern.steuertAus': 'yalnızca izle',
   'fern.steuernHilfe': 'Klavye ve fareyi Pi’ye ilet',
+  'projekte.title': 'Projeler',
+  'projekte.none': 'Proje yok',
+  'projekte.all': 'Tüm projeler',
+  'projekte.new': 'Yeni proje',
+  'projekte.name': 'Ad',
+  'projekte.namePlaceholder': 'Ne üzerinde çalışıyorsunuz?',
+  'projekte.description': 'Ne amaçla?',
+  'projekte.color': 'Renk',
+  'projekte.create': 'Oluştur',
+  'projekte.save': 'Kaydet',
+  'projekte.empty': 'Henüz proje yok. Bir tane oluşturun ve görevleri ekleyin.',
+  'projekte.progress': '{done}/{total} tamamlandı',
+  'projekte.archive': 'Arşivle',
+  'projekte.unarchive': 'Geri getir',
+  'projekte.archived': 'Arşivlendi',
+  'projekte.delete': 'Projeyi sil',
+  'projekte.deleteConfirm': 'Bu proje silinsin mi? Görevler kalır ve proje olmadan kalır.',
+  'projekte.assign': 'Proje',
+  'pruefen.tab': 'İncele',
+  'pruefen.count': 'İncele ({n})',
+  'pruefen.title': 'Yapay zekâ tarafından eklendi',
+  'pruefen.hint': 'Bu, yapay zekâ tarafından otomatik olarak eklendi. Göz at: uygunsa kalır, değilse kaldırılır.',
+  'pruefen.ok': 'Uygun',
+  'pruefen.empty': 'İncelenecek bir şey yok. Yapay zekâ yeni bir şey eklemedi.',
+  'pruefen.badge': 'İncelenmemiş',
+  'pruefen.fromAi': 'Yapay zekâdan',
+  'ki.selbstEintragen': 'Yapay zekâ kendiliğinden ekliyor',
+  'ki.selbstEintragenHint': 'Kapalı: bulgular öneri olarak gelir ve onay bekler. Açık: görevler, fikirler ve etkinlikler hemen panolara eklenir — işaretlenir ve “İncele” sekmesinde toplanır.',
 };

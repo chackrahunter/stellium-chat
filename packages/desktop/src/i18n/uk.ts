@@ -91,7 +91,7 @@ export const uk = {
   'fehler.keineSelbstanmeldung': 'Облікові записи створює керівник команди. Попроси одноразовий пароль.',
   'fehler.zugangsdatenFehlen': 'Бракує даних для входу',
   'fehler.zuVieleVersuche': 'Забагато спроб. Зачекай хвилину.',
-  'fehler.loginFalsch': "Ім'я користувача або пароль неправильні",
+  'fehler.loginFalsch': 'Ім\'я користувача або пароль неправильні',
   'fehler.kontoGesperrt': 'Цей обліковий запис заблоковано. Звернися до керівника команди.',
   'fehler.keinRecht': 'У тебе немає прав для цього.',
   'fehler.keineDatei': 'Жодного файлу не надіслано.',
@@ -500,8 +500,6 @@ export const uk = {
   'ideas.status.working': 'У процесі',
   'ideas.status.done': 'Готова',
   'ideas.status.rejected': 'Відхилена',
-
-  /* Vorschläge der KI — angenommen, abgelehnt oder geändert wird hier */
   'vorschlaege.title': 'Пропозиції',
   'vorschlaege.nav': 'Пропозиції від StelliumAI',
   'vorschlaege.subtitle': 'Відкрито: {n} — ШІ пропонує, вирішуєш ти.',
@@ -808,8 +806,6 @@ export const uk = {
   'kat.automatisch': 'Автоматично сортувати',
   'kat.hinweis': 'Нові облікові записи потрапляють у «Нові», боти — у «Технічні», видалені — у «Видалені». Вибір вручну має пріоритет.',
   'kat.verschoben': 'Категорія змінена',
-
-  /* App herunterladen — nur im Browser sichtbar */
   'download.nav': 'Завантажити застосунок',
   'download.title': 'Завантажити застосунок',
   'download.subtitle': 'Завжди найновіша версія — просто з вашого сервера.',
@@ -830,7 +826,6 @@ export const uk = {
   'download.checksumHint': 'Порівняйте її після завантаження — так ви переконаєтеся, що файл надійшов без змін.',
   'download.checksumCopy': 'Скопіювати контрольну суму',
   'download.checksumCopied': 'Скопійовано',
-
   'status.title': 'Мій статус',
   'status.online': 'У мережі',
   'status.away': 'Відійшов',
@@ -923,8 +918,6 @@ export const uk = {
   'fehler.serverStumm': 'Сервер не відповів.',
   'fehler.codePasstNicht': 'Код не підходить до цього відкриття.',
   'fehler.dateiKopfUnlesbar': 'У цього файлу немає читабельного заголовка.',
-
-  /* Beschriftungen, die vorher fest im Code standen */
   'msg.someone': 'когось',
   'common.active': 'активний',
   'common.ctrlKey': 'Ctrl',
@@ -974,8 +967,6 @@ export const uk = {
   'toast.rewriteFailed': 'Не вдалося переформулювати',
   'toast.scheduled': 'Заплановано',
   'voice.stopRecording': 'Зупинити запис',
-
-  /* Texte, die der Server schickt — er sendet die Kennung, hier steht der Satz */
   'fehler.nichtGefunden': 'Не знайдено',
   'hinweis.lokalStumm': 'Модель за адресою {adresse} не відповідає ({fehler}). Повідомлення лишаються неперекладеними, доки вона не запрацює.',
   'hinweis.lokalOhneModell': 'За адресою {adresse} не завантажено жодної моделі. Запусти там якусь, інакше нічого не перекладеться.',
@@ -983,7 +974,6 @@ export const uk = {
   'hinweis.keinAssistent': '{anbieter} перекладає, але не вміє робити зведення ШІ. Для всього обери Groq, OpenAI або локальну модель.',
   'hinweis.keinAbtippen': 'Голосові повідомлення не розшифровуються. Для цього потрібна голосова служба на сервері (server-setup/dienste/stimme-einrichten.sh) або ключ Groq.',
   'hinweis.stimmeBeiGroq': 'Текстова модель працює у власній мережі, але голосові повідомлення йдуть до Groq. Із server-setup/dienste/stimme-einrichten.sh вони теж лишаться тут.',
-
   'anhang.wirdGeoeffnet': 'Відкривається …',
   'anhang.unlesbar': 'Не читається',
   'anhang.unlesbarHinweis': 'Для цього файлу немає ключа. Після зміни пристрою допоможе код відновлення.',
@@ -996,8 +986,6 @@ export const uk = {
   'files.oeffentlichHinweis': 'Файл може відкрити будь-хто в команді.',
   'files.downloadFehler': 'Не вдалося завантажити',
   'toast.filesFailed': 'Не вдалося завантажити сховище',
-
-  /* Meldungen der Ereignisleitung — der Server schickt die Kennung */
   'fehler.privatUnverschluesselt': 'Цей файл мав бути приватним, але надійшов незашифрованим. Онови застосунок.',
   'fehler.anmeldungAbgelaufen': 'Сеанс завершився',
   'fehler.anmeldungFehlgeschlagen': 'Не вдалося увійти. Спробуй ще раз.',
@@ -1010,6 +998,7 @@ export const uk = {
   'fehler.keinRechtAlleErwaehnen': 'Тобі бракує права згадувати всіх.',
   'fehler.keinRechtErwaehnen': 'Тобі бракує права згадувати людей.',
   'fehler.keinRechtName': 'Тобі бракує права «{recht}».',
+  'fehler.technischesKonto': 'Технічні облікові записи не приймають повідомлення.',
   'fehler.keinRechtUebergeben': 'Передавати завдання іншим — це окреме право.',
   'fehler.keinUmfrageZugang': 'У тебе немає доступу до цього опитування.',
   'fehler.keinUrsprungZugriff': 'Немає доступу до вихідного повідомлення',
@@ -1037,8 +1026,6 @@ export const uk = {
   'fehler.threadNichtGefunden': 'Гілку не знайдено',
   'fehler.vertraulichGeplantNoetig': 'Цей канал конфіденційний. Заплановане повідомлення має бути зашифроване вже під час планування — інакше воно лежало б на сервері відкритим до самого надсилання.',
   'fehler.zielkanalNichtGefunden': 'Цільовий канал не знайдено',
-
-  /* Abweisungen der Schnittstelle — der Server schickt die Kennung */
   'fehler.altesPasswortFalsch': 'Поточний пароль неправильний.',
   'fehler.anbieterUnbekannt': 'Невідомий постачальник «{anbieter}».',
   'fehler.begriffFehlt': 'Бракує терміна',
@@ -1106,8 +1093,6 @@ export const uk = {
   'fehler.vorschlagEntschieden': 'Щодо цієї пропозиції вже вирішено.',
   'fehler.vorschlagTitel': 'Пропозиції потрібен заголовок.',
   'fehler.zusammensetzen': 'Не вдалося зібрати: {grund}',
-
-  /* Fernsteuerung des Pi */
   'fern.titel': 'Віддалене керування Pi',
   'fern.nurApp': 'Віддалене керування є лише в застосунку Stellium.',
   'fern.verbinden': 'Підключитися',
@@ -1118,4 +1103,32 @@ export const uk = {
   'fern.steuertAn': 'Керування увімкнено',
   'fern.steuertAus': 'лише дивитися',
   'fern.steuernHilfe': 'Передавати клавіатуру та мишу на Pi',
+  'projekte.title': 'Проєкти',
+  'projekte.none': 'Без проєкту',
+  'projekte.all': 'Усі проєкти',
+  'projekte.new': 'Новий проєкт',
+  'projekte.name': 'Назва',
+  'projekte.namePlaceholder': 'Над чим ви працюєте?',
+  'projekte.description': 'Для чого це?',
+  'projekte.color': 'Колір',
+  'projekte.create': 'Створити',
+  'projekte.save': 'Зберегти',
+  'projekte.empty': 'Ще немає проєкту. Створіть його та додайте завдання.',
+  'projekte.progress': '{done} з {total} завершено',
+  'projekte.archive': 'Архівувати',
+  'projekte.unarchive': 'Відновити',
+  'projekte.archived': 'Заархівовано',
+  'projekte.delete': 'Видалити проєкт',
+  'projekte.deleteConfirm': 'Видалити проєкт? Завдання залишаться без проєкту.',
+  'projekte.assign': 'Проєкт',
+  'pruefen.tab': 'Перевірка',
+  'pruefen.count': 'Перевірка ({n})',
+  'pruefen.title': 'Додано ШІ',
+  'pruefen.hint': 'ШІ створив це самостійно. Перегляньте: якщо підходить – залиште, інакше видаліть.',
+  'pruefen.ok': 'Підходить',
+  'pruefen.empty': 'Нічого перевіряти. ШІ нічого нового не додав.',
+  'pruefen.badge': 'Не перевірено',
+  'pruefen.fromAi': 'Від ШІ',
+  'ki.selbstEintragen': 'ШІ додає записи самостійно',
+  'ki.selbstEintragenHint': 'Вимкнено: знахідки надходять як пропозиції й чекають підтвердження. Увімкнено: завдання, ідеї та події одразу з’являються на дошках — позначені та зібрані у вкладці «Перевірка».',
 };

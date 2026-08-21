@@ -377,7 +377,7 @@ export const sv = {
   'tasks.priority.low': 'Låg',
   'tasks.priority.normal': 'Normal',
   'tasks.priority.high': 'Hög',
-  'tasks.priority.urgent': 'Urgent',
+  'tasks.priority.urgent': 'Brådskande',
   'tasks.event.created': 'skapade uppgiften',
   'tasks.event.status': 'ändrade statusen',
   'tasks.event.assignee': 'ändrade ägaren',
@@ -500,8 +500,6 @@ export const sv = {
   'ideas.status.working': 'Pågående',
   'ideas.status.done': 'Färdig',
   'ideas.status.rejected': 'Avvisad',
-
-  /* Vorschläge der KI — angenommen, abgelehnt oder geändert wird hier */
   'vorschlaege.title': 'Förslag',
   'vorschlaege.nav': 'Förslag från StelliumAI',
   'vorschlaege.subtitle': 'Öppna: {n} — AI:n föreslår, du bestämmer.',
@@ -808,8 +806,6 @@ export const sv = {
   'kat.automatisch': 'Sortera automatiskt',
   'kat.hinweis': 'Nya konton hamnar under ”Ny”, botar under ”Teknisk”, raderade under ”Raderad”. Manuell val har företräde.',
   'kat.verschoben': 'Kategori ändrad',
-
-  /* App herunterladen — nur im Browser sichtbar */
   'download.nav': 'Hämta appen',
   'download.title': 'Hämta appen',
   'download.subtitle': 'Alltid den senaste versionen, direkt från er egen server.',
@@ -830,7 +826,6 @@ export const sv = {
   'download.checksumHint': 'Jämför den efter hämtningen — då vet du att filen kom fram oförändrad.',
   'download.checksumCopy': 'Kopiera kontrollsumman',
   'download.checksumCopied': 'Kopierad',
-
   'status.title': 'Min status',
   'status.online': 'Online',
   'status.away': 'Borta',
@@ -923,8 +918,6 @@ export const sv = {
   'fehler.serverStumm': 'Servern svarade inte.',
   'fehler.codePasstNicht': 'Koden hör inte till den här frigivningen.',
   'fehler.dateiKopfUnlesbar': 'Den här filen har inget läsbart huvud.',
-
-  /* Beschriftungen, die vorher fest im Code standen */
   'msg.someone': 'någon',
   'common.active': 'aktiv',
   'common.ctrlKey': 'Ctrl',
@@ -974,8 +967,6 @@ export const sv = {
   'toast.rewriteFailed': 'Omskrivningen misslyckades',
   'toast.scheduled': 'Schemalagt',
   'voice.stopRecording': 'Stoppa inspelningen',
-
-  /* Texte, die der Server schickt — er sendet die Kennung, hier steht der Satz */
   'fehler.nichtGefunden': 'Hittades inte',
   'hinweis.lokalStumm': 'Modellen på {adresse} svarar inte ({fehler}). Meddelanden förblir oöversatta tills den är igång igen.',
   'hinweis.lokalOhneModell': 'Ingen modell är laddad på {adresse}. Starta en där, annars översätts ingenting.',
@@ -983,7 +974,6 @@ export const sv = {
   'hinweis.keinAssistent': '{anbieter} översätter, men klarar inte AI-sammanfattningar. Välj Groq, OpenAI eller en lokal modell för allt.',
   'hinweis.keinAbtippen': 'Röstmeddelanden skrivs inte ner. Det kräver taltjänsten på servern (server-setup/dienste/stimme-einrichten.sh) eller en Groq-nyckel.',
   'hinweis.stimmeBeiGroq': 'Textmodellen kör i ert eget nät, men röstmeddelanden går till Groq. Med server-setup/dienste/stimme-einrichten.sh stannar även de här.',
-
   'anhang.wirdGeoeffnet': 'Öppnar …',
   'anhang.unlesbar': 'Går inte att läsa',
   'anhang.unlesbarHinweis': 'Nyckeln till den här filen saknas. Efter ett enhetsbyte hjälper återställningskoden.',
@@ -996,8 +986,6 @@ export const sv = {
   'files.oeffentlichHinweis': 'Alla i teamet kan öppna den här filen.',
   'files.downloadFehler': 'Nedladdningen misslyckades',
   'toast.filesFailed': 'Det gick inte att läsa in arkivet',
-
-  /* Meldungen der Ereignisleitung — der Server schickt die Kennung */
   'fehler.privatUnverschluesselt': 'Den här filen skulle vara privat men kom fram okrypterad. Uppdatera appen.',
   'fehler.anmeldungAbgelaufen': 'Sessionen har gått ut',
   'fehler.anmeldungFehlgeschlagen': 'Inloggningen misslyckades. Försök igen.',
@@ -1010,6 +998,7 @@ export const sv = {
   'fehler.keinRechtAlleErwaehnen': 'Du saknar rätten att nämna alla.',
   'fehler.keinRechtErwaehnen': 'Du saknar rätten att nämna personer.',
   'fehler.keinRechtName': 'Du saknar rätten ”{recht}”.',
+  'fehler.technischesKonto': 'Tekniska konton tar inte emot meddelanden.',
   'fehler.keinRechtUebergeben': 'Att ge uppgifter till andra är en egen rättighet.',
   'fehler.keinUmfrageZugang': 'Du har inte åtkomst till den här omröstningen.',
   'fehler.keinUrsprungZugriff': 'Ingen åtkomst till ursprungsmeddelandet',
@@ -1037,8 +1026,6 @@ export const sv = {
   'fehler.threadNichtGefunden': 'Tråden hittades inte',
   'fehler.vertraulichGeplantNoetig': 'Den här kanalen är konfidentiell. Ett schemalagt meddelande måste krypteras redan när det schemaläggs — annars ligger det oskyddat på servern tills det skickas.',
   'fehler.zielkanalNichtGefunden': 'Målkanalen hittades inte',
-
-  /* Abweisungen der Schnittstelle — der Server schickt die Kennung */
   'fehler.altesPasswortFalsch': 'Det nuvarande lösenordet stämmer inte.',
   'fehler.anbieterUnbekannt': 'Okänd leverantör ”{anbieter}”.',
   'fehler.begriffFehlt': 'Term saknas',
@@ -1106,8 +1093,6 @@ export const sv = {
   'fehler.vorschlagEntschieden': 'Det här förslaget är redan avgjort.',
   'fehler.vorschlagTitel': 'Förslaget behöver en titel.',
   'fehler.zusammensetzen': 'Sammanfogningen misslyckades: {grund}',
-
-  /* Fernsteuerung des Pi */
   'fern.titel': 'Fjärrstyr Pi:n',
   'fern.nurApp': 'Fjärrstyrning finns bara i Stellium-appen.',
   'fern.verbinden': 'Anslut',
@@ -1118,4 +1103,32 @@ export const sv = {
   'fern.steuertAn': 'Styrning på',
   'fern.steuertAus': 'bara titta',
   'fern.steuernHilfe': 'Skicka tangentbord och mus till Pi:n',
+  'projekte.title': 'Projekt',
+  'projekte.none': 'Inget projekt',
+  'projekte.all': 'Alla projekt',
+  'projekte.new': 'Nytt projekt',
+  'projekte.name': 'Name',
+  'projekte.namePlaceholder': 'Vad arbetar du med?',
+  'projekte.description': 'Vad är det för?',
+  'projekte.color': 'Färg',
+  'projekte.create': 'Skapa',
+  'projekte.save': 'Spara',
+  'projekte.empty': 'Inget projekt ännu. Skapa ett och lägg till uppgifter.',
+  'projekte.progress': '{done} av {total} klara',
+  'projekte.archive': 'Arkivera',
+  'projekte.unarchive': 'Återställ',
+  'projekte.archived': 'Arkiverat',
+  'projekte.delete': 'Ta bort projekt',
+  'projekte.deleteConfirm': 'Ta bort projektet? Uppgifterna behålls och blir utan projekt.',
+  'projekte.assign': 'Projekt',
+  'pruefen.tab': 'Granska',
+  'pruefen.count': 'Granska ({n})',
+  'pruefen.title': 'Tillagd av AI',
+  'pruefen.hint': 'AI:n har lagt till detta själv. Kolla: om det passar, behåll — annars ta bort.',
+  'pruefen.ok': 'Ser rätt ut',
+  'pruefen.empty': 'Inget att granska. AI:n har inte lagt till något nytt.',
+  'pruefen.badge': 'Ej granskad',
+  'pruefen.fromAi': 'Från AI',
+  'ki.selbstEintragen': 'AI:n lägger till poster själv',
+  'ki.selbstEintragenHint': 'Av: fynd kommer som förslag och väntar på ja. På: uppgifter, idéer och händelser visas direkt på tavlorna — markerade och samlade i fliken ”Granska”.',
 };

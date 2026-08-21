@@ -63,6 +63,25 @@ const COLUMNS: { table: string; column: string; definition: string }[] = [
      hochgeladen wurde, und für jeden Anhang in einem offenen Kanal. */
   { table: 'attachments', column: 'huelle',          definition: 'TEXT' },
   { table: 'files',       column: 'huelle',          definition: 'TEXT' },
+  /* Was die KI selbst angelegt hat, wartet auf einen Menschen.
+     `von_ki` sagt, woher der Eintrag kommt, `geprueft_am`, wann jemand
+     daraufgesehen hat — solange das fehlt, steht er im Reiter „Prüfen"
+     statt mitten im Brett. Alte Einträge gelten als geprüft (0/NULL wäre
+     sonst rückwirkend eine Behauptung über Dinge, die Menschen angelegt
+     haben): deshalb `von_ki` mit Vorgabe 0, und ungeprüft ist nur, was
+     `von_ki = 1` UND kein `geprueft_am` hat. */
+  { table: 'tasks',  column: 'von_ki',      definition: 'INTEGER NOT NULL DEFAULT 0' },
+  { table: 'tasks',  column: 'geprueft_am', definition: 'INTEGER' },
+  { table: 'ideas',  column: 'von_ki',      definition: 'INTEGER NOT NULL DEFAULT 0' },
+  { table: 'ideas',  column: 'geprueft_am', definition: 'INTEGER' },
+  { table: 'events', column: 'von_ki',      definition: 'INTEGER NOT NULL DEFAULT 0' },
+  { table: 'events', column: 'geprueft_am', definition: 'INTEGER' },
+  /* Projekte bündeln Aufgaben. Ohne Projekt bleibt die Spalte NULL — genau
+     so, wie das Brett vorher aussah. */
+  { table: 'tasks',  column: 'projekt_id',  definition: 'TEXT' },
+  /* Vorschläge der Art „termin" brauchen einen Zeitpunkt. */
+  { table: 'vorschlaege', column: 'beginnt_am',    definition: 'INTEGER' },
+  { table: 'vorschlaege', column: 'dauer_minuten', definition: 'INTEGER' },
 ];
 
 export function migrate(): void {

@@ -500,8 +500,6 @@ export const ar = {
   'ideas.status.working': 'قيد التنفيذ',
   'ideas.status.done': 'منجزة',
   'ideas.status.rejected': 'مرفوضة',
-
-  /* Vorschläge der KI — angenommen, abgelehnt oder geändert wird hier */
   'vorschlaege.title': 'الاقتراحات',
   'vorschlaege.nav': 'اقتراحات من StelliumAI',
   'vorschlaege.subtitle': 'المعلّق: {n} — الذكاء الاصطناعي يقترح وأنت تقرّر.',
@@ -808,8 +806,6 @@ export const ar = {
   'kat.automatisch': 'تصنيف تلقائي',
   'kat.hinweis': 'الحسابات الجديدة تُوضع في “جديد”، والروبوتات في “تقني”، والمحذوفة في “محذوف”. الاختيار اليدوي له الأولوية.',
   'kat.verschoben': 'تم تغيير الفئة',
-
-  /* App herunterladen — nur im Browser sichtbar */
   'download.nav': 'تنزيل التطبيق',
   'download.title': 'تنزيل التطبيق',
   'download.subtitle': 'دائماً أحدث إصدار، مباشرةً من خادمكم الخاص.',
@@ -830,7 +826,6 @@ export const ar = {
   'download.checksumHint': 'قارنه بعد التنزيل — عندئذٍ تتأكد أن الملف وصل دون تغيير.',
   'download.checksumCopy': 'نسخ المجموع الاختباري',
   'download.checksumCopied': 'تم النسخ',
-
   'status.title': 'حالتي',
   'status.online': 'متصل',
   'status.away': 'غائب',
@@ -923,8 +918,6 @@ export const ar = {
   'fehler.serverStumm': 'لم يستجب الخادم.',
   'fehler.codePasstNicht': 'الرمز لا يطابق هذه الإتاحة.',
   'fehler.dateiKopfUnlesbar': 'هذا الملف ليس له ترويسة مقروءة.',
-
-  /* Beschriftungen, die vorher fest im Code standen */
   'msg.someone': 'شخص ما',
   'common.active': 'نشط',
   'common.ctrlKey': 'Ctrl',
@@ -974,8 +967,6 @@ export const ar = {
   'toast.rewriteFailed': 'فشلت إعادة الصياغة',
   'toast.scheduled': 'مجدولة',
   'voice.stopRecording': 'إيقاف التسجيل',
-
-  /* Texte, die der Server schickt — er sendet die Kennung, hier steht der Satz */
   'fehler.nichtGefunden': 'غير موجود',
   'hinweis.lokalStumm': 'النموذج على {adresse} لا يستجيب ({fehler}). تبقى الرسائل بلا ترجمة حتى يعود للعمل.',
   'hinweis.lokalOhneModell': 'لا يوجد نموذج محمّل على {adresse}. شغّل واحدًا هناك، وإلا لن تُترجم أي رسالة.',
@@ -983,7 +974,6 @@ export const ar = {
   'hinweis.keinAssistent': '{anbieter} يترجم، لكنه لا يستطيع عمل ملخّصات بالذكاء الاصطناعي. اختر Groq أو OpenAI أو نموذجًا محليًا لتعمل كل الوظائف.',
   'hinweis.keinAbtippen': 'الرسائل الصوتية لا تُفرَّغ نصًا. يلزم لذلك خدمة الصوت على الخادم (server-setup/dienste/stimme-einrichten.sh) أو مفتاح Groq.',
   'hinweis.stimmeBeiGroq': 'نموذج النص يعمل داخل شبكتكم، لكن الرسائل الصوتية تذهب إلى Groq. مع server-setup/dienste/stimme-einrichten.sh تبقى هي أيضًا هنا.',
-
   'anhang.wirdGeoeffnet': 'يجري الفتح …',
   'anhang.unlesbar': 'غير قابل للقراءة',
   'anhang.unlesbarHinweis': 'مفتاح هذا الملف مفقود. بعد تغيير الجهاز يساعد رمز الاسترجاع.',
@@ -996,8 +986,6 @@ export const ar = {
   'files.oeffentlichHinweis': 'يستطيع كل من في الفريق فتح هذا الملف.',
   'files.downloadFehler': 'فشل التنزيل',
   'toast.filesFailed': 'تعذّر تحميل الأرشيف',
-
-  /* Meldungen der Ereignisleitung — der Server schickt die Kennung */
   'fehler.privatUnverschluesselt': 'كان يفترض أن يكون هذا الملف خاصًا، لكنه وصل غير مشفَّر. يرجى تحديث التطبيق.',
   'fehler.anmeldungAbgelaufen': 'انتهت الجلسة',
   'fehler.anmeldungFehlgeschlagen': 'فشل تسجيل الدخول. حاول مرة أخرى.',
@@ -1010,6 +998,7 @@ export const ar = {
   'fehler.keinRechtAlleErwaehnen': 'ليست لديك صلاحية الإشارة إلى الجميع.',
   'fehler.keinRechtErwaehnen': 'ليست لديك صلاحية الإشارة إلى أشخاص.',
   'fehler.keinRechtName': 'ليست لديك صلاحية «{recht}».',
+  'fehler.technischesKonto': 'الحسابات التقنية لا تقبل الرسائل.',
   'fehler.keinRechtUebergeben': 'إسناد المهام إلى الآخرين صلاحية مستقلة.',
   'fehler.keinUmfrageZugang': 'لا تملك صلاحية الوصول إلى هذا الاستطلاع.',
   'fehler.keinUrsprungZugriff': 'لا تملك صلاحية الوصول إلى الرسالة الأصلية',
@@ -1037,8 +1026,6 @@ export const ar = {
   'fehler.threadNichtGefunden': 'لم يتم العثور على المحادثة',
   'fehler.vertraulichGeplantNoetig': 'هذه القناة سرّية. يجب تشفير الرسالة المجدولة عند جدولتها، وإلا بقيت على الخادم مكشوفة حتى موعد إرسالها.',
   'fehler.zielkanalNichtGefunden': 'لم يتم العثور على القناة الهدف',
-
-  /* Abweisungen der Schnittstelle — der Server schickt die Kennung */
   'fehler.altesPasswortFalsch': 'كلمة المرور الحالية غير صحيحة.',
   'fehler.anbieterUnbekannt': 'مزوّد غير معروف «{anbieter}».',
   'fehler.begriffFehlt': 'المصطلح مفقود',
@@ -1106,8 +1093,6 @@ export const ar = {
   'fehler.vorschlagEntschieden': 'تم البتّ في هذا الاقتراح من قبل.',
   'fehler.vorschlagTitel': 'الاقتراح يحتاج إلى عنوان.',
   'fehler.zusammensetzen': 'فشل التجميع: {grund}',
-
-  /* Fernsteuerung des Pi */
   'fern.titel': 'التحكّم بالـ Pi عن بُعد',
   'fern.nurApp': 'التحكّم عن بُعد متاح في تطبيق Stellium فقط.',
   'fern.verbinden': 'اتصال',
@@ -1118,4 +1103,32 @@ export const ar = {
   'fern.steuertAn': 'التحكّم مفعّل',
   'fern.steuertAus': 'المشاهدة فقط',
   'fern.steuernHilfe': 'إرسال لوحة المفاتيح والفأرة إلى الـ Pi',
+  'projekte.title': 'المشاريع',
+  'projekte.none': 'بدون مشروع',
+  'projekte.all': 'جميع المشاريع',
+  'projekte.new': 'مشروع جديد',
+  'projekte.name': 'الاسم',
+  'projekte.namePlaceholder': 'على ماذا تعملون؟',
+  'projekte.description': 'ما هو الغرض منه؟',
+  'projekte.color': 'اللون',
+  'projekte.create': 'إنشاء',
+  'projekte.save': 'حفظ',
+  'projekte.empty': 'لا توجد مشاريع بعد. أنشئ مشروعًا وضع المهام فيه.',
+  'projekte.progress': '{done} من {total} مكتملة',
+  'projekte.archive': 'أرشفة',
+  'projekte.unarchive': 'استعادة',
+  'projekte.archived': 'مؤرشف',
+  'projekte.delete': 'حذف المشروع',
+  'projekte.deleteConfirm': 'حذف هذا المشروع؟ ستبقى المهام وستصبح بدون مشروع.',
+  'projekte.assign': 'المشروع',
+  'pruefen.tab': 'مراجعة',
+  'pruefen.count': 'مراجعة ({n})',
+  'pruefen.title': 'أضيفت بواسطة الذكاء الاصطناعي',
+  'pruefen.hint': 'أضاف الذكاء الاصطناعي هذا بنفسه. انظر إليه: إذا كان مناسبًا يبقى — وإلا احذفه.',
+  'pruefen.ok': 'مناسب',
+  'pruefen.empty': 'لا شيء للمراجعة. لم يضيف الذكاء الاصطناعي أي شيء جديد.',
+  'pruefen.badge': 'غير مُراجَع',
+  'pruefen.fromAi': 'من الذكاء الاصطناعي',
+  'ki.selbstEintragen': 'الذكاء الاصطناعي يضيف بنفسه',
+  'ki.selbstEintragenHint': 'إيقاف: تظهر الاقتراحات وتنتظر موافقة. تشغيل: تظهر المهام والأفكار والفعاليات مباشرةً على اللوحات — مُعلَّمة ومجمَّعة في تبويب "مراجعة".',
 };

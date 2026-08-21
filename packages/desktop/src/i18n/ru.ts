@@ -500,8 +500,6 @@ export const ru = {
   'ideas.status.working': 'В работе',
   'ideas.status.done': 'Готово',
   'ideas.status.rejected': 'Отклонено',
-
-  /* Vorschläge der KI — angenommen, abgelehnt oder geändert wird hier */
   'vorschlaege.title': 'Предложения',
   'vorschlaege.nav': 'Предложения от StelliumAI',
   'vorschlaege.subtitle': 'Открыто: {n} — ИИ предлагает, решаешь ты.',
@@ -808,8 +806,6 @@ export const ru = {
   'kat.automatisch': 'Автоматически сортировать',
   'kat.hinweis': 'Новые аккаунты попадают в «Новое», боты — в «Технические», удалённые — в «Удалено». Приоритет у выбранного вручную.',
   'kat.verschoben': 'Категория изменена',
-
-  /* App herunterladen — nur im Browser sichtbar */
   'download.nav': 'Скачать приложение',
   'download.title': 'Скачать приложение',
   'download.subtitle': 'Всегда самая свежая версия — прямо с вашего сервера.',
@@ -830,7 +826,6 @@ export const ru = {
   'download.checksumHint': 'Сравните её после загрузки — так вы убедитесь, что файл дошёл без изменений.',
   'download.checksumCopy': 'Скопировать контрольную сумму',
   'download.checksumCopied': 'Скопировано',
-
   'status.title': 'Мой статус',
   'status.online': 'В сети',
   'status.away': 'Отошёл',
@@ -923,8 +918,6 @@ export const ru = {
   'fehler.serverStumm': 'Сервер не ответил.',
   'fehler.codePasstNicht': 'Код не подходит к этому открытию.',
   'fehler.dateiKopfUnlesbar': 'У этого файла нет читаемого заголовка.',
-
-  /* Beschriftungen, die vorher fest im Code standen */
   'msg.someone': 'кого-то',
   'common.active': 'активна',
   'common.ctrlKey': 'Ctrl',
@@ -974,8 +967,6 @@ export const ru = {
   'toast.rewriteFailed': 'Не удалось переформулировать',
   'toast.scheduled': 'Запланировано',
   'voice.stopRecording': 'Остановить запись',
-
-  /* Texte, die der Server schickt — er sendet die Kennung, hier steht der Satz */
   'fehler.nichtGefunden': 'Не найдено',
   'hinweis.lokalStumm': 'Модель по адресу {adresse} не отвечает ({fehler}). Сообщения останутся непереведёнными, пока она не заработает.',
   'hinweis.lokalOhneModell': 'По адресу {adresse} не загружено ни одной модели. Запусти там какую-нибудь, иначе ничего не переведётся.',
@@ -983,7 +974,6 @@ export const ru = {
   'hinweis.keinAssistent': '{anbieter} переводит, но не умеет делать сводки ИИ. Для всего выбери Groq, OpenAI или локальную модель.',
   'hinweis.keinAbtippen': 'Голосовые сообщения не расшифровываются. Для этого нужна голосовая служба на сервере (server-setup/dienste/stimme-einrichten.sh) или ключ Groq.',
   'hinweis.stimmeBeiGroq': 'Текстовая модель работает в собственной сети, но голосовые сообщения уходят в Groq. С server-setup/dienste/stimme-einrichten.sh они тоже останутся здесь.',
-
   'anhang.wirdGeoeffnet': 'Открывается …',
   'anhang.unlesbar': 'Не читается',
   'anhang.unlesbarHinweis': 'Для этого файла нет ключа. После смены устройства поможет код восстановления.',
@@ -996,8 +986,6 @@ export const ru = {
   'files.oeffentlichHinweis': 'Файл может открыть любой в команде.',
   'files.downloadFehler': 'Не удалось скачать',
   'toast.filesFailed': 'Не удалось загрузить хранилище',
-
-  /* Meldungen der Ereignisleitung — der Server schickt die Kennung */
   'fehler.privatUnverschluesselt': 'Этот файл должен был быть приватным, но пришёл незашифрованным. Обнови приложение.',
   'fehler.anmeldungAbgelaufen': 'Сеанс истёк',
   'fehler.anmeldungFehlgeschlagen': 'Не удалось войти. Попробуй ещё раз.',
@@ -1010,6 +998,7 @@ export const ru = {
   'fehler.keinRechtAlleErwaehnen': 'У тебя нет права упоминать всех.',
   'fehler.keinRechtErwaehnen': 'У тебя нет права упоминать людей.',
   'fehler.keinRechtName': 'У тебя нет права «{recht}».',
+  'fehler.technischesKonto': 'Технические аккаунты не принимают сообщения.',
   'fehler.keinRechtUebergeben': 'Передавать задачи другим — отдельное право.',
   'fehler.keinUmfrageZugang': 'У тебя нет доступа к этому опросу.',
   'fehler.keinUrsprungZugriff': 'Нет доступа к исходному сообщению',
@@ -1037,8 +1026,6 @@ export const ru = {
   'fehler.threadNichtGefunden': 'Ветка не найдена',
   'fehler.vertraulichGeplantNoetig': 'Этот канал конфиденциальный. Запланированное сообщение должно быть зашифровано уже при планировании — иначе оно лежало бы на сервере открытым до отправки.',
   'fehler.zielkanalNichtGefunden': 'Целевой канал не найден',
-
-  /* Abweisungen der Schnittstelle — der Server schickt die Kennung */
   'fehler.altesPasswortFalsch': 'Текущий пароль неверный.',
   'fehler.anbieterUnbekannt': 'Неизвестный поставщик «{anbieter}».',
   'fehler.begriffFehlt': 'Не указан термин',
@@ -1106,8 +1093,6 @@ export const ru = {
   'fehler.vorschlagEntschieden': 'По этому предложению уже принято решение.',
   'fehler.vorschlagTitel': 'Предложению нужен заголовок.',
   'fehler.zusammensetzen': 'Не удалось собрать: {grund}',
-
-  /* Fernsteuerung des Pi */
   'fern.titel': 'Удалённое управление Pi',
   'fern.nurApp': 'Удалённое управление есть только в приложении Stellium.',
   'fern.verbinden': 'Подключиться',
@@ -1118,4 +1103,32 @@ export const ru = {
   'fern.steuertAn': 'Управление включено',
   'fern.steuertAus': 'только смотреть',
   'fern.steuernHilfe': 'Передавать клавиатуру и мышь на Pi',
+  'projekte.title': 'Проекты',
+  'projekte.none': 'Без проекта',
+  'projekte.all': 'Все проекты',
+  'projekte.new': 'Новый проект',
+  'projekte.name': 'Название',
+  'projekte.namePlaceholder': 'Над чем работаете?',
+  'projekte.description': 'Для чего это?',
+  'projekte.color': 'Цвет',
+  'projekte.create': 'Создать',
+  'projekte.save': 'Сохранить',
+  'projekte.empty': 'Пока нет проектов. Создайте один и добавьте задачи.',
+  'projekte.progress': '{done} из {total} выполнено',
+  'projekte.archive': 'Архивировать',
+  'projekte.unarchive': 'Восстановить',
+  'projekte.archived': 'В архиве',
+  'projekte.delete': 'Удалить проект',
+  'projekte.deleteConfirm': 'Удалить проект? Задачи останутся без проекта.',
+  'projekte.assign': 'Проект',
+  'pruefen.tab': 'Проверка',
+  'pruefen.count': 'Проверка ({n})',
+  'pruefen.title': 'Добавлено ИИ',
+  'pruefen.hint': 'ИИ создал это сам. Посмотрите: если подходит — оставьте, иначе удалите.',
+  'pruefen.ok': 'Подходит',
+  'pruefen.empty': 'Нет элементов для проверки. ИИ ничего нового не добавил.',
+  'pruefen.badge': 'Не проверено',
+  'pruefen.fromAi': 'От ИИ',
+  'ki.selbstEintragen': 'ИИ добавляет записи сам',
+  'ki.selbstEintragenHint': 'Выкл: находки приходят как предложения и ждут подтверждения. Вкл: задачи, идеи и события сразу появляются на досках — помечены и собраны во вкладке «Проверка».',
 };

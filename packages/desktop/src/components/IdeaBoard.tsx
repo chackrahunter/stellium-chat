@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
-  Check, Hash, Inbox, Lightbulb, MessageSquare, Plus, Send, ThumbsDown, ThumbsUp,
+  Check, Hash, Inbox, Lightbulb, MessageSquare, Plus, Send, Sparkles, ThumbsDown, ThumbsUp,
   Trash2, X,
 } from 'lucide-react';
 import { IDEA_STATUSES, type Idea, type IdeaStatus } from '@stellium/shared';
@@ -10,6 +10,7 @@ import { useVorschlaege } from '../state/vorschlaege.js';
 import { useT } from '../i18n/index.js';
 import { Avatar } from './Avatar.jsx';
 import { Shell } from './Panels.jsx';
+import { PruefListe } from './PruefListe.jsx';
 import { clsx, relativeTime } from '../lib/format.js';
 
 const STATUS_FARBE: Record<IdeaStatus, string> = {
@@ -30,14 +31,25 @@ export function IdeaBoard({ onClose }: { onClose: () => void }) {
   const ideas = useStore((s) => s.ideas);
   const users = useStore((s) => s.users);
   const self = useStore((s) => s.self);
-  const { loadIdeas } = useStore.getState();
+  const { loadIdeas, ideeGeprueft, deleteIdea } = useStore.getState();
 
   const [filter, setFilter] = useState<IdeaStatus | 'alle'>('alle');
   const [sortierung, setSortierung] = useState<'stimmen' | 'neu'>('stimmen');
   const [neuOffen, setNeuOffen] = useState(false);
   const [offen, setOffen] = useState<string | null>(null);
+  /** Der Reiter „Prüfen": nur, was die KI selbst eingebracht hat. */
+  const [pruefen, setPruefen] = useState(false);
 
   useEffect(() => { loadIdeas(); }, [loadIdeas]);
+
+  const ungeprueft = useMemo(
+    () => Object.values(ideas).filter((i) => i.vonKi && !i.geprueft),
+    [ideas],
+  );
+  /* Leerer Reiter führt ins Nichts — dann zurück auf die Liste. */
+  useEffect(() => {
+    if (pruefen && !ungeprueft.length) setPruefen(false);
+  }, [pruefen, ungeprueft.length]);
 
   const liste = useMemo(() => {
     const alle = Object.values(ideas).filter((i) => filter === 'alle' || i.status === filter);
@@ -73,6 +85,14 @@ export function IdeaBoard({ onClose }: { onClose: () => void }) {
               <Inbox size={13} /> {t('vorschlaege.doorIdeas', { n: offeneVorschlaege })}
             </button>
           )}
+          {ungeprueft.length > 0 && (
+            <button
+              className={clsx('pill', pruefen ? 'pill--accent' : 'pill--warn')}
+              onClick={() => setPruefen((v) => !v)}
+            >
+              <Sparkles size={13} /> {t('pruefen.count', { n: ungeprueft.length })}
+            </button>
+          )}
           <button
             className="pill pill--accent"
             disabled={!self?.permissions['idea.create']}
@@ -83,6 +103,19 @@ export function IdeaBoard({ onClose }: { onClose: () => void }) {
         </>
       }
     >
+      {pruefen ? (
+        <PruefListe
+          eintraege={ungeprueft.map((i) => ({
+            id: i.id,
+            titel: i.title,
+            neben: i.tag || null,
+          }))}
+          onOeffnen={(id) => { setPruefen(false); setOffen(id); }}
+          onPasst={(id) => ideeGeprueft(id)}
+          onWeg={(id) => { if (confirm(t('ideas.deleteConfirm'))) deleteIdea(id); }}
+        />
+      ) : (
+      <>
       <div className="idea-bar">
         <div className="idea-filter">
           {(['alle', ...IDEA_STATUSES] as const).map((s) => (
@@ -120,6 +153,8 @@ export function IdeaBoard({ onClose }: { onClose: () => void }) {
             ))}
           </AnimatePresence>
         </div>
+      )}
+      </>
       )}
 
       <AnimatePresence>

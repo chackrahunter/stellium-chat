@@ -35,6 +35,14 @@ export function toUser(r: any): User {
     lastSeenAt: r.last_seen_at ?? null,
     role: r.role,
     disabled: Boolean(r.disabled),
+    /* Technische Konten (Assistent, Wartung) bleiben in der Liste — sonst
+       stünden ihre Nachrichten ohne Namen da —, sind aber nirgends
+       anzutippen. Die Oberfläche filtert an dieser Marke. */
+    /* Dieselbe Regel wie in der Kontenverwaltung (TeamAdmin.schublade):
+       gewählt schlägt geraten, und ohne Wahl ist ein Bot technisch. Stünde
+       hier nur die Kategorie, wäre der Assistent bis zur ersten Einsortierung
+       von Hand ein ganz normales Konto — erwähnbar und anschreibbar. */
+    technisch: r.kategorie ? r.kategorie === 'technisch' : r.role === 'bot',
     createdAt: r.created_at,
   };
 }

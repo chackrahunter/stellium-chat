@@ -500,8 +500,6 @@ export const ja = {
   'ideas.status.working': '作業中',
   'ideas.status.done': '完了',
   'ideas.status.rejected': '却下',
-
-  /* Vorschläge der KI — angenommen, abgelehnt oder geändert wird hier */
   'vorschlaege.title': '提案',
   'vorschlaege.nav': 'StelliumAI からの提案',
   'vorschlaege.subtitle': '未処理: {n} — AI が提案し、あなたが決めます。',
@@ -808,8 +806,6 @@ export const ja = {
   'kat.automatisch': '自動で振り分け',
   'kat.hinweis': '新しいアカウントは「新規」に、ボットは「技術系」に、削除されたものは「削除済み」に自動で振り分けられます。手動で選択したものが優先されます。',
   'kat.verschoben': 'カテゴリが変更されました',
-
-  /* App herunterladen — nur im Browser sichtbar */
   'download.nav': 'アプリをダウンロード',
   'download.title': 'アプリをダウンロード',
   'download.subtitle': 'いつでも最新版を、自分たちのサーバーから直接。',
@@ -830,7 +826,6 @@ export const ja = {
   'download.checksumHint': 'ダウンロード後に照合すれば、ファイルが変更されずに届いたと確認できます。',
   'download.checksumCopy': 'チェックサムをコピー',
   'download.checksumCopied': 'コピーしました',
-
   'status.title': '自分のステータス',
   'status.online': 'オンライン',
   'status.away': '離席中',
@@ -923,8 +918,6 @@ export const ja = {
   'fehler.serverStumm': 'サーバーが応答しませんでした。',
   'fehler.codePasstNicht': 'このコードはこの開放と一致しません。',
   'fehler.dateiKopfUnlesbar': 'このファイルには読み取れるヘッダーがありません。',
-
-  /* Beschriftungen, die vorher fest im Code standen */
   'msg.someone': '不明',
   'common.active': '使用中',
   'common.ctrlKey': 'Ctrl',
@@ -974,8 +967,6 @@ export const ja = {
   'toast.rewriteFailed': '書き換えに失敗しました',
   'toast.scheduled': '予約しました',
   'voice.stopRecording': '録音を終了',
-
-  /* Texte, die der Server schickt — er sendet die Kennung, hier steht der Satz */
   'fehler.nichtGefunden': '見つかりません',
   'hinweis.lokalStumm': '{adresse} のモデルが応答しません ({fehler})。復旧するまでメッセージは翻訳されません。',
   'hinweis.lokalOhneModell': '{adresse} にモデルが読み込まれていません。そこで起動しないと何も翻訳されません。',
@@ -983,7 +974,6 @@ export const ja = {
   'hinweis.keinAssistent': '{anbieter} は翻訳できますが、AI要約はできません。すべて使うには Groq、OpenAI、またはローカルモデルを選んでください。',
   'hinweis.keinAbtippen': '音声メッセージは文字起こしされません。サーバーの音声サービス（server-setup/dienste/stimme-einrichten.sh）か Groq のキーが必要です。',
   'hinweis.stimmeBeiGroq': 'テキストモデルは自社ネットワーク内で動いていますが、音声メッセージは Groq に送られます。server-setup/dienste/stimme-einrichten.sh を使えば音声もここに留まります。',
-
   'anhang.wirdGeoeffnet': '開いています …',
   'anhang.unlesbar': '読み取れません',
   'anhang.unlesbarHinweis': 'このファイルの鍵がありません。端末を替えたときは復旧コードが役に立ちます。',
@@ -996,8 +986,6 @@ export const ja = {
   'files.oeffentlichHinweis': 'チームの全員がこのファイルを開けます。',
   'files.downloadFehler': 'ダウンロードに失敗しました',
   'toast.filesFailed': '保管庫を読み込めません',
-
-  /* Meldungen der Ereignisleitung — der Server schickt die Kennung */
   'fehler.privatUnverschluesselt': 'このファイルはプライベートのはずですが、暗号化されずに届きました。アプリを更新してください。',
   'fehler.anmeldungAbgelaufen': 'セッションの有効期限が切れました',
   'fehler.anmeldungFehlgeschlagen': 'サインインに失敗しました。もう一度お試しください。',
@@ -1010,6 +998,7 @@ export const ja = {
   'fehler.keinRechtAlleErwaehnen': '全員にメンションする権限がありません。',
   'fehler.keinRechtErwaehnen': '人にメンションする権限がありません。',
   'fehler.keinRechtName': '「{recht}」の権限がありません。',
+  'fehler.technischesKonto': 'テクニカルアカウントはメッセージを受け付けません。',
   'fehler.keinRechtUebergeben': 'タスクを他の人に割り当てるのは別の権限です。',
   'fehler.keinUmfrageZugang': 'この投票へのアクセス権がありません。',
   'fehler.keinUrsprungZugriff': '元のメッセージへのアクセス権がありません',
@@ -1037,8 +1026,6 @@ export const ja = {
   'fehler.threadNichtGefunden': 'スレッドが見つかりません',
   'fehler.vertraulichGeplantNoetig': 'このチャンネルは機密です。予約メッセージは予約の時点で暗号化されている必要があります。そうでないと送信までサーバー上に平文で残ります。',
   'fehler.zielkanalNichtGefunden': '転送先チャンネルが見つかりません',
-
-  /* Abweisungen der Schnittstelle — der Server schickt die Kennung */
   'fehler.altesPasswortFalsch': '現在のパスワードが正しくありません。',
   'fehler.anbieterUnbekannt': '不明なプロバイダー「{anbieter}」です。',
   'fehler.begriffFehlt': '用語がありません',
@@ -1106,8 +1093,6 @@ export const ja = {
   'fehler.vorschlagEntschieden': 'この提案はすでに判断済みです。',
   'fehler.vorschlagTitel': '提案にはタイトルが必要です。',
   'fehler.zusammensetzen': '結合に失敗しました: {grund}',
-
-  /* Fernsteuerung des Pi */
   'fern.titel': 'Pi をリモート操作',
   'fern.nurApp': 'リモート操作は Stellium アプリでのみ使えます。',
   'fern.verbinden': '接続',
@@ -1118,4 +1103,32 @@ export const ja = {
   'fern.steuertAn': '操作オン',
   'fern.steuertAus': '見るだけ',
   'fern.steuernHilfe': 'キーボードとマウスを Pi に送る',
+  'projekte.title': 'プロジェクト',
+  'projekte.none': 'プロジェクトなし',
+  'projekte.all': 'すべてのプロジェクト',
+  'projekte.new': '新規プロジェクト',
+  'projekte.name': '名前',
+  'projekte.namePlaceholder': '何に取り組んでいますか？',
+  'projekte.description': '目的は何ですか？',
+  'projekte.color': '色',
+  'projekte.create': '作成',
+  'projekte.save': '保存',
+  'projekte.empty': 'まだプロジェクトがありません。作成してタスクを追加しましょう。',
+  'projekte.progress': '{done}/{total} 完了',
+  'projekte.archive': 'アーカイブ',
+  'projekte.unarchive': '復元',
+  'projekte.archived': 'アーカイブ済み',
+  'projekte.delete': 'プロジェクトを削除',
+  'projekte.deleteConfirm': 'このプロジェクトを削除しますか？タスクは残り、プロジェクトなしになります。',
+  'projekte.assign': 'プロジェクト',
+  'pruefen.tab': 'レビュー',
+  'pruefen.count': 'レビュー ({n})',
+  'pruefen.title': 'AI が追加',
+  'pruefen.hint': 'AI が自動で追加しました。確認して、問題なければそのまま、不要なら削除してください。',
+  'pruefen.ok': '問題なし',
+  'pruefen.empty': 'レビューする項目はありません。AI は新しい項目を追加していません。',
+  'pruefen.badge': '未レビュー',
+  'pruefen.fromAi': 'AI から',
+  'ki.selbstEintragen': 'AI が自動入力',
+  'ki.selbstEintragenHint': 'オフ: 発見は提案として表示され、承認待ち。オン: タスク・アイデア・予定が即座にボードに表示され、マークされ「レビュー」タブに集められます。',
 };

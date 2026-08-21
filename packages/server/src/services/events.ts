@@ -35,6 +35,9 @@ function toEvent(r: any, teilnehmende: { userId: string; response: AttendeeRespo
     createdBy: r.created_by,
     createdAt: r.created_at,
     attendees: teilnehmende,
+    vonKi: Boolean(r.von_ki),
+    /* Was ein Mensch eingetragen hat, ist geprüft — nur die KI wartet. */
+    geprueft: !r.von_ki || Boolean(r.geprueft_am),
   };
 }
 
@@ -84,6 +87,8 @@ export function createEvent(input: {
   startsAt: number; endsAt: number; allDay?: boolean;
   location?: string | null; channelId?: string | null;
   attendeeIds?: string[]; createdBy: string;
+  /** Von der KI selbst eingetragen — landet dann im Reiter „Prüfen". */
+  vonKi?: boolean;
 }): CalendarEvent {
   const title = input.title.trim().slice(0, TITEL_MAX);
   if (title.length < 2) throw new Error('Der Termin braucht einen Titel.');
@@ -102,12 +107,12 @@ export function createEvent(input: {
   db.transaction(() => {
     db.run(
       `INSERT INTO events (id, title, description, kind, starts_at, ends_at, all_day,
-                           location, channel_id, created_by, created_at, updated_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+                           location, channel_id, created_by, created_at, updated_at, von_ki)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       id, title, input.description?.trim().slice(0, BESCHREIBUNG_MAX) || null, kind,
       input.startsAt, input.endsAt, input.allDay ? 1 : 0,
       input.location?.trim().slice(0, ORT_MAX) || null, input.channelId ?? null,
-      input.createdBy, jetzt, jetzt,
+      input.createdBy, jetzt, jetzt, input.vonKi ? 1 : 0,
     );
     // Wer einlädt, ist selbst dabei — und hat automatisch zugesagt.
     db.run('INSERT OR IGNORE INTO event_attendees (event_id, user_id, response) VALUES (?,?,?)',
@@ -214,4 +219,11 @@ export function startingSoon(innerhalbMs: number): CalendarEvent[] {
   );
   const teilnehmende = attendeesOf(rows.map((r) => r.id));
   return rows.map((r) => toEvent(r, teilnehmende.get(r.id) ?? []));
+}
+
+/** „Passt" — ein Mensch hat den KI-Termin angesehen; er verlässt den Reiter „Prüfen". */
+export function terminGeprueft(id: string): CalendarEvent | null {
+  if (!db.get('SELECT 1 AS x FROM events WHERE id = ?', id)) return null;
+  db.run('UPDATE events SET geprueft_am = ?, updated_at = ? WHERE id = ?', Date.now(), Date.now(), id);
+  return getEvent(id);
 }

@@ -11,6 +11,7 @@ import { may } from './users.js';
 import * as store from './store.js';
 import * as tasks from './tasks.js';
 import * as ideas from './ideas.js';
+import * as events from './events.js';
 import * as vertraulich from './vertraulich.js';
 import { assistantUserId } from './assistant.js';
 import { vorschlaegeAusVerlauf, type KiVorschlag } from './ai.js';
@@ -160,6 +161,8 @@ function zuVorschlag(r: any): Vorschlag {
     fuerUserId: r.fuer_user_id,
     genanntUserId: r.genannt_user_id ?? null,
     faelligAm: r.faellig_am ?? null,
+    beginntAm: r.beginnt_am ?? null,
+    dauerMinuten: r.dauer_minuten ?? null,
     erstelltAm: r.erstellt_am,
     ergebnisId: r.ergebnis_id ?? null,
   };
@@ -490,15 +493,101 @@ export async function laufFuerKanal(channelId: string): Promise<LaufBericht> {
  * Funktion künftig von woanders aufruft — aus einem Knopf, aus einem Import,
  * aus einem Nachtlauf —, bekommt sie mit, ohne daran denken zu müssen.
  */
+/** Welches Recht jemand braucht, damit aus der Art etwas werden kann. */
+function rechtFuer(art: VorschlagArt): PermissionKey {
+  if (art === 'aufgabe') return 'task.create';
+  if (art === 'termin') return 'event.create';
+  return 'idea.create';
+}
+
+/** Schlüssel der Einstellung: trägt die KI selbst ein, statt nur vorzuschlagen? */
+export const SCHLUESSEL_SELBST_EINTRAGEN = 'ki_traegt_ein';
+
+/**
+ * Trägt die KI selbst ein?
+ *
+ * Aus: Jeder Fund wird ein Vorschlag, den ein Mensch annimmt — der bisherige
+ * Weg, und die Vorgabe. Ein Brett bleibt so garantiert frei von Erfundenem.
+ *
+ * An: Der Fund wird sofort zu Aufgabe, Idee oder Termin — aber als „von der KI
+ * angelegt, ungeprüft" gekennzeichnet und im Reiter „Prüfen" gesammelt. Das
+ * ist der Handel: man muss nichts mehr annehmen, sieht aber jederzeit, was
+ * ungelesen durchgerutscht ist.
+ *
+ * Der Vorschlag entsteht in beiden Fällen — er ist das Gedächtnis gegen
+ * Dubletten. Im Selbsteintrag wird er nur sofort als angenommen verbucht.
+ */
+export function traegtSelbstEin(): boolean {
+  return getSetting(SCHLUESSEL_SELBST_EINTRAGEN) === 'an';
+}
+
+export function selbstEintragenSetzen(an: boolean, userId: string): void {
+  setSetting(SCHLUESSEL_SELBST_EINTRAGEN, an ? 'an' : null, userId);
+}
+
+/**
+ * Aus einem eben angelegten Vorschlag sofort den echten Eintrag machen.
+ *
+ * Läuft nur im Selbsteintrag-Betrieb. Scheitert es (fehlendes Recht, ungültige
+ * Zeit), bleibt der Vorschlag einfach offen stehen — dann entscheidet doch ein
+ * Mensch, und nichts geht verloren.
+ */
+function sofortEintragen(v: Vorschlag): void {
+  const wer = v.fuerUserId;
+  try {
+    let ergebnisId: string | null = null;
+    if (v.art === 'aufgabe') {
+      ergebnisId = tasks.createTask({
+        title: v.titel,
+        assigneeId: v.genanntUserId ?? wer,
+        channelId: v.channelId,
+        messageId: v.quelleMessageId,
+        dueAt: v.faelligAm,
+        createdBy: wer,
+        vonKi: true,
+      }).id;
+    } else if (v.art === 'termin') {
+      /* Ohne Beginn kein Termin — die Prüfung steht schon in ai.ts, hier
+         noch einmal: ein Kalendereintrag auf "jetzt" wäre schlimmer als
+         gar keiner. */
+      if (!v.beginntAm) return;
+      ergebnisId = events.createEvent({
+        title: v.titel,
+        startsAt: v.beginntAm,
+        endsAt: v.beginntAm + (v.dauerMinuten ?? 60) * 60_000,
+        channelId: v.channelId,
+        attendeeIds: v.genanntUserId ? [v.genanntUserId] : [],
+        createdBy: wer,
+        vonKi: true,
+      }).id;
+    } else {
+      ergebnisId = ideas.createIdea({
+        title: v.titel, channelId: v.channelId, createdBy: wer, vonKi: true,
+      }).id;
+    }
+    db.run(
+      `UPDATE vorschlaege SET zustand = 'angenommen', entschieden_am = ?,
+              entschieden_von = ?, ergebnis_id = ? WHERE id = ?`,
+      Date.now(), wer, ergebnisId, v.id,
+    );
+  } catch {
+    /* Kein Recht, keine gültige Zeit — dann bleibt es beim Vorschlag. */
+  }
+}
+
 export function kandidatenEintragen(channelId: string, kandidaten: KiVorschlag[]): LaufBericht {
   const bericht: LaufBericht = { channelId, angelegt: [], dubletten: 0, ohneAdressat: 0 };
   if (vertraulich.istVertraulich(channelId)) return { ...bericht, grund: 'vertraulich' };
 
+  const selbst = traegtSelbstEin();
   for (const kandidat of kandidaten) {
     const gebaut = anlegen(channelId, kandidat);
     if (gebaut === 'dublette') bericht.dubletten += 1;
     else if (gebaut === 'niemand') bericht.ohneAdressat += 1;
-    else bericht.angelegt.push(gebaut);
+    else {
+      if (selbst) sofortEintragen(gebaut);
+      bericht.angelegt.push(gebaut);
+    }
   }
   return bericht;
 }
@@ -521,6 +610,12 @@ function anlegen(channelId: string, k: KiVorschlag): Vorschlag | 'dublette' | 'n
   if (k.art === 'aufgabe') {
     const offen = tasks.listTasks({ channelId, includeFinished: false });
     if (offen.some((a) => vereinheitlichen(a.title) === rein)) return 'dublette';
+  } else if (k.art === 'termin') {
+    const kommend = db.all<{ title: string }>(
+      'SELECT title FROM events WHERE channel_id = ? AND ends_at > ? LIMIT 200',
+      channelId, Date.now(),
+    );
+    if (kommend.some((e) => vereinheitlichen(e.title) === rein)) return 'dublette';
   } else {
     const vorhanden = db.all<{ title: string }>(
       "SELECT title FROM ideas WHERE channel_id = ? AND status <> 'rejected' LIMIT 200", channelId,
@@ -536,10 +631,11 @@ function anlegen(channelId: string, k: KiVorschlag): Vorschlag | 'dublette' | 'n
     db.run(
       `INSERT INTO vorschlaege
          (id, art, zustand, titel, abdruck, channel_id, quelle_message_id,
-          fuer_user_id, genannt_user_id, faellig_am, erstellt_am)
-       VALUES (?,?,'offen',?,?,?,?,?,?,?,?)`,
+          fuer_user_id, genannt_user_id, faellig_am, erstellt_am, beginnt_am, dauer_minuten)
+       VALUES (?,?,'offen',?,?,?,?,?,?,?,?,?,?)`,
       id, k.art, verschluesseln(k.titel), ab, channelId, k.quelleMessageId,
       adressat, k.genanntUserId, k.faelligAm, Date.now(),
+      k.beginntAm ?? null, k.art === 'termin' ? k.dauerMinuten : null,
     );
   } catch {
     /* Die UNIQUE-Bedingung hat zugeschlagen — genau dafür ist sie da. Sie
@@ -558,7 +654,7 @@ function anlegen(channelId: string, k: KiVorschlag): Vorschlag | 'dublette' | 'n
  * sein und das Recht haben, aus dem Vorschlag etwas zu machen.
  */
 function adressatFuer(channelId: string, k: KiVorschlag): string | null {
-  const recht: PermissionKey = k.art === 'aufgabe' ? 'task.create' : 'idea.create';
+  const recht = rechtFuer(k.art);
   const mitglieder = new Set(store.memberIds(channelId));
   const botId = assistantUserId();
 

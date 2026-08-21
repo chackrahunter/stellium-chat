@@ -302,6 +302,18 @@ CREATE INDEX IF NOT EXISTS idx_invites_user ON invites(user_id, used_at);
 -- die Oberfläche zeigt sie in der Sprache der jeweiligen Person.
 -- ─────────────────────────────────────────────────────────────────
 
+-- Projekte bündeln Aufgaben. Bewusst schlank: Name, Farbe, ein Satz dazu.
+CREATE TABLE IF NOT EXISTS projekte (
+  id           TEXT PRIMARY KEY,
+  name         TEXT NOT NULL,
+  beschreibung TEXT,
+  farbe        TEXT NOT NULL DEFAULT '#7c5cff',
+  archiviert   INTEGER NOT NULL DEFAULT 0,
+  created_by   TEXT NOT NULL REFERENCES users(id),
+  created_at   INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_projekte_offen ON projekte(archiviert, name COLLATE NOCASE);
+
 CREATE TABLE IF NOT EXISTS tasks (
   id          TEXT PRIMARY KEY,
   title       TEXT NOT NULL,
@@ -316,8 +328,14 @@ CREATE TABLE IF NOT EXISTS tasks (
   created_at  INTEGER NOT NULL,
   updated_at  INTEGER NOT NULL,
   finished_at INTEGER,
-  position    INTEGER NOT NULL DEFAULT 0
+  position    INTEGER NOT NULL DEFAULT 0,
+  projekt_id  TEXT REFERENCES projekte(id) ON DELETE SET NULL,
+  -- Von der KI angelegt und noch von niemandem angesehen: steht unter „Prüfen".
+  von_ki      INTEGER NOT NULL DEFAULT 0,
+  geprueft_am INTEGER
 );
+CREATE INDEX IF NOT EXISTS idx_tasks_projekt ON tasks(projekt_id);
+CREATE INDEX IF NOT EXISTS idx_tasks_pruefen ON tasks(von_ki, geprueft_am);
 CREATE INDEX IF NOT EXISTS idx_tasks_status   ON tasks(status, position);
 CREATE INDEX IF NOT EXISTS idx_tasks_assignee ON tasks(assignee_id, status);
 CREATE INDEX IF NOT EXISTS idx_tasks_channel  ON tasks(channel_id);
@@ -358,7 +376,9 @@ CREATE TABLE IF NOT EXISTS events (
   channel_id  TEXT REFERENCES channels(id) ON DELETE SET NULL,
   created_by  TEXT NOT NULL REFERENCES users(id),
   created_at  INTEGER NOT NULL,
-  updated_at  INTEGER NOT NULL
+  updated_at  INTEGER NOT NULL,
+  von_ki      INTEGER NOT NULL DEFAULT 0,
+  geprueft_am INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_events_zeit ON events(starts_at, ends_at);
 
@@ -413,7 +433,9 @@ CREATE TABLE IF NOT EXISTS ideas (
   updated_at  INTEGER NOT NULL,
   decided_at  INTEGER,
   decided_by  TEXT REFERENCES users(id),
-  decision    TEXT                               -- Begründung bei fertig/abgelehnt
+  decision    TEXT,                              -- Begründung bei fertig/abgelehnt
+  von_ki      INTEGER NOT NULL DEFAULT 0,
+  geprueft_am INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_ideas_status ON ideas(status, updated_at DESC);
 
@@ -628,7 +650,10 @@ CREATE TABLE IF NOT EXISTS vorschlaege (
   erstellt_am       INTEGER NOT NULL,
   entschieden_am    INTEGER,
   entschieden_von   TEXT REFERENCES users(id) ON DELETE SET NULL,
-  ergebnis_id       TEXT                              -- die angelegte Aufgabe/Idee
+  ergebnis_id       TEXT,                             -- die angelegte Aufgabe/Idee
+  -- Nur bei art='termin': wann es losgeht und wie lange es dauert.
+  beginnt_am        INTEGER,
+  dauer_minuten     INTEGER
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_vorschlaege_dublette ON vorschlaege(channel_id, art, abdruck);
 CREATE INDEX IF NOT EXISTS idx_vorschlaege_fuer   ON vorschlaege(fuer_user_id, zustand, erstellt_am DESC);

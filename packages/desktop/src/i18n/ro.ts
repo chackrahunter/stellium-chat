@@ -500,8 +500,6 @@ export const ro = {
   'ideas.status.working': 'În desfășurare',
   'ideas.status.done': 'Finalizată',
   'ideas.status.rejected': 'Respinsă',
-
-  /* Vorschläge der KI — angenommen, abgelehnt oder geändert wird hier */
   'vorschlaege.title': 'Propuneri',
   'vorschlaege.nav': 'Propuneri de la StelliumAI',
   'vorschlaege.subtitle': 'În așteptare: {n} — IA propune, tu decizi.',
@@ -808,8 +806,6 @@ export const ro = {
   'kat.automatisch': 'Sortare automată',
   'kat.hinweis': 'Conturile noi apar în „Nou”, boții în „Tehnic”, cele șterse în „Șters”. Prioritate are selecția manuală.',
   'kat.verschoben': 'Categorie modificată',
-
-  /* App herunterladen — nur im Browser sichtbar */
   'download.nav': 'Descarcă aplicația',
   'download.title': 'Descarcă aplicația',
   'download.subtitle': 'Mereu cea mai nouă versiune, direct de pe serverul vostru.',
@@ -830,7 +826,6 @@ export const ro = {
   'download.checksumHint': 'Compar-o după descărcare — așa știi că fișierul a ajuns neschimbat.',
   'download.checksumCopy': 'Copiază suma de control',
   'download.checksumCopied': 'Copiat',
-
   'status.title': 'Starea mea',
   'status.online': 'Online',
   'status.away': 'Plecat',
@@ -923,8 +918,6 @@ export const ro = {
   'fehler.serverStumm': 'Serverul nu a răspuns.',
   'fehler.codePasstNicht': 'Codul nu se potrivește cu această eliberare.',
   'fehler.dateiKopfUnlesbar': 'Acest fișier nu are un antet lizibil.',
-
-  /* Beschriftungen, die vorher fest im Code standen */
   'msg.someone': 'cineva',
   'common.active': 'activ',
   'common.ctrlKey': 'Ctrl',
@@ -974,8 +967,6 @@ export const ro = {
   'toast.rewriteFailed': 'Reformularea a eșuat',
   'toast.scheduled': 'Programat',
   'voice.stopRecording': 'Oprește înregistrarea',
-
-  /* Texte, die der Server schickt — er sendet die Kennung, hier steht der Satz */
   'fehler.nichtGefunden': 'Nu a fost găsit',
   'hinweis.lokalStumm': 'Modelul de la {adresse} nu răspunde ({fehler}). Mesajele rămân netraduse până revine.',
   'hinweis.lokalOhneModell': 'La {adresse} nu este încărcat niciun model. Pornește unul acolo, altfel nu se traduce nimic.',
@@ -983,7 +974,6 @@ export const ro = {
   'hinweis.keinAssistent': '{anbieter} traduce, dar nu poate face rezumate cu IA. Pentru tot, alege Groq, OpenAI sau un model local.',
   'hinweis.keinAbtippen': 'Mesajele vocale nu sunt transcrise. Ar fi nevoie de serviciul vocal pe server (server-setup/dienste/stimme-einrichten.sh) sau de o cheie Groq.',
   'hinweis.stimmeBeiGroq': 'Modelul de text rulează în rețeaua proprie, dar mesajele vocale pleacă la Groq. Cu server-setup/dienste/stimme-einrichten.sh rămân și ele aici.',
-
   'anhang.wirdGeoeffnet': 'Se deschide …',
   'anhang.unlesbar': 'Nu poate fi citit',
   'anhang.unlesbarHinweis': 'Lipsește cheia acestui fișier. După schimbarea dispozitivului ajută codul de recuperare.',
@@ -996,8 +986,6 @@ export const ro = {
   'files.oeffentlichHinweis': 'Toată echipa poate deschide acest fișier.',
   'files.downloadFehler': 'Descărcarea a eșuat',
   'toast.filesFailed': 'Arhiva nu poate fi încărcată',
-
-  /* Meldungen der Ereignisleitung — der Server schickt die Kennung */
   'fehler.privatUnverschluesselt': 'Acest fișier trebuia să fie privat, dar a sosit necriptat. Actualizează aplicația.',
   'fehler.anmeldungAbgelaufen': 'Sesiunea a expirat',
   'fehler.anmeldungFehlgeschlagen': 'Autentificarea a eșuat. Încearcă din nou.',
@@ -1010,6 +998,7 @@ export const ro = {
   'fehler.keinRechtAlleErwaehnen': 'Îți lipsește dreptul de a menționa pe toată lumea.',
   'fehler.keinRechtErwaehnen': 'Îți lipsește dreptul de a menționa persoane.',
   'fehler.keinRechtName': 'Îți lipsește dreptul „{recht}".',
+  'fehler.technischesKonto': 'Conturile tehnice nu acceptă mesaje.',
   'fehler.keinRechtUebergeben': 'Atribuirea sarcinilor altora este un drept separat.',
   'fehler.keinUmfrageZugang': 'Nu ai acces la acest sondaj.',
   'fehler.keinUrsprungZugriff': 'Nu ai acces la mesajul original',
@@ -1037,8 +1026,6 @@ export const ro = {
   'fehler.threadNichtGefunden': 'Firul nu a fost găsit',
   'fehler.vertraulichGeplantNoetig': 'Acest canal este confidențial. Un mesaj programat trebuie criptat chiar la programare — altfel ar rămâne necriptat pe server până la trimitere.',
   'fehler.zielkanalNichtGefunden': 'Canalul țintă nu a fost găsit',
-
-  /* Abweisungen der Schnittstelle — der Server schickt die Kennung */
   'fehler.altesPasswortFalsch': 'Parola actuală nu este corectă.',
   'fehler.anbieterUnbekannt': 'Furnizor necunoscut „{anbieter}".',
   'fehler.begriffFehlt': 'Lipsește termenul',
@@ -1106,8 +1093,6 @@ export const ro = {
   'fehler.vorschlagEntschieden': 'S-a decis deja asupra acestei propuneri.',
   'fehler.vorschlagTitel': 'Propunerea are nevoie de un titlu.',
   'fehler.zusammensetzen': 'Reasamblarea a eșuat: {grund}',
-
-  /* Fernsteuerung des Pi */
   'fern.titel': 'Controlează Pi la distanță',
   'fern.nurApp': 'Controlul la distanță există doar în aplicația Stellium.',
   'fern.verbinden': 'Conectează',
@@ -1118,4 +1103,32 @@ export const ro = {
   'fern.steuertAn': 'Control pornit',
   'fern.steuertAus': 'doar privire',
   'fern.steuernHilfe': 'Trimite tastatura și mouse-ul către Pi',
+  'projekte.title': 'Proiecte',
+  'projekte.none': 'Fără proiect',
+  'projekte.all': 'Toate proiectele',
+  'projekte.new': 'Proiect nou',
+  'projekte.name': 'Nume',
+  'projekte.namePlaceholder': 'La ce lucraţi?',
+  'projekte.description': 'Pentru ce este?',
+  'projekte.color': 'Culoare',
+  'projekte.create': 'Creează',
+  'projekte.save': 'Salvează',
+  'projekte.empty': 'Încă niciun proiect. Creaţi unul şi adăugaţi sarcini.',
+  'projekte.progress': '{done} din {total} finalizat',
+  'projekte.archive': 'Arhivează',
+  'projekte.unarchive': 'Restaurează',
+  'projekte.archived': 'Arhivat',
+  'projekte.delete': 'Șterge proiectul',
+  'projekte.deleteConfirm': 'Ștergeţi proiectul? Sarcinile rămân şi vor fi fără proiect.',
+  'projekte.assign': 'Proiect',
+  'pruefen.tab': 'Revizuire',
+  'pruefen.count': 'Revizuire ({n})',
+  'pruefen.title': 'Adăugat de AI',
+  'pruefen.hint': 'AI a adăugat asta singur. Verificaţi: dacă e potrivit, rămâne — altfel eliminaţi.',
+  'pruefen.ok': 'Potrivit',
+  'pruefen.empty': 'Nimic de revizuit. AI nu a adăugat nimic nou.',
+  'pruefen.badge': 'Neverificat',
+  'pruefen.fromAi': 'De la AI',
+  'ki.selbstEintragen': 'AI adaugă intrări singur',
+  'ki.selbstEintragenHint': 'Off: constatările vin ca sugestii şi aşteaptă confirmare. On: sarcini',
 };

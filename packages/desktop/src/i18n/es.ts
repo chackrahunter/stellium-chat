@@ -500,8 +500,6 @@ export const es = {
   'ideas.status.working': 'En progreso',
   'ideas.status.done': 'Completado',
   'ideas.status.rejected': 'Rechazado',
-
-  /* Vorschläge der KI — angenommen, abgelehnt oder geändert wird hier */
   'vorschlaege.title': 'Sugerencias',
   'vorschlaege.nav': 'Sugerencias de StelliumAI',
   'vorschlaege.subtitle': 'Pendientes: {n} — la IA propone, tú decides.',
@@ -808,8 +806,6 @@ export const es = {
   'kat.automatisch': 'Ordenar automáticamente',
   'kat.hinweis': 'Las cuentas nuevas aparecen en «Nuevo», los bots en «Técnico», los eliminados en «Eliminado». La selección manual tiene prioridad.',
   'kat.verschoben': 'Categoría cambiada',
-
-  /* App herunterladen — nur im Browser sichtbar */
   'download.nav': 'Descargar la app',
   'download.title': 'Descargar la app',
   'download.subtitle': 'Siempre la última versión, directa desde vuestro propio servidor.',
@@ -830,7 +826,6 @@ export const es = {
   'download.checksumHint': 'Compárala después de descargar: así sabrás que el archivo llegó sin cambios.',
   'download.checksumCopy': 'Copiar la suma de verificación',
   'download.checksumCopied': 'Copiada',
-
   'status.title': 'Mi estado',
   'status.online': 'En línea',
   'status.away': 'Ausente',
@@ -923,8 +918,6 @@ export const es = {
   'fehler.serverStumm': 'El servidor no ha respondido.',
   'fehler.codePasstNicht': 'El código no corresponde a esta liberación.',
   'fehler.dateiKopfUnlesbar': 'Este archivo no tiene una cabecera legible.',
-
-  /* Beschriftungen, die vorher fest im Code standen */
   'msg.someone': 'alguien',
   'common.active': 'activo',
   'common.ctrlKey': 'Ctrl',
@@ -974,8 +967,6 @@ export const es = {
   'toast.rewriteFailed': 'La reformulación falló',
   'toast.scheduled': 'Programado',
   'voice.stopRecording': 'Detener la grabación',
-
-  /* Texte, die der Server schickt — er sendet die Kennung, hier steht der Satz */
   'fehler.nichtGefunden': 'No encontrado',
   'hinweis.lokalStumm': 'El modelo en {adresse} no responde ({fehler}). Los mensajes quedan sin traducir hasta que vuelva.',
   'hinweis.lokalOhneModell': 'En {adresse} no hay ningún modelo cargado. Arranca uno, si no nada se traduce.',
@@ -983,7 +974,6 @@ export const es = {
   'hinweis.keinAssistent': '{anbieter} traduce, pero no puede hacer resúmenes con IA. Para todo, elige Groq, OpenAI o un modelo local.',
   'hinweis.keinAbtippen': 'Los mensajes de voz no se transcriben. Haría falta el servicio de voz en el servidor (server-setup/dienste/stimme-einrichten.sh) o una clave de Groq.',
   'hinweis.stimmeBeiGroq': 'El modelo de texto corre en vuestra propia red, pero los mensajes de voz van a Groq. Con server-setup/dienste/stimme-einrichten.sh también se quedan aquí.',
-
   'anhang.wirdGeoeffnet': 'Abriendo …',
   'anhang.unlesbar': 'No se puede leer',
   'anhang.unlesbarHinweis': 'Falta la clave de este archivo. Tras cambiar de dispositivo ayuda el código de recuperación.',
@@ -996,8 +986,6 @@ export const es = {
   'files.oeffentlichHinweis': 'Todo el equipo puede abrir este archivo.',
   'files.downloadFehler': 'Error al descargar',
   'toast.filesFailed': 'No se puede cargar el archivador',
-
-  /* Meldungen der Ereignisleitung — der Server schickt die Kennung */
   'fehler.privatUnverschluesselt': 'Este archivo debía ser privado, pero llegó sin cifrar. Actualiza la app.',
   'fehler.anmeldungAbgelaufen': 'La sesión ha caducado',
   'fehler.anmeldungFehlgeschlagen': 'Error al iniciar sesión. Inténtalo de nuevo.',
@@ -1010,6 +998,7 @@ export const es = {
   'fehler.keinRechtAlleErwaehnen': 'Te falta el permiso para mencionar a todos.',
   'fehler.keinRechtErwaehnen': 'Te falta el permiso para mencionar a personas.',
   'fehler.keinRechtName': 'Te falta el permiso «{recht}».',
+  'fehler.technischesKonto': 'Las cuentas técnicas no aceptan mensajes.',
   'fehler.keinRechtUebergeben': 'Asignar tareas a otras personas es un permiso aparte.',
   'fehler.keinUmfrageZugang': 'No tienes acceso a esta encuesta.',
   'fehler.keinUrsprungZugriff': 'Sin acceso al mensaje original',
@@ -1037,8 +1026,6 @@ export const es = {
   'fehler.threadNichtGefunden': 'Hilo no encontrado',
   'fehler.vertraulichGeplantNoetig': 'Este canal es confidencial. Un mensaje programado debe cifrarse ya al programarlo; si no, quedaría en claro en el servidor hasta enviarse.',
   'fehler.zielkanalNichtGefunden': 'Canal de destino no encontrado',
-
-  /* Abweisungen der Schnittstelle — der Server schickt die Kennung */
   'fehler.altesPasswortFalsch': 'La contraseña actual no es correcta.',
   'fehler.anbieterUnbekannt': 'Proveedor desconocido «{anbieter}».',
   'fehler.begriffFehlt': 'Falta el término',
@@ -1106,8 +1093,6 @@ export const es = {
   'fehler.vorschlagEntschieden': 'Sobre esta sugerencia ya se decidió.',
   'fehler.vorschlagTitel': 'La sugerencia necesita un título.',
   'fehler.zusammensetzen': 'Error al recomponer: {grund}',
-
-  /* Fernsteuerung des Pi */
   'fern.titel': 'Controlar el Pi a distancia',
   'fern.nurApp': 'El control remoto solo existe en la aplicación Stellium.',
   'fern.verbinden': 'Conectar',
@@ -1118,4 +1103,32 @@ export const es = {
   'fern.steuertAn': 'Control activado',
   'fern.steuertAus': 'solo mirar',
   'fern.steuernHilfe': 'Enviar teclado y ratón al Pi',
+  'projekte.title': 'Proyectos',
+  'projekte.none': 'Sin proyecto',
+  'projekte.all': 'Todos los proyectos',
+  'projekte.new': 'Nuevo proyecto',
+  'projekte.name': 'Nombre',
+  'projekte.namePlaceholder': '¿En qué estáis trabajando?',
+  'projekte.description': '¿Para qué sirve?',
+  'projekte.color': 'Color',
+  'projekte.create': 'Crear',
+  'projekte.save': 'Guardar',
+  'projekte.empty': 'Aún no hay proyectos. Crea uno y añade tareas.',
+  'projekte.progress': '{done} de {total} completados',
+  'projekte.archive': 'Archivar',
+  'projekte.unarchive': 'Restaurar',
+  'projekte.archived': 'Archivado',
+  'projekte.delete': 'Eliminar proyecto',
+  'projekte.deleteConfirm': '¿Eliminar este proyecto? Las tareas permanecerán sin proyecto.',
+  'projekte.assign': 'Proyecto',
+  'pruefen.tab': 'Revisar',
+  'pruefen.count': 'Revisar ({n})',
+  'pruefen.title': 'Añadido por la IA',
+  'pruefen.hint': 'La IA lo creó sola. Revísalo: si encaja, se queda; si no, elimínalo.',
+  'pruefen.ok': 'Correcto',
+  'pruefen.empty': 'Nada que revisar. La IA no ha añadido nada nuevo.',
+  'pruefen.badge': 'Sin revisar',
+  'pruefen.fromAi': 'De la IA',
+  'ki.selbstEintragen': 'La IA añade entradas automáticamente',
+  'ki.selbstEintragenHint': 'Desactivado: los hallazgos llegan como sugerencias y esperan confirmación. Activado: tareas, ideas y eventos aparecen de inmediato en los tableros, marcados y recopilados en la pestaña «Revisar». ',
 };

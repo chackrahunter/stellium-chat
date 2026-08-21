@@ -500,8 +500,6 @@ export const zh = {
   'ideas.status.working': '进行中',
   'ideas.status.done': '已完成',
   'ideas.status.rejected': '已拒绝',
-
-  /* Vorschläge der KI — angenommen, abgelehnt oder geändert wird hier */
   'vorschlaege.title': '建议',
   'vorschlaege.nav': '来自 StelliumAI 的建议',
   'vorschlaege.subtitle': '待处理：{n} —— AI 提出建议，由你决定。',
@@ -808,8 +806,6 @@ export const zh = {
   'kat.automatisch': '自动分类',
   'kat.hinweis': '新账户会放在“新建”，机器人放在“技术”，已删除的放在“已删除”。手动选择优先。',
   'kat.verschoben': '分类已更改',
-
-  /* App herunterladen — nur im Browser sichtbar */
   'download.nav': '下载应用',
   'download.title': '下载应用',
   'download.subtitle': '始终是最新版本，直接来自你们自己的服务器。',
@@ -830,7 +826,6 @@ export const zh = {
   'download.checksumHint': '下载后进行比对——就能确认文件未被改动。',
   'download.checksumCopy': '复制校验和',
   'download.checksumCopied': '已复制',
-
   'status.title': '我的状态',
   'status.online': '在线',
   'status.away': '离开',
@@ -923,8 +918,6 @@ export const zh = {
   'fehler.serverStumm': '服务器没有回应。',
   'fehler.codePasstNicht': '这个码与本次开放不匹配。',
   'fehler.dateiKopfUnlesbar': '这个文件没有可读的文件头。',
-
-  /* Beschriftungen, die vorher fest im Code standen */
   'msg.someone': '某人',
   'common.active': '使用中',
   'common.ctrlKey': 'Ctrl',
@@ -974,8 +967,6 @@ export const zh = {
   'toast.rewriteFailed': '改写失败',
   'toast.scheduled': '已计划',
   'voice.stopRecording': '停止录音',
-
-  /* Texte, die der Server schickt — er sendet die Kennung, hier steht der Satz */
   'fehler.nichtGefunden': '未找到',
   'hinweis.lokalStumm': '{adresse} 上的模型没有响应 ({fehler})。在它恢复之前，消息不会被翻译。',
   'hinweis.lokalOhneModell': '{adresse} 上没有加载模型。请在那里启动一个，否则什么都不会翻译。',
@@ -983,7 +974,6 @@ export const zh = {
   'hinweis.keinAssistent': '{anbieter} 能翻译，但做不了 AI 摘要。要用全部功能，请选择 Groq、OpenAI 或本地模型。',
   'hinweis.keinAbtippen': '语音消息不会转成文字。这需要服务器上的语音服务（server-setup/dienste/stimme-einrichten.sh）或一个 Groq 密钥。',
   'hinweis.stimmeBeiGroq': '文本模型在自己的网络里运行，但语音消息会发给 Groq。用 server-setup/dienste/stimme-einrichten.sh 之后，它们也会留在本地。',
-
   'anhang.wirdGeoeffnet': '正在打开 …',
   'anhang.unlesbar': '无法读取',
   'anhang.unlesbarHinweis': '缺少这个文件的密钥。更换设备后，恢复码可以帮上忙。',
@@ -996,8 +986,6 @@ export const zh = {
   'files.oeffentlichHinweis': '团队里的所有人都能打开这个文件。',
   'files.downloadFehler': '下载失败',
   'toast.filesFailed': '无法加载文件库',
-
-  /* Meldungen der Ereignisleitung — der Server schickt die Kennung */
   'fehler.privatUnverschluesselt': '该文件本应是私密的，但传来时未加密。请更新应用。',
   'fehler.anmeldungAbgelaufen': '登录已过期',
   'fehler.anmeldungFehlgeschlagen': '登录失败，请重试。',
@@ -1010,6 +998,7 @@ export const zh = {
   'fehler.keinRechtAlleErwaehnen': '你没有提及所有人的权限。',
   'fehler.keinRechtErwaehnen': '你没有提及他人的权限。',
   'fehler.keinRechtName': '你没有“{recht}”权限。',
+  'fehler.technischesKonto': '技术账号不接受消息。',
   'fehler.keinRechtUebergeben': '把任务交给他人是一项单独的权限。',
   'fehler.keinUmfrageZugang': '你无权访问该投票。',
   'fehler.keinUrsprungZugriff': '无权访问原始消息',
@@ -1037,8 +1026,6 @@ export const zh = {
   'fehler.threadNichtGefunden': '未找到讨论串',
   'fehler.vertraulichGeplantNoetig': '该频道是机密频道。定时消息在设定时就必须加密，否则在发送前会以明文留在服务器上。',
   'fehler.zielkanalNichtGefunden': '未找到目标频道',
-
-  /* Abweisungen der Schnittstelle — der Server schickt die Kennung */
   'fehler.altesPasswortFalsch': '当前密码不正确。',
   'fehler.anbieterUnbekannt': '未知的服务商“{anbieter}”。',
   'fehler.begriffFehlt': '缺少词条',
@@ -1106,8 +1093,6 @@ export const zh = {
   'fehler.vorschlagEntschieden': '这条建议已经有结论了。',
   'fehler.vorschlagTitel': '建议需要一个标题。',
   'fehler.zusammensetzen': '合并失败：{grund}',
-
-  /* Fernsteuerung des Pi */
   'fern.titel': '远程操作 Pi',
   'fern.nurApp': '远程操作仅在 Stellium 应用中可用。',
   'fern.verbinden': '连接',
@@ -1118,4 +1103,32 @@ export const zh = {
   'fern.steuertAn': '操作已开',
   'fern.steuertAus': '仅查看',
   'fern.steuernHilfe': '把键盘和鼠标发送到 Pi',
+  'projekte.title': '项目',
+  'projekte.none': '无项目',
+  'projekte.all': '全部项目',
+  'projekte.new': '新建项目',
+  'projekte.name': '名称',
+  'projekte.namePlaceholder': '你们在做什么？',
+  'projekte.description': '用途是什么？',
+  'projekte.color': '颜色',
+  'projekte.create': '创建',
+  'projekte.save': '保存',
+  'projekte.empty': '暂无项目。请创建并添加任务。',
+  'projekte.progress': '已完成 {done} / {total}',
+  'projekte.archive': '归档',
+  'projekte.unarchive': '恢复',
+  'projekte.archived': '已归档',
+  'projekte.delete': '删除项目',
+  'projekte.deleteConfirm': '删除此项目？任务将保留但不再归属任何项目。',
+  'projekte.assign': '项目',
+  'pruefen.tab': '审查',
+  'pruefen.count': '审查 ({n})',
+  'pruefen.title': 'AI 添加的条目',
+  'pruefen.hint': '该条目由 AI 自动创建。若合适保留，否则删除。',
+  'pruefen.ok': '合适',
+  'pruefen.empty': '暂无待审内容。AI 未添加新条目。',
+  'pruefen.badge': '未审查',
+  'pruefen.fromAi': '来自 AI',
+  'ki.selbstEintragen': 'AI 自动录入',
+  'ki.selbstEintragenHint': '关闭：发现的内容作为建议等待确认。开启：任务、想法和日程直接出现在看板上——标记并收集在“审查”标签页。',
 };

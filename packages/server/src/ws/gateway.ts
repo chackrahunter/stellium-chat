@@ -24,6 +24,7 @@ import { attachPreviews, extractUrls } from '../services/links.js';
 import { saveTranscript, transcribe, voiceNoteFor } from '../services/voice.js';
 import * as ki from '../services/assistant.js';
 import * as tasks from '../services/tasks.js';
+import * as projekte from '../services/projekte.js';
 import * as settings from '../services/settings.js';
 import * as releases from '../services/releases.js';
 import { entschluesseln, verschluesseln } from '../crypto/nachrichten.js';
@@ -1037,6 +1038,16 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
 
     case 'dm:open': {
       if (!darf(session, 'dm.start')) return;
+      /* Technische Konten nehmen keine Direktnachrichten an. Die Oberfläche
+         zeigt sie gar nicht erst an — diese Prüfung ist die, auf die es
+         ankommt: eine Oberfläche lässt sich umgehen, ein Server nicht.
+         Wer verwalten darf, sieht die Konten weiterhin im Reiter
+         „Mitglieder"; auch dort führt kein Weg in einen Chat mit ihnen. */
+      const ziel = store.getUser(ev.userId);
+      if (ziel?.technisch) {
+        return fail(session, 'fehler.technischesKonto',
+          'Technische Konten nehmen keine Nachrichten an.');
+      }
       const ch = channels.openDm(userId, ev.userId);
       for (const uid of ch.memberIds) {
         sendToUser(uid, { t: 'channel:upsert', channel: store.getChannel(ch.id, uid)! });
@@ -1774,6 +1785,89 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
       return;
     }
 
+    /* „Passt" — die KI-Aufgabe ist angesehen und verlässt den Reiter „Prüfen".
+       Bewusst dasselbe Recht wie zum Anlegen: wer Aufgaben anlegen darf, darf
+       auch bestätigen, was die KI vorgelegt hat. */
+    case 'task:geprueft': {
+      if (!darf(session, 'task.create')) return;
+      const vorher = tasks.getTask(ev.taskId);
+      if (!vorher || !aufgabeSichtbar(session, vorher)) return;
+      const task = tasks.aufgabeGeprueft(ev.taskId);
+      if (task) broadcastTask(task);
+      return;
+    }
+
+    /* ── Projekte ──────────────────────────────────────────────
+       Sie hängen an keinem Kanal und tragen keinen vertraulichen Inhalt —
+       Name und Farbe. Deshalb gehen sie an alle und brauchen dasselbe Recht
+       wie Aufgaben selbst. */
+    case 'projekt:list': {
+      send(session, { t: 'projekt:list', projekte: projekte.listProjekte() });
+      return;
+    }
+
+    case 'projekt:create': {
+      if (!darf(session, 'task.create')) return;
+      try {
+        const neu = projekte.createProjekt({ ...ev, createdBy: userId });
+        broadcast({ t: 'projekt:upsert', projekt: neu });
+      } catch (err) {
+        fail(session, 'fehler.projektName', (err as Error).message);
+      }
+      return;
+    }
+
+    case 'projekt:update': {
+      if (!darf(session, 'task.create')) return;
+      try {
+        broadcast({ t: 'projekt:upsert', projekt: projekte.updateProjekt(ev.projektId, ev.patch) });
+      } catch (err) {
+        fail(session, 'fehler.projektName', (err as Error).message);
+      }
+      return;
+    }
+
+    case 'projekt:delete': {
+      /* Löschen ist die eine Stelle, an der ein Griff fremde Arbeit umsortiert
+         (alle Aufgaben liegen danach ohne Projekt da) — deshalb das
+         Löschrecht, nicht das Anlegerecht. */
+      if (!darf(session, 'task.delete')) return;
+      projekte.deleteProjekt(ev.projektId);
+      broadcast({ t: 'projekt:deleted', projektId: ev.projektId });
+      /* Die Aufgaben tragen jetzt kein Projekt mehr — ohne diese Zeile stünde
+         auf den Karten noch die alte Schublade, bis jemand neu lädt. */
+      for (const task of tasks.listTasks({ includeFinished: true })) {
+        if (task.projektId === null) continue;
+        broadcastTask(task);
+      }
+      return;
+    }
+
+    case 'idea:geprueft': {
+      if (!darf(session, 'idea.create')) return;
+      const idee = ideas.ideeGeprueft(ev.ideaId, userId);
+      if (idee) broadcast({ t: 'idea:upsert', idea: idee });
+      return;
+    }
+
+    case 'event:geprueft': {
+      if (!darf(session, 'event.create')) return;
+      const termin = events.terminGeprueft(ev.eventId);
+      if (termin) broadcast({ t: 'event:upsert', event: termin });
+      return;
+    }
+
+    /* Ob die KI selbst einträgt, ist eine Entscheidung für den ganzen
+       Arbeitsbereich — deshalb das Verwaltungsrecht. */
+    case 'ki:selbst-eintragen': {
+      /* Dasselbe Recht wie für die Wahl des Modells: beides entscheidet für
+         alle, was die KI im Arbeitsbereich tut. */
+      if (!darf(session, 'ai.model_select')) return;
+      vorschlaege.selbstEintragenSetzen(ev.an, userId);
+      broadcast({ t: 'ai:einstellung', selbstEintragen: ev.an });
+      return;
+    }
+
     case 'task:history': {
       /* Der Verlauf trägt Titel, Kommentare und wer was geändert hat. Ohne
          diese Prüfung nützte die gefilterte Liste nichts: man müsste die
@@ -1877,6 +1971,10 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
           quelleMessageId: null,
           genanntUserId: g.assigneeId,
           faelligAm: g.dueAt,
+          /* Von Hand angestoßen entstehen nur Aufgaben — Termine kennt
+             dieser Weg nicht, deshalb kein Beginn. */
+          beginntAm: null,
+          dauerMinuten: 60,
         })),
       );
       for (const v of bericht.angelegt) {

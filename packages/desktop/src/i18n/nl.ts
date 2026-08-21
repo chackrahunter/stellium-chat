@@ -500,8 +500,6 @@ export const nl = {
   'ideas.status.working': 'In uitvoering',
   'ideas.status.done': 'Voltooid',
   'ideas.status.rejected': 'Afgewezen',
-
-  /* Vorschläge der KI — angenommen, abgelehnt oder geändert wird hier */
   'vorschlaege.title': 'Voorstellen',
   'vorschlaege.nav': 'Voorstellen van StelliumAI',
   'vorschlaege.subtitle': 'Open: {n} — de AI stelt voor, jij beslist.',
@@ -808,8 +806,6 @@ export const nl = {
   'kat.automatisch': 'Automatisch sorteren',
   'kat.hinweis': 'Nieuwe accounts komen onder “Nieuw”, bots onder “Technisch”, verwijderde onder “Verwijderd”. Handmatig gekozen heeft voorrang.',
   'kat.verschoben': 'Categorie gewijzigd',
-
-  /* App herunterladen — nur im Browser sichtbar */
   'download.nav': 'App downloaden',
   'download.title': 'App downloaden',
   'download.subtitle': 'Altijd de nieuwste versie, rechtstreeks van jullie eigen server.',
@@ -830,7 +826,6 @@ export const nl = {
   'download.checksumHint': 'Vergelijk hem na het downloaden — dan weet je dat het bestand ongewijzigd is aangekomen.',
   'download.checksumCopy': 'Controlesom kopiëren',
   'download.checksumCopied': 'Gekopieerd',
-
   'status.title': 'Mijn status',
   'status.online': 'Online',
   'status.away': 'Afwezig',
@@ -923,8 +918,6 @@ export const nl = {
   'fehler.serverStumm': 'De server heeft niet geantwoord.',
   'fehler.codePasstNicht': 'De code hoort niet bij deze vrijgave.',
   'fehler.dateiKopfUnlesbar': 'Dit bestand heeft geen leesbare kop.',
-
-  /* Beschriftungen, die vorher fest im Code standen */
   'msg.someone': 'iemand',
   'common.active': 'actief',
   'common.ctrlKey': 'Ctrl',
@@ -974,8 +967,6 @@ export const nl = {
   'toast.rewriteFailed': 'Herschrijven mislukt',
   'toast.scheduled': 'Ingepland',
   'voice.stopRecording': 'Opname stoppen',
-
-  /* Texte, die der Server schickt — er sendet die Kennung, hier steht der Satz */
   'fehler.nichtGefunden': 'Niet gevonden',
   'hinweis.lokalStumm': 'Het model op {adresse} antwoordt niet ({fehler}). Berichten blijven onvertaald tot het weer draait.',
   'hinweis.lokalOhneModell': 'Op {adresse} is geen model geladen. Start er daar een, anders wordt niets vertaald.',
@@ -983,7 +974,6 @@ export const nl = {
   'hinweis.keinAssistent': '{anbieter} vertaalt wel, maar kan geen AI-samenvattingen. Kies voor alles Groq, OpenAI of een lokaal model.',
   'hinweis.keinAbtippen': 'Spraakberichten worden niet uitgetypt. Daarvoor is de spraakdienst op de server nodig (server-setup/dienste/stimme-einrichten.sh) of een Groq-sleutel.',
   'hinweis.stimmeBeiGroq': 'Het tekstmodel draait in het eigen netwerk, maar spraakberichten gaan naar Groq. Met server-setup/dienste/stimme-einrichten.sh blijven ook die hier.',
-
   'anhang.wirdGeoeffnet': 'Wordt geopend …',
   'anhang.unlesbar': 'Niet leesbaar',
   'anhang.unlesbarHinweis': 'De sleutel voor dit bestand ontbreekt. Na een apparaatwissel helpt de herstelcode.',
@@ -996,8 +986,6 @@ export const nl = {
   'files.oeffentlichHinweis': 'Iedereen in het team kan dit bestand openen.',
   'files.downloadFehler': 'Downloaden mislukt',
   'toast.filesFailed': 'Kan de opslag niet laden',
-
-  /* Meldungen der Ereignisleitung — der Server schickt die Kennung */
   'fehler.privatUnverschluesselt': 'Dit bestand moest privé zijn, maar kwam onversleuteld aan. Werk de app bij.',
   'fehler.anmeldungAbgelaufen': 'Sessie verlopen',
   'fehler.anmeldungFehlgeschlagen': 'Aanmelden mislukt. Probeer het opnieuw.',
@@ -1010,6 +998,7 @@ export const nl = {
   'fehler.keinRechtAlleErwaehnen': 'Je hebt geen recht om iedereen te vermelden.',
   'fehler.keinRechtErwaehnen': 'Je hebt geen recht om personen te vermelden.',
   'fehler.keinRechtName': 'Je hebt het recht ‘{recht}’ niet.',
+  'fehler.technischesKonto': 'Technische accounts accepteren geen berichten.',
   'fehler.keinRechtUebergeben': 'Taken aan anderen geven is een apart recht.',
   'fehler.keinUmfrageZugang': 'Je hebt geen toegang tot deze peiling.',
   'fehler.keinUrsprungZugriff': 'Geen toegang tot het oorspronkelijke bericht',
@@ -1037,8 +1026,6 @@ export const nl = {
   'fehler.threadNichtGefunden': 'Thread niet gevonden',
   'fehler.vertraulichGeplantNoetig': 'Dit kanaal is vertrouwelijk. Een gepland bericht moet al bij het plannen versleuteld zijn — anders staat het tot verzending open op de server.',
   'fehler.zielkanalNichtGefunden': 'Doelkanaal niet gevonden',
-
-  /* Abweisungen der Schnittstelle — der Server schickt die Kennung */
   'fehler.altesPasswortFalsch': 'Het huidige wachtwoord klopt niet.',
   'fehler.anbieterUnbekannt': 'Onbekende aanbieder ‘{anbieter}’.',
   'fehler.begriffFehlt': 'Term ontbreekt',
@@ -1106,8 +1093,6 @@ export const nl = {
   'fehler.vorschlagEntschieden': 'Over dit voorstel is al beslist.',
   'fehler.vorschlagTitel': 'Het voorstel heeft een titel nodig.',
   'fehler.zusammensetzen': 'Samenvoegen mislukt: {grund}',
-
-  /* Fernsteuerung des Pi */
   'fern.titel': 'Pi op afstand bedienen',
   'fern.nurApp': 'Bediening op afstand bestaat alleen in de Stellium-app.',
   'fern.verbinden': 'Verbinden',
@@ -1118,4 +1103,32 @@ export const nl = {
   'fern.steuertAn': 'Bediening aan',
   'fern.steuertAus': 'alleen kijken',
   'fern.steuernHilfe': 'Toetsenbord en muis naar de Pi sturen',
+  'projekte.title': 'Projecten',
+  'projekte.none': 'Geen project',
+  'projekte.all': 'Alle projecten',
+  'projekte.new': 'Nieuw project',
+  'projekte.name': 'Naam',
+  'projekte.namePlaceholder': 'Waar werken jullie aan?',
+  'projekte.description': 'Waar is het voor?',
+  'projekte.color': 'Kleur',
+  'projekte.create': 'Aanmaken',
+  'projekte.save': 'Opslaan',
+  'projekte.empty': 'Nog geen project. Maak er één aan en voeg taken toe.',
+  'projekte.progress': '{done} van {total} voltooid',
+  'projekte.archive': 'Archiveren',
+  'projekte.unarchive': 'Terughalen',
+  'projekte.archived': 'Gearchiveerd',
+  'projekte.delete': 'Project verwijderen',
+  'projekte.deleteConfirm': 'Dit project verwijderen? De taken blijven en hebben daarna geen project.',
+  'projekte.assign': 'Project',
+  'pruefen.tab': 'Controleren',
+  'pruefen.count': 'Controleren ({n})',
+  'pruefen.title': 'Toegevoegd door de AI',
+  'pruefen.hint': 'De AI heeft dit zelf aangemaakt. Kijk ernaar: als het past, blijft het — anders verwijder je het.',
+  'pruefen.ok': 'Klopt',
+  'pruefen.empty': 'Niets te controleren. De AI heeft niets nieuws toegevoegd.',
+  'pruefen.badge': 'Onbeoordeeld',
+  'pruefen.fromAi': 'Van de AI',
+  'ki.selbstEintragen': 'De AI voegt zelf items toe',
+  'ki.selbstEintragenHint': 'Uit: gevonden items komen als suggestie en wachten op een ja. Aan: taken, ideeën en afspraken verschijnen direct op de borden — gemarkeerd en verzameld in het tabblad “Controleren”.',
 };

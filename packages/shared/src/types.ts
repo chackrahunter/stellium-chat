@@ -27,6 +27,15 @@ export interface User {
   role: MemberRole;
   /** Gesperrte Konten können sich nicht anmelden, bleiben aber im Verlauf sichtbar. */
   disabled: boolean;
+  /**
+   * Ein technisches Konto — Assistent, Wartungszugang, Ausliefer-Konto.
+   *
+   * Es bleibt in der Liste, weil sonst seine Nachrichten ohne Namen dastünden,
+   * ist aber nirgends anzutippen: nicht in der Erwähnungsliste, nicht in der
+   * Mitgliederliste eines Kanals, nicht als Ziel einer Direktnachricht. Wer
+   * verwalten darf, sieht es weiterhin im Reiter „Mitglieder".
+   */
+  technisch: boolean;
   createdAt: number;
 }
 
@@ -385,7 +394,24 @@ export type TaskPriority = 'low' | 'normal' | 'high' | 'urgent';
 export const TASK_STATUSES: TaskStatus[] = ['pending', 'working', 'review', 'finished', 'blocked'];
 export const TASK_PRIORITIES: TaskPriority[] = ['low', 'normal', 'high', 'urgent'];
 
-export interface Task {
+/**
+ * Wer den Eintrag angelegt hat — und ob ein Mensch schon daraufgesehen hat.
+ *
+ * Trägt die KI selbst ein (Einstellung „kiTraegtEin"), landet der Eintrag
+ * nicht mitten im Brett, sondern im Reiter „Prüfen": sichtbar, aber als
+ * ungeprüft gekennzeichnet. Erst ein Mensch macht daraus einen normalen
+ * Eintrag. Ohne diese Trennung stünde nach einer Woche ein Brett voll
+ * halbrichtiger Karten, und niemand wüsste mehr, welche davon jemand
+ * gelesen hat.
+ */
+export interface KiHerkunft {
+  /** Von der KI angelegt (statt von einem Menschen). */
+  vonKi: boolean;
+  /** Von einem Menschen bestätigt. Bis dahin steht der Eintrag unter „Prüfen". */
+  geprueft: boolean;
+}
+
+export interface Task extends KiHerkunft {
   id: string;
   title: string;
   description: string | null;
@@ -395,12 +421,40 @@ export interface Task {
   channelId: string | null;
   messageId: string | null;
   dueAt: number | null;
+  /** Projekt, zu dem die Aufgabe gehört. Ohne Projekt: null. */
+  projektId: string | null;
   createdBy: string;
   createdAt: number;
   updatedAt: number;
   finishedAt: number | null;
   watcherIds: string[];
 }
+
+/**
+ * Ein Projekt bündelt Aufgaben.
+ *
+ * Bewusst schlank: Name, Farbe, ein Satz dazu. Wer Projekte mit Terminen,
+ * Budgets und Phasen aufbläht, baut ein zweites Aufgabenbrett daneben —
+ * hier ist es eine Schublade, mehr nicht.
+ */
+export interface Projekt {
+  id: string;
+  name: string;
+  beschreibung: string | null;
+  /** Eine der Farben aus PROJEKT_FARBEN — für den Punkt am Kartenrand. */
+  farbe: string;
+  archiviert: boolean;
+  createdBy: string;
+  createdAt: number;
+  /** Wie viele Aufgaben daran hängen, und wie viele davon fertig sind. */
+  aufgaben: number;
+  fertig: number;
+}
+
+/** Die Farben, aus denen ein Projekt wählen kann. */
+export const PROJEKT_FARBEN = [
+  '#7c5cff', '#22b8cf', '#37b24d', '#f59f00', '#f03e3e', '#ae3ec9',
+] as const;
 
 export interface TaskEvent {
   id: string;
@@ -425,7 +479,7 @@ export interface EventAttendee {
   response: AttendeeResponse;
 }
 
-export interface CalendarEvent {
+export interface CalendarEvent extends KiHerkunft {
   id: string;
   title: string;
   description: string | null;
@@ -476,7 +530,7 @@ export interface ReleaseInfo {
 export type IdeaStatus = 'new' | 'working' | 'done' | 'rejected';
 export const IDEA_STATUSES: IdeaStatus[] = ['new', 'working', 'done', 'rejected'];
 
-export interface Idea {
+export interface Idea extends KiHerkunft {
   id: string;
   title: string;
   body: string | null;
@@ -513,7 +567,10 @@ export interface IdeaComment {
  * Deshalb ist sie auf der Karte umschaltbar und nicht als Reiter verbaut:
  * ein Fehlgriff kostet einen Klick, nicht den ganzen Vorschlag.
  */
-export type VorschlagArt = 'aufgabe' | 'idee';
+export type VorschlagArt = 'aufgabe' | 'idee' | 'termin';
+
+/** Alle Arten in der Reihenfolge, in der die Oberfläche sie zeigt. */
+export const VORSCHLAG_ARTEN: VorschlagArt[] = ['aufgabe', 'idee', 'termin'];
 
 /**
  * Der Weg eines Vorschlags: `offen` -> angenommen, abgelehnt oder verfallen.
@@ -548,6 +605,9 @@ export interface Vorschlag {
   fuerUserId: string;
   genanntUserId: string | null;
   faelligAm: number | null;
+  /** Nur bei „termin": Beginn und Dauer des vorgeschlagenen Kalendereintrags. */
+  beginntAm: number | null;
+  dauerMinuten: number | null;
   erstelltAm: number;
   /** Bei angenommenen: die Kennung der entstandenen Aufgabe oder Idee. */
   ergebnisId: string | null;

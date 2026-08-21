@@ -34,8 +34,19 @@ function toTask(r: any, watchers: string[] = []): Task {
     createdAt: r.created_at,
     updatedAt: r.updated_at,
     finishedAt: r.finished_at ?? null,
+    projektId: r.projekt_id ?? null,
+    vonKi: Boolean(r.von_ki),
+    /* Geprüft ist alles, was ein Mensch angelegt hat — nur was die KI selbst
+       eingetragen hat, wartet auf einen Blick. */
+    geprueft: !r.von_ki || Boolean(r.geprueft_am),
     watcherIds: watchers,
   };
+}
+
+/** Gibt es das Projekt? Sonst null — eine fehlende Schublade darf nichts brechen. */
+function projektOderNull(id: string | null | undefined): string | null {
+  if (!id) return null;
+  return db.get('SELECT 1 AS x FROM projekte WHERE id = ?', id) ? id : null;
 }
 
 function watchersOf(taskIds: string[]): Map<string, string[]> {
@@ -130,6 +141,9 @@ export function createTask(input: {
   dueAt?: number | null;
   priority?: TaskPriority;
   status?: TaskStatus;
+  projektId?: string | null;
+  /** Von der KI selbst eingetragen — landet dann im Reiter „Prüfen". */
+  vonKi?: boolean;
   createdBy: string;
 }): Task {
   // Ohne Grenze ließe sich die Datenbank mit einer einzigen Aufgabe fluten.
@@ -153,11 +167,15 @@ export function createTask(input: {
   db.transaction(() => {
     db.run(
       `INSERT INTO tasks (id, title, description, status, priority, assignee_id, channel_id,
-                          message_id, due_at, created_by, created_at, updated_at, position)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+                          message_id, due_at, created_by, created_at, updated_at, position,
+                          projekt_id, von_ki)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       id, title, input.description?.trim().slice(0, BESCHREIBUNG_MAX) || null, status, priority,
       input.assigneeId ?? null, input.channelId ?? null, input.messageId ?? null,
       input.dueAt ?? null, input.createdBy, jetzt, jetzt, position,
+      /* Ein Projekt, das es nicht (mehr) gibt, wird stillschweigend zu
+         „kein Projekt" — sonst scheitert das Anlegen an einer Schublade. */
+      projektOderNull(input.projektId), input.vonKi ? 1 : 0,
     );
     // Wer sie anlegt und wer sie bekommt, wird automatisch benachrichtigt.
     for (const uid of new Set([input.createdBy, input.assigneeId].filter(Boolean) as string[])) {
@@ -178,6 +196,7 @@ export interface TaskPatch {
   assigneeId?: string | null;
   dueAt?: number | null;
   channelId?: string | null;
+  projektId?: string | null;
 }
 
 export function updateTask(id: string, patch: TaskPatch, userId: string): Task {
@@ -228,6 +247,9 @@ export function updateTask(id: string, patch: TaskPatch, userId: string): Task {
   }
   if (patch.channelId !== undefined) {
     sets.push('channel_id = ?'); werte.push(patch.channelId);
+  }
+  if (patch.projektId !== undefined) {
+    sets.push('projekt_id = ?'); werte.push(projektOderNull(patch.projektId));
   }
 
   if (!sets.length) return alt;
@@ -316,4 +338,18 @@ export function summary(): Record<TaskStatus, number> {
     if (TASK_STATUSES.includes(r.status as TaskStatus)) out[r.status as TaskStatus] = r.n;
   }
   return out;
+}
+
+/**
+ * „Passt" — ein Mensch hat die KI-Aufgabe angesehen.
+ *
+ * Damit verlässt sie den Reiter „Prüfen" und ist eine Aufgabe wie jede
+ * andere. Umgekehrt gibt es keinen Weg: eine geprüfte Aufgabe wieder auf
+ * ungeprüft zu setzen hilft niemandem — wer sie loswerden will, löscht sie.
+ */
+export function aufgabeGeprueft(id: string): Task | null {
+  const vorhanden = getTask(id);
+  if (!vorhanden) return null;
+  db.run('UPDATE tasks SET geprueft_am = ?, updated_at = ? WHERE id = ?', Date.now(), Date.now(), id);
+  return getTask(id);
 }

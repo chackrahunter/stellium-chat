@@ -227,6 +227,10 @@ export function aiCapabilities() {
        es an einer tatsächlichen Antwort. */
     translation: provider.name !== 'demo' && lokalAntwortet,
     assistant: a !== null,
+    /* Direkt aus den Einstellungen statt über den Vorschlagsdienst: der
+       importiert die Übersetzung, und ein Ring aus zwei Modulen bricht beim
+       Laden an der Stelle, an der man ihn am wenigsten erwartet. */
+    selbstEintragen: getSetting('ki_traegt_ein') === 'an',
     lokal: istLokal(),
     lokaleAdresse: istLokal() ? lokaleEinstellung().baseUrl : null,
     lokalerZustand: lage?.zustand ?? null,

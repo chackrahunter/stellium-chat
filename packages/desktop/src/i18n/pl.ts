@@ -500,8 +500,6 @@ export const pl = {
   'ideas.status.working': 'W trakcie',
   'ideas.status.done': 'Zakończony',
   'ideas.status.rejected': 'Odrzucony',
-
-  /* Vorschläge der KI — angenommen, abgelehnt oder geändert wird hier */
   'vorschlaege.title': 'Propozycje',
   'vorschlaege.nav': 'Propozycje od StelliumAI',
   'vorschlaege.subtitle': 'Otwarte: {n} — SI proponuje, ty decydujesz.',
@@ -808,8 +806,6 @@ export const pl = {
   'kat.automatisch': 'Sortuj automatycznie',
   'kat.hinweis': 'Nowe konta trafiają do „Nowe”, boty do „Techniczne”, usunięte do „Usunięte”. Ręcznie wybrane mają pierwszeństwo.',
   'kat.verschoben': 'Kategoria zmieniona',
-
-  /* App herunterladen — nur im Browser sichtbar */
   'download.nav': 'Pobierz aplikację',
   'download.title': 'Pobierz aplikację',
   'download.subtitle': 'Zawsze najnowsza wersja, prosto z waszego własnego serwera.',
@@ -830,7 +826,6 @@ export const pl = {
   'download.checksumHint': 'Porównaj ją po pobraniu — wtedy wiesz, że plik dotarł niezmieniony.',
   'download.checksumCopy': 'Kopiuj sumę kontrolną',
   'download.checksumCopied': 'Skopiowano',
-
   'status.title': 'Mój status',
   'status.online': 'Dostępny',
   'status.away': 'Nieobecny',
@@ -923,8 +918,6 @@ export const pl = {
   'fehler.serverStumm': 'Serwer nie odpowiedział.',
   'fehler.codePasstNicht': 'Kod nie pasuje do tego udostępnienia.',
   'fehler.dateiKopfUnlesbar': 'Ten plik nie ma czytelnego nagłówka.',
-
-  /* Beschriftungen, die vorher fest im Code standen */
   'msg.someone': 'kogoś',
   'common.active': 'aktywny',
   'common.ctrlKey': 'Ctrl',
@@ -974,8 +967,6 @@ export const pl = {
   'toast.rewriteFailed': 'Przeformułowanie nie powiodło się',
   'toast.scheduled': 'Zaplanowano',
   'voice.stopRecording': 'Zakończ nagrywanie',
-
-  /* Texte, die der Server schickt — er sendet die Kennung, hier steht der Satz */
   'fehler.nichtGefunden': 'Nie znaleziono',
   'hinweis.lokalStumm': 'Model pod {adresse} nie odpowiada ({fehler}). Wiadomości zostają nieprzetłumaczone, dopóki nie wróci.',
   'hinweis.lokalOhneModell': 'Pod {adresse} nie jest załadowany żaden model. Uruchom tam jakiś, inaczej nic się nie przetłumaczy.',
@@ -983,7 +974,6 @@ export const pl = {
   'hinweis.keinAssistent': '{anbieter} tłumaczy, ale nie zrobi podsumowań AI. Do wszystkiego wybierz Groq, OpenAI lub model lokalny.',
   'hinweis.keinAbtippen': 'Wiadomości głosowe nie są spisywane. Potrzebna jest usługa mowy na serwerze (server-setup/dienste/stimme-einrichten.sh) albo klucz Groq.',
   'hinweis.stimmeBeiGroq': 'Model tekstowy działa we własnej sieci, ale wiadomości głosowe idą do Groq. Z server-setup/dienste/stimme-einrichten.sh zostaną również tutaj.',
-
   'anhang.wirdGeoeffnet': 'Otwieranie …',
   'anhang.unlesbar': 'Nie do odczytania',
   'anhang.unlesbarHinweis': 'Brakuje klucza do tego pliku. Po zmianie urządzenia pomaga kod odzyskiwania.',
@@ -996,8 +986,6 @@ export const pl = {
   'files.oeffentlichHinweis': 'Każdy w zespole może otworzyć ten plik.',
   'files.downloadFehler': 'Pobieranie nie powiodło się',
   'toast.filesFailed': 'Nie można wczytać repozytorium',
-
-  /* Meldungen der Ereignisleitung — der Server schickt die Kennung */
   'fehler.privatUnverschluesselt': 'Ten plik miał być prywatny, ale dotarł niezaszyfrowany. Zaktualizuj aplikację.',
   'fehler.anmeldungAbgelaufen': 'Sesja wygasła',
   'fehler.anmeldungFehlgeschlagen': 'Logowanie nie powiodło się. Spróbuj ponownie.',
@@ -1010,6 +998,7 @@ export const pl = {
   'fehler.keinRechtAlleErwaehnen': 'Nie masz uprawnienia, by wspomnieć wszystkich.',
   'fehler.keinRechtErwaehnen': 'Nie masz uprawnienia, by wspominać osoby.',
   'fehler.keinRechtName': 'Nie masz uprawnienia „{recht}".',
+  'fehler.technischesKonto': 'Konta techniczne nie przyjmują wiadomości.',
   'fehler.keinRechtUebergeben': 'Przekazywanie zadań innym to osobne uprawnienie.',
   'fehler.keinUmfrageZugang': 'Nie masz dostępu do tej ankiety.',
   'fehler.keinUrsprungZugriff': 'Brak dostępu do pierwotnej wiadomości',
@@ -1037,8 +1026,6 @@ export const pl = {
   'fehler.threadNichtGefunden': 'Nie znaleziono wątku',
   'fehler.vertraulichGeplantNoetig': 'Ten kanał jest poufny. Zaplanowana wiadomość musi zostać zaszyfrowana już przy planowaniu — inaczej leżałaby otwarta na serwerze aż do wysłania.',
   'fehler.zielkanalNichtGefunden': 'Nie znaleziono kanału docelowego',
-
-  /* Abweisungen der Schnittstelle — der Server schickt die Kennung */
   'fehler.altesPasswortFalsch': 'Obecne hasło jest nieprawidłowe.',
   'fehler.anbieterUnbekannt': 'Nieznany dostawca „{anbieter}".',
   'fehler.begriffFehlt': 'Brakuje terminu',
@@ -1106,8 +1093,6 @@ export const pl = {
   'fehler.vorschlagEntschieden': 'O tej propozycji już zdecydowano.',
   'fehler.vorschlagTitel': 'Propozycja potrzebuje tytułu.',
   'fehler.zusammensetzen': 'Składanie nie powiodło się: {grund}',
-
-  /* Fernsteuerung des Pi */
   'fern.titel': 'Zdalne sterowanie Pi',
   'fern.nurApp': 'Zdalne sterowanie jest tylko w aplikacji Stellium.',
   'fern.verbinden': 'Połącz',
@@ -1118,4 +1103,32 @@ export const pl = {
   'fern.steuertAn': 'Sterowanie włączone',
   'fern.steuertAus': 'tylko podgląd',
   'fern.steuernHilfe': 'Przekazuj klawiaturę i mysz do Pi',
+  'projekte.title': 'Projekty',
+  'projekte.none': 'Brak projektu',
+  'projekte.all': 'Wszystkie projekty',
+  'projekte.new': 'Nowy projekt',
+  'projekte.name': 'Nazwa',
+  'projekte.namePlaceholder': 'Nad czym pracujecie?',
+  'projekte.description': 'Do czego to służy?',
+  'projekte.color': 'Kolor',
+  'projekte.create': 'Utwórz',
+  'projekte.save': 'Zapisz',
+  'projekte.empty': 'Jeszcze brak projektu. Utwórz go i dodaj zadania.',
+  'projekte.progress': '{done} z {total} ukończono',
+  'projekte.archive': 'Archiwizuj',
+  'projekte.unarchive': 'Przywróć',
+  'projekte.archived': 'Zarchiwizowane',
+  'projekte.delete': 'Usuń projekt',
+  'projekte.deleteConfirm': 'Usunąć projekt? Zadania pozostaną i będą bez projektu.',
+  'projekte.assign': 'Projekt',
+  'pruefen.tab': 'Przegląd',
+  'pruefen.count': 'Przegląd ({n})',
+  'pruefen.title': 'Dodane przez AI',
+  'pruefen.hint': 'AI dodało to samodzielnie. Sprawdź: jeśli pasuje, zostaw — w przeciwnym razie usuń.',
+  'pruefen.ok': 'Pasuje',
+  'pruefen.empty': 'Brak rzeczy do przeglądu. AI nie dodało nic nowego.',
+  'pruefen.badge': 'Nieprzejrzane',
+  'pruefen.fromAi': 'Od AI',
+  'ki.selbstEintragen': 'AI wprowadza samodzielnie',
+  'ki.selbstEintragenHint': 'Wył.: znaleziska pojawiają się jako sugestie i czekają na potwierdzenie. Wł.: zadania, pomysły i wydarzenia pojawiają się od razu na tablicach — oznaczone i zebrane w zakładce „Przegląd”.',
 };
