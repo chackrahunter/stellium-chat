@@ -638,6 +638,7 @@ export const ja = {
   'toast.nothingFound': '見つかりません',
   'toast.noOpenTask': 'このスレッドには未完了のタスクがありません。',
   'toast.serverError': 'サーバーエラー',
+  'settings.vertretung': '自分のモデルが応答していません — {dienst} がしばらく代わりに応答します。設定はそのままです。',
   'settings.aiService': '翻訳サービス',
   'settings.forTranslation': '翻訳・要約',
   'settings.forSuggestions': '返信提案',

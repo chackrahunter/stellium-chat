@@ -638,6 +638,7 @@ export const uk = {
   'toast.nothingFound': 'Нічого не знайдено',
   'toast.noOpenTask': 'У цьому діалозі немає відкритих завдань.',
   'toast.serverError': 'Помилка сервера',
+  'settings.vertretung': 'Ваша власна модель зараз не відповідає — {dienst} тимчасово підхоплює. Налаштування залишаються без змін.',
   'settings.aiService': 'Служба перекладу',
   'settings.forTranslation': 'Переклад, підсумок',
   'settings.forSuggestions': 'Пропозиції відповідей',

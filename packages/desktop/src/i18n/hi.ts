@@ -638,6 +638,7 @@ export const hi = {
   'toast.nothingFound': 'कुछ नहीं मिला',
   'toast.noOpenTask': 'इस वार्तालाप में कोई खुला कार्य नहीं है।',
   'toast.serverError': 'सर्वर त्रुटि',
+  'settings.vertretung': 'आपका अपना मॉडल अभी प्रतिक्रिया नहीं दे रहा है — {dienst} अभी के लिए प्रतिस्थापित कर रहा है। सेटिंग वैसी ही रहेगी।',
   'settings.aiService': 'अनुवाद सेवा',
   'settings.forTranslation': 'अनुवाद, सारांश',
   'settings.forSuggestions': 'उत्तर सुझाव',

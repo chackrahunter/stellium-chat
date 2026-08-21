@@ -638,6 +638,7 @@ export const sv = {
   'toast.nothingFound': 'Inget hittades',
   'toast.noOpenTask': 'Det finns ingen öppen uppgift i den här tråden.',
   'toast.serverError': 'Serverfel',
+  'settings.vertretung': 'Din egen modell svarar inte just nu — {dienst} hoppar in tills vidare. Inställningen förblir som den är.',
   'settings.aiService': 'Översättningstjänst',
   'settings.forTranslation': 'Översättning, Sammanfattning',
   'settings.forSuggestions': 'Svarsförslag',

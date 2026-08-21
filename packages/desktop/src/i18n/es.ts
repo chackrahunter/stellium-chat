@@ -638,6 +638,7 @@ export const es = {
   'toast.nothingFound': 'No se encontró nada',
   'toast.noOpenTask': 'No hay ninguna tarea abierta en este historial.',
   'toast.serverError': 'Error del servidor',
+  'settings.vertretung': 'Tu modelo propio no está respondiendo — {dienst} lo sustituye por ahora. La configuración permanece igual.',
   'settings.aiService': 'Servicio de traducción',
   'settings.forTranslation': 'Traducción, resumen',
   'settings.forSuggestions': 'Sugerencias de respuesta',

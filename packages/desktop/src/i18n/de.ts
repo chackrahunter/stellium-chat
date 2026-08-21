@@ -671,6 +671,7 @@ export const de = {
   'toast.nothingFound': 'Nichts gefunden',
   'toast.noOpenTask': 'In diesem Verlauf steckt gerade keine offene Aufgabe.',
   'toast.serverError': 'Serverfehler',
+  'settings.vertretung': 'Das eigene Modell antwortet gerade nicht — {dienst} springt so lange ein. Die Einstellung bleibt, wie sie ist.',
   'settings.aiService': 'Übersetzungs-Dienst',
   'settings.forTranslation': 'Übersetzung, Zusammenfassung',
   'settings.forSuggestions': 'Antwortvorschläge',

@@ -638,6 +638,7 @@ export const nl = {
   'toast.nothingFound': 'Niets gevonden',
   'toast.noOpenTask': 'Er is momenteel geen open taak in dit gesprek.',
   'toast.serverError': 'Serverfout',
+  'settings.vertretung': 'Je eigen model reageert niet — {dienst} springt voorlopig in. De instelling blijft zoals hij is.',
   'settings.aiService': 'Vertaalservice',
   'settings.forTranslation': 'Vertalen, samenvatten',
   'settings.forSuggestions': 'Antwoordsuggesties',

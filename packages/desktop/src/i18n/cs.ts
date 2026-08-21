@@ -638,6 +638,7 @@ export const cs = {
   'toast.nothingFound': 'Nic nenalezeno',
   'toast.noOpenTask': 'V tomto vláknu není žádná otevřená úloha.',
   'toast.serverError': 'Chyba serveru',
+  'settings.vertretung': 'Vlastní model momentálně neodpovídá — {dienst} ho zatím zastupuje. Nastavení zůstane beze změny.',
   'settings.aiService': 'Překladová služba',
   'settings.forTranslation': 'Překlad, shrnutí',
   'settings.forSuggestions': 'Návrhy odpovědí',

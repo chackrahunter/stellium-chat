@@ -638,6 +638,7 @@ export const fi = {
   'toast.nothingFound': 'Ei löytynyt',
   'toast.noOpenTask': 'Tässä keskustelussa ei ole avoimia tehtäviä.',
   'toast.serverError': 'Palvelinvirhe',
+  'settings.vertretung': 'Oma mallisi ei vastaa — {dienst} astuu tilapäisesti sisään. Asetus pysyy ennallaan.',
   'settings.aiService': 'Käännöspalvelu',
   'settings.forTranslation': 'Käännös, yhteenveto',
   'settings.forSuggestions': 'Vastaus­ehdotukset',

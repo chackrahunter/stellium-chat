@@ -638,6 +638,7 @@ export const pl = {
   'toast.nothingFound': 'Nic nie znaleziono',
   'toast.noOpenTask': 'W tym wątku nie ma otwartego zadania.',
   'toast.serverError': 'Błąd serwera',
+  'settings.vertretung': 'Własny model nie odpowiada — {dienst} zastępuje go na razie. Ustawienie pozostaje bez zmian.',
   'settings.aiService': 'Usługa tłumaczeń',
   'settings.forTranslation': 'Tłumaczenie, podsumowanie',
   'settings.forSuggestions': 'Sugestie odpowiedzi',

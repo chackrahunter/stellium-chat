@@ -638,6 +638,7 @@ export const ru = {
   'toast.nothingFound': 'Ничего не найдено',
   'toast.noOpenTask': 'В этом диалоге сейчас нет открытой задачи.',
   'toast.serverError': 'Ошибка сервера',
+  'settings.vertretung': 'Собственная модель сейчас не отвечает — {dienst} временно подменяет. Настройка остаётся как есть.',
   'settings.aiService': 'Служба перевода',
   'settings.forTranslation': 'Перевод, сводка',
   'settings.forSuggestions': 'Предложения ответов',

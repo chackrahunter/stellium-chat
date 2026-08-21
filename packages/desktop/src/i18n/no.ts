@@ -638,6 +638,7 @@ export const no = {
   'toast.nothingFound': 'Ingenting funnet',
   'toast.noOpenTask': 'Det er ingen åpen oppgave i denne samtalen.',
   'toast.serverError': 'Serverfeil',
+  'settings.vertretung': 'Den egen modellen svarer ikke — {dienst} trer inn for nå. Innstillingen forblir som den er.',
   'settings.aiService': 'Oversettelsestjeneste',
   'settings.forTranslation': 'Oversettelse, oppsummering',
   'settings.forSuggestions': 'Svarforslag',

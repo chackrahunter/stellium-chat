@@ -180,6 +180,14 @@ export function Settings({ onClose }: { onClose: () => void }) {
                   </p>
                 )}
 
+                {/* Springt gerade jemand ein, gehört das an die erste Stelle:
+                    sonst sucht man den Fehler bei den Antworten statt beim
+                    ausgeschalteten Rechner. */}
+                {ai?.vertretung && (
+                  <p style={{ fontSize: 12.5, margin: '8px 0 0', color: 'var(--amber)' }}>
+                    {t('settings.vertretung', { dienst: ai.vertretung })}
+                  </p>
+                )}
                 {kiHinweis(ai) && <p className="muted" style={{ fontSize: 12.5, margin: '6px 0 0' }}>{kiHinweis(ai)}</p>}
               </div>
 

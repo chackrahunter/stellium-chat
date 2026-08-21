@@ -1,0 +1,4 @@
+Unter dem Schreibfeld steht jetzt, wie viele Marken die KI liest und schreibt — beim Tippen live geschätzt, nach der Antwort genau.
+Die Vorabprüfung des SSH-Wegs stand vor ihren eigenen Angaben und brach das Ausliefern ab, statt es abzusichern.
+Ist die KI gar nicht erreichbar, sagt die Meldung das — statt einen Fehler zu vermuten, den es nicht gibt.
+Die KI lernt, wie viel Text ihr Modell wirklich annimmt, statt jede Anfrage am gleichen zu großen Fenster scheitern zu lassen.

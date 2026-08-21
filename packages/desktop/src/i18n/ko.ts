@@ -638,6 +638,7 @@ export const ko = {
   'toast.nothingFound': '검색 결과 없음',
   'toast.noOpenTask': '이 대화에는 현재 진행 중인 작업이 없습니다.',
   'toast.serverError': '서버 오류',
+  'settings.vertretung': '내 모델이 현재 응답하지 않음 — {dienst}이(가) 대신합니다. 설정은 그대로 유지됩니다.',
   'settings.aiService': '번역 서비스',
   'settings.forTranslation': '번역, 요약',
   'settings.forSuggestions': '답변 제안',

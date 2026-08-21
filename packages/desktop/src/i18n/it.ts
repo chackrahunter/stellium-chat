@@ -638,6 +638,7 @@ export const it = {
   'toast.nothingFound': 'Nessun risultato',
   'toast.noOpenTask': 'In questa conversazione non c\'è alcun compito aperto.',
   'toast.serverError': 'Errore del server',
+  'settings.vertretung': 'Il tuo modello non risponde al momento — {dienst} subentra per ora. L’impostazione rimane com’è.',
   'settings.aiService': 'Servizio di traduzione',
   'settings.forTranslation': 'Traduzione, riepilogo',
   'settings.forSuggestions': 'Suggerimenti di risposta',

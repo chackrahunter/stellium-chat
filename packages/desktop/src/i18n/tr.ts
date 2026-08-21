@@ -638,6 +638,7 @@ export const tr = {
   'toast.nothingFound': 'Hiçbir şey bulunamadı',
   'toast.noOpenTask': 'Bu sohbette açık bir görev yok.',
   'toast.serverError': 'Sunucu hatası',
+  'settings.vertretung': 'Kendi modeliniz şu anda yanıt vermiyor — {dienst} geçici olarak devreye giriyor. Ayar olduğu gibi kalıyor.',
   'settings.aiService': 'Çeviri hizmeti',
   'settings.forTranslation': 'Çeviri, Özetleme',
   'settings.forSuggestions': 'Yanıt önerileri',

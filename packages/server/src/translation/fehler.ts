@@ -19,6 +19,7 @@
  */
 import { abweisung, Abweisung } from '../util/abweisung.js';
 import { ProviderError } from './providers/types.js';
+import { ausfallMelden } from './erreichbarkeit.js';
 
 export function alsAbweisung(fehler: unknown): Abweisung {
   if (fehler instanceof Abweisung) return fehler;
@@ -37,6 +38,11 @@ export function alsAbweisung(fehler: unknown): Abweisung {
         'Die KI ist gerade ausgelastet. Bitte gleich noch einmal versuchen.');
     }
     if (fehler.art === 'unerreichbar') {
+      /* Auch der Assistent meldet den Ausfall — sonst wüsste nur die
+         Übersetzung davon, und die Vertretung spränge erst ein, wenn
+         zufällig jemand eine Nachricht schreibt. Beim nächsten Anlauf
+         antwortet dann schon der Ersatzdienst. */
+      ausfallMelden(fehler.message);
       return abweisung('fehler.kiUnerreichbar',
         'Die KI ist gerade nicht erreichbar — läuft das Modell?');
     }

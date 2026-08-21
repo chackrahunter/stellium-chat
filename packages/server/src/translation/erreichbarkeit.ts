@@ -137,6 +137,10 @@ export async function lokaleLageJetzt(): Promise<LokaleLage | null> {
 export function erfolgMelden(): void {
   if (!istLokal()) return;
   festhalten('erreichbar', lage?.modelle ?? [], null);
+  /* Das eigene Modell ist zurück — eine eingesprungene Vertretung tritt ab.
+     Spät geladen, weil index.ts diese Datei bereits einbindet und ein Ring
+     aus zwei Modulen beim Laden an der unerwartetsten Stelle bricht. */
+  void import('./index.js').then((m) => m.ersatzTrittAb()).catch(() => { /* egal */ });
 }
 
 /**
@@ -147,6 +151,8 @@ export function erfolgMelden(): void {
 export function ausfallMelden(grund: string): void {
   if (!istLokal()) return;
   festhalten('antwortet-nicht', [], grund);
+  /* Und jemanden einspringen lassen, statt die KI ganz ausfallen zu lassen. */
+  void import('./index.js').then((m) => m.ersatzUebernimmt(grund)).catch(() => { /* egal */ });
 }
 
 /** Nach einem Anbieter- oder Adresswechsel gilt der alte Stand nicht mehr. */

@@ -353,6 +353,14 @@ export interface AiCapabilities {
    * Brettern — gekennzeichnet als ungeprüft und gesammelt im Reiter „Prüfen".
    */
   selbstEintragen: boolean;
+  /**
+   * Name des Dienstes, der gerade einspringt — sonst null.
+   *
+   * Steht hier etwas, antwortet nicht das eingestellte Modell, sondern eine
+   * Vertretung: das eigene läuft nicht. Die Einstellung bleibt unverändert,
+   * die Vertretung tritt von selbst ab, sobald das eigene wieder da ist.
+   */
+  vertretung: string | null;
   /** Läuft das Modell im eigenen Netz (Ollama, llama.cpp)? */
   lokal: boolean;
   /** Adresse des lokalen Dienstes — nur zur Anzeige. */

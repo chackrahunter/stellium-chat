@@ -661,6 +661,7 @@ export const en: Partial<Dictionary> = {
   'toast.nothingFound': 'Nothing found',
   'toast.noOpenTask': 'No open task in this thread.',
   'toast.serverError': 'Server error',
+  'settings.vertretung': 'Your own model is not responding — {dienst} is standing in for now. The setting stays as it is.',
   'settings.aiService': 'Translation service',
   'settings.forTranslation': 'Translation, summarization',
   'settings.forSuggestions': 'Reply suggestions',

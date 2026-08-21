@@ -47,6 +47,58 @@ function build(): TranslationProvider {
 
 let aktiv: TranslationProvider = build();
 
+/* ── Ausweichen, wenn das eigene Modell schweigt ─────────────────
+   Ein Modell im eigenen Netz ist genau so lange verfügbar wie der Rechner,
+   auf dem es läuft. Steht der still, fällt bisher die ganze KI aus:
+   keine Übersetzung, kein Protokoll, kein Assistent — genau so ist Dons
+   Protokoll heute zweimal ins Leere gelaufen, während ein brauchbarer
+   Groq-Schlüssel im Tresor lag.
+
+   Deshalb ein Ersatz auf Zeit: Meldet die Erreichbarkeitsprüfung einen
+   Ausfall, übernimmt der erste eingerichtete Dienst im Netz. Meldet sie
+   wieder Erfolg, tritt er zurück — die Einstellung bleibt unangetastet, es
+   ist eine Vertretung und kein Wechsel. */
+let ersatz: TranslationProvider | null = null;
+
+/** Welcher Dienst im Netz einspringen könnte — der erste mit Schlüssel. */
+function ersatzBauen(): TranslationProvider | null {
+  if (config.ai.groq.apiKey) return createGroqProvider();
+  if (config.ai.openai.apiKey) return createOpenAIProvider();
+  return null;
+}
+
+/**
+ * Das eigene Modell antwortet nicht — jemanden anderen ranlassen.
+ *
+ * Tut nichts, wenn ohnehin kein lokales Modell eingestellt ist, wenn die
+ * Vertretung schon läuft oder wenn es niemanden gibt, der einspringen könnte.
+ */
+export function ersatzUebernimmt(grund: string): void {
+  if (!istLokal() || ersatz) return;
+  const vertretung = ersatzBauen();
+  if (!vertretung) return;
+  ersatz = vertretung;
+  console.warn(`[ai] ${aktiv.name} antwortet nicht (${grund}) — `
+    + `"${vertretung.name}" übernimmt, bis es wieder da ist.`);
+}
+
+/** Das eigene Modell ist zurück — die Vertretung tritt ab. */
+export function ersatzTrittAb(): void {
+  if (!ersatz) return;
+  console.log(`[ai] ${aktiv.name} antwortet wieder — "${ersatz.name}" tritt ab.`);
+  ersatz = null;
+}
+
+/** Springt gerade jemand ein? Für die Auskunft in den Einstellungen. */
+export function ersatzLaeuft(): string | null {
+  return ersatz?.name ?? null;
+}
+
+/** Wer gerade wirklich arbeitet: die Vertretung, sonst der eingestellte. */
+function derzeit(): TranslationProvider {
+  return ersatz ?? aktiv;
+}
+
 /**
  * Der Anbieter lässt sich im Betrieb wechseln.
  *
@@ -57,17 +109,21 @@ let aktiv: TranslationProvider = build();
  */
 export const provider: TranslationProvider = new Proxy({} as TranslationProvider, {
   get(_ziel, name) {
-    const wert = (aktiv as unknown as Record<string | symbol, unknown>)[name];
-    return typeof wert === 'function' ? wert.bind(aktiv) : wert;
+    const wer = derzeit();
+    const wert = (wer as unknown as Record<string | symbol, unknown>)[name];
+    return typeof wert === 'function' ? wert.bind(wer) : wert;
   },
   // instanceof muss weiter funktionieren — daran hängt, ob der Assistent kann.
-  getPrototypeOf() { return Object.getPrototypeOf(aktiv); },
-  has(_ziel, name) { return name in (aktiv as object); },
+  getPrototypeOf() { return Object.getPrototypeOf(derzeit()); },
+  has(_ziel, name) { return name in (derzeit() as object); },
 });
 
 /** Nach einer Änderung in den Einstellungen neu aufbauen. */
 export async function providerNeuAufbauen(): Promise<void> {
   aktiv = build();
+  /* Wer von Hand umstellt, meint es so — eine Vertretung von vorhin hat sich
+     damit erledigt. */
+  ersatz = null;
   lageVergessen();
   await warmUpModels();
   console.log(`[ai] Anbieter gewechselt auf "${aktiv.name}"${aktiv.model ? ` (${aktiv.model})` : ''}.`);
@@ -231,6 +287,10 @@ export function aiCapabilities() {
        importiert die Übersetzung, und ein Ring aus zwei Modulen bricht beim
        Laden an der Stelle, an der man ihn am wenigsten erwartet. */
     selbstEintragen: getSetting('ki_traegt_ein') === 'an',
+    /* Springt gerade ein anderer Dienst ein, weil das eigene Modell schweigt?
+       Ohne diese Auskunft wundert man sich über plötzlich andere Antworten —
+       und übersieht, dass der eigene Rechner aus ist. */
+    vertretung: ersatzLaeuft(),
     lokal: istLokal(),
     lokaleAdresse: istLokal() ? lokaleEinstellung().baseUrl : null,
     lokalerZustand: lage?.zustand ?? null,

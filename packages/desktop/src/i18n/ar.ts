@@ -638,6 +638,7 @@ export const ar = {
   'toast.nothingFound': 'لم يُعثر على شيء',
   'toast.noOpenTask': 'لا توجد مهمة مفتوحة في هذه السلسلة',
   'toast.serverError': 'خطأ في الخادم',
+  'settings.vertretung': 'النموذج الخاص بك لا يستجيب — {dienst} يتولى الآن. الإعداد يبقى كما هو.',
   'settings.aiService': 'خدمة الترجمة',
   'settings.forTranslation': 'الترجمة، التلخيص',
   'settings.forSuggestions': 'اقتراحات الردود',

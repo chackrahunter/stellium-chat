@@ -638,6 +638,7 @@ export const zh = {
   'toast.nothingFound': '未找到内容',
   'toast.noOpenTask': '此对话中暂无未完成任务。',
   'toast.serverError': '服务器错误',
+  'settings.vertretung': '您的模型暂无响应 — {dienst} 暂时代替。设置保持不变。',
   'settings.aiService': '翻译服务',
   'settings.forTranslation': '翻译、摘要',
   'settings.forSuggestions': '回复建议',

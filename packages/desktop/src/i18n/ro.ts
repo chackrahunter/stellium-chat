@@ -638,6 +638,7 @@ export const ro = {
   'toast.nothingFound': 'Nimic găsit',
   'toast.noOpenTask': 'În această discuție nu există nicio sarcină deschisă.',
   'toast.serverError': 'Eroare de server',
+  'settings.vertretung': 'Modelul tău nu răspunde în acest moment — {dienst} preia temporar. Setarea rămâne neschimbată.',
   'settings.aiService': 'Serviciu de traducere',
   'settings.forTranslation': 'Traducere, rezumat',
   'settings.forSuggestions': 'Sugestii de răspuns',
