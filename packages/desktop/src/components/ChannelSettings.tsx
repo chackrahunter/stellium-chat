@@ -43,7 +43,7 @@ export function ChannelSettings({ channelId, onClose }: { channelId: string; onC
 
   const mitglieder = channel.memberIds.map((id) => users[id]).filter(Boolean);
   const kandidaten = Object.values(users)
-    .filter((u) => !u.disabled && !channel.memberIds.includes(u.id))
+    .filter((u) => !u.disabled && !u.technisch && !channel.memberIds.includes(u.id))
     .filter((u) => !suche || u.displayName.toLowerCase().includes(suche.toLowerCase())
                           || u.handle.toLowerCase().includes(suche.toLowerCase()))
     .slice(0, 8);

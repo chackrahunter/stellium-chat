@@ -43,7 +43,9 @@ export function QuickSwitcher({ onClose }: { onClose: () => void }) {
     }
 
     for (const u of Object.values(users)) {
-      if (u.id === self?.id || u.disabled) continue;
+      /* Technische Konten führen zu einer Direktnachricht, die nicht
+         zustande kommt — sie gehören nicht in den Schnellwechsler. */
+      if (u.id === self?.id || u.disabled || u.technisch) continue;
       out.push({
         id: u.id, kind: 'user', title: u.displayName,
         sub: `@${u.handle} · ${languageInfo(u.language).native}${u.title ? ` · ${u.title}` : ''}`,

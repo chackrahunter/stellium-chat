@@ -263,7 +263,7 @@ function Karte({ vorschlag, onClose }: { vorschlag: Vorschlag; onClose: () => vo
                   >
                     <option value="">{t('tasks.unassigned')}</option>
                     {Object.values(users)
-                      .filter((u) => !u.disabled && u.role !== 'bot')
+                      .filter((u) => !u.disabled && u.role !== 'bot' && !u.technisch)
                       .map((u) => <option key={u.id} value={u.id}>{u.displayName}</option>)}
                   </select>
                 </div>

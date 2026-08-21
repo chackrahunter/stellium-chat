@@ -50,7 +50,7 @@ export function Sidebar() {
   // gehört nicht dazu — sie hat oben ihren eigenen Platz und wäre hier ein
   // zweiter Zugang zum selben Gespräch.
   const otherUsers = Object.values(users).filter(
-    (u) => u.id !== self?.id && !u.disabled && u.role !== 'bot',
+    (u) => u.id !== self?.id && !u.disabled && u.role !== 'bot' && !u.technisch,
   );
   const dmPeerIds = new Set(dms.map((c) => c.dmPeerId).filter(Boolean) as string[]);
 

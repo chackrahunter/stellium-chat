@@ -85,6 +85,11 @@ export function PeoplePanel({ onClose }: { onClose: () => void }) {
 
   const list = Object.values(users)
     .filter((u) => !u.disabled || u.id === self?.id)
+    /* Technische Konten stehen nicht in der Personenliste — man kann ihnen
+       nicht schreiben, und ein Name, den man anklickt und der nichts tut,
+       ist schlimmer als keiner. Die Verwaltung sieht sie im Reiter
+       „Mitglieder". */
+    .filter((u) => !u.technisch)
     .sort((a, b) => {
     const rank = (s: string) => (s === 'online' ? 0 : s === 'away' ? 1 : s === 'dnd' ? 2 : 3);
     return rank(a.status) - rank(b.status) || a.displayName.localeCompare(b.displayName, 'de');

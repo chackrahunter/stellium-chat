@@ -170,7 +170,9 @@ export function Composer({ channelId, parentId = null, placeholder, autoFocus }:
   const personMatches = autoArt !== 'person' || mentionQuery === null ? [] : Object.values(users)
     // Gesperrte und gelöschte Konten kann man nicht sinnvoll erwähnen —
     // sie bekommen die Benachrichtigung nie zu sehen.
-    .filter((u) => u.id !== self?.id && u.role !== 'bot' && !u.disabled)
+    /* Technische Konten (Assistent, Wartung) sind nicht zu erwähnen: sie
+       lesen nichts und können nicht antworten. */
+    .filter((u) => u.id !== self?.id && u.role !== 'bot' && !u.disabled && !u.technisch)
     .filter((u) => u.handle.toLowerCase().startsWith(mentionQuery) || u.displayName.toLowerCase().includes(mentionQuery))
     .slice(0, 6);
 
