@@ -28,6 +28,15 @@ const VON_AUSSEN = new Set([
   'sicher-oben', 'sicher-unten', 'sicher-links', 'sicher-rechts', // aus env(), in tokens.css gesetzt
 ]);
 
+/* Kommentare zählen nicht. In ihnen steht `var(--sicher-*)` als Sammelbegriff
+   für vier Namen — und eine Prüfung, die daraus einen fehlenden Namen macht,
+   erzieht dazu, sie zu ignorieren. */
+function ohneKommentare(text) {
+  return text
+    .replace(/\/\*[\s\S]*?\*\//g, (t) => t.replace(/[^\n]/g, ' '))
+    .replace(/(^|[^:])\/\/[^\n]*/g, (t, v) => v + ' '.repeat(t.length - v.length));
+}
+
 function dateien(verzeichnis, endung) {
   const raus = [];
   for (const e of fs.readdirSync(verzeichnis, { withFileTypes: true })) {
@@ -42,8 +51,17 @@ function dateien(verzeichnis, endung) {
 
 const erklaert = new Set();
 for (const datei of dateien(STILE, /\.css$/)) {
-  const text = fs.readFileSync(datei, 'utf8');
+  const text = ohneKommentare(fs.readFileSync(datei, 'utf8'));
   for (const m of text.matchAll(/(^|[;{\s])(--[\w-]+)\s*:/g)) erklaert.add(m[2]);
+}
+
+/* Manche Namen entstehen erst zur Laufzeit — die Tastaturhöhe etwa kann kein
+   Stylesheet kennen, die setzt JavaScript per `setProperty`. Wer das nicht
+   mitliest, meldet sie als fehlend, obwohl alles stimmt. Und wer einmal
+   grundlos Alarm schlägt, wird beim nächsten Mal nicht mehr geglaubt. */
+for (const datei of dateien(QUELLE, /\.tsx?$/)) {
+  const text = ohneKommentare(fs.readFileSync(datei, 'utf8'));
+  for (const m of text.matchAll(/setProperty\(\s*['"`](--[\w-]+)/g)) erklaert.add(m[1]);
 }
 
 /* ── Was benutzt wird ────────────────────────────────────────── */
@@ -57,8 +75,8 @@ const merken = (name, wo) => {
 
 for (const datei of dateien(STILE, /\.css$/)) {
   const kurz = path.relative(STILE, datei);
-  for (const m of fs.readFileSync(datei, 'utf8').matchAll(/var\(\s*(--[\w-]+)/g)) {
-    merken(m[1], kurz);
+  for (const m of ohneKommentare(fs.readFileSync(datei, 'utf8')).matchAll(/var\(\s*(--[\w-]+)\s*(,?)/g)) {
+    if (m[2] !== ',') merken(m[1], kurz);   /* mit Rückfallwert kann nichts ausfallen */
   }
 }
 
@@ -66,8 +84,8 @@ for (const datei of dateien(STILE, /\.css$/)) {
 for (const datei of dateien(QUELLE, /\.tsx?$/)) {
   if (datei.includes('/styles/')) continue;
   const kurz = path.relative(QUELLE, datei);
-  for (const m of fs.readFileSync(datei, 'utf8').matchAll(/var\(\s*(--[\w-]+)/g)) {
-    merken(m[1], kurz);
+  for (const m of ohneKommentare(fs.readFileSync(datei, 'utf8')).matchAll(/var\(\s*(--[\w-]+)\s*(,?)/g)) {
+    if (m[2] !== ',') merken(m[1], kurz);
   }
 }
 

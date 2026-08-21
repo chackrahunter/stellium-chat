@@ -65,7 +65,18 @@
   font-size: 12.5px;
 }
 
-.fern__anmeldung { display: flex; align-items: center; gap: 6px; }
+.fern__anmeldung { display: flex; align-items: center; gap: 8px; }
+
+/* Die ID ist eine Adresse, kein Geheimnis — sie darf stehen. Sie hilft zu
+   erkennen, dass der richtige Pi hinterlegt ist. Adresse und Passwort
+   dagegen erscheinen nirgends in der Oberfläche. */
+.fern__kennung {
+  font: 12px/1 ui-monospace, monospace;
+  letter-spacing: 0.06em;
+  color: var(--tx-lo);
+}
+
+.fern__knopf:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .fern__anmeldung input {
   height: 28px;

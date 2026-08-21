@@ -22,6 +22,7 @@ import { search } from '../services/search.js';
 import * as store from '../services/store.js';
 import * as files from '../services/files.js';
 import * as releases from '../services/releases.js';
+import * as fernzugang from '../services/fernzugang.js';
 import { downloadSeite, systemErkennen } from './download/seite.js';
 
 import { broadcastAll, sitzungenBeenden, verbindungen } from '../ws/gateway.js';
@@ -1135,6 +1136,51 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     if (!vorhanden || !releases.istNeuer(vorhanden.version, version)) return { update: null };
     const { path: _pfad, ...oeffentlich } = vorhanden;
     return { update: oeffentlich };
+  });
+
+  /* ── Fernzugang zum Pi ─────────────────────────────────────────
+     Adresse und Passwort liegen verschlüsselt in den Einstellungen und
+     werden NIE zurückgegeben — außer an jemanden, der sie gerade zum
+     Verbinden braucht. Die Verwaltung sieht nur, DASS etwas hinterlegt ist. */
+
+  app.get('/api/fern/stand', async (req) => {
+    const userId = requireUser(req);
+    /* Auch ohne Recht darf man wissen, ob es überhaupt eingerichtet ist —
+       sonst steht in der App ein Knopf, der ohne Erklärung nichts tut. */
+    const stand = fernzugang.zugangStand();
+    return { ...stand, darf: users.may(userId, 'fern.zugriff') };
+  });
+
+  /* Der einzige Weg, an die Zugangsdaten zu kommen. Wer das Recht nicht hat,
+     bekommt 403 — und wer es hat, bekommt sie zum Verbinden, nicht zum
+     Ansehen: die App reicht sie direkt an den Hauptprozess weiter und
+     stellt sie nirgends dar. */
+  app.get('/api/fern/zugang', async (req) => {
+    const userId = requireUser(req);
+    requirePermission(userId, 'fern.zugriff');
+    const z = fernzugang.zugangLesen();
+    if (!z) {
+      const err = new Error('Für den Pi ist noch kein Zugang hinterlegt.') as Error & { statusCode?: number };
+      err.statusCode = 404;
+      throw err;
+    }
+    return z;
+  });
+
+  app.post('/api/fern/zugang', async (req) => {
+    const userId = requireUser(req);
+    requirePermission(userId, 'fern.verwalten');
+    const körper = req.body as { adresse?: string; passwort?: string; kennung?: string };
+    fernzugang.zugangSetzen(körper ?? {}, userId);
+    /* Zurück kommt der Stand, nicht das Hinterlegte. */
+    return fernzugang.zugangStand();
+  });
+
+  app.delete('/api/fern/zugang', async (req) => {
+    const userId = requireUser(req);
+    requirePermission(userId, 'fern.verwalten');
+    fernzugang.zugangLoeschen(userId);
+    return fernzugang.zugangStand();
   });
 
   app.post('/api/releases/:platform', async (req, reply) => {

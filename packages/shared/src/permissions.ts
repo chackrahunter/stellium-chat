@@ -50,6 +50,9 @@ export type PermissionKey =
   /* Vertraulichkeit */
   | 'vertraulich.kanal'
   | 'vertraulich.freigabe_lesen'
+  /* Fernzugriff */
+  | 'fern.zugriff'
+  | 'fern.verwalten'
   /* Verwaltung */
   | 'release.publish'
   | 'user.invite'
@@ -60,7 +63,7 @@ export type PermissionKey =
 export interface PermissionInfo {
   key: PermissionKey;
   /** Gruppe für die Darstellung in den Einstellungen. */
-  group: 'nachrichten' | 'kanaele' | 'inhalte' | 'ki' | 'verwaltung';
+  group: 'nachrichten' | 'kanaele' | 'inhalte' | 'ki' | 'fernzugriff' | 'verwaltung';
   labelDe: string;
   labelEn: string;
   hintDe: string;
@@ -191,6 +194,15 @@ export const PERMISSIONS: PermissionInfo[] = [
     labelDe: 'Freigaben bei Vorfällen lesen', labelEn: 'Read incident releases',
     hintDe: 'Wer das hat, gehört zur Verwaltung im Sinne der Freigabe — und kann mit dem Code einen vertraulichen Kanal öffnen.',
     hintEn: 'Whoever has this counts as management for a release — and can open a confidential channel with the code.' },
+
+  { key: 'fern.zugriff', group: 'fernzugriff',
+    labelDe: 'Pi fernsteuern', labelEn: 'Control the Pi remotely',
+    hintDe: 'Sieht den Bildschirm des Pi und bedient ihn mit Maus, Tastatur und Zwischenablage. Adresse und Passwort holt die App selbst — sie stehen nirgends in der Oberfläche.',
+    hintEn: 'Sees the Pi screen and operates it with mouse, keyboard and clipboard. The app fetches address and password itself — they never appear in the interface.' },
+  { key: 'fern.verwalten', group: 'fernzugriff', ownerOnly: true,
+    labelDe: 'Fernzugang einrichten', labelEn: 'Configure remote access',
+    hintDe: 'Adresse und Passwort des Pi hinterlegen oder austauschen. Wer das hat, kann den Zugang für alle ändern — angezeigt bekommt er ihn trotzdem nie.',
+    hintEn: 'Store or replace the Pi address and password. Whoever has this can change access for everyone — but still never gets to see it.' },
 
   { key: 'release.publish', group: 'verwaltung',
     labelDe: 'Fassungen veröffentlichen', labelEn: 'Publish releases',

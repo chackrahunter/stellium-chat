@@ -24,12 +24,13 @@ const ROLLEN: { wert: MemberRole; label: string; hinweis: string }[] = [
 ];
 
 /* Nur die Kennungen — die Überschriften kommen aus dem Wörterbuch. */
-const GRUPPEN = ['nachrichten', 'kanaele', 'inhalte', 'ki', 'verwaltung'] as const;
+const GRUPPEN = ['nachrichten', 'kanaele', 'inhalte', 'ki', 'fernzugriff', 'verwaltung'] as const;
 const GRUPPEN_SCHLUESSEL: Record<(typeof GRUPPEN)[number], string> = {
   nachrichten: 'perm.groupMessages',
   kanaele: 'perm.groupChannels',
   inhalte: 'perm.groupContent',
   ki: 'perm.groupAi',
+  fernzugriff: 'perm.groupRemote',
   verwaltung: 'perm.groupAdmin',
 };
 

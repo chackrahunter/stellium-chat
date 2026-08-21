@@ -410,6 +410,21 @@ export const api = {
     });
   },
 
+  /* ── Fernzugang zum Pi ───────────────────────────────────────
+     `fernStand` sagt nur, OB etwas hinterlegt ist und ob man darf.
+     `fernZugang` liefert Adresse und Passwort — und wird ausschließlich
+     unmittelbar vor dem Verbinden gerufen. Der Rückgabewert geht direkt
+     an den Hauptprozess und wird nirgends in den Zustand geschrieben,
+     nirgends angezeigt und nirgends protokolliert. */
+  fernStand: () => request<{ hinterlegt: boolean; verschluesselt: boolean; kennung: string | null; darf: boolean }>('/api/fern/stand'),
+  fernZugang: () => request<{ adresse: string; passwort: string; kennung: string }>('/api/fern/zugang'),
+  fernZugangSetzen: (werte: { adresse?: string; passwort?: string; kennung?: string }) =>
+    request<{ hinterlegt: boolean; verschluesselt: boolean; kennung: string | null }>(
+      '/api/fern/zugang', { method: 'POST', body: JSON.stringify(werte) }),
+  fernZugangLoeschen: () =>
+    request<{ hinterlegt: boolean; verschluesselt: boolean; kennung: string | null }>(
+      '/api/fern/zugang', { method: 'DELETE' }),
+
   releases: () => request<{ releases: ReleaseInfo[] }>('/api/releases'),
   removeRelease: (platform: ReleasePlatform) =>
     request<{ releases: ReleaseInfo[] }>(`/api/releases/${platform}`, { method: 'DELETE' }),

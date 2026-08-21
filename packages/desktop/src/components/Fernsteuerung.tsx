@@ -15,6 +15,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { Monitor, Power, Loader2, AlertTriangle, Keyboard } from 'lucide-react';
 import { Shell } from './Panels.jsx';
+import { api } from '../net/api.js';
 import { t } from '../i18n';
 import '../styles/fernsteuerung.css';
 
@@ -57,8 +58,12 @@ export function Fernsteuerung({ onClose }: { onClose: () => void }) {
 
   const [lage, setLage] = useState<Lage>('getrennt');
   const [fehler, setFehler] = useState('');
-  const [adresse, setAdresse] = useState(() => localStorage.getItem('fern.adresse') ?? '');
-  const [passwort, setPasswort] = useState('');
+  /* Adresse und Passwort stehen NICHT hier. Sie liegen verschlüsselt auf dem
+     Server und werden erst im Augenblick des Verbindens geholt — siehe
+     `verbinden()`. Damit gibt es kein Feld, aus dem jemand sie ablesen, und
+     keinen Zustand, aus dem sie versehentlich in ein Protokoll geraten
+     könnten. */
+  const [stand, setStand] = useState<{ hinterlegt: boolean; kennung: string | null; darf: boolean } | null>(null);
   const [info, setInfo] = useState<{ takt?: string; verworfen?: number } | null>(null);
   const [steuert, setSteuert] = useState(false);
 
@@ -128,6 +133,9 @@ export function Fernsteuerung({ onClose }: { onClose: () => void }) {
     void fern.lage().then((z: { lage: Lage; fehler: string }) => {
       setLage(z.lage); setFehler(z.fehler);
     });
+    void api.fernStand()
+      .then(setStand)
+      .catch(() => setStand({ hinterlegt: false, kennung: null, darf: false }));
     return () => { abBild?.(); abZustand?.(); abInfo?.(); };
   }, [fern, dekoderRichten]);
 
@@ -198,11 +206,17 @@ export function Fernsteuerung({ onClose }: { onClose: () => void }) {
 
   /* ── Ansicht ───────────────────────────────────────────────── */
 
-  const verbinden = () => {
-    if (!adresse.trim() || !passwort) return;
-    localStorage.setItem('fern.adresse', adresse.trim());
-    void fern?.verbinden(adresse.trim(), passwort);
-    setPasswort('');            /* nicht im Formular stehen lassen */
+  /* Holt die Zugangsdaten und reicht sie sofort weiter. Sie landen bewusst
+     in keiner Zustandsvariablen: was nicht gespeichert wird, kann auch nicht
+     angezeigt, protokolliert oder versehentlich weitergegeben werden. */
+  const verbinden = async () => {
+    setFehler('');
+    try {
+      const zugang = await api.fernZugang();
+      await fern?.verbinden(zugang.adresse, zugang.passwort);
+    } catch (f) {
+      setFehler((f as Error).message);
+    }
   };
 
   if (!fern) {
@@ -232,21 +246,20 @@ export function Fernsteuerung({ onClose }: { onClose: () => void }) {
       </button>
     </>
   ) : (
-    <form className="fern__anmeldung" onSubmit={(e) => { e.preventDefault(); verbinden(); }}>
-      <input
-        type="text" value={adresse} onChange={(e) => setAdresse(e.target.value)}
-        placeholder="ws://…:7788" spellCheck={false} autoComplete="off"
-      />
-      <input
-        type="password" value={passwort} onChange={(e) => setPasswort(e.target.value)}
-        placeholder={t('fern.passwort')} autoComplete="off"
-      />
-      <button type="submit" disabled={lage === 'verbindet' || lage === 'meldet an'}>
+    <div className="fern__anmeldung">
+      {stand?.kennung && <span className="fern__kennung">{stand.kennung.replace(/(\d{3})(?=\d)/g, '$1 ')}</span>}
+      <button
+        type="button"
+        className="fern__knopf"
+        onClick={() => void verbinden()}
+        disabled={lage === 'verbindet' || lage === 'meldet an' || !stand?.hinterlegt || !stand?.darf}
+        title={!stand?.darf ? t('fern.keinRecht') : !stand?.hinterlegt ? t('fern.nichtEingerichtet') : undefined}
+      >
         {lage === 'verbindet' || lage === 'meldet an'
           ? <Loader2 size={14} className="dreht" />
           : t('fern.verbinden')}
       </button>
-    </form>
+    </div>
   );
 
   return (
@@ -278,7 +291,13 @@ export function Fernsteuerung({ onClose }: { onClose: () => void }) {
             <div className="fern__hinweis">
               {lage === 'verbindet' || lage === 'meldet an'
                 ? t('fern.verbindet')
-                : t('fern.nichtVerbunden')}
+                : !stand
+                  ? t('fern.verbindet')
+                  : !stand.darf
+                    ? t('fern.keinRecht')
+                    : !stand.hinterlegt
+                      ? t('fern.nichtEingerichtet')
+                      : t('fern.nichtVerbunden')}
             </div>
           )}
         </div>
