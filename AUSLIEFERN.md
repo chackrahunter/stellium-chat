@@ -60,6 +60,10 @@ security add-generic-password -U -s stellium-server -w https://dein-server:9443
 * **Das DMG scheitert an `hdiutil detach`** — kommt vor, wenn noch ein Abbild
   gemountet ist. Das Skript versucht es von selbst ein zweites Mal.
 * **Ein Upload bricht mit `ERANGE` ab** — dieselbe Sache, drei Versuche je Datei.
+* **Cloudflare lehnt mit 413 ab** (Tunnel deckelt bei 100 MB) — das Skript
+  weicht von selbst auf SSH aus: Paket per `scp` auf den Pi, dort über
+  localhost eingespielt. Braucht den SSH-Alias `stellium`
+  (siehe server-setup/SSH-EINRICHTEN.md; übersteuerbar per `STELLIUM_SSH`).
 * **GitHub oder Git schlagen fehl** — das Skript warnt und macht weiter; die
   Auslieferung an die Clients ist davon nicht betroffen.
 * **Nichts kommt an** — nachsehen, ob der Pi läuft:

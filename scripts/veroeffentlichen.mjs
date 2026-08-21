@@ -233,6 +233,59 @@ if (nurZiele) {
   }
 }
 
+/* ── Der Weg am Tunnel vorbei ────────────────────────────────────
+   Cloudflare deckelt Uploads durch den Tunnel bei 100 MB — das DMG hat gut
+   200. SSH transportiert das Paket auf den Pi, dort nimmt der Server es über
+   localhost an. Genau der Handgriff, mit dem 1.0.13 bis 1.0.15 von Hand
+   ausgeliefert wurden — jetzt ohne Hand. Das SSH-Ziel ist der Alias aus
+   server-setup/SSH-EINRICHTEN.md, übersteuerbar per STELLIUM_SSH. */
+const sshZiel = process.env.STELLIUM_SSH || 'stellium';
+let sshBereit = false;
+
+function sshVorbereiten() {
+  if (sshBereit) return;
+  const ablage = `fassung-${version}`;
+  /* Das Fernskript liest das Token von der Standardeingabe — stünde es im
+     Aufruf, wäre es auf dem Pi in der Prozessliste für jeden lesbar. */
+  const fernSkript = `#!/bin/bash
+# Nimmt ein Paket über localhost an — am Cloudflare-Deckel vorbei.
+# Aufruf: einspielen.sh <system> <datei> <version>; Token kommt über stdin.
+set -u
+IFS= read -r TOKEN
+SYS="$1"; DATEI="$2"; VERSION="$3"
+PORT="$(grep -oP '(?<=^PORT=)\\d+' /etc/stellium.env 2>/dev/null || echo 8787)"
+NOTIZEN=""
+[ -f "$HOME/fassung-$VERSION/notizen.txt" ] && NOTIZEN="-F notes=<$HOME/fassung-$VERSION/notizen.txt"
+ANTWORT=$(curl -s -w $'\\n%{http_code}' -H "authorization: Bearer $TOKEN" \\
+  -X POST "http://127.0.0.1:$PORT/api/releases/$SYS" \\
+  --form-string "version=$VERSION" $NOTIZEN \\
+  -F "file=@$HOME/fassung-$VERSION/$DATEI")
+CODE="\${ANTWORT##*$'\\n'}"
+KOERPER="\${ANTWORT%$'\\n'*}"
+if [ "$CODE" != "200" ]; then echo "HTTP $CODE: $(echo "$KOERPER" | head -c 200)" >&2; exit 1; fi
+rm -f "$HOME/fassung-$VERSION/$DATEI"
+echo "$KOERPER"
+`;
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'stellium-ssh-'));
+  fs.writeFileSync(path.join(tmp, 'einspielen.sh'), fernSkript, { mode: 0o755 });
+  if (text) fs.writeFileSync(path.join(tmp, 'notizen.txt'), text);
+  lauf('ssh', [sshZiel, `mkdir -p ~/${ablage}`]);
+  const dateien = [path.join(tmp, 'einspielen.sh'), ...(text ? [path.join(tmp, 'notizen.txt')] : [])];
+  lauf('scp', ['-q', ...dateien, `${sshZiel}:~/${ablage}/`]);
+  fs.rmSync(tmp, { recursive: true, force: true });
+  sshBereit = true;
+}
+
+function ueberSsh(system, pfad, datei) {
+  sshVorbereiten();
+  lauf('scp', ['-q', pfad, `${sshZiel}:~/fassung-${version}/${datei}`]);
+  const koerper = lauf(
+    'ssh', [sshZiel, `bash ~/fassung-${version}/einspielen.sh ${system} ${datei} ${version}`],
+    { input: `${token}\n` },
+  );
+  return JSON.parse(koerper).release;
+}
+
 for (const [system, pfad] of hochzuladen) {
   const datei = path.basename(pfad);
   const groesse = fs.statSync(pfad).size;
@@ -245,6 +298,12 @@ for (const [system, pfad] of hochzuladen) {
   let release = null;
   for (let versuch = 1; versuch <= 3; versuch++) {
     try {
+      /* Hat der Tunnel einmal abgelehnt, lehnt er wieder ab — die weiteren
+         Pakete nehmen gleich den SSH-Weg. */
+      if (sshBereit) {
+        release = ueberSsh(system, pfad, datei);
+        break;
+      }
       const form = new FormData();
       form.append('version', version);
       if (text) form.append('notes', text);
@@ -254,13 +313,15 @@ for (const [system, pfad] of hochzuladen) {
         method: 'POST', headers: { authorization: `Bearer ${token}` }, body: form,
       });
       if (antwort.status === 413) {
-        /* Cloudflare deckelt Uploads durch den Tunnel bei 100 MB — die Pakete
-           sind größer. Dagegen hilft kein Wiederholen: der Weg führt über SSH
-           (der geht am Tunnel vorbei) und dann über localhost auf dem Pi.
-           Genau so ist 1.0.13 und 1.0.14 ausgeliefert worden. */
-        raus(`${system}: Cloudflare lehnt ab (413, Paket zu groß für den Tunnel).\n` +
-             `  Ausweg: Pakete per scp auf den Pi und dort gegen http://127.0.0.1:8787\n` +
-             `  hochladen — Vorlage liegt auf dem Pi unter ~/fassung-1.0.14/hochladen.sh`);
+        sag(`  ${F.grau}Tunnel deckelt bei 100 MB — Umweg über SSH (${sshZiel}) …${F.aus}`);
+        try {
+          release = ueberSsh(system, pfad, datei);
+        } catch (err) {
+          raus(`${system}: auch der SSH-Weg scheiterte (${(err.stderr || err.message || '').toString().slice(0, 200)}).\n` +
+               `  Von Hand: Paket per scp nach ${sshZiel}:~/fassung-${version}/ und dort\n` +
+               `  bash ~/fassung-${version}/einspielen.sh ${system} ${datei} ${version}`);
+        }
+        break;
       }
       if (!antwort.ok) {
         const fehler = await antwort.text();
