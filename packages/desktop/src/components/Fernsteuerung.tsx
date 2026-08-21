@@ -71,6 +71,12 @@ export function Fernsteuerung({ onClose }: { onClose: () => void }) {
 
   /* ── Dekodieren ────────────────────────────────────────────── */
 
+  /* Der Zeichenkontext wird einmal geholt und behalten. `getContext` ist
+     zwar billig — es gibt denselben Kontext zurück —, aber bei 45 Bildern in
+     der Sekunde ist "billig mal 45" trotzdem Arbeit, die niemand braucht.
+     Ein Wechsel der Leinwand macht ihn ungültig, deshalb wird sie mitgeführt. */
+  const malFlaeche = useRef<{ leinwand: HTMLCanvasElement; ctx: CanvasRenderingContext2D } | null>(null);
+
   const dekoderRichten = useCallback(() => {
     if (dekoder.current) { try { dekoder.current.close(); } catch { /* schon zu */ } }
     const d = new VideoDecoder({
@@ -81,8 +87,11 @@ export function Fernsteuerung({ onClose }: { onClose: () => void }) {
           c.width = bild.displayWidth;
           c.height = bild.displayHeight;
         }
-        const ctx = c.getContext('2d');
-        ctx?.drawImage(bild, 0, 0);
+        if (malFlaeche.current?.leinwand !== c) {
+          const neu = c.getContext('2d');
+          malFlaeche.current = neu ? { leinwand: c, ctx: neu } : null;
+        }
+        malFlaeche.current?.ctx.drawImage(bild, 0, 0);
         /* Muss sein: ein VideoFrame hält Speicher außerhalb des Müllsammlers.
            Wer das vergisst, bekommt nach ein paar hundert Bildern einen
            Dekodierer, der stehenbleibt. */

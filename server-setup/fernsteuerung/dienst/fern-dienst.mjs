@@ -205,14 +205,19 @@ function sendestau(sitzung) {
   const port = sitzung.ws?._socket?.remotePort;
   if (!port) { sitzung.stau = 0; return 0; }
   const hex = port.toString(16).toUpperCase().padStart(4, '0');
+  /* Auch den eigenen Port prüfen. Der Port der Gegenstelle ist je Rechner
+     eindeutig, aber zwei verschiedene Rechner können denselben erwischen —
+     und dann stünde hier der Rückstau einer fremden Verbindung. */
+  const hexHier = PORT.toString(16).toUpperCase().padStart(4, '0');
 
   for (const datei of ['/proc/net/tcp6', '/proc/net/tcp']) {
     let text;
     try { text = fs.readFileSync(datei, 'utf8'); } catch { continue; }
     for (const zeile of text.split('\n')) {
       const f = zeile.trim().split(/\s+/);
-      if (f.length < 5 || !f[2] || !f[4]) continue;
+      if (f.length < 5 || !f[1] || !f[2] || !f[4]) continue;
       if (!f[2].endsWith(':' + hex)) continue;
+      if (!f[1].endsWith(':' + hexHier)) continue;
       const tx = parseInt(f[4].split(':')[0], 16);
       if (Number.isFinite(tx)) { sitzung.stau = tx; return tx; }
     }
