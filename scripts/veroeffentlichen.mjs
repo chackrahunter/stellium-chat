@@ -276,9 +276,51 @@ echo "$KOERPER"
   sshBereit = true;
 }
 
+/**
+ * Überträgt eine Datei und setzt nach einem Abbruch dort wieder auf, wo sie
+ * stehengeblieben ist.
+ *
+ * scp kann das nicht: reißt die Leitung bei 190 von 209 MB, fängt der nächste
+ * Versuch wieder bei null an — und beim Ausliefern von 1.0.16 riss sie bei
+ * jedem großen Paket genau einmal. dd hängt stattdessen ab der Byte-Zahl an,
+ * die drüben schon liegt.
+ *
+ * Zwei Fallen, beide beim Ausliefern gefunden: Die Blockgröße als Zahl statt
+ * "1M" — GNU-dd auf dem Pi und BSD-dd auf dem Mac schreiben die Einheit
+ * verschieden, die nackte Zahl verstehen beide. Und der Fernpfad über $HOME
+ * statt der Tilde: in Anführungszeichen bleibt sie stehen, dd schriebe ins
+ * Leere.
+ */
+const BLOCK = 1048576;
+
+function schieben(pfad, datei) {
+  const fern = `$HOME/fassung-${version}/${datei}`;
+  const gesamt = fs.statSync(pfad).size;
+  const dortSchon = () => Number(
+    lauf('ssh', [sshZiel, `stat -c%s "${fern}" 2>/dev/null || echo 0`]).trim(),
+  ) || 0;
+
+  for (let versuch = 1; versuch <= 5; versuch++) {
+    let da = dortSchon();
+    if (da > gesamt) { lauf('ssh', [sshZiel, `rm -f "${fern}"`]); da = 0; }
+    if (da === gesamt) return;
+    if (versuch > 1) {
+      sag(`  ${F.grau}… ${(da / 1024 / 1024).toFixed(0)} von ${(gesamt / 1024 / 1024).toFixed(0)} MB — weiter${F.aus}`);
+    }
+    const bloecke = Math.floor(da / BLOCK);
+    try {
+      lauf('bash', ['-c',
+        `dd if=${JSON.stringify(pfad)} bs=${BLOCK} skip=${bloecke} 2>/dev/null | `
+        + `ssh -o ServerAliveInterval=15 ${sshZiel} `
+        + `'dd of="${fern}" bs=${BLOCK} seek=${bloecke} conv=notrunc 2>/dev/null'`]);
+    } catch { /* Leitung weg — der nächste Durchgang setzt an der Bruchstelle an. */ }
+  }
+  if (dortSchon() !== gesamt) throw new Error(`${datei} kam nicht vollständig an`);
+}
+
 function ueberSsh(system, pfad, datei) {
   sshVorbereiten();
-  lauf('scp', ['-q', pfad, `${sshZiel}:~/fassung-${version}/${datei}`]);
+  schieben(pfad, datei);
   const koerper = lauf(
     'ssh', [sshZiel, `bash ~/fassung-${version}/einspielen.sh ${system} ${datei} ${version}`],
     { input: `${token}\n` },
