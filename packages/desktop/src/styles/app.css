@@ -31,6 +31,22 @@ html, body, #root { height: 100%; margin: 0; }
    ab und bringt seinen eigenen Grund mit. */
 html {
   background:
+    /* ZUERST, also ganz oben im Stapel: die Blende an der Unterkante.
+       Auf dem Geraet gegen github.com verglichen. Deren Seite laeuft hinter
+       Safaris Leiste weiter — man liest den Text quer durch die
+       durchscheinende URL-Pille. Das geht, weil ihr Dokument laenger ist als
+       der Ausschnitt. Unseres ist eine App auf genau Ausschnitthoehe, und
+       fuer die 98 Punkte darunter nimmt Safari ausschliesslich die
+       Hintergrund-FARBE der Seite — den Verlauf malt es dort nicht.
+       Nachgeprueft: html auf 100lvh zu setzen aendert daran nichts, die
+       Farbe blieb flach --grund-rand.
+       Bleibt also nur, die Naht unsichtbar zu machen statt sie zu fuellen.
+       Vorher stand dort rgb(43,84,102) gegen rgb(23,39,53) — dreifache
+       Helligkeit auf einem Punkt Abstand. Diese Blende fuehrt die letzten
+       140 Punkte in genau die Farbe ueber, die darunter weitergeht.
+       In der Startbildschirm-App gibt es die Leiste nicht; dort liegt die
+       Blende am echten Schirmrand und faellt nicht auf. */
+    linear-gradient(to top, var(--grund-rand), transparent 140px),
     radial-gradient(1200px 700px at 78% -8%, var(--aurora-1), transparent 62%),
     radial-gradient(900px 620px at 10% 108%, var(--aurora-2), transparent 60%),
     radial-gradient(760px 520px at 96% 82%, var(--aurora-3), transparent 62%),
@@ -129,17 +145,24 @@ a:hover { text-decoration: underline; }
      Blasen. Was man nicht malt, kann auch nicht abgeschnitten werden. */
 }
 
-/* Endet der Viewport über der Home-Leiste (iOS 26+, Startbildschirm-App),
-   füllt das System die Zone darunter flach mit der Seitenhintergrundfarbe.
-   Diese Blende führt den eigenen unteren Rand in genau diese Farbe über —
-   sonst steht dort eine gerade Kante, wo die Aurora hart abbricht. Die
-   Klasse setzt lib/sichere-bereiche.ts, und nur wenn wirklich beschnitten
-   wird; im Vollbild läuft die Aurora unangetastet bis zur letzten Zeile. */
-.viewport-beschnitten .cosmos::after {
+/* Die zweite Hälfte der Blende — die erste steht im html-Hintergrund.
+   Zwei Ebenen, weil zwei Dinge die Unterkante aufhellen: der Seitenverlauf
+   selbst (den fängt die html-Blende) und die Sterne und Blasen DIESER
+   Fläche, die darüber gemalt werden (die fängt nur eine Blende, die
+   ebenfalls hier liegt).
+   Auf dem Gerät nachgemessen, Startbildschirm-App, Naht bei 812 Punkten:
+     ohne alles          rgb(43,84,102) gegen rgb(23,39,53)   harte Kante
+     nur html-Blende     rgb(23,45,59)  gegen rgb(23,39,53)   sechs Stufen
+     beide Blenden       deckungsgleich
+   Anders als früher hängt sie nicht mehr an .viewport-beschnitten: die
+   Naht gibt es auch in Safari, dort unter der Adressleiste. */
+.cosmos::after {
   content: '';
   position: absolute;
-  inset: auto 0 0 0;
-  height: 76px;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 120px;
   background: linear-gradient(to bottom, transparent, var(--grund-rand));
   pointer-events: none;
 }
@@ -254,7 +277,11 @@ a:hover { text-decoration: underline; }
   height: 100%;
   align-items: center;
   gap: var(--sp-3);
-  padding: var(--sp-4) 0 var(--sp-3);
+  /* Langform, nicht `padding`. Auf schmalen Geräten trägt diese Leiste
+     Sicherheitsabstände (siehe mobil.css) — eine Kurzschreibweise hier
+     würde sie beim nächsten Eingriff still löschen. */
+  padding-block: var(--sp-4) var(--sp-3);
+  padding-inline: 0;
   border-inline-end: 1px solid var(--line);
   background: var(--bg-panel);
   backdrop-filter: blur(24px);
@@ -427,7 +454,7 @@ a:hover { text-decoration: underline; }
   display: flex; align-items: center; gap: var(--sp-3);
   height: var(--header-h);
   flex: 0 0 var(--header-h);
-  padding: 0 var(--sp-4);
+  padding-inline: var(--sp-4);
   border-bottom: 1px solid var(--line);
   background: var(--bg-panel);
   backdrop-filter: blur(24px);
@@ -577,9 +604,7 @@ a:hover { text-decoration: underline; }
    (msg--aktionen, gesetzt in MessageItem). iOS lässt :hover nach jedem Tipp
    kleben — ohne diese Trennung blieben über etlichen Nachrichten offene
    Leisten zurück, auf dem Gerät gesehen und gemessen. */
-@media (pointer: coarse) {
-  .msg:hover:not(.msg--aktionen) .msg__actions { opacity: 0; pointer-events: none; }
-}
+
 
 /* ── Übersetzung ────────────────────────────────────────────── */
 
@@ -756,15 +781,14 @@ a:hover { text-decoration: underline; }
 /* Knöpfe, die nur mit dem Finger Sinn ergeben. Wer eine Maus hat, braucht
    keinen Knopf zum Einfahren der Tastatur — dort ist ohnehin keine. */
 .nur-beruehrung { display: none; }
-@media (pointer: coarse) {
-  .nur-beruehrung { display: inline-flex; }
-}
+
 
 /* ── Composer ───────────────────────────────────────────────── */
 
 .composer-wrap {
   flex: 0 0 auto;
-  padding: 0 var(--sp-5) var(--sp-4);
+  padding-inline: var(--sp-5);
+  padding-bottom: var(--sp-4);
   /* Abstand zur Wischleiste, aber KEINE eigene Farbe.
      Ein dunkler Verlauf an dieser Stelle sah auf dem Startbildschirm sauber
      aus — im Browser, wo es gar keine Wischleiste gibt, stand er als schwarzes
@@ -950,7 +974,9 @@ a:hover { text-decoration: underline; }
   background: rgba(4, 6, 14, 0.62);
   backdrop-filter: blur(6px);
   display: flex; align-items: flex-start; justify-content: center;
-  padding: 9vh var(--sp-4) var(--sp-4);
+  padding-top: 9vh;
+  padding-inline: var(--sp-4);
+  padding-bottom: var(--sp-4);
   /* Bei offener Bildschirmtastatur (iOS verkleinert das Fenster nicht!)
      wächst das untere Polster um die Tastaturhöhe: 100dvh minus der
      sichtbaren Höhe aus lib/tastatur.ts. Ohne Tastatur ist die Differenz 0
@@ -1751,90 +1777,7 @@ button.msg__author:hover { color: var(--violet-soft); text-decoration: underline
    Die zweite Bedingung fängt Telefone im Querformat: ein iPhone Pro Max ist
    quer 932 Punkte breit und bekäme sonst die Schreibtisch-Dreispaltenansicht
    auf 430 Punkten Höhe — flache Touch-Fenster gehören immer hierher. */
-@media (max-width: 880px), ((max-height: 500px) and (pointer: coarse)) {
-  .app,
-  .app--thread,
-  .app--collapsed { grid-template-columns: var(--rail-w) minmax(0, 1fr); }
 
-  /* Die Liste verschwindet nicht mehr, sie legt sich beiseite. Ausgeblendet
-     kam man auf dem Telefon an keinen anderen Kanal — die App war dort nur
-     zum Lesen des zuletzt geöffneten zu gebrauchen. */
-  .sidebar {
-    position: fixed;
-    top: 0; bottom: 0;
-    /* Fixierte Elemente hängen am Viewport, nicht am gepolsterten .rahmen —
-       ohne den seitlichen Sicherheitsabstand säße die Schublade im Querformat
-       unter der Kamera-Aussparung und versetzt zur Symbolleiste im Raster. */
-    left: calc(var(--rail-w) + var(--sicher-links));
-    width: min(300px, calc(100vw - var(--rail-w) - var(--sicher-links) - 40px));
-    z-index: 30;
-    /* Weit genug nach links, dass sie auch die Symbolleiste freigibt —
-       sonst lag die eingeklappte Liste unsichtbar über deren Knöpfen und
-       fing jeden Fingertipp ab. */
-    transform: translateX(calc(-100% - var(--rail-w) - var(--sicher-links)));
-    pointer-events: none;
-    visibility: hidden;
-    transition: transform 0.26s cubic-bezier(0.16, 1, 0.3, 1), visibility 0.26s;
-    box-shadow: var(--shadow-lg);
-  }
-  .app--schublade .sidebar {
-    transform: none;
-    pointer-events: auto;
-    visibility: visible;
-  }
-  /* Bei offenem Thread setzt die 1080er-Regel `.app--thread .sidebar` die
-     Breite auf 0 — für die ausgefahrene Schublade muss die eigene Breite
-     gewinnen, sonst dunkelt der Schleier ab und es fährt eine unsichtbare,
-     null Pixel breite Liste aus (auf Quer-Handys erreichbar, weil der
-     Menü-Knopf dort neben dem 400-Punkte-Thread frei bleibt). */
-  .app--thread.app--schublade .sidebar {
-    width: min(300px, calc(100vw - var(--rail-w) - var(--sicher-links) - 40px));
-    min-width: 0;
-  }
-
-  .schublade-schleier {
-    position: fixed;
-    inset: 0;
-    z-index: 29;
-    display: block;
-    background: rgba(4, 6, 14, 0.55);
-    opacity: 0;
-    pointer-events: none;
-    transition: opacity 0.26s;
-  }
-  .app--schublade .schublade-schleier { opacity: 1; pointer-events: auto; }
-
-  .header__menue {
-    display: grid;
-    place-items: center;
-    width: 34px; height: 34px;
-    flex: none;
-    margin-inline-end: 2px;
-    border-radius: 9px;
-    color: var(--tx-mid);
-  }
-  .header__menue:hover { background: var(--bg-hover); color: var(--tx-hi); }
-
-  .thread {
-    position: absolute;
-    top: 0; right: 0; bottom: 0;
-    width: min(400px, 100%);
-    z-index: 20;
-    box-shadow: var(--shadow-lg);
-  }
-
-  .msg { padding-inline-start: var(--sp-4); padding-inline-end: var(--sp-4); }
-  .composer-wrap { padding-inline-start: var(--sp-4); padding-inline-end: var(--sp-4); }
-  /* Nur die Seiten setzen. Die Kurzschreibweise `padding` würde auch oben
-     auf 0 gehen und damit den Sicherheitsabstand von weiter oben löschen —
-     die Höhe bliebe aber erhöht, und der Inhalt säße unter der Statusleiste.
-     In Safari fällt das nie auf, weil dort env(safe-area-inset-top) 0 ist;
-     sichtbar wird es erst in der App vom Startbildschirm. */
-  .header { padding-inline: var(--sp-3); }
-  .header__topic { display: none; }
-  .att-img { max-width: 100%; }
-  .poll, .voice, .link-card { max-width: 100%; }
-}
 
 /* Ganz schmal: auch die Rail-Beschriftungen und Kopfzeilen-Pillen weichen. */
 /* ── Telefon: die Breite gehört dem Gespräch ──────────────────────
@@ -1843,52 +1786,7 @@ button.msg__author:hover { color: var(--violet-soft); text-decoration: underline
    von denen man beim Lesen keines braucht. Jetzt fährt sie zusammen mit der
    Kanalliste ein und aus: eine Schublade, zwei Spalten darin. Geschlossen
    bleibt der ganze Platz für die Nachrichten. */
-@media (max-width: 680px) {
-  .app,
-  .app--thread,
-  .app--collapsed { grid-template-columns: minmax(0, 1fr); }
 
-  .rail {
-    position: fixed;
-    top: 0; bottom: 0; left: 0;
-    /* Als fixiertes Element unter der Kamera-Aussparung hindurch: die Breite
-       wächst um den seitlichen Sicherheitsabstand, das Polster hält die
-       Knöpfe frei (im Hochformat ist beides 0). Physisches padding-left,
-       kein padding-inline-start: env() ist physisch, und die Leiste klebt
-       auch bei RTL-Sprachen physisch links. */
-    width: calc(var(--rail-w) + var(--sicher-links));
-    padding-left: var(--sicher-links);
-    z-index: 31;
-    transform: translateX(-100%);
-    visibility: hidden;
-    transition: transform 0.26s cubic-bezier(0.16, 1, 0.3, 1), visibility 0.26s;
-    box-shadow: var(--shadow-lg);
-  }
-  .app--schublade .rail {
-    transform: none;
-    visibility: visible;
-  }
-  /* Die Liste rückt neben die Symbolleiste — beide bilden eine Schublade. */
-  .sidebar {
-    left: calc(var(--rail-w) + var(--sicher-links));
-    width: min(300px, calc(100vw - var(--rail-w) - var(--sicher-links) - 28px));
-  }
-  /* Wie im 880er-Block: auch mit offenem Thread behält die ausgefahrene
-     Schublade ihre Breite (die 1080er-Regel setzt sie sonst auf 0). */
-  .app--thread.app--schublade .sidebar {
-    width: min(300px, calc(100vw - var(--rail-w) - var(--sicher-links) - 28px));
-  }
-  /* Undurchsichtig, sonst liest man Kopfzeile und Eingabefeld hindurch. */
-  .rail, .sidebar { background: var(--bg-schublade); }
-  /* Und dahinter deutlich abdunkeln, damit klar ist, was gerade zählt. */
-  .schublade-schleier { background: rgba(3, 4, 10, 0.72); }
-}
-
-@media (max-width: 680px) {
-  .header__actions .pill { display: none; }
-  .msg { grid-template-columns: 34px minmax(0, 1fr); }
-  .link-card__image { display: none; }
-}
 
 /* ── Telefon ────────────────────────────────────────────────────
  *
@@ -1896,112 +1794,7 @@ button.msg__author:hover { color: var(--violet-soft); text-decoration: underline
  * Bildschirm, weshalb Safari herauszoomte und alles winzig und trotzdem
  * abgeschnitten war. Jetzt eine eigene Ordnung.
  */
-@media (max-width: 560px) {
-  :root {
-    --rail-w: 52px;
-    --header-h: 52px;
-    --sp-4: 12px;
-    --sp-5: 16px;
-  }
 
-  /* Nichts darf breiter sein als das Gerät. Eine einzige zu breite Zeile
-     zwingt den ganzen Bildschirm ins seitliche Scrollen. */
-  html, body, .rahmen, .app { max-width: 100vw; overflow-x: hidden; }
-  .app > *, .main, .stream, .msg, .composer-wrap { min-width: 0; }
-
-  /* Zehn Symbole passen auf ein kurzes Telefon nicht untereinander. Statt
-     welche zu verstecken darf die Leiste rollen — sonst wären einzelne
-     Bereiche schlicht nicht erreichbar. */
-  .rail {
-    /* Nur oben und unten ergänzen, nie die Kurzschreibweise `padding`: die
-       setzt alle vier Seiten und löscht damit den Sicherheitsabstand, der
-       weiter oben gesetzt wird. Dann liegen die obersten Symbole unter der
-       Dynamic Island und die untersten unter der Wischleiste — sichtbar nur
-       in der App vom Startbildschirm, weil im Browser env() dort 0 ist. */
-    padding-block: calc(6px + var(--sicher-oben)) calc(6px + var(--sicher-unten));
-    /* Links bleibt der seitliche Sicherheitsabstand stehen (Kamera im
-       Querformat) — die Kurzschreibweise ohne ihn würde ihn löschen.
-       Physisch (nicht inline-start): env() kennt keine Leserichtung, und
-       die Leiste klebt auch bei RTL-Sprachen physisch links. */
-    padding-left: var(--sicher-links);
-    padding-right: 0;
-    gap: 2px;
-    overflow-y: auto;
-    overscroll-behavior: contain;
-    scrollbar-width: none;
-  }
-  .rail::-webkit-scrollbar { display: none; }
-  .rail__logo { width: 32px; height: 32px; flex: none; }
-  .rail-btn { width: 40px; height: 40px; flex: none; }
-  .rail__spacer { flex: 0 0 4px; }
-
-  .header { padding-inline: 8px; gap: 6px; }   /* siehe oben: nicht `padding` */
-  .header h1 { font-size: 15px; }
-  .header__actions { gap: 2px; }
-  .header__actions .icon-btn { width: 40px; height: 40px; }
-  /* Von den Werkzeugen bleiben die drei, die man unterwegs wirklich braucht. */
-  /* Vorher zählte diese Regel von vorn — und die ersten drei Kinder sind die
-     drei Sprach-Pillen, die eine Zeile höher ohnehin schon ausgeblendet werden.
-     Auf dem Telefon blieb dadurch kein einziger Knopf übrig. Jetzt zählt sie
-     vom Ende und trifft nur Symbolknöpfe. */
-  .header__actions .icon-btn:nth-last-child(n + 4) { display: none; }
-
-  .msg { padding-inline-start: 10px; padding-inline-end: 10px; gap: 8px; }
-  .msg__body { font-size: 15px; }
-  .stream { padding-inline-start: 0; padding-inline-end: 0; }
-
-  /* Enger an den Seiten — unten bleibt der Abstand zur Wischleiste stehen.
-     Vorher setzte diese Zeile ihn zurück, und genau daher kam der schwarze
-     Streifen unter dem Eingabefeld auf dem iPhone. */
-  .composer-wrap { padding: 0 6px calc(8px + var(--sicher-unten)); }
-  /* 16 Pixel: darunter zoomt iOS beim Antippen von selbst hinein. */
-  .composer__input { font-size: 16px; }
-  /* Umgebrochen belegte die Werkzeugleiste drei Zeilen und drückte den
-     Verlauf zusammen. Eine Zeile, dafür etwas kleinere Symbole. */
-  .composer__bar { gap: 0; flex-wrap: nowrap; padding-inline-start: 4px; padding-inline-end: 4px; }
-  /* Durchgerechnet, nicht geschätzt. In der Leiste stehen NEUN Symbole und
-     der Senden-Knopf. Bei 402 Punkten Schirmbreite bleiben nach den
-     Innenabständen 382 Punkte:
-
-         9 x 38 + Senden 34 = 376        passt, 6 Punkte übrig
-         9 x 40 + Senden 34 = 394        20 Punkte zu breit
-
-     Auf dem Gerät nachgemessen, mit offener Tastatur (dann kommt der Knopf
-     „Tastatur ausblenden" noch dazu): erster Knopf bei 11, Senden bei 357 mit
-     34 Breite, endet also bei 391 von 402 Punkten. Passt mit 11 Punkten Luft.
-
-     Mit 40 stand der Senden-Knopf halb außerhalb der Karte und wurde vom
-     `overflow-x: hidden` weiter oben abgeschnitten — auf dem Gerät nachgesehen.
-     Apple empfiehlt 44; das ist für zehn Elemente in einer Reihe auf einem
-     Telefon nicht zu halten, ohne welche wegzulassen. 38 ist der größte Wert,
-     der sicher passt, und trifft deutlich besser als die 32 davor. */
-  .composer__bar .icon-btn { width: 38px; height: 38px; flex: none; }
-  .composer__bar .muted { display: none; }
-
-  /* Fenster nehmen fast die ganze Fläche — auf 6 Zoll ist Rand verschenkter Platz. */
-  .scrim {
-    padding: 8px;
-    padding-bottom: max(8px, calc(100dvh - var(--vv-hoehe, 100dvh) + 8px));
-    align-items: flex-start;
-  }
-  .panel { width: 100% !important; max-height: min(92dvh, 100%); }
-  .panel__head { padding: 12px 14px; }
-  .panel__body { padding: 12px 14px 16px; }
-  .grid-2 { grid-template-columns: 1fr; }
-
-  /* Das Aufgabenbrett läuft auf dem Telefon untereinander statt nebeneinander. */
-  .board { grid-auto-flow: row; grid-auto-columns: auto; }
-  .week { grid-template-columns: 1fr; min-height: 0; }
-  .week__day { min-height: 74px; }
-  .zahlen { grid-template-columns: repeat(3, 1fr); }
-
-  .thread { width: 100%; }
-  /* Die Breite der Tour-Karte steht bewusst NICHT hier. Sie muss mit der
-     Rechnung in Tour.tsx übereinstimmen (min(340, Fenster - 32)), sonst setzt
-     die Karte an einer Stelle an, die es auf dem Schirm nicht gibt. Die frühere
-     Zeile „width: calc(100vw - 24px)“ widersprach dem; sie wurde von der Regel
-     weiter unten ohnehin überstimmt und war damit nur eine Falle. */
-}
 
 /* Niedrige Fenster: weniger Luft, damit der Composer nicht die Liste frisst. */
 @media (max-height: 620px) {
@@ -2103,10 +1896,7 @@ button.msg__author:hover { color: var(--violet-soft); text-decoration: underline
 /* Dieselbe Weiche wie beim Schubladen-Block oben — beide Mobil-Blöcke müssen
    gemeinsam schalten, sonst fährt ein Quer-Handy die Schublade, aber die
    Teamverwaltung noch das Zweispalten-Raster auf 430 Punkten Höhe. */
-@media (max-width: 880px), ((max-height: 500px) and (pointer: coarse)) {
-  .admin { grid-template-columns: 1fr; }
-  .admin__liste { border-inline-end: 0; border-bottom: 1px solid var(--line); max-height: 200px; }
-}
+
 
 /* Der Assistent formuliert gerade — deutlicher als ein Tipp-Indikator */
 .typing--ki { color: var(--violet-soft); font-weight: 600; }
@@ -2254,10 +2044,6 @@ button.msg__author:hover { color: var(--violet-soft); text-decoration: underline
 .tour__foot .btn--ghost { margin-inline-end: auto; padding-inline: 10px; }
 .tour__count { margin-inline-start: auto; font-size: 11px; color: var(--text-dim); white-space: nowrap; }
 
-@media (max-width: 720px) {
-  /* Muss mit KARTE_BREIT in Tour.tsx übereinstimmen. */
-  .tour__card { width: min(380px, calc(100vw - 32px)); }
-}
 
 /* Sehr flache Fenster. Hier entscheidet jeder Punkt Höhe darüber, ob die Karte
    noch neben den Scheinwerfer passt oder auf ihm landet — und auf ihm landen
@@ -3294,40 +3080,13 @@ button.msg__author:hover { color: var(--violet-soft); text-decoration: underline
   text-align: center;
 }
 
-@media (max-width: 520px) {
-  .vorschlag { padding: 10px; }
-  /* Auf schmalen Geräten bekommt jeder Knopf die volle Breite: nebeneinander
-     wären sie schmaler als der Daumen. */
-  .vorschlag__knoepfe .btn { flex: 1 1 100%; }
-}
 
 /* ── Fingerbedienung: Trefferflächen und Sichtbarkeit ─────────────
    Diese Regeln hängen am Eingabegerät, nicht an der Fensterbreite: ein iPad
    ist breiter als mancher Laptop und wird trotzdem mit dem Finger bedient.
    Sie stehen bewusst am Dateiende — gezieltere Regeln (etwa die durchgerechnete
    38er-Composer-Leiste fürs Telefon) gewinnen über ihre höhere Spezifität. */
-@media (pointer: coarse) {
-  .icon-btn { width: 40px; height: 40px; }
-  .icon-btn--sm { width: 34px; height: 34px; }
-  .reaction { height: 32px; padding: 0 11px; }
-  .idea-vote__btn { width: 36px; height: 28px; }
-  .poll__close { padding: 8px 14px; }
-  .week__add { width: 34px; height: 34px; }
 
-  /* Knöpfe, die am Zeiger-Überfahren hängen, gibt es auf Touch nicht —
-     dort bleiben sie dauerhaft sichtbar, sonst sind sie unerreichbar. */
-  .week__add, .group__add { opacity: 1; }
-
-  /* Unter 16 px zoomt iOS beim Antippen ins Eingabefeld hinein. Die Regel
-     stand bisher nur im Telefon-Block (≤560 px) und verfehlte Handys im
-     Querformat und Tablets — im Prüflauf gemessen: 14,5 px bei 750×342. */
-  .composer__input { font-size: 16px; }
-
-  /* Der jetzt immer sichtbare Plus-Knopf (34 px, unten rechts in der Zelle)
-     braucht Platz — sonst liegt er über dem letzten Termin des Tages und
-     ein Tipp auf dessen Ende legt stattdessen einen neuen an. */
-  .week__day { padding-bottom: 42px; }
-}
 
 /* Flache Touch-Fenster (Handy quer): die Symbolspalte will ~800 px Höhe und
    bekommt keine 500 — ohne Rollen wären die untersten Knöpfe (Team,
@@ -3422,12 +3181,6 @@ button.msg__author:hover { color: var(--violet-soft); text-decoration: underline
   max-width: 190px;
 }
 
-@media (max-width: 560px) {
-  /* Auf dem Telefon steht die Zeile zweizeilig — nebeneinander bliebe für
-     den Titel nichts übrig. */
-  .pruefen__zeile { flex-wrap: wrap; }
-  .pruefen__knoepfe { width: 100%; justify-content: flex-end; }
-}
 
 /* Die Markenzahl neben „denkt nach" — eine Auskunft, kein Aushang:
    dieselbe Zeile, kleiner und blasser, damit sie beim Lesen nicht stört. */
@@ -3458,8 +3211,107 @@ button.msg__author:hover { color: var(--violet-soft); text-decoration: underline
 .panel__head { flex-wrap: wrap; }
 .panel__head > div:first-of-type { min-width: 0; }
 
-@media (max-width: 620px) {
-  /* Auf schmalen Fenstern zählt der Griff, nicht die Beschriftung: die
-     Auswahl bleibt lesbar, die Knöpfe schrumpfen auf ihr Zeichen. */
-  .panel__aktionen .pill--select { max-width: 140px; }
+/* ── Einrichtungsseite für mobile Browser ───────────────────
+   Erscheint statt der App, wenn die Adresse auf einem Telefon oder Tablet
+   im Browser geöffnet wird. Bewusst OHNE Medienabfrage: wann sie zu sehen
+   ist, entscheidet lib/installation.ts anhand von Zeigertyp, Schirmgröße
+   und Anzeigemodus — eine Breitenregel würde am schmal gezogenen Fenster am
+   Schreibtisch falsch anschlagen. */
+.einrichten {
+  height: 100%;
+  overflow-y: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding-top: calc(20px + var(--sicher-oben));
+  padding-bottom: calc(20px + var(--sicher-unten));
+  padding-left: calc(16px + var(--sicher-links));
+  padding-right: calc(16px + var(--sicher-rechts));
+}
+
+.einrichten__karte {
+  width: 100%;
+  max-width: 460px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-xl);
+  background: var(--bg-elevated);
+  box-shadow: var(--shadow-lg);
+  padding: 22px 20px 20px;
+}
+
+.einrichten__marke { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; }
+.einrichten__zeichen {
+  flex: none;
+  width: 42px; height: 42px;
+  display: grid; place-items: center;
+  border-radius: var(--r-md);
+  background: var(--bg-active);
+  color: var(--violet);
+}
+.einrichten__zeichen svg { width: 22px; height: 22px; }
+.einrichten__name { font-size: 17px; font-weight: 650; letter-spacing: 0.2px; }
+.einrichten__sinn { font-size: 12.5px; color: var(--tx-lo); }
+
+.einrichten__ueberschrift { font-size: 21px; line-height: 1.25; margin: 0 0 8px; }
+.einrichten__warum { font-size: 14px; line-height: 1.55; color: var(--tx-mid); margin: 0 0 18px; }
+
+.einrichten__knopf { width: 100%; }
+.einrichten__oder {
+  text-align: center;
+  font-size: 12.5px;
+  color: var(--tx-lo);
+  margin: 14px 0 4px;
+}
+
+.einrichten__titel {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--tx-hi);
+  margin: 0 0 12px;
+}
+
+.einrichten__schritte { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.einrichten__schritt {
+  display: grid;
+  /* Nummer, Symbol, Text — die ersten beiden fest, der Text nimmt den Rest.
+     minmax(0, 1fr), damit lange Wörter die Spalte nicht aufblähen. */
+  grid-template-columns: 22px 34px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--bg-panel);
+}
+.einrichten__nummer {
+  width: 22px; height: 22px;
+  display: grid; place-items: center;
+  border-radius: 50%;
+  background: var(--bg-active);
+  color: var(--violet);
+  font-size: 12px; font-weight: 650;
+}
+.einrichten__symbol {
+  width: 34px; height: 34px;
+  display: grid; place-items: center;
+  border-radius: var(--r-sm);
+  background: var(--bg-panel-2);
+  color: var(--tx-hi);
+}
+.einrichten__symbol svg { width: 20px; height: 20px; }
+.einrichten__text { font-size: 13.5px; line-height: 1.5; color: var(--tx-mid); }
+.einrichten__text b { color: var(--tx-hi); font-weight: 600; }
+
+.einrichten__hinweis {
+  font-size: 12.5px; line-height: 1.5;
+  color: var(--tx-lo);
+  margin: 14px 0 0;
+  padding-left: 10px;
+  border-left: 2px solid var(--line);
+}
+.einrichten__fuss {
+  font-size: 12.5px; line-height: 1.5;
+  color: var(--tx-lo);
+  margin: 16px 0 0;
+  text-align: center;
 }

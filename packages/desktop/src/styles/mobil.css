@@ -1,0 +1,453 @@
+/* ══════════════════════════════════════════════════════════════════
+   DIE MOBILE ANSICHT
+
+   Neu geschrieben, nicht gewachsen. Vorher standen die Handy-Regeln in
+   neun Blöcken über 1711 Zeilen verteilt, mit sechs Umbruchpunkten. Jede
+   Regel konnte von einer anderen still überschrieben werden, und genau
+   das ist dreimal passiert — immer derselbe Fehler, immer nur auf einem
+   echten Telefon sichtbar:
+
+     .header         Sicherheitsabstand gesetzt, an zwei anderen Stellen
+                     von `padding: 0 8px` gelöscht. Die Kopfzeile saß
+                     unter der Statusleiste.
+     .rail           dasselbe.
+     .composer-wrap  dasselbe — daher der schwarze Streifen unten.
+
+   ZWEI REGELN, DIE DAS VERHINDERN
+
+   1. Alles, was schmale Geräte betrifft, steht in DIESER Datei. Nirgends
+      sonst. `scripts/mobil-pruefen.mjs` setzt das durch.
+
+   2. Auf Elementen mit Sicherheitsabstand nie `padding` oder `margin` als
+      Kurzschreibweise — sie setzt alle vier Seiten und löscht still, was
+      woanders steht. Immer `padding-inline`, `padding-block`,
+      `padding-left`.
+
+   AUFBAU
+
+   Die Ansicht ist nicht die geschrumpfte Schreibtischversion, sondern
+   eine eigene Ordnung: EINE Spalte, DREI Zeilen.
+
+       ┌──────────────────────┐
+       │ Kopfzeile   (fest)   │  Kanalname, Griff zur Schublade, Werkzeuge
+       ├──────────────────────┤
+       │ Verlauf     (rollt)  │  nimmt allen übrigen Platz
+       ├──────────────────────┤
+       │ Eingabe     (fest)   │  über der Wischleiste
+       └──────────────────────┘
+
+   Symbolleiste und Kanalliste liegen als Schublade daneben, ausgefahren
+   nur auf Wunsch. Der Thread legt sich als Vollbild darüber.
+
+   GILT FÜR
+
+   Alles bis 880px Breite, plus kurze Querformate mit Fingerbedienung —
+   dort ist nicht die Breite knapp, sondern die Höhe. Ab 881px übernimmt
+   wieder app.css.
+   ══════════════════════════════════════════════════════════════════ */
+
+@media (max-width: 880px), ((max-height: 500px) and (pointer: coarse)) {
+
+  /* ── Maße ──────────────────────────────────────────────────────
+     Für den Daumen, nicht für den Mauszeiger. */
+  :root {
+    --rail-w: 56px;
+    --header-h: 52px;
+    --sp-4: 12px;
+    --sp-5: 16px;
+    /* Was daneben frei bleibt, ist die Fläche zum Zuklappen. Mit 44px
+       Reserve blieben auf 402 Punkten nur 46 übrig — schmaler als ein
+       Daumen. 76 lässt einen Streifen, den man trifft, ohne zu zielen.
+       Auf dem Gerät nachgerechnet: 402 − 56 − 76 = 270 Liste, 76 zum
+       Schließen. */
+    --schublade-w: min(300px, calc(100vw - var(--rail-w) - 76px));
+  }
+
+  /* Nichts darf breiter sein als das Gerät. Eine einzige zu breite Zeile
+     zwingt den ganzen Bildschirm ins seitliche Scrollen. */
+  html, body { max-width: 100vw; overflow-x: hidden; }
+
+
+  /* ══ GERÜST ═══════════════════════════════════════════════════
+     Eine Spalte, drei Zeilen. `minmax(0, 1fr)` in der Mitte ist der
+     entscheidende Teil: ohne die 0 als Mindestmaß wächst der Verlauf mit
+     seinem Inhalt und schiebt das Eingabefeld aus dem Bild. */
+  .rahmen {
+    height: 100dvh;
+    padding-left: var(--sicher-links);
+    padding-right: var(--sicher-rechts);
+    overflow: hidden;
+  }
+
+  .app,
+  .app--thread,
+  .app--collapsed {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    /* NICHT 100% und nicht 100dvh: iOS legt die Tastatur ÜBER die Seite,
+       ohne den Layout-Viewport zu verkleinern. innerHeight bleibt gleich,
+       dvh auch — die unterste Zeile, also die Eingabe samt Werkzeugleiste,
+       rutscht damit unter die Tastatur. --vv-hoehe ist die wirklich
+       sichtbare Höhe, gemessen über visualViewport (lib/tastatur.ts).
+       Hängt das Gerüst daran, schrumpft der Verlauf und Eingabe plus
+       Werkzeugleiste stehen direkt auf den Tasten. */
+    height: var(--vv-hoehe, 100%);
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  /* Der Hauptbereich reicht die drei Zeilen an seine eigenen Kinder
+     weiter — sonst läge alles in der ersten. */
+  .main {
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    grid-column: 1;
+    grid-row: 1 / -1;
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+
+  /* ══ KOPFZEILE ════════════════════════════════════════════════ */
+  .header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    /* Höhe UND Abstand tragen den Sicherheitsbereich — sonst sitzt der
+       Inhalt unter der Statusleiste, während die Fläche schon richtig
+       hoch ist. Genau das war der Fehler. */
+    height: calc(var(--header-h) + var(--sicher-oben));
+    padding-top: var(--sicher-oben);
+    padding-inline: 8px;
+    border-bottom: 1px solid var(--line);
+    background: var(--bg-panel);
+    backdrop-filter: blur(24px);
+  }
+  .header h1 { font-size: 15px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* Für das Thema ist kein Platz — es steht ohnehin im Kanal selbst. */
+  .header__topic { display: none; }
+
+  /* Der Griff zur Schublade. Ohne ihn käme man an keinen anderen Kanal. */
+  .header__menue {
+    display: grid;
+    place-items: center;
+    width: 40px; height: 40px;
+    flex: none;
+    border-radius: 10px;
+    color: var(--tx-mid);
+  }
+
+  .header__actions { margin-inline-start: auto; display: flex; align-items: center; gap: 2px; }
+  .header__actions .icon-btn { width: 40px; height: 40px; }
+  /* Sprachpillen brauchen unterwegs niemanden. */
+  .header__actions .pill { display: none; }
+  /* Von den Werkzeugen bleiben die drei rechten. Gezählt wird vom ENDE:
+     von vorn träfe es die Pillen, die eine Zeile höher schon weg sind —
+     dann bliebe kein einziger Knopf übrig. */
+  .header__actions .icon-btn:nth-last-child(n + 4) { display: none; }
+
+
+  /* ══ VERLAUF ══════════════════════════════════════════════════ */
+  .stream {
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding-inline: 0;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .msg {
+    display: grid;
+    grid-template-columns: 38px minmax(0, 1fr);
+    gap: 8px;
+    padding-inline: 10px;
+    min-width: 0;
+  }
+  /* Auf Armlänge gelesen — ein halber Punkt mehr als am Schreibtisch, und
+     er kostet keinen Platz. */
+  .msg__body { font-size: 15px; overflow-wrap: anywhere; }
+
+  /* Anhänge dürfen nie breiter werden als das Gerät. */
+  .att-img, .poll, .voice, .link-card { max-width: 100%; }
+  .link-card__image { display: none; }
+
+
+  /* ══ EINGABEFELD ══════════════════════════════════════════════ */
+  .composer-wrap {
+    flex: none;
+    padding-inline: 4px;
+    /* Der Abstand zur Wischleiste. Steht bewusst als eigene Angabe: als
+       Teil einer Kurzschreibweise ginge er beim nächsten Eingriff still
+       verloren — genau das war der schwarze Streifen. */
+    /* Derselbe Wert wie seitlich: die Karte soll ringsum gleich weit vom
+       Rand stehen. 6 ist dabei nicht frei gewaehlt, sondern die Obergrenze —
+       die Symbolreihe muss auf 402 Punkte passen. */
+    padding-bottom: calc(4px + var(--sicher-unten));
+  }
+  /* Bei offener Tastatur gibt es keine Wischleiste, die freizuhalten wäre —
+     die Tasten liegen darüber. Der Abstand wäre toter Raum zwischen
+     Eingabefeld und Tastatur. */
+  :root.tastatur-offen .composer-wrap { padding-bottom: 8px; }
+  /* 16px: darunter zoomt iOS beim Antippen von selbst hinein. Das ist auch
+     das richtige Mittel dagegen — `user-scalable=no` sperrt stattdessen
+     alle aus, die vergrößern müssen. */
+  .composer__input {
+    font-size: 16px;
+    /* Die beiden folgenden Zeilen sind kein Feinschliff, sondern die Ursache
+       eines sichtbaren Fehlers.
+
+       Bei 16px Schrift und Zeilenhöhe 1,55 ist die natürliche Höhe
+       13 + 24,8 + 4 = 41,8. Die Mindesthöhe von 46 aus app.css streckt den
+       Kasten also um gut vier Punkte über seinen Inhalt hinaus. Genau dann
+       setzt WebKit bei einem LEEREN Textfeld den Schreibcursor an den
+       Rahmen statt an den Innenabstand — der Cursor stand daraufhin 13
+       Punkte zu hoch, also um padding-top, und ragte oben aus der Karte
+       heraus. Auf dem Gerät nachgemessen: Cursor bei 390..412, Textzeile
+       bei 405..430. Sobald jemand tippte, war der Fehler weg, weil die
+       Streckung dann nicht mehr greift.
+
+       Statt die Mindesthöhe zu senken (das Feld würde kürzer) wird der
+       Innenabstand unten von 4 auf 8 gehoben: 13 + 24,8 + 8 = 45,8. Der
+       Kasten trägt sich damit selbst, die Mindesthöhe streckt nichts mehr,
+       und die Höhe bleibt sichtbar dieselbe wie vorher. */
+    min-height: 0;
+    padding-bottom: 8px;
+  }
+
+  /* Eine Zeile, nicht drei: umgebrochen drückte die Werkzeugleiste den
+     Verlauf zusammen. */
+  .composer__bar {
+    gap: 0;
+    flex-wrap: nowrap;
+    /* Nicht symmetrisch, und das mit Absicht. Der Abstand eines Knopfes zur
+       Kartenecke geht waagerecht wie senkrecht in dieselbe Rechnung ein —
+       waagerecht ist er aber billiger zu haben: die Reihe hat dort Reserve,
+       nach unten wuerde sie die Leiste anheben.
+       Links 10 statt 4 nimmt dem ersten Knopf die Ecke; rechts 14 schiebt
+       den Senden-Knopf zehn Punkte nach innen. Damit faellt die Obergrenze
+       fuer den Radius ganz weg — sie lag vorher bei 44. */
+    padding-left: 10px;
+    padding-right: 14px;
+    padding-bottom: 12px;
+  }
+  /* Durchgerechnet, nicht geschätzt. Neun Symbole plus Senden. Bei 402
+     Punkten Breite bleiben nach den Innenabständen 382:
+
+         9 × 38 + Senden 34 = 376     passt, 6 Punkte übrig
+         9 × 40 + Senden 34 = 394     20 Punkte zu breit
+
+     Auf dem Gerät nachgemessen: erster Knopf bei 11, Senden bei 357 mit
+     34 Breite, endet bei 391 von 402. Mit 40 stand er halb außerhalb und
+     wurde abgeschnitten. Apple empfiehlt 44 — für zehn Elemente in einer
+     Reihe ist das auf einem Telefon nicht zu halten. */
+  .composer__bar .icon-btn { width: 36px; height: 36px; flex: none; border-radius: 50%; }
+  /* Der Senden-Knopf heisst .send-btn und nicht .icon-btn — er faellt sonst
+     durch die Regel darueber und bleibt als einziger eckig. Genau er sitzt
+     aber am weitesten aussen: eckig liegt sein Eckmittelpunkt bei (14, 21),
+     das sind 37,8 Punkte vom Eckmittelpunkt der Karte, und 37,8 + 9 = 46,8
+     ragt ueber die 44 hinaus. Rund wandert der Mittelpunkt auf (22, 29),
+     also 26,6 Punkte, und 26,6 + 17 = 43,6 bleibt drin. */
+  .composer__bar .send-btn { border-radius: 50%; }
+
+  /* Die Ecken unten. Am Schreibtisch sitzt die Karte mitten auf der Flaeche
+     und 18 Punkte reichen; auf dem Telefon steht sie am unteren Rand, ueber
+     die volle Breite, und die Rundung wirkt daneben zu knapp — vor allem
+     neben den kantigen Symbolknoepfen kurz davor.
+     22 fuer die Karte, 12 fuer die Knoepfe. Die Regel dahinter: aussen minus
+     Abstand ergibt innen, sonst sieht man einen Kasten im Kasten statt einer
+     Form. Der Senden-Knopf hat rund 10 Punkte Luft zur Kante, 22 - 10 = 12.
+     Die untere Leiste muss denselben Wert tragen wie die Karte, sonst schaut
+     in den Ecken ein heller Zwickel unter der Rundung hervor.
+
+     Der eigentliche Grund fuer die Groesse ist aber das Geraet: der Schirm
+     ist selbst rund, 62 Punkte Eckradius — am Overlay ueber einem echten
+     Screenshot bestaetigt. Seit die App bis zur letzten Zeile reicht, laufen
+     die unteren Ecken der Karte in diese Kruemmung.
+
+     Drei Bedingungen, die zusammen passen muessen:
+
+     1. Die Symbolreihe muss auf 402 Punkte passen. Neun Symbole zu 36 plus
+        Senden zu 34 sind 358; bei 4 Punkten Rand und 10/14 Innenabstand
+        bleiben 370. Zwoelf Punkte Reserve.
+     2. Die Kartenecke muss INNERHALB der Schirmecke bleiben:
+            2 * (R - d - r)² <= (R - r)²      ->      r >= R - 3,414 * d
+        Mit R = 62 und d = 4:  r >= 48,3. Eine zu KLEINE Rundung schneidet
+        also an — mit 34 lag die Karte darunter, und genau das war zu sehen.
+        Mit r = 50:  2 * 8² = 128 <= 12² = 144.
+     3. Die aeusseren Knoepfe muessen in der Kartenecke bleiben. Links liegt
+        der Mittelpunkt bei (10+18, 12+18) = (28, 30), also 29,7 Punkte vom
+        Eckmittelpunkt (50, 50), und 29,7 + 18 = 47,7 <= 50. Rechts bei
+        (14+17, 12+17) = (31, 29), also 28,3, und 28,3 + 17 = 45,3 <= 50.
+
+     Frueher war Bedingung 3 die Bremse und deckelte den Radius bei 44. Sie
+     liess sich aber waagerecht loesen statt senkrecht: die Knoepfe nach
+     innen zu ruecken kostet Reserve in der Reihe, die vorhanden ist — sie
+     nach oben zu ruecken haette die ganze Leiste angehoben.
+     Die Knoepfe sind kreisrund, weil sie eckig aus der Ecke ragten; der
+     Senden-Knopf heisst .send-btn und braucht eine eigene Zeile dafuer. */
+  .composer { border-radius: 50px; }
+  .composer > .composer__reply:first-child { border-radius: 50px 50px 0 0; }
+  .composer > .composer__bar:last-child { border-radius: 0 0 50px 50px; }
+  .composer__bar .muted { display: none; }
+
+
+  /* ══ SCHUBLADE ════════════════════════════════════════════════
+     Symbolleiste und Kanalliste liegen nebeneinander und fahren zusammen
+     aus. Sie verschwinden nicht: ausgeblendet käme man an keinen anderen
+     Kanal, und die App wäre nur zum Lesen des zuletzt geöffneten da. */
+  .rail, .sidebar {
+    position: fixed;
+    /* Am sichtbaren Ausschnitt festgemacht, nicht am Layout-Viewport:
+       sonst reicht die Liste bei offener Tastatur unter die Tasten. */
+    top: var(--vv-oben, 0px);
+    height: var(--vv-hoehe, 100%);
+    z-index: 31;
+    visibility: hidden;
+    transition: transform 0.26s cubic-bezier(0.16, 1, 0.3, 1), visibility 0.26s;
+    box-shadow: var(--shadow-lg);
+    /* Undurchsichtig, sonst liest man Kopfzeile und Eingabefeld hindurch. */
+    background: var(--bg-schublade);
+  }
+
+  .rail {
+    left: 0;
+    /* Unter der Kamera-Aussparung hindurch: die Breite wächst um den
+       seitlichen Abstand, das Polster hält die Knöpfe frei. Physisches
+       padding-left, nicht -inline-start: env() kennt keine Leserichtung,
+       und die Leiste klebt auch bei arabischer Schrift physisch links. */
+    width: calc(var(--rail-w) + var(--sicher-links));
+    padding-left: var(--sicher-links);
+    padding-block: calc(6px + var(--sicher-oben)) calc(6px + var(--sicher-unten));
+    transform: translateX(-100%);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    /* Zehn Symbole passen auf ein kurzes Telefon nicht untereinander.
+       Statt welche zu verstecken darf die Leiste rollen — sonst wären
+       einzelne Bereiche schlicht nicht erreichbar. */
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: none;
+  }
+  .rail::-webkit-scrollbar { display: none; }
+  .rail__logo { width: 32px; height: 32px; flex: none; }
+  .rail-btn { width: 40px; height: 40px; flex: none; }
+  .rail__spacer { flex: 0 0 4px; }
+
+  .sidebar {
+    left: calc(var(--rail-w) + var(--sicher-links));
+    width: var(--schublade-w);
+    padding-top: var(--sicher-oben);
+    padding-bottom: var(--sicher-unten);
+    z-index: 30;
+    /* Weit genug nach links, dass auch die Symbolleiste frei wird — sonst
+       liegt die eingeklappte Liste unsichtbar über deren Knöpfen und
+       fängt jeden Fingertipp ab. */
+    transform: translateX(calc(-100% - var(--rail-w) - var(--sicher-links)));
+    pointer-events: none;
+  }
+
+  .app--schublade .rail,
+  .app--schublade .sidebar {
+    transform: none;
+    visibility: visible;
+    pointer-events: auto;
+  }
+
+  .schublade-schleier {
+    position: fixed;
+    top: var(--vv-oben, 0px);
+    left: 0;
+    right: 0;
+    height: var(--vv-hoehe, 100%);
+    z-index: 29;
+    display: block;
+    background: rgba(3, 4, 10, 0.72);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.26s;
+  }
+  .app--schublade .schublade-schleier { opacity: 1; pointer-events: auto; }
+
+
+  /* ══ THREAD ═══════════════════════════════════════════════════
+     Als Vollbild darüber — eine vierte Spalte gibt es hier nicht. */
+  .thread {
+    position: fixed;
+    /* Langschreibweise, kein `inset`: die Kurzform setzt alle vier Seiten
+       und würde die Höhe unten wieder festnageln — dieselbe Falle wie bei
+       padding, nur eine Ebene höher. */
+    top: var(--vv-oben, 0px);
+    left: 0;
+    right: 0;
+    height: var(--vv-hoehe, 100%);
+    width: 100%;
+    z-index: 20;
+    box-shadow: none;
+    /* Ein `position: fixed` über den ganzen Schirm liegt AUCH über der
+       Statusleiste und der Wischleiste — der Inhalt muss den Abstand
+       selbst halten. Genau davor warnt die Fundstelle: fixierte Elemente
+       auf oberster Ebene ohne Sicherheitsabstand. */
+    padding-top: var(--sicher-oben);
+    padding-bottom: var(--sicher-unten);
+    padding-left: var(--sicher-links);
+    padding-right: var(--sicher-rechts);
+  }
+  :root.tastatur-offen .thread { padding-bottom: 0; }
+
+
+  /* ══ FENSTER UND DIALOGE ══════════════════════════════════════
+     Auf sechs Zoll ist Rand verschenkter Platz. */
+  .scrim {
+    padding-inline: 8px;
+    padding-top: 8px;
+    /* Bei offener Tastatur schrumpft das sichtbare Fenster — die Angabe
+       hält den Dialog darüber. `--vv-hoehe` setzt lib/tastatur.ts. */
+    padding-bottom: max(8px, calc(100dvh - var(--vv-hoehe, 100dvh) + 8px));
+    align-items: flex-start;
+  }
+  .panel { width: 100% !important; max-height: min(92dvh, 100%); }
+  .panel__head { padding: 12px 14px; }
+  .panel__body { padding: 12px 14px 16px; }
+  .panel__aktionen .pill--select { max-width: 140px; }
+  .grid-2 { grid-template-columns: 1fr; }
+
+  /* Verwaltung: Liste über den Inhalt statt daneben. */
+  .admin { grid-template-columns: 1fr; }
+  .admin__liste { border-inline-end: 0; border-bottom: 1px solid var(--line); max-height: 200px; }
+
+  /* Brett und Kalender laufen untereinander. */
+  .board { grid-auto-flow: row; grid-auto-columns: auto; }
+  .week { grid-template-columns: 1fr; min-height: 0; }
+  .week__day { min-height: 74px; }
+  .zahlen { grid-template-columns: repeat(3, 1fr); }
+
+  /* Jeder Knopf über die volle Breite: nebeneinander wären sie schmaler
+     als der Daumen. */
+  .vorschlag { padding: 10px; }
+  .vorschlag__knoepfe .btn { flex: 1 1 100%; }
+  .pruefen__zeile { flex-wrap: wrap; }
+  .pruefen__knoepfe { width: 100%; justify-content: flex-end; }
+
+  /* Muss mit KARTE_BREIT in Tour.tsx übereinstimmen — sonst setzt die
+     Karte an einer Stelle an, die es auf dem Schirm nicht gibt. */
+  .tour__card { width: min(380px, calc(100vw - 32px)); }
+}
+
+
+/* ══ BERÜHRUNG ════════════════════════════════════════════════════
+   Am Zeigegerät festgemacht, nicht an der Breite: ein Tablet mit Maus
+   soll sich wie ein Schreibtisch verhalten, ein breites Telefon nicht. */
+@media (pointer: coarse) {
+  .nur-beruehrung { display: inline-flex; }
+
+  /* Auf Touch gibt es kein Überfahren. iOS tut zwar so — der :hover bleibt
+     nach jedem Tipp kleben —, und dadurch standen über etlichen
+     Nachrichten dauerhaft offene Aktionsleisten. Sie öffnet jetzt ein
+     Tipp auf die Nachricht (msg--aktionen, gesetzt in MessageItem), ein
+     zweiter schließt sie. */
+  .msg:hover:not(.msg--aktionen) .msg__actions { opacity: 0; pointer-events: none; }
+}

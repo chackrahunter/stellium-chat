@@ -73,7 +73,11 @@ export function Composer({ channelId, parentId = null, placeholder, autoFocus }:
     const el = inputRef.current;
     if (!el) return;
     el.style.height = 'auto';
-    el.style.height = `${Math.min(el.scrollHeight, 260)}px`;
+    /* Nur mit Inhalt eine feste Höhe setzen. Leer bleibt sie `auto`, damit
+       der Kasten genau so hoch ist wie seine eine Zeile — ein auch nur um
+       Bruchteile gestreckter Kasten setzt in WebKit den Schreibcursor an
+       den Rahmen statt an den Innenabstand (siehe mobil.css). */
+    if (text) el.style.height = `${Math.min(el.scrollHeight, 260)}px`;
   }, [text]);
 
   useEffect(() => { if (autoFocus) inputRef.current?.focus(); }, [autoFocus, channelId]);

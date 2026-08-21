@@ -38,16 +38,37 @@ export function tastaturVerbinden(): void {
      Ziehen der Fenstergröße nutzlose Style-Zugriffe. */
   if (!window.matchMedia('(pointer: coarse)').matches) return;
 
+  const wurzel = document.documentElement;
   let gesetzt = false;
   const setzen = () => {
     if (tastaturOffen()) {
-      document.documentElement.style.setProperty('--vv-hoehe', `${Math.round(vv.height)}px`);
+      /* Die sichtbare Höhe. Das Gerüst hängt seine Gesamthöhe daran, damit
+         die drei Zeilen — Kopf, Verlauf, Eingabe — zusammen in den Rest
+         über der Tastatur passen. Ohne das läge die Eingabezeile weiter am
+         unteren Rand des Layout-Viewports, also UNTER der Tastatur. */
+      wurzel.style.setProperty('--vv-hoehe', `${Math.round(vv.height)}px`);
+      /* Schiebt iOS die Seite hoch, um das Feld freizustellen, wandert der
+         sichtbare Ausschnitt mit. Ein am Layout-Viewport festgemachtes
+         Gerüst bliebe zurück. Normalerweise 0, weil die Seite selbst nicht
+         scrollt — aber verlassen sollte man sich darauf nicht. */
+      wurzel.style.setProperty('--vv-oben', `${Math.round(vv.offsetTop)}px`);
+      /* Als Klasse, nicht als Variable: --sicher-unten hat mit
+         sichere-bereiche.ts bereits einen Schreiber. Zwei Stellen, die
+         dieselbe Variable setzen, überschreiben sich gegenseitig je nach
+         Reihenfolge der Ereignisse. */
+      wurzel.classList.add('tastatur-offen');
       gesetzt = true;
     } else if (gesetzt) {
-      document.documentElement.style.removeProperty('--vv-hoehe');
+      wurzel.style.removeProperty('--vv-hoehe');
+      wurzel.style.removeProperty('--vv-oben');
+      wurzel.classList.remove('tastatur-offen');
       gesetzt = false;
     }
   };
   vv.addEventListener('resize', setzen);
+  /* Auch auf scroll horchen: beim Auf- und Zuklappen ändert iOS erst die
+     Höhe und schiebt danach den Ausschnitt — das zweite Ereignis ist ein
+     scroll, kein resize. */
+  vv.addEventListener('scroll', setzen);
   setzen();
 }

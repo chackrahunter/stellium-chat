@@ -65,16 +65,42 @@ function schirmHoehe(): number {
     : Math.max(screen.width, screen.height);
 }
 
+/* Ohne viewport-fit=cover legt iOS den Ausschnitt unter die Statusleiste — er
+   reicht damit bis zur letzten Bildschirmzeile, was er MIT cover nicht tat
+   (dort blieben unten 62 Punkte tot, auf dem Geraet gemessen).
+   Der Preis: env() meldet danach ueberall 0, auch fuer die Wischleiste. Den
+   Abstand muss die App also selbst mitbringen, sonst laeuft ihr unterer Rand
+   in die runde Schirmecke und in die Zone der Wischgeste.
+   Bedingung `fehl > 8`: nur Geraete, bei denen der Ausschnitt ueberhaupt
+   unter der Statusleiste beginnt — also solche mit Insel oder Kerbe. Ein
+   Geraet mit Home-Knopf hat diese Luecke nicht und braucht den Abstand
+   ebensowenig wie ein Zeigegeraet mit Maus. */
+function randAbstand(): string | null {
+  if (schirmHoehe() - window.innerHeight <= 8) return null;
+  if (!window.matchMedia('(pointer: coarse)').matches) return null;
+  /* Null, nicht 34: die Leiste soll bis an den unteren Rand reichen. Dass
+     sie dort nicht angeschnitten wird, loest nicht ein Abstand, sondern die
+     Rundung der Karte selbst — siehe die Rechnung in mobil.css. */
+  return '0px';
+}
+
 function anwenden(): void {
   const wurzel = document.documentElement.style;
   const klassen = document.documentElement.classList;
   const zuruecksetzen = () => {
     wurzel.removeProperty('--sicher-oben');
-    wurzel.removeProperty('--sicher-unten');
+    /* NICHT einfach loeschen: ohne cover meldet env unten 0, und dann stuende
+       die Eingabeleiste in der Wischgeste. Der eigene Wert tritt an die
+       Stelle des fehlenden env-Werts. */
+    const rand = randAbstand();
+    if (rand) wurzel.setProperty('--sicher-unten', rand);
+    else wurzel.removeProperty('--sicher-unten');
     klassen.remove('viewport-beschnitten');
   };
 
   const fehl = schirmHoehe() - window.innerHeight;
+
+
   if (fehl <= 8) {
     /* Voller Schirm — kein Beschnitt, die env()-Werte aus tokens.css gelten.
        Vorher gesetzte Übersteuerungen zurücknehmen (Drehung, iOS-Update).

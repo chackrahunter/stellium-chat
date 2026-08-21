@@ -1,0 +1,9 @@
+Die Knopfreihe in der Kopfzeile eines Fensters bricht um, statt den letzten Knopf und das Kreuz zum Schließen aus dem Bild zu schieben.
+Die Prüfläufe laufen jetzt bei jedem Push auf GitHub — samt der Probe, ob der Server auf einer alten Datenbank hochkommt.
+Die Handyansicht ist neu gebaut. Sie steht jetzt in einer eigenen Datei statt verstreut über neun Stellen, und zwei Prüfläufe halten sie dort.
+Auf dem Telefon nutzt die App den ganzen Bildschirm. Vorher blieben unten 62 von 874 Punkten ungenutzt — ein Fehler in Safari, ausgelöst von einer Angabe im Seitenkopf, die jetzt fehlt.
+Bei offener Tastatur stehen Eingabefeld und Werkzeugleiste darüber statt darunter. Man sieht wieder, was man schreibt.
+Der helle Streifen unter der Adressleiste ist weg.
+Die Eingabeleiste folgt der Rundung des Bildschirms und wird an den Ecken nicht mehr angeschnitten.
+Der Schreibcursor stand im leeren Eingabefeld eine Zeile zu hoch und ragte aus der Karte. Behoben.
+Wer die Adresse auf dem Handy im Browser öffnet, bekommt jetzt eine Anleitung, wie er Stellium auf den Startbildschirm legt — mit den richtigen Schritten und Symbolen für seinen Browser.

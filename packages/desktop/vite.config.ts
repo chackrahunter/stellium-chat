@@ -38,7 +38,23 @@ function csp(): Plugin {
 export default defineConfig({
   plugins: [react(), csp()],
   base: './',
-  server: { port: 5173, strictPort: true },
+  server: {
+    port: 5173,
+    strictPort: true,
+    /* Am Netz horchen, nicht nur an localhost: nur so lässt sich die
+       Oberfläche vom Telefon aus öffnen. Das ist der einzige Weg, eine
+       Änderung am Handy zu sehen, ohne die Startbildschirm-App jedes Mal
+       von Hand aus dem Umschalter zu werfen — sie hält ihre Seite sonst
+       tagelang fest. */
+    host: true,
+    /* Damit die Oberfläche vom Telefon aus denselben Server benutzt wie
+       sonst. Ohne das zeigte `serverUrl()` auf den Entwicklungsserver, und
+       jede Anfrage liefe ins Leere. */
+    proxy: {
+      '/api': { target: 'https://chat.stellium.club', changeOrigin: true, secure: true },
+      '/ws': { target: 'wss://chat.stellium.club', ws: true, changeOrigin: true, secure: true },
+    },
+  },
   build: {
     outDir: 'dist',
     emptyOutDir: true,

@@ -2,11 +2,17 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { App } from './App.jsx';
 import { Fangkorb } from './components/Fangkorb.jsx';
+import { Startbildschirm } from './components/Startbildschirm.jsx';
+import { einrichtungNoetig } from './lib/installation.js';
 import { updatesVerbinden } from './lib/updates.js';
 import { auffrischenVerbinden } from './lib/auffrischen.js';
 import { sichereBereicheVerbinden } from './lib/sichere-bereiche.js';
 import { tastaturVerbinden } from './lib/tastatur.js';
 import './styles/app.css';
+/* Nach app.css, nicht davor: die mobile Ansicht baut auf app.css auf
+   und muss deshalb später kommen. Als @import am Dateiende wäre sie
+   ungültig — CSS erlaubt @import nur ganz oben. */
+import './styles/mobil.css';
 
 /**
  * Plattform setzen, bevor React das erste Mal zeichnet. Auf macOS liegen die
@@ -31,10 +37,15 @@ tastaturVerbinden();
 /* Der äußerste Fangkorb. Ohne ihn hängt React bei einem Fehler beim Zeichnen
    den ganzen Baum aus: #root ist leer, das Fenster bleibt schwarz und nichts
    sagt, warum. Mit ihm steht dort wenigstens ein Satz und ein Knopf. */
+/* Auf dem Telefon im Browser statt der App die Anleitung zum Einrichten.
+   Die Entscheidung faellt EINMAL vor dem ersten Zeichnen und nicht als
+   Zustand in der App: sonst baute React erst die ganze Oberflaeche auf,
+   meldete sich am Server an und ersetzte sie eine Zeichnung spaeter wieder —
+   sichtbar als Flackern und unnoetige Last. */
 createRoot(container).render(
   <StrictMode>
     <Fangkorb>
-      <App />
+      {einrichtungNoetig() ? <Startbildschirm /> : <App />}
     </Fangkorb>
   </StrictMode>,
 );
