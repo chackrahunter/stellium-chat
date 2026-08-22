@@ -1,0 +1,15 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "stellium-posteingang",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-22",
+  "observability": { "enabled": true },
+  "vars": {
+    // Die Adresse ist kein Geheimnis und steht deshalb hier.
+    "STELLIUM_EINGANG": "https://chat.stellium.club/api/post/eingang"
+  }
+  // EINGANG_GEHEIMNIS und RUECKFALL_ADRESSE sind Secrets:
+  //   npx wrangler secret put EINGANG_GEHEIMNIS
+  //   npx wrangler secret put RUECKFALL_ADRESSE
+  // Sie gehören NICHT in diese Datei — die liegt im Repo.
+}

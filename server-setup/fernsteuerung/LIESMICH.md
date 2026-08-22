@@ -131,6 +131,47 @@ Die Größe wird beim **Sitzungsbeginn** festgelegt, nicht beim Bildabgriff.
 Nach einer Änderung muss man einmal trennen und neu verbinden, sonst läuft
 der Abgriff mit der alten Größe weiter.
 
+### Drei Nachbesserungen an der Regelung
+
+Die Zeit-statt-Bytes-Rechnung war richtig, hatte aber drei Lücken, die alle in
+dieselbe Richtung wirkten: zu großzügig.
+
+**1. `minrtt` statt `rtt`.** Die aktuelle Laufzeit ist durch Warteschlangen
+bereits verlängert. Damit verstärkte sich der Fehler selbst: mehr Stau →
+höhere gemessene Laufzeit → größer gerechnete Rohrfüllung → echter Stau wird
+unsichtbar → **hoch**regeln → noch mehr Stau. Das ist schlimmer als eine
+verpasste Korrektur; es ist eine aktiv falsche. `minrtt` ist die kürzeste je
+gesehene Laufzeit, also die Strecke ohne Warteschlange — genau das, was die
+Rohrfüllung meint. Gemessen: `rtt` 236,0 ms, `minrtt` 224,5 ms; unter Last
+laufen die beiden weit auseinander.
+
+**2. Messwerte verfallen.** `leitungMessen` startet `ss` nebenläufig, und
+`stauMasse` liest direkt danach immer die Werte des vorigen Laufs — jede
+Entscheidung ist strukturell knapp zwei Sekunden alt. Schlug `ss` fehl,
+blieben die alten Werte **unbegrenzt** stehen, ohne dass etwas sie als
+veraltet kennzeichnete. Nach sechs Sekunden zählen sie jetzt nicht mehr; dann
+gilt wieder die strenge Rechnung ohne Rohrfüllung.
+
+**3. Der Rückstand wird auf Wachstum geprüft.** Das ist die ehrlichste Zahl
+im ganzen Programm: `sendestau` liest sie ohnehin alle 200 ms direkt aus dem
+Kern, ohne jede Schätzung. Ob sie **steigt**, beantwortet unmittelbar, ob
+mehr hineinläuft als hinaus — dafür braucht es keine Ahnung von der Rohrgröße
+und keine Laufzeitmessung. Sie dient als zweiter, schnellerer Weg nach unten,
+neben `stau > erlaubt`. Und ausdrücklich auch im Bildpfad: dort entschied
+dieselbe, gleich alte Rechnung übers Verwerfen, sodass bei einer schnellen
+Verschlechterung Ratenregelung und letzte Verteidigungslinie **gleichzeitig**
+ausfielen.
+
+Gemessen nach dem Umbau, 33 Sekunden über die echte Leitung, bei 1920x1080:
+
+    Pi erzeugt        44,3-45,4 B/s   (Abgriff 21,6-22,3 ms)
+    kommt an          37,1 B/s
+    unterwegs         33-68 KB        (vorher in einer Messung 316 KB)
+    verworfen         0
+
+Der Abgriff liegt damit bei rechnerisch 45,9 Bildern je Sekunde. Was beim
+Betrachter fehlt, fehlt an der Leitung, nicht am Pi.
+
 ## Was drinsteckt
 
     host/fern-host.c      Abgriff (zwlr_screencopy v3) + x264, zwei Fäden

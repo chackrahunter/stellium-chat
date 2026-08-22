@@ -154,6 +154,11 @@ export function MessageList({ channelId }: Props) {
   return (
     <div
       className="stream"
+      /* Ziel des Tour-Schritts „Dein Gespräch". Er zeigte vorher auf das
+         Reitersymbol in der Leiste — ein 44-Punkt-Quadrat, während der Text
+         vom Gespräch spricht und davon, dass es schon übersetzt ankommt.
+         Der Scheinwerfer gehört auf das, wovon die Rede ist. */
+      data-tour="verlauf"
       ref={scrollRef}
       /* Auf dem Telefon nimmt die Tastatur die halbe Höhe ein und lässt sich
          nur über die Systemgeste schließen. Wer den Verlauf anfasst, will

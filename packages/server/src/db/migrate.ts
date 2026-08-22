@@ -1,6 +1,7 @@
 import { db } from './index.js';
 import { blindIndex, encryptField, encryptionActive } from '../crypto/pii.js';
 import { abdruck, entschluesseln, istChiffrat, verschluesseln, verschluesselungAktiv } from '../crypto/nachrichten.js';
+import { ECHO_MIN_WOERTER, woerter } from '../translation/echo.js';
 
 /**
  * Spalten nachrüsten, die in älteren Datenbanken fehlen.
@@ -468,10 +469,28 @@ function echosVergessen(): void {
   const weg: string[] = [];
   for (const z of zeilen) {
     try {
-      /* Genau gleich, nicht ähnlich: `istEcho` in der Übersetzung wertet auch
-         Wortähnlichkeit, und was dort knapp durchging, ist hier keine sichere
-         Fehlmessung. Gelöscht wird nur, was zweifelsfrei unübersetzt ist. */
-      if (entschluesseln(z.source_text) === entschluesseln(z.target_text)) weg.push(z.key);
+      const quelle = entschluesseln(z.source_text);
+      const ziel = entschluesseln(z.target_text);
+      /* Leer heißt NICHT gleich.
+         `entschluesseln` gibt bei einem falschen oder fehlenden
+         Masterpasswort einen leeren String zurück — für beide Seiten. Ohne
+         diese Zeile wäre dann jede Zeile "gleich" und der ganze
+         Übersetzungsspeicher gelöscht. Ein Aufräumen, das bei fehlendem
+         Schlüssel alles wegwirft, ist kein Aufräumen. */
+      if (!quelle || !ziel) continue;
+      /* Dieselbe Untergrenze wie `istEcho` im Schreibpfad.
+         Unter drei Wörtern gilt ein unveränderter Text dort ausdrücklich
+         NICHT als Echo: „ok", „+1", „Update" oder ein Firmenname lauten in
+         beiden Sprachen gleich, und die unveränderte Rückgabe ist die
+         richtige Antwort. Der Schreibpfad merkt solche Zeilen deshalb mit
+         Absicht. Ohne diese Grenze löscht das Aufräumen sie bei JEDEM Start
+         wieder weg — und arbeitet damit gegen die Stelle, die es aufräumen
+         soll. */
+      if (woerter(quelle).length < ECHO_MIN_WOERTER) continue;
+      /* Genau gleich, nicht ähnlich: `istEcho` wertet auch Wortähnlichkeit,
+         und was dort knapp durchging, ist hier keine sichere Fehlmessung.
+         Gelöscht wird nur, was zweifelsfrei unübersetzt ist. */
+      if (quelle === ziel) weg.push(z.key);
     } catch { /* nicht lesbar — dann auch nicht zu beurteilen */ }
   }
   if (!weg.length) return;

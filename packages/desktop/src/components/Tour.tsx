@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
-  ArrowLeft, ArrowRight, Bell, Bot, CalendarDays, Check, FolderOpen, Hash,
-  Languages, Lightbulb, ListChecks, Search, Settings2, ShieldCheck, Sparkles, Star, X,
+  ArrowLeft, ArrowRight, Bell, Bot, CalendarDays, Check, FolderOpen, Hash, Inbox,
+  Languages, Lightbulb, ListChecks, MessageSquare, Search, Settings2, Sparkles, Star, X,
 } from 'lucide-react';
 import { useStore } from '../state/store.js';
 import { useT } from '../i18n/index.js';
@@ -51,34 +51,66 @@ interface Schritt {
   seite?: Seite;
 }
 
+/*
+ * Die Reihenfolge folgt dem, was jemand beim ersten Mal wissen will:
+ * erst WO er ist (Gespräch, Kanäle), dann WIE er schreibt (Composer,
+ * Sprache, Hilfen), dann WAS die KI daraus macht (Chat, Vorschläge,
+ * Nachlese), dann die Arbeitsstücke (Aufgaben, Termine, Ideen, Dateien),
+ * dann die Werkzeuge (Erinnerungen, Suche, Stern) und zuletzt die
+ * Einstellungen.
+ *
+ * Vorher stand die Nachlese zwischen Sprache und Composer — mitten in der
+ * Erklärung des Schreibens, obwohl sie eine Leistung der KI ist, die zu
+ * diesem Zeitpunkt noch gar nicht vorgestellt war.
+ *
+ * Ein Schritt ohne auffindbares Ziel fällt stillschweigend weg (siehe
+ * `setSchritte` weiter unten). Wer ein Symbol aus der Leiste nimmt, nimmt
+ * damit ungewollt auch seinen Schritt aus der Tour — ohne Fehlermeldung.
+ */
 const SCHRITTE: Schritt[] = [
   { id: 'start', icon: <Star size={22} />, titel: 'tour.welcomeTitle', text: 'tour.welcomeText' },
+  /* Erst der Ort, dann die Werkzeuge: wer hier ankommt, sieht ein Gespräch
+     und weiß nicht, dass er es schon in seiner Sprache liest. Das gehört an
+     den Anfang, nicht zwischen Aufgaben und Kalender. */
+  { id: 'chat', ziel: '[data-tour="verlauf"]', seite: 'oben',
+    icon: <MessageSquare size={20} />, titel: 'tour.chatTitle', text: 'tour.chatText' },
   { id: 'channels', ziel: '[data-tour="channels"]', seite: 'rechts',
     icon: <Hash size={20} />, titel: 'tour.channelsTitle', text: 'tour.channelsText' },
   { id: 'composer', ziel: '[data-tour="composer"]', seite: 'oben',
     icon: <Languages size={20} />, titel: 'tour.translateTitle', text: 'tour.translateText' },
   { id: 'language', ziel: '[data-tour="language"]', seite: 'unten',
     icon: <Languages size={20} />, titel: 'tour.languageTitle', text: 'tour.languageText' },
-  { id: 'catchup', ziel: '[data-tour="catchup"]', seite: 'unten',
-    icon: <Sparkles size={20} />, titel: 'tour.catchupTitle', text: 'tour.catchupText' },
   { id: 'smart', ziel: '[data-tour="smart"]', seite: 'unten',
     icon: <Sparkles size={20} />, titel: 'tour.smartTitle', text: 'tour.smartText' },
   { id: 'ai', ziel: '[data-tour="ai"]', seite: 'rechts',
     icon: <Bot size={20} />, titel: 'tour.aiTitle', text: 'tour.aiText' },
+  /* Steht direkt hinter der KI, weil er ihr Ausgang ist. Ohne diesen Schritt
+     erschien der Eingang irgendwann mit einer Zahl darauf, und niemand hatte
+     je erklärt, wovon. */
+  { id: 'vorschlaege', ziel: '[data-tour="vorschlaege"]', seite: 'rechts',
+    icon: <Inbox size={20} />, titel: 'tour.vorschlaegeTitle', text: 'tour.vorschlaegeText' },
+  { id: 'catchup', ziel: '[data-tour="catchup"]', seite: 'unten',
+    icon: <Sparkles size={20} />, titel: 'tour.catchupTitle', text: 'tour.catchupText' },
   { id: 'tasks', ziel: '[data-tour="tasks"]', seite: 'rechts',
     icon: <ListChecks size={20} />, titel: 'tour.tasksTitle', text: 'tour.tasksText' },
   { id: 'calendar', ziel: '[data-tour="calendar"]', seite: 'rechts',
     icon: <CalendarDays size={20} />, titel: 'tour.calendarTitle', text: 'tour.calendarText' },
-  { id: 'files', ziel: '[data-tour="files"]', seite: 'rechts',
-    icon: <FolderOpen size={20} />, titel: 'tour.filesTitle', text: 'tour.filesText' },
   { id: 'ideas', ziel: '[data-tour="ideas"]', seite: 'rechts',
     icon: <Lightbulb size={20} />, titel: 'tour.ideasTitle', text: 'tour.ideasText' },
+  { id: 'files', ziel: '[data-tour="files"]', seite: 'rechts',
+    icon: <FolderOpen size={20} />, titel: 'tour.filesTitle', text: 'tour.filesText' },
   { id: 'reminders', ziel: '[data-tour="reminders"]', seite: 'rechts',
     icon: <Bell size={20} />, titel: 'tour.remindersTitle', text: 'tour.remindersText' },
   { id: 'search', ziel: '[data-tour="search"]', seite: 'unten',
     icon: <Search size={20} />, titel: 'tour.searchTitle', text: 'tour.searchText' },
-  { id: 'team', ziel: '[data-tour="team"]', seite: 'rechts',
-    icon: <ShieldCheck size={20} />, titel: 'tour.teamTitle', text: 'tour.teamText' },
+  /* Hier stand ein Schritt auf `[data-tour="team"]`. Seit die Teamverwaltung
+     hinter den Stern gewandert ist, gibt es dieses Ziel in der Leiste nicht
+     mehr — und die Tour lässt Schritte ohne Ziel stillschweigend weg. Der
+     Schritt wäre also verschwunden, ohne dass etwas fehlgeschlagen wäre.
+     Auf ein Element im geschlossenen Menü zu zeigen ginge auch nicht; also
+     zeigt die Tour auf den Stern und nennt, was dahinterliegt. */
+  { id: 'stern', ziel: '[data-tour="stern"]', seite: 'rechts',
+    icon: <Star size={20} />, titel: 'tour.sternTitle', text: 'tour.sternText' },
   { id: 'settings', ziel: '[data-tour="settings"]', seite: 'rechts',
     icon: <Settings2 size={20} />, titel: 'tour.settingsTitle', text: 'tour.settingsText' },
   { id: 'ende', icon: <Check size={22} />, titel: 'tour.doneTitle', text: 'tour.doneText' },
@@ -108,11 +140,31 @@ export function Tour({ onClose }: { onClose: () => void }) {
   const [kartenHoehe, setKartenHoehe] = useState(KARTE_HOCH_SCHAETZUNG);
   const karte = useRef<HTMLDivElement | null>(null);
 
-  // Nur Schritte, deren Ziel es in dieser Oberfläche wirklich gibt.
+  /*
+   * Nur Schritte, deren Ziel es in dieser Oberfläche wirklich gibt.
+   *
+   * Die Abhängigkeit ist kein Zierrat. Vorher stand hier `[]`, der Filter lief
+   * also EINMAL beim Einhängen — und zu diesem Zeitpunkt gibt es weder
+   * Kopfzeile noch Composer: `self` kommt über HTTP, die Kanäle erst mit dem
+   * `ready` des WebSockets, eine volle Netzrunde später. Ohne
+   * `activeChannelId` zeigt App.tsx statt beidem den leeren Kasten.
+   *
+   * Die Folge war unsichtbar und teuer: bei der Erstanmeldung fielen vier
+   * Schritte lautlos weg — `composer`, `language`, `smart`, `catchup` —,
+   * darunter genau der, der erklärt, dass jeder in seiner Sprache schreibt.
+   * Beim Neustarten der Tour aus den Einstellungen war alles da, weil dann
+   * längst alles geladen ist. Deshalb fiel es beim Prüfen nie auf.
+   *
+   * Nachgefiltert wird nur, solange niemand weitergeklickt hat: danach würde
+   * eine geänderte Liste den Index verschieben und mitten in der Tour
+   * springen.
+   */
+  const aktiverKanal = useStore((s) => s.activeChannelId);
   const [schritte, setSchritte] = useState<Schritt[]>(SCHRITTE);
   useEffect(() => {
+    if (index > 0) return;
     setSchritte(SCHRITTE.filter((s) => !s.ziel || document.querySelector(s.ziel)));
-  }, []);
+  }, [aktiverKanal, index]);
 
   const aktuell = schritte[Math.min(index, schritte.length - 1)];
   const letzter = index >= schritte.length - 1;

@@ -1,4 +1,5 @@
-import { memo, useState, useEffect } from 'react';
+import { memo, useState, useEffect, useCallback, useLayoutEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
   AlertTriangle, Bell, Bookmark, Check, Copy, EyeOff, Forward, Languages, Lock,
@@ -19,6 +20,7 @@ import { PollCard } from './PollCard.jsx';
 import { VoiceMessage } from './VoiceMessage.jsx';
 import { LinkPreviewCard } from './LinkPreviewCard.jsx';
 import { clsx, fileSize, languageInfo, timeOfDay } from '../lib/format.js';
+import { sichereRaender } from '../lib/klemmen.js';
 import { useKlartext, useVerschlosseneDatei } from './Vertraulich.jsx';
 import type { TranslationKey } from '../i18n/index.js';
 
@@ -48,6 +50,49 @@ export const MessageItem = memo(function MessageItem({ message, grouped, inThrea
   const [draft, setDraft] = useState(message.text);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+
+  /* Das „…"-Menü hängt per Portal direkt am <body>, nicht mehr verschachtelt
+     in der Werkzeugleiste. Vorher lag es dort als `position: absolute`, und
+     .stream (Nachrichtenliste), .main, .app und .rahmen schneiden alle mit
+     overflow. Bei der letzten Nachricht — direkt über dem Eingabefeld —
+     blieb unterhalb kein Platz mehr: das Menü öffnete trotzdem stur nach
+     unten und wurde von .stream am eigenen Rand abgeschnitten, sichtbar als
+     dunkler, abgerissener Kasten über der Eingabezeile. moreOrten() misst
+     jetzt die echte Lage des Knopfs und dreht die Öffnungsrichtung um, wenn
+     unten kein Platz bleibt — siehe ContextMenu.tsx für dasselbe Muster. */
+  const moreBtnRef = useRef<HTMLButtonElement>(null);
+  const moreMenuRef = useRef<HTMLDivElement>(null);
+  const [moreOrt, setMoreOrt] = useState<{ left: number; top: number } | null>(null);
+
+  const moreOrten = useCallback(() => {
+    const knopf = moreBtnRef.current;
+    const kasten = moreMenuRef.current;
+    if (!knopf || !kasten) return;
+    const k = knopf.getBoundingClientRect();
+    const rand = sichereRaender();
+    const breite = kasten.offsetWidth;
+    const hoehe = kasten.offsetHeight;
+    const left = Math.max(
+      8 + rand.links,
+      Math.min(k.right - breite, window.innerWidth - breite - 8 - rand.rechts),
+    );
+    // Zuerst unter dem Knopf versuchen, wie bisher; reicht der Platz nicht —
+    // eben der gemeldete Fall bei der letzten Nachricht — nach oben klappen.
+    let top = k.bottom + 4;
+    if (top + hoehe > window.innerHeight - 8 - rand.unten) top = k.top - hoehe - 4;
+    setMoreOrt({ left, top: Math.max(8 + rand.oben, top) });
+  }, []);
+
+  useLayoutEffect(() => {
+    if (menuOpen) moreOrten();
+  }, [menuOpen, moreOrten]);
+
+  // Auch bei kleinem oder verändertem Fenster an der richtigen Stelle bleiben.
+  useEffect(() => {
+    if (!menuOpen) return;
+    window.addEventListener('resize', moreOrten);
+    return () => window.removeEventListener('resize', moreOrten);
+  }, [menuOpen, moreOrten]);
 
   /* Entschlüsselt wird beim Anzeigen. In gewöhnlichen Kanälen kommt der Text
      unverändert zurück — die Prüfung kostet einen Zeichenvergleich. */
@@ -374,57 +419,65 @@ export const MessageItem = memo(function MessageItem({ message, grouped, inThrea
         ) : (
           <button className="icon-btn icon-btn--sm" onClick={() => requestTranslation(message.id)} title={t('msg.translateToMine')}><Languages size={15} /></button>
         ))}
-        <button className="icon-btn icon-btn--sm" onClick={() => setMenuOpen((v) => !v)} title={t('msg.more')}><MoreHorizontal size={15} /></button>
+        <button ref={moreBtnRef} className="icon-btn icon-btn--sm" onClick={() => setMenuOpen((v) => !v)} title={t('msg.more')}><MoreHorizontal size={15} /></button>
 
-        <AnimatePresence>
-          {menuOpen && (
-            <motion.div
-              initial={{ opacity: 0, y: -4 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -4 }}
-              style={{
-                position: 'absolute', top: '100%', right: 0, marginTop: 4, zIndex: 10,
-                minWidth: 210, padding: 5, borderRadius: 'var(--r-md)',
-                background: 'var(--bg-elevated)', border: '1px solid var(--line)',
-                boxShadow: 'var(--shadow-md)',
-              }}
-              onMouseLeave={() => setMenuOpen(false)}
-            >
-              <MenuItem icon={<Bookmark size={14} />} label={t('msg.save')} onClick={() => { save(message.id, true); setMenuOpen(false); }} />
-              <MenuItem icon={<Bell size={14} />} label={t('msg.remind')} onClick={() => { startReminder(message); setMenuOpen(false); }} />
-              {!vertraulich && (
-                <MenuItem icon={<Forward size={14} />} label={t('msg.forward')} onClick={() => { startForward(message); setMenuOpen(false); }} />
-              )}
-              <MenuItem icon={<Pin size={14} />} label={message.pinned ? t('msg.unpin') : t('msg.pin')} onClick={() => { pin(message.id, !message.pinned); setMenuOpen(false); }} />
-              <MenuItem icon={<Copy size={14} />} label={t('msg.copy')} onClick={() => { void navigator.clipboard.writeText(klartext); setMenuOpen(false); }} />
-              {darfBearbeiten && (
+        {createPortal(
+          <AnimatePresence>
+            {menuOpen && (
+              <motion.div
+                ref={moreMenuRef}
+                initial={{ opacity: 0, y: -4 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -4 }}
+                style={{
+                  position: 'fixed',
+                  // Bis moreOrten() gemessen hat, außerhalb des Bilds — sonst
+                  // blitzte für einen Bildpunkt die Ecke oben links auf.
+                  left: moreOrt?.left ?? -9999, top: moreOrt?.top ?? -9999,
+                  zIndex: 80,
+                  minWidth: 210, padding: 5, borderRadius: 'var(--r-md)',
+                  background: 'var(--bg-elevated)', border: '1px solid var(--line)',
+                  boxShadow: 'var(--shadow-md)',
+                }}
+                onMouseLeave={() => setMenuOpen(false)}
+              >
+                <MenuItem icon={<Bookmark size={14} />} label={t('msg.save')} onClick={() => { save(message.id, true); setMenuOpen(false); }} />
+                <MenuItem icon={<Bell size={14} />} label={t('msg.remind')} onClick={() => { startReminder(message); setMenuOpen(false); }} />
+                {!vertraulich && (
+                  <MenuItem icon={<Forward size={14} />} label={t('msg.forward')} onClick={() => { startForward(message); setMenuOpen(false); }} />
+                )}
+                <MenuItem icon={<Pin size={14} />} label={message.pinned ? t('msg.unpin') : t('msg.pin')} onClick={() => { pin(message.id, !message.pinned); setMenuOpen(false); }} />
+                <MenuItem icon={<Copy size={14} />} label={t('msg.copy')} onClick={() => { void navigator.clipboard.writeText(klartext); setMenuOpen(false); }} />
+                {darfBearbeiten && (
+                  <MenuItem
+                    icon={<Pencil size={14} />}
+                    label={`${t('msg.edit')} · ${t('msg.minutesLeft', { n: restBearbeiten })}`}
+                    onClick={() => { bearbeitenStarten(); setMenuOpen(false); }}
+                  />
+                )}
+                {isMine && !darfBearbeiten && (
+                  <MenuItem icon={<Pencil size={14} />} label={t('msg.editExpired')} disabled onClick={() => {}} />
+                )}
+                {darfFuerAlleLoeschen && (
+                  <MenuItem
+                    icon={<Trash2 size={14} />}
+                    label={isMine && !self?.permissions['message.delete_any']
+                      ? `${t('msg.deleteForAll')} · ${t('msg.minutesLeft', { n: restLoeschen })}`
+                      : t('msg.deleteForAll')}
+                    danger
+                    onClick={() => { deleteMessage(message.id, 'all'); setMenuOpen(false); }}
+                  />
+                )}
                 <MenuItem
-                  icon={<Pencil size={14} />}
-                  label={`${t('msg.edit')} · ${t('msg.minutesLeft', { n: restBearbeiten })}`}
-                  onClick={() => { bearbeitenStarten(); setMenuOpen(false); }}
+                  icon={<EyeOff size={14} />}
+                  label={t('msg.deleteForMe')}
+                  onClick={() => { deleteMessage(message.id, 'me'); setMenuOpen(false); }}
                 />
-              )}
-              {isMine && !darfBearbeiten && (
-                <MenuItem icon={<Pencil size={14} />} label={t('msg.editExpired')} disabled onClick={() => {}} />
-              )}
-              {darfFuerAlleLoeschen && (
-                <MenuItem
-                  icon={<Trash2 size={14} />}
-                  label={isMine && !self?.permissions['message.delete_any']
-                    ? `${t('msg.deleteForAll')} · ${t('msg.minutesLeft', { n: restLoeschen })}`
-                    : t('msg.deleteForAll')}
-                  danger
-                  onClick={() => { deleteMessage(message.id, 'all'); setMenuOpen(false); }}
-                />
-              )}
-              <MenuItem
-                icon={<EyeOff size={14} />}
-                label={t('msg.deleteForMe')}
-                onClick={() => { deleteMessage(message.id, 'me'); setMenuOpen(false); }}
-              />
-            </motion.div>
-          )}
-        </AnimatePresence>
+              </motion.div>
+            )}
+          </AnimatePresence>,
+          document.body,
+        )}
       </div>
 
       <AnimatePresence>

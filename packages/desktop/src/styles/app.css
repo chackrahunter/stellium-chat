@@ -284,9 +284,16 @@ a:hover { text-decoration: underline; }
 
 .sternmenue {
   position: fixed;
-  z-index: 60;
+  /* Über allem, auch über der Tour (200).
+     Die Tour hat einen Schritt, der auf den Stern zeigt und zum Klicken
+     einlädt. Ihr Schleier liegt auf 200 und dunkelt mit einem 9999px-Schatten
+     alles außerhalb der Aussparung ab — ein Menü darunter erschien grau und
+     wirkte kaputt, war aber anklickbar. Ein Menü, das jemand gerade geöffnet
+     hat, gehört nach oben. */
+  z-index: 210;
   min-width: 210px;
-  max-height: calc(100vh - 16px);
+  /* Die Höhe kommt als Inline-Wert aus der Messung — sie rechnet ab der
+     Oberkante des Menüs, nicht ab dem Fensteranfang. */
   overflow-y: auto;
   padding: 6px;
   border-radius: var(--r-md);

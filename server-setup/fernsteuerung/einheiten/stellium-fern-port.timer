@@ -6,7 +6,9 @@ Description=Stellium: Weiterleitung der Fernsteuerung alle 20 Minuten auffrische
 # eine Auffrischung aus, bleibt der Port trotzdem offen.
 OnBootSec=45s
 OnUnitActiveSec=20min
-Persistent=true
+# Kein `Persistent=true`: das wirkt laut systemd.timer(5) ausschliesslich bei
+# `OnCalendar=`. Dieser Timer ist rein monoton, dort ist die Zeile wirkungslos
+# und weckt nur den Eindruck einer Zusicherung, die niemand einloest.
 
 [Install]
 WantedBy=timers.target

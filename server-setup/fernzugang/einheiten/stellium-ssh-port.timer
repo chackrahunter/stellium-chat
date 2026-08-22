@@ -1,0 +1,10 @@
+[Unit]
+Description=Stellium: SSH-Weiterleitung alle 20 Minuten auffrischen
+
+[Timer]
+OnBootSec=45s
+OnUnitActiveSec=20min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

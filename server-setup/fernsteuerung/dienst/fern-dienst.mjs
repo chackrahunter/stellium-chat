@@ -78,6 +78,10 @@ const N_BILD = 1, N_ABLAGE = 2, N_INFO = 3, N_EINGABE = 4, N_STEUER = 5;
  * und nur der Rest zählt als Stau. Der darf höchstens diese Zeit kosten.
  */
 const STAU_ZEIT_S = 0.15;
+/* Wie lange eine Messung aus `ss` gilt. Danach zählt sie nicht mehr, und es
+   gilt wieder die strenge Rechnung ohne Rohrfüllung — lieber zu vorsichtig
+   als auf Grundlage von Zahlen, die nicht mehr stimmen. */
+const LEITUNG_FRIST_MS = 6000;
 /* Selbst bei kleiner Rate soll nicht schon ein einzelnes Bild als Stau
    gelten — ein Schlüsselbild ist gut und gern 100 KB. */
 const STAU_MINDEST = 64 * 1024;
@@ -277,7 +281,16 @@ function sendestau(sitzung) {
       if (!f[2].endsWith(':' + hex)) continue;
       if (!f[1].endsWith(':' + hexHier)) continue;
       const tx = parseInt(f[4].split(':')[0], 16);
-      if (Number.isFinite(tx)) { sitzung.stau = tx; return tx; }
+      if (Number.isFinite(tx)) {
+        sitzung.stau = tx;
+        /* Kurzer Verlauf für die Wachstumsprüfung. Fünf Messungen sind eine
+           Sekunde — lang genug, um Zufall auszuschließen, kurz genug, um
+           schneller zu sein als die Ratenregelung mit ihren zwei Sekunden. */
+        const v = (sitzung.stauVerlauf ??= []);
+        v.push(tx);
+        if (v.length > 5) v.shift();
+        return tx;
+      }
     }
   }
   sitzung.stau = 0;
@@ -307,11 +320,48 @@ function leitungMessen(sitzung) {
   execFile('ss', ['-tni', `sport = :${PORT} and dport = :${port}`],
     { timeout: 1500 }, (fehler, aus) => {
       if (fehler || !aus) return;
-      const l = /\brtt:([\d.]+)/.exec(aus);
+      /* `minrtt` und NICHT `rtt`.
+         `rtt` ist die aktuelle Laufzeit — die durch Warteschlangen bereits
+         verlängert ist. Damit würde sich der Fehler selbst verstärken:
+         mehr Stau → höhere gemessene Laufzeit → größer gerechnete
+         Rohrfüllung → echter Stau wird unsichtbar → hochregeln → noch mehr
+         Stau. `minrtt` ist die kürzeste je gesehene Laufzeit, also die
+         Strecke ohne Warteschlange — genau das, was die Rohrfüllung meint.
+         Gemessen auf dieser Leitung: rtt 236,0 ms, minrtt 224,5 ms; unter
+         Last laufen die beiden weit auseinander. */
+      const l = /\bminrtt:([\d.]+)/.exec(aus) ?? /\brtt:([\d.]+)/.exec(aus);
       const d = /\bdelivery_rate (\d+)bps/.exec(aus);
       if (l) sitzung.laufzeitMs   = Number(l[1]);
       if (d) sitzung.durchsatzKbit = Math.round(Number(d[1]) / 1000);
+      /* Wann diese Werte entstanden sind. Ohne das bleiben sie nach einem
+         Fehlschlag von `ss` beliebig lange stehen — unbemerkt, weil nichts
+         sie als veraltet kennzeichnet. */
+      if (l || d) sitzung.leitungStand = Date.now();
     });
+}
+
+/*
+ * Wächst der Rückstand gerade?
+ *
+ * Das ist die ehrlichste Frage, die dieses Programm stellen kann, und die
+ * einzige, die ohne Schätzung auskommt. `stauMasse` unten muss die
+ * Rohrfüllung aus Laufzeit und Durchsatz RECHNEN — beides kommt aus `ss`,
+ * höchstens alle zwei Sekunden, und liegt daneben, wenn die Leitung sich
+ * gerade ändert. Der rohe Rückstand dagegen steht alle 200 ms frisch da.
+ *
+ * Ob er STEIGT beantwortet direkt: läuft mehr hinein als hinaus. Dafür
+ * braucht es keine Ahnung davon, wie groß das Rohr ist.
+ *
+ * Bewusst streng: durchgehend steigend über eine Sekunde UND spürbar
+ * gewachsen. Einzelne Ausschläge sind normal — TCP schiebt in Wellen.
+ */
+const WACHSTUM_MINDEST = 16 * 1024;
+
+function waechstStau(sitzung) {
+  const v = sitzung.stauVerlauf;
+  if (!v || v.length < 5) return false;
+  for (let i = 1; i < v.length; i += 1) if (v[i] <= v[i - 1]) return false;
+  return v[v.length - 1] - v[0] > WACHSTUM_MINDEST;
 }
 
 /*
@@ -360,8 +410,15 @@ function rateNachziehen(sitzung) {
   const jetzige = sitzung.rateJetzt ?? sitzung.rateMax;
   let neu = jetzige;
 
-  if (stau > erlaubt) {
+  /* Zwei Wege nach unten, und der zweite ist der schnellere: `stau > erlaubt`
+     hängt an Werten, die bis zu zwei Sekunden alt sein können, das Wachstum
+     an einer Zahl von vor 200 ms. Wer nur auf den ersten hört, regelt zu spät
+     — genau das war an der alten Regelung falsch, nur andersherum. */
+  if (stau > erlaubt || waechstStau(sitzung)) {
     neu = Math.round(jetzige * 0.75);          /* Rückstau: deutlich runter */
+    /* Verlauf leeren, sonst löst dasselbe Wachstum beim nächsten Durchgang
+       ein zweites Mal aus, obwohl schon gedrosselt wurde. */
+    sitzung.stauVerlauf = [];
   } else if (stau < erlaubt / 4) {
     /* Der Kern weiß besser als jede Schätzung, was die Leitung trägt — er
        misst es an den Bestätigungen. Solange Luft ist, gehen wir gleich in
@@ -393,7 +450,11 @@ function hostRahmen(sitzung, art, inhalt) {
        losgeworden ist. Der zweite ist auf einer langsamen Leitung der weitaus
        größere — genau ihn hat die Regel früher übersehen. */
     const { stau, erlaubt } = stauMasse(sitzung);
-    if (stau > erlaubt && !istSchluesselbild(inhalt)) {
+    /* Auch hier beide Wege. Das Verwerfen ist die letzte Verteidigungslinie;
+       sie darf nicht an denselben veralteten Zahlen hängen wie die
+       Ratenregelung, sonst fällt bei einer schnellen Verschlechterung beides
+       gleichzeitig aus. */
+    if ((stau > erlaubt || waechstStau(sitzung)) && !istSchluesselbild(inhalt)) {
       sitzung.verworfen += 1;
       return;                       /* siehe Kopf: verwerfen statt stauen */
     }

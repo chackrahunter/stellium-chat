@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { Bell, Bookmark, Bot, CalendarDays, Download, FolderOpen, Gauge, Inbox, Lightbulb, ListChecks, MessageSquare, Monitor, Settings, ShieldCheck, Sparkles, Star } from 'lucide-react';
 import { useStore } from '../state/store.js';
 import { useT } from '../i18n/index.js';
@@ -15,17 +16,26 @@ import { useVorschlaege } from '../state/vorschlaege.js';
  * mehr ganz hinein. Geblieben sind die Reiter des Arbeitstags; hierher
  * gewandert ist, was man selten und dann gezielt braucht.
  *
- * Warum `position: fixed` und nicht absolut in der Leiste: die Leiste ist
- * sechzig Punkte breit, das Menü ist breiter, und irgendein Vorfahr schneidet
- * am Ende immer ab. Fest positioniert hängt es an nichts und wird nirgends
- * beschnitten — dafür muss die Stelle von Hand gemessen werden.
+ * Warum es am `document.body` hängt und nicht in der Leiste:
+ *
+ * `.rail` trägt `backdrop-filter`. Das erzeugt einen eigenen Stapelkontext —
+ * und, weniger bekannt, es macht die Leiste zum Bezugsrahmen für
+ * `position: fixed` darin. Ein Menü als Kind der Leiste ist damit doppelt
+ * gefangen: seine Stelle rechnet gegen die Leiste statt gegen das Fenster,
+ * und sein `z-index` konkurriert nur INNERHALB der Leiste. Die Seitenleiste
+ * daneben malt als späteres Geschwister über die ganze Leiste hinweg — das
+ * Menü verschwand dahinter, egal wie hoch der Wert stand.
+ *
+ * Am `body` hängt es an nichts und wird nirgends beschnitten. Dafür muss die
+ * Stelle von Hand gemessen werden; das erledigt der Effekt darunter.
+ * `StatusMenu` geht denselben Weg, aus demselben Grund.
  */
 function SternMenue({ eintraege }: {
   eintraege: Array<{ id: string; symbol: ReactNode; text: string; tun: () => void }>;
 }) {
   const t = useT();
   const [offen, setOffen] = useState(false);
-  const [ort, setOrt] = useState<{ top: number; left: number } | null>(null);
+  const [ort, setOrt] = useState<{ top: number; left: number; maxHoehe: number } | null>(null);
   const knopf = useRef<HTMLButtonElement>(null);
   const kasten = useRef<HTMLDivElement>(null);
 
@@ -34,7 +44,28 @@ function SternMenue({ eintraege }: {
     const messen = () => {
       const r = knopf.current?.getBoundingClientRect();
       if (!r) return;
-      setOrt({ top: Math.max(8, r.top), left: r.right + 10 });
+      /* Arabisch ist eine der 22 Sprachen, und dort setzt die Oberfläche
+         `dir="rtl"`. Die Leiste wandert damit an den RECHTEN Fensterrand —
+         `r.right` liegt dann fast auf der Fensterbreite, und ein Menü zehn
+         Punkte weiter rechts steht außerhalb des Bildes. Der Klick auf den
+         Stern sähe wirkungslos aus. Das Statusmenü daneben rechnet aus
+         demselben Grund so. */
+      const vonRechts = getComputedStyle(document.documentElement).direction === 'rtl';
+      const breite = kasten.current?.offsetWidth ?? 210;
+      const gewuenscht = vonRechts ? r.left - breite - 10 : r.right + 10;
+      const links = Math.max(8, Math.min(gewuenscht, window.innerWidth - breite - 8));
+      const oben = Math.max(8, r.top);
+      /* Die Höhe vom MENÜANFANG aus begrenzen, nicht vom Fensteranfang: auf
+         macOS sitzt der Stern wegen der Fensterknöpfe erst bei y≈58, und
+         `100vh` ließe das Menü bei niedrigen Fenstern unten herausragen,
+         ohne zu rollen. */
+      const neu = { top: oben, left: links, maxHoehe: window.innerHeight - oben - 8 };
+      /* Nur setzen, wenn sich wirklich etwas geaendert hat. `scroll` mit
+         `capture` feuert bei jedem Rollen irgendwo in der App — ohne diesen
+         Vergleich erzwaenge jedes Rollen in der Nachrichtenliste ein neues
+         Layout und ein Neuzeichnen des offenen Menues. */
+      setOrt((alt) => (alt && alt.top === neu.top && alt.left === neu.left
+        && alt.maxHoehe === neu.maxHoehe ? alt : neu));
     };
     messen();
     window.addEventListener('resize', messen);
@@ -47,10 +78,39 @@ function SternMenue({ eintraege }: {
     };
   }, [offen]);
 
-  /* Schließen wie überall sonst: Klick daneben, Escape. */
+  /* Fokus hinein, sobald es offen ist.
+     Seit der Kasten am `body` hängt, steht er im Dokument hinter allem
+     anderen — ohne diesen Umzug führte Tab vom Stern nicht ins Menü, sondern
+     durch die ganze App, während das Menü offen stehen blieb. */
   useEffect(() => {
     if (!offen) return;
-    const beiTaste = (e: KeyboardEvent) => { if (e.key === 'Escape') setOffen(false); };
+    kasten.current?.querySelector<HTMLButtonElement>('.sternmenue__zeile')?.focus();
+  }, [offen]);
+
+  /* Schließen wie überall sonst: Klick daneben, Escape. Dazu die
+     Pfeiltasten — `role="menu"` verspricht sie, und ein Versprechen, das die
+     Tastatur nicht einlöst, ist schlimmer als gar keine Rolle. */
+  useEffect(() => {
+    if (!offen) return;
+    const beiTaste = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setOffen(false);
+        /* Zurück zum Auslöser, sonst landet der Fokus am Dokumentanfang und
+           man muss sich neu durchhangeln. */
+        knopf.current?.focus();
+        return;
+      }
+      if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+      const zeilen = Array.from(
+        kasten.current?.querySelectorAll<HTMLButtonElement>('.sternmenue__zeile') ?? []);
+      if (!zeilen.length) return;
+      e.preventDefault();
+      const jetzt = zeilen.indexOf(document.activeElement as HTMLButtonElement);
+      const schritt = e.key === 'ArrowDown' ? 1 : -1;
+      /* Umlaufend: am Ende wieder oben. Wer bis unten kommt, will meist
+         zurück zum Anfang und nicht steckenbleiben. */
+      zeilen[(jetzt + schritt + zeilen.length) % zeilen.length].focus();
+    };
     const beiKlick = (e: PointerEvent) => {
       const z = e.target as Node;
       if (kasten.current?.contains(z) || knopf.current?.contains(z)) return;
@@ -78,6 +138,7 @@ function SternMenue({ eintraege }: {
       <button
         ref={knopf}
         className="rail__logo rail__logo--knopf no-drag"
+        data-tour="stern"
         aria-haspopup="menu"
         aria-expanded={offen}
         title={t('nav.mehr')}
@@ -86,12 +147,12 @@ function SternMenue({ eintraege }: {
         <Star size={21} color="#fff" fill="#fff" />
       </button>
 
-      {offen && ort && (
+      {offen && ort && createPortal(
         <div
           ref={kasten}
           className="sternmenue"
           role="menu"
-          style={{ top: ort.top, left: ort.left }}
+          style={{ top: ort.top, left: ort.left, maxHeight: ort.maxHoehe }}
         >
           <div className="sternmenue__titel">{t('nav.mehr')}</div>
           {eintraege.map((e) => (
@@ -105,7 +166,8 @@ function SternMenue({ eintraege }: {
               {e.text}
             </button>
           ))}
-        </div>
+        </div>,
+        document.body,
       )}
     </>
   );

@@ -1,0 +1,7 @@
+[Unit]
+Description=Stellium: SSH-Weiterleitung im Router auffrischen
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/natpmpc -a 2222 2222 tcp 3600

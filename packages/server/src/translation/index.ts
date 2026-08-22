@@ -411,6 +411,38 @@ class Lru<T> {
   }
 }
 
+/*
+ * Kurzes Gedächtnis für Texte, die das Modell unverändert zurückgab.
+ *
+ * Ein Echo darf NICHT dauerhaft gemerkt werden — dann bekäme dieser Text nie
+ * wieder eine Chance, und genau das hat bis 1.0.26 Übersetzungen dauerhaft
+ * ausfallen lassen. Es darf aber auch nicht bei jeder Anfrage neu versucht
+ * werden: nach dem Fix gingen dieselben sechs Texte bei JEDEM Aufruf zweimal
+ * ans Modell (Anlauf und Nachfassen), im Protokoll gemessen. Aus „dauerhaft
+ * falsch" war „dauerhaft teuer" geworden.
+ *
+ * Deshalb ein Merker mit Verfall: eine Viertelstunde nicht noch einmal
+ * fragen, danach wieder. Nur im Arbeitsspeicher, nicht in der Datenbank —
+ * ein Neustart soll jedem Text wieder eine Chance geben.
+ */
+const ECHO_FRIST_MS = 15 * 60_000;
+const echoNotiz = new Map<string, number>();
+
+function echoGemerkt(key: string): boolean {
+  const seit = echoNotiz.get(key);
+  if (seit === undefined) return false;
+  if (Date.now() - seit < ECHO_FRIST_MS) return true;
+  echoNotiz.delete(key);
+  return false;
+}
+
+function echoMerken(key: string): void {
+  /* Notbremse gegen unbegrenztes Wachsen: bei vielen verschiedenen Texten
+     würde die Karte sonst mitwachsen, ohne dass je jemand aufräumt. */
+  if (echoNotiz.size > 2000) echoNotiz.clear();
+  echoNotiz.set(key, Date.now());
+}
+
 const memory = new Lru<{ text: string; provider: string; model: string | null; confidence: number | null }>(
   config.ai.memoryCacheSize,
 );
@@ -540,6 +572,15 @@ export async function translate(opts: TranslateOptions): Promise<TranslateOutcom
     }
   }
 
+  /* Vor einer Minute schon einmal unübersetzbar gewesen? Dann nicht noch
+     einmal fragen — das kostete zwei Modellaufrufe für dasselbe Ergebnis.
+     `skipCache` (also eine ausdrücklich erzwungene Übersetzung) hebt den
+     Merker auf: wer von Hand nachfordert, soll einen echten neuen Versuch
+     bekommen. */
+  if (!opts.skipCache && echoGemerkt(key)) {
+    return { ...base, text: opts.text, confidence: 0, noop: true, unuebersetzt: true };
+  }
+
   /* Erst nachsehen, ob überhaupt jemand da ist. Ein Modell im eigenen Netz
      läuft auf einem Rechner, der auch mal aus ist — ohne diesen Test liefe
      jede Nachricht in drei Versuche à 25 Sekunden, und bei mehreren
@@ -640,6 +681,7 @@ export async function translate(opts: TranslateOptions): Promise<TranslateOutcom
    * für immer.
    */
   if (istEcho(masked, out)) {
+    echoMerken(key);
     return fertig(out, {
       provider: entry.provider, model: entry.model, confidence: entry.confidence,
       cached: false, sourceLang: finalSource,

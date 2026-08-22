@@ -4,6 +4,10 @@
 # meldet "Keine Antwort" — ohne dass sich am Pi etwas geaendert haette.
 # Deshalb wird die Freigabe regelmaessig neu angefordert, genau wie bei SSH.
 Description=Stellium: Weiterleitung der Fernsteuerung im Router auffrischen
+# `After=` ordnet nur, es zieht das Ziel nicht herbei. Ohne `Wants=` kann
+# `natpmpc` vor dem Netz laufen — und weil `OnUnitActiveSec` auch nach einem
+# gescheiterten Oneshot neu zaehlt, waere der Port dann zwanzig Minuten zu.
+Wants=network-online.target
 After=network-online.target
 
 [Service]
