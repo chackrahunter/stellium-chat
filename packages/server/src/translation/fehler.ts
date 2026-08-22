@@ -48,10 +48,39 @@ export function alsAbweisung(fehler: unknown): Abweisung {
     }
   }
 
+  /*
+   * Zweiter Anlauf, ohne auf die Klasse zu bauen.
+   *
+   * Die Einordnung oben verlangt `instanceof ProviderError`. Das trägt
+   * genau so weit, wie der Fehler seine Klasse behält — und im Betrieb tut
+   * er das nicht immer: im Protokoll standen nebeneinander
+   *   [ai] http://…/v1: keine Antwort.      (richtig eingeordnet)
+   *   [ai] ollama: fetch failed             (hier gelandet)
+   * für denselben Ausfall. Im Chat erschien dann „Die KI konnte das gerade
+   * nicht erledigen" statt „läuft das Modell?" — und wer das liest, sucht
+   * den Fehler bei sich statt am ausgeschalteten Rechner.
+   *
+   * Deshalb hier noch einmal am Text. Eine Meldung ist ein schlechteres
+   * Merkmal als ein Feld, aber ein vorhandenes schlägt ein fehlendes.
+   */
+  const text = String((fehler as Error)?.message ?? fehler ?? '');
+  const ursache = String((fehler as { cause?: unknown })?.cause ?? '');
+  if (/fetch failed|ECONNREFUSED|ENOTFOUND|EHOSTUNREACH|ENETUNREACH|socket hang up|ETIMEDOUT|keine Antwort/i
+      .test(`${text} ${ursache}`)) {
+    ausfallMelden(text);
+    return abweisung('fehler.kiUnerreichbar',
+      'Die KI ist gerade nicht erreichbar — läuft das Modell?');
+  }
+
   /* Der ursprüngliche Text geht nicht verloren — er steht im Protokoll des
      Servers, wo ihn jemand lesen kann, der ihn deuten kann. Beim Benutzer hat
-     er nichts zu suchen. */
-  console.error('[ai]', (fehler as Error)?.message ?? fehler);
+     er nichts zu suchen.
+     Mit Klasse und Art: landet hier noch einmal etwas, das eingeordnet
+     gehört hätte, steht im Protokoll, WORAN die Einordnung scheiterte —
+     und nicht nur, DASS sie scheiterte. */
+  const art = (fehler as { art?: string })?.art ?? '—';
+  const klasse = (fehler as object)?.constructor?.name ?? typeof fehler;
+  console.error(`[ai] nicht eingeordnet (${klasse}, art=${art}):`, text || fehler);
   return abweisung('fehler.kiFehlgeschlagen', 'Die KI konnte das gerade nicht erledigen.');
 }
 

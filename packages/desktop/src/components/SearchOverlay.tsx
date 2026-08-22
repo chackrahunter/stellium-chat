@@ -5,6 +5,7 @@ import type { Message } from '@stellium/shared';
 import { useStore } from '../state/store.js';
 import { useFokusfalle } from './Fokusfalle.jsx';
 import { useT } from '../i18n/index.js';
+import { useReiterleiste } from '../lib/reiterleiste.js';
 import { api } from '../net/api.js';
 import { Avatar } from './Avatar.jsx';
 import { dayLabel, timeOfDay } from '../lib/format.js';
@@ -24,6 +25,10 @@ export function SearchOverlay({ onClose }: { onClose: () => void }) {
   const [query, setQuery] = useState('');
   const [scopeChannel, setScopeChannel] = useState(false);
   const [tab, setTab] = useState<'search' | 'saved'>('search');
+  /* Rollen, Mausrad und der gewaehlte Reiter kommt ins Bild —
+     siehe lib/reiterleiste.ts. */
+  const reiter = useRef<HTMLDivElement>(null);
+  useReiterleiste(reiter, tab);
   const [saved, setSaved] = useState<Message[]>([]);
   const [lokal, setLokal] = useState<{ channelId: string; message: Message; text: string }[]>([]);
   const takt = useStore((s) => s.vertraulichTakt);
@@ -98,7 +103,7 @@ export function SearchOverlay({ onClose }: { onClose: () => void }) {
         exit={{ opacity: 0, y: -14, scale: 0.98 }}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="tabs">
+        <div className="tabs" ref={reiter}>
           <button className="tab" aria-selected={tab === 'search'} onClick={() => setTab('search')}>{t('nav.search')}</button>
           <button className="tab" aria-selected={tab === 'saved'} onClick={() => setTab('saved')}>{t('common.saved')}</button>
           <button className="icon-btn" style={{ marginLeft: 'auto', alignSelf: 'center' }} onClick={onClose}><X size={16} /></button>

@@ -8,6 +8,7 @@ import { api, serverUrl, setServerUrl } from '../net/api.js';
 import { Avatar } from './Avatar.jsx';
 import { languageInfo } from '../lib/format.js';
 import { coverage, spracheName, UI_LANGUAGES, useT, t, type TranslationKey } from '../i18n/index.js';
+import { useReiterleiste } from '../lib/reiterleiste.js';
 import { erlaubnisHolen, erlaubnisStand, zeigen, type Erlaubnis } from '../lib/benachrichtigung.js';
 import { tourZuruecksetzen } from './Tour.jsx';
 import { UpdatePanel } from './UpdatePanel.jsx';
@@ -41,6 +42,10 @@ export function Settings({ onClose }: { onClose: () => void }) {
      Ohne diesen Umweg landete er auf dem ersten Reiter, und der Code wäre
      genau das, was er nicht sein soll: irgendwo unter „auch noch da". */
   const [tab, setTab] = useState<Tab>(() => (reiterWunschAbholen() ? 'vertraulich' : 'sprache'));
+  /* Rollen, Mausrad und der gewaehlte Reiter kommt ins Bild —
+     siehe lib/reiterleiste.ts. */
+  const reiter = useRef<HTMLDivElement>(null);
+  useReiterleiste(reiter, tab);
   const [erlaubnis, setErlaubnis] = useState<Erlaubnis>(() => erlaubnisStand());
   const [server, setServer] = useState(serverUrl());
   const eigenerStatus = useStore((s) => (s.self ? s.users[s.self.id]?.status : undefined));
@@ -74,7 +79,7 @@ export function Settings({ onClose }: { onClose: () => void }) {
           <button className="icon-btn" style={{ marginLeft: 'auto' }} onClick={onClose}><X size={17} /></button>
         </div>
 
-        <div className="tabs">
+        <div className="tabs" ref={reiter}>
           <Tabs tab={tab} setTab={setTab} />
         </div>
 

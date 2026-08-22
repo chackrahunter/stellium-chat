@@ -3416,3 +3416,22 @@ button.msg__author:hover { color: var(--violet-soft); text-decoration: underline
   display: flex; align-items: center; gap: 8px;
   color: var(--tx-lo); font-size: 13px; padding: 20px 0;
 }
+
+/* Hinweis, dass die Reiterleiste weitergeht.
+   Reines CSS kann nicht wissen, ob gerollt werden kann — die Klassen setzt
+   lib/reiterleiste.ts, wenn Inhalts- und Sichtbreite auseinandergehen.
+   Ohne diesen Hinweis stand rechts ein halb abgeschnittener Reiter, und das
+   liest sich als Fehler und nicht als „hier geht es weiter". */
+.tabs { position: relative; }
+.tabs--mehr-rechts {
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
+  mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
+}
+.tabs--mehr-links {
+  -webkit-mask-image: linear-gradient(to left, #000 calc(100% - 28px), transparent);
+  mask-image: linear-gradient(to left, #000 calc(100% - 28px), transparent);
+}
+.tabs--mehr-links.tabs--mehr-rechts {
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 28px, #000 calc(100% - 28px), transparent);
+  mask-image: linear-gradient(to right, transparent, #000 28px, #000 calc(100% - 28px), transparent);
+}
