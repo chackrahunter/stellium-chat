@@ -1,6 +1,6 @@
 import { db } from './index.js';
 import { blindIndex, encryptField, encryptionActive } from '../crypto/pii.js';
-import { abdruck, istChiffrat, verschluesseln, verschluesselungAktiv } from '../crypto/nachrichten.js';
+import { abdruck, entschluesseln, istChiffrat, verschluesseln, verschluesselungAktiv } from '../crypto/nachrichten.js';
 
 /**
  * Spalten nachrüsten, die in älteren Datenbanken fehlen.
@@ -109,6 +109,49 @@ export function migrate(): void {
       PRIMARY KEY (user_id, tag)
     )`);
   db.exec('CREATE INDEX IF NOT EXISTS idx_praesenz_tag ON praesenz_tage(tag)');
+
+  db.exec(`
+    /* ── Post ──────────────────────────────────────────────────
+       Was die KI aus einer eingegangenen Mail gemacht hat. Der Text der Mail
+       selbst steht NICHT hier: er liegt bei Gmail und wird von dort geholt.
+       Eine zweite Kopie wäre eine zweite Stelle, die man schützen muss, und
+       sie liefe irgendwann auseinander. Hier steht nur, was Stellium selbst
+       entschieden hat. */
+    CREATE TABLE IF NOT EXISTS mail_sichtung (
+      mail_id     TEXT PRIMARY KEY,
+      thread_id   TEXT NOT NULL,
+      gesichtet_am INTEGER NOT NULL,
+      /* Die Einordnung der KI als JSON — Absenderart, Anliegen, Dringlichkeit.
+         Als Text und nicht in Spalten: welche Felder nützlich sind, weiß man
+         erst nach einigen Wochen echter Post. */
+      einordnung  TEXT,
+      /* 'gemeldet' = niemand muss antworten, die Leitung wurde benachrichtigt.
+         'entwurf'  = ein Entwurf wartet auf Freigabe.
+         'gesendet' / 'abgelehnt' = entschieden. */
+      zustand     TEXT NOT NULL DEFAULT 'gemeldet'
+    )`);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS mail_entwuerfe (
+      id            TEXT PRIMARY KEY,
+      mail_id       TEXT NOT NULL,
+      thread_id     TEXT NOT NULL,
+      an            TEXT NOT NULL,
+      betreff       TEXT NOT NULL,
+      text          TEXT NOT NULL,
+      /* Warum die KI meint, dass geantwortet werden sollte — steht neben dem
+         Entwurf, damit man nicht raten muss, worauf er antwortet. */
+      begruendung   TEXT,
+      zustand       TEXT NOT NULL DEFAULT 'offen',
+      erstellt_am   INTEGER NOT NULL,
+      entschieden_am INTEGER,
+      entschieden_von TEXT REFERENCES users(id) ON DELETE SET NULL,
+      /* Die Kennung der wirklich gesendeten Mail — der Beweis, dass es hinaus
+         ist, und der Weg zurück zum Verlauf. */
+      gesendet_id   TEXT
+    )`);
+  db.exec('CREATE INDEX IF NOT EXISTS idx_mail_entwurf_zustand ON mail_entwuerfe(zustand, erstellt_am)');
+
+  echosVergessen();
 
   /* Indizes auf nachgerüstete Spalten gehören hierher, nicht in schema.sql:
      die läuft VOR dieser Nachrüstung, und auf einer bestehenden Datenbank
@@ -433,4 +476,48 @@ function encryptExistingUsers(): void {
     }
   });
   console.log(`[db] ${offen.length} Konten verschlüsselt (E-Mail und Benutzername).`);
+}
+
+/**
+ * Unübersetzte Texte aus dem Übersetzungsspeicher werfen.
+ *
+ * Bis 1.0.26 wurde jede Modellantwort gemerkt — auch die, in denen das Modell
+ * den Eingabetext unverändert zurückgegeben hatte. Damit war dieser Text
+ * dauerhaft unübersetzt: jeder spätere Treffer kam aus dem Speicher und
+ * bekam nie wieder eine Chance. Gemessen wurden 356 solcher Meldungen an
+ * einem Tag, bei keinem einzigen gescheiterten Nachfassen.
+ *
+ * Der Fehler selbst ist behoben (index.ts merkt Echos nicht mehr), aber die
+ * bereits gemerkten Zeilen blockieren weiter. Sie stehen verschlüsselt in der
+ * Datenbank, lassen sich also nicht mit SQL vergleichen — es bleibt der
+ * Durchgang durch alle Zeilen.
+ *
+ * Läuft bei jedem Start. Der Aufwand wächst mit der Zeilenzahl, ist aber
+ * einmal fällig: nach dem Aufräumen entstehen keine neuen mehr, und der
+ * Durchgang findet nichts. Bei sehr großen Beständen bricht er ab, bevor er
+ * einen Start spürbar aufhält — die Zeilen richten dort keinen neuen Schaden
+ * an, sie halten nur alte Texte unübersetzt.
+ */
+function echosVergessen(): void {
+  let zeilen: Array<{ key: string; source_text: string; target_text: string }>;
+  try {
+    zeilen = db.all('SELECT key, source_text, target_text FROM translation_memory LIMIT 50000');
+  } catch { return; }              // Tabelle gibt es noch nicht
+  if (!zeilen.length) return;
+
+  const weg: string[] = [];
+  for (const z of zeilen) {
+    try {
+      /* Genau gleich, nicht ähnlich: `istEcho` in der Übersetzung wertet auch
+         Wortähnlichkeit, und was dort knapp durchging, ist hier keine sichere
+         Fehlmessung. Gelöscht wird nur, was zweifelsfrei unübersetzt ist. */
+      if (entschluesseln(z.source_text) === entschluesseln(z.target_text)) weg.push(z.key);
+    } catch { /* nicht lesbar — dann auch nicht zu beurteilen */ }
+  }
+  if (!weg.length) return;
+
+  db.transaction(() => {
+    for (const k of weg) db.run('DELETE FROM translation_memory WHERE key = ?', k);
+  });
+  console.log(`[db] ${weg.length} unübersetzte Einträge aus dem Übersetzungsspeicher entfernt`);
 }

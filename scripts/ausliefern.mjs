@@ -481,12 +481,6 @@ if (!ohneGithub && !probe) {
    15 GB. Am 22.08.2026 war die Platte davon voll, und der Windows-Bau brach
    mit ENOSPC ab, ohne eine Zeile im Protokoll: electron-builder konnte
    seinen eigenen Fehler nicht mehr schreiben. */
-if (!probe) {
-  try {
-    fs.rmSync(path.join(wurzel, 'packages/desktop/release'), { recursive: true, force: true });
-    sag(`  ${F.grau}Bauordner geleert${F.aus}`);
-  } catch { /* liegen zu bleiben ist kein Grund zu klagen */ }
-}
 
 /* ── Hier installieren ──────────────────────────────────────── */
 
@@ -510,6 +504,19 @@ if (!ohneHier && !probe && process.platform === 'darwin') {
       warn(`Lokale Installation übersprungen: ${(err.stderr || err.message).slice(0, 200)}`);
     }
   }
+}
+
+/* Jetzt erst wegräumen — nach ALLEM, was die Dateien noch braucht.
+   Es stand schon einmal zu früh: vor dem GitHub-Release brach der Lauf mit
+   ENOENT ab, nachdem die Fassung längst draußen war. Danach stand es vor der
+   lokalen Installation, und die meldete "Kein universal.dmg" — dieselbe Falle
+   eine Stufe später. Wer diesen Block verschiebt, prüft zuerst, was UNTER ihm
+   noch aus `release/` liest. */
+if (!probe) {
+  try {
+    fs.rmSync(path.join(wurzel, 'packages/desktop/release'), { recursive: true, force: true });
+    sag(`  ${F.grau}Bauordner geleert${F.aus}`);
+  } catch { /* liegen zu bleiben ist kein Grund zu klagen */ }
 }
 
 /* ── Fertig ─────────────────────────────────────────────────── */

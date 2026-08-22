@@ -33,13 +33,14 @@ const ROLLEN: { wert: MemberRole; label: string; hinweis: string }[] = [
    einzeln weder vergeben noch entziehen, nur über die Rolle. Wer eine
    Gruppe hinzufügt, muss sie AUCH hier eintragen; die Liste ergibt sich
    nicht von selbst aus dem Katalog. */
-const GRUPPEN = ['nachrichten', 'kanaele', 'inhalte', 'ki', 'system', 'fernzugriff', 'verwaltung'] as const;
+const GRUPPEN = ['nachrichten', 'kanaele', 'inhalte', 'ki', 'system', 'post', 'fernzugriff', 'verwaltung'] as const;
 const GRUPPEN_SCHLUESSEL: Record<(typeof GRUPPEN)[number], string> = {
   nachrichten: 'perm.groupMessages',
   kanaele: 'perm.groupChannels',
   inhalte: 'perm.groupContent',
   ki: 'perm.groupAi',
   system: 'perm.groupSystem',
+  post: 'perm.groupMail',
   fernzugriff: 'perm.groupRemote',
   verwaltung: 'perm.groupAdmin',
 };

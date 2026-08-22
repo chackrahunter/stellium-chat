@@ -617,6 +617,35 @@ export async function translate(opts: TranslateOptions): Promise<TranslateOutcom
   }
 
   const entry = { text: out, provider: provider.name, model: result.model, confidence: result.confidence };
+
+  /*
+   * Ein Echo darf NICHT in den Zwischenspeicher.
+   *
+   * Hier lagen `memory.set` und der Datenbank-Eintrag vor `fertig(...)` — und
+   * erst dort wird geprüft, ob überhaupt übersetzt wurde. Ein Text, den das
+   * Modell unverändert zurückgab, landete damit als gültige Übersetzung im
+   * Speicher. Von da an war er **dauerhaft** unübersetzt: jeder spätere
+   * Treffer kam aus dem Speicher, meldete die Warnung und bekam nie wieder
+   * eine Chance — obwohl das Nachfassen bei Temperatur 0,4 beim nächsten
+   * Anlauf sehr wahrscheinlich gelungen wäre.
+   *
+   * Gemessen am 22.08.2026: 356 Meldungen „gab den Eingabetext zurück" in 24
+   * Stunden, dabei KEIN einziges gescheitertes Nachfassen. Am laufenden
+   * Modell gemessen echot der erste Anlauf bei 10 von 27 Texten (37 %), nach
+   * dem Nachfassen bei 0 von 27. Die Zahlen passten nicht zusammen — bis auf
+   * diese Reihenfolge.
+   *
+   * Lieber jedes Mal neu fragen als einmal falsch merken: ein Fehlversuch
+   * kostet eine Anfrage, ein gemerkter Fehlversuch kostet die Übersetzung
+   * für immer.
+   */
+  if (istEcho(masked, out)) {
+    return fertig(out, {
+      provider: entry.provider, model: entry.model, confidence: entry.confidence,
+      cached: false, sourceLang: finalSource,
+    });
+  }
+
   memory.set(key, entry);
   db.run(
     `INSERT INTO translation_memory (key, source_lang, target_lang, source_text, target_text, provider, hits, created_at)
