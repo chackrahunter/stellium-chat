@@ -73,6 +73,43 @@ durch die Dashboard-Animation mit ~24 Bildern/s.
 Animation reine Last. Sie zu drosseln gehört in `konsole-gui/konsole.py`
 (dort liegen noch nicht committete Änderungen vom Gestaltungs-Agenten).
 
+### Die zweitwichtigste Messung: eine lange Leitung ist kein Stau
+
+Über 236 ms Laufzeit (Deutschland → Alaska) drosselte die Regelung dauerhaft
+auf 2531–3375 kbit/s, obwohl der Kern gleichzeitig `delivery_rate 4,4 Mbit/s`
+meldete **und** `app_limited` setzte — er wartete auf Daten. Die Regel bremste
+also nicht die Leitung aus, sondern sich selbst.
+
+Der Grund war eine feste Byte-Grenze (`96 KB`). Für 6 Mbit/s müssen bei
+236 ms rund 176 KB dauerhaft unterwegs sein; das ist die Strecke, kein
+Rückstand. Wer diese Füllung für Überlastung hält, deckelt den Durchsatz auf
+
+    96 KB × 8 / 0,236 s ≈ 3,3 Mbit/s
+
+und zwar unabhängig davon, was die Leitung könnte. Auf dem Schreibtisch
+nebenan fiel das nie auf: dort ist die Laufzeit unter einer Millisekunde und
+die Rohrfüllung praktisch null.
+
+Jetzt wird `Rate × Laufzeit` abgezogen und nur der Rest als Stau gewertet.
+Zwei Fallen dabei, beide gemessen:
+
+1. **Mit der Zielrate rechnen ist falsch.** Ein ruhiger Schirm braucht die
+   Zielrate gar nicht aus — Ziel 6000, tatsächlich 2900. Rechnet man das Rohr
+   mit 6000, erscheint es größer als es ist, echter Rückstand bleibt
+   unsichtbar und wächst unbemerkt auf über 300 KB. Es zählt der kleinere von
+   Ziel und gemessenem Durchsatz.
+2. **Sich in 8-%-Schritten hochtasten dauert zu lang.** Von 2500 auf
+   6000 kbit/s sind das elf Schritte, also gut zwanzig Sekunden weiches Bild
+   nach jeder Störung. Der Kern kennt den tragfähigen Wert bereits.
+
+Gemessen, jeweils 33 Sekunden über die echte Leitung:
+
+    vorher                  1,79 Mbit/s   27,2 B/s   Stau 23–61 KB
+    nur Grenze umgestellt   2,42 Mbit/s   24,5 B/s   Stau 128–334 KB, wachsend
+    mit Rohr-Korrektur      2,60 Mbit/s   26,1 B/s   Stau 75–127 KB, stabil
+
+**+45 % Bitrate bei gleicher Bildrate**, ohne dass die Verzögerung wegläuft.
+
 ## Was drinsteckt
 
     host/fern-host.c      Abgriff (zwlr_screencopy v3) + x264, zwei Fäden

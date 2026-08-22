@@ -37,7 +37,7 @@
  *    bewegen, ist unbrauchbar.
  */
 import { WebSocketServer } from 'ws';
-import { spawn } from 'node:child_process';
+import { spawn, execFile } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { kennungLaden, grussBauen, antwortPruefen, Schatulle } from './anmeldung.mjs';
@@ -52,13 +52,35 @@ const H_BILD = 1, H_ABLAGE = 2, H_MELDUNG = 3;
 /* Nachrichtenarten auf der Leitung. */
 const N_BILD = 1, N_ABLAGE = 2, N_INFO = 3, N_EINGABE = 4, N_STEUER = 5;
 
-/* Mehr als das unterwegs heißt: die Leitung kommt nicht nach. Ein Bild in
-   960x540 ist grob 10–40 KB; 96 KB sind also etwa drei bis neun Bilder
-   Rückstand — ab da lieber verwerfen.
-   Deutlich kleiner als die früheren 256 KB, und das mit Absicht: bei den
-   gemessenen 2 Mbit/s sind 256 KB gut eine Sekunde Verzögerung. Genau die
-   soll gar nicht erst entstehen. */
-const STAU_GRENZE = 96 * 1024;
+/*
+ * Wieviel Rückstand erlaubt ist — als **Zeit**, nicht als Bytes.
+ *
+ * Hier stand lange `96 * 1024`, gewählt für 960x540 bei rund 2 Mbit/s. Auf
+ * kurzer Leitung ist eine feste Byte-Zahl auch richtig: dort ist alles, was
+ * unterwegs ist, tatsächlich Rückstand.
+ *
+ * Über eine lange Leitung stimmt das nicht mehr. Bei 236 ms Laufzeit müssen
+ * für 6 Mbit/s dauerhaft rund 176 KB unterwegs sein — das ist die Füllung
+ * des Rohrs, kein Stau. Die alte Regel hielt genau diese Füllung für
+ * Überlastung und drosselte, bis weniger als 96 KB unterwegs waren. Damit
+ * war der Durchsatz fest gedeckelt:
+ *
+ *     96 KB × 8 / 0,236 s ≈ 3,3 Mbit/s
+ *
+ * Gemessen wurde genau das: Regelung bei 2531–3375 kbit/s, während der Kern
+ * `delivery_rate 4,4 Mbit/s` meldete und dabei `app_limited` setzte — er
+ * wartete auf Daten. Die Regel hat sich selbst ausgebremst und das Bild
+ * unnötig weich gemacht. Auf dem Schreibtisch nebenan fiel das nie auf, weil
+ * dort die Laufzeit unter einer Millisekunde liegt und die Rohrfüllung damit
+ * praktisch null ist.
+ *
+ * Jetzt wird abgezogen, was ohnehin unterwegs sein muss (Rate × Laufzeit),
+ * und nur der Rest zählt als Stau. Der darf höchstens diese Zeit kosten.
+ */
+const STAU_ZEIT_S = 0.15;
+/* Selbst bei kleiner Rate soll nicht schon ein einzelnes Bild als Stau
+   gelten — ein Schlüsselbild ist gut und gern 100 KB. */
+const STAU_MINDEST = 64 * 1024;
 
 /* Wie oft der Rückstau aus /proc gelesen wird. Bei 45 Bildern/s wäre einmal
    je Bild verschwendet — die Zahl ändert sich nicht so schnell. */
@@ -263,6 +285,60 @@ function sendestau(sitzung) {
 }
 
 /*
+ * Was der Kern über die Leitung weiß.
+ *
+ * `/proc/net/tcp` liefert nur den Rückstau. Laufzeit und tatsächlich
+ * erreichten Durchsatz kennt allein die TCP-Schicht, und `ss -tni` gibt sie
+ * heraus. Beides ist hier nötig: ohne Laufzeit lässt sich Rohrfüllung nicht
+ * von Rückstau trennen, und ohne gemessenen Durchsatz müsste sich die
+ * Regelung in kleinen Schritten an die Obergrenze herantasten.
+ *
+ * Bewusst nebenläufig und höchstens alle zwei Sekunden: ein Prozessstart im
+ * Bildpfad wäre genau die Art Ruckler, die hier abgestellt werden soll.
+ * Fehlt `ss`, bleiben beide Werte leer — dann gilt wieder die alte Rechnung
+ * ohne Rohrfüllung, und schlechter als vorher wird es dadurch nie.
+ */
+function leitungMessen(sitzung) {
+  const jetzt = Date.now();
+  if (jetzt - (sitzung.leitungGelesen ?? 0) < 2000) return;
+  sitzung.leitungGelesen = jetzt;
+  const port = sitzung.ws?._socket?.remotePort;
+  if (!port) return;
+  execFile('ss', ['-tni', `sport = :${PORT} and dport = :${port}`],
+    { timeout: 1500 }, (fehler, aus) => {
+      if (fehler || !aus) return;
+      const l = /\brtt:([\d.]+)/.exec(aus);
+      const d = /\bdelivery_rate (\d+)bps/.exec(aus);
+      if (l) sitzung.laufzeitMs   = Number(l[1]);
+      if (d) sitzung.durchsatzKbit = Math.round(Number(d[1]) / 1000);
+    });
+}
+
+/*
+ * Rückstau von Rohrfüllung trennen.
+ *
+ * `unterwegs` ist alles, was noch nicht beim Betrachter ist. Davon ist
+ * `rohr` unvermeidlich — es ist die Strecke selbst. Nur was darüber liegt,
+ * wartet wirklich irgendwo und kostet zusätzliche Verzögerung.
+ */
+function stauMasse(sitzung) {
+  const unterwegs = sendestau(sitzung) + (sitzung.ws?.bufferedAmount ?? 0);
+  const ziel      = sitzung.rateJetzt ?? sitzung.rateMax ?? 2000;
+  /* Für die Rohrfüllung zählt, wie schnell die Daten **wirklich** abfließen,
+     nicht was wir uns vorgenommen haben. Ein Schreibtisch, der sich kaum
+     ändert, braucht die Zielrate gar nicht aus — rechnet man trotzdem mit
+     ihr, erscheint das Rohr größer als es ist und echter Rückstau bleibt
+     unsichtbar. Genau das war zu sehen: Ziel 6000, tatsächlich 2900, und
+     der Rückstand wuchs unbemerkt auf über 300 KB. Deshalb der kleinere
+     der beiden Werte. */
+  const kbit      = Math.min(ziel, sitzung.durchsatzKbit || ziel);
+  const bytesJeS  = kbit * 1000 / 8;
+  const rohr      = bytesJeS * ((sitzung.laufzeitMs ?? 0) / 1000);
+  const erlaubt   = Math.max(STAU_MINDEST, bytesJeS * STAU_ZEIT_S);
+  return { unterwegs, stau: Math.max(0, unterwegs - rohr), erlaubt };
+}
+
+/*
  * Die Bitrate an das anpassen, was wirklich durchgeht.
  *
  * Bewusst unsymmetrisch — schnell runter, langsam hoch. Ein zu hoher Wert
@@ -279,14 +355,22 @@ function rateNachziehen(sitzung) {
   sitzung.rateGeprueft = jetzt;
   if (!sitzung.kind || !sitzung.rateMax) return;
 
-  const stau = sendestau(sitzung) + (sitzung.ws?.bufferedAmount ?? 0);
+  leitungMessen(sitzung);
+  const { stau, erlaubt } = stauMasse(sitzung);
   const jetzige = sitzung.rateJetzt ?? sitzung.rateMax;
   let neu = jetzige;
 
-  if (stau > STAU_GRENZE) {
+  if (stau > erlaubt) {
     neu = Math.round(jetzige * 0.75);          /* Rückstau: deutlich runter */
-  } else if (stau < STAU_GRENZE / 4) {
-    neu = Math.round(jetzige * 1.08);          /* Luft: vorsichtig hoch */
+  } else if (stau < erlaubt / 4) {
+    /* Der Kern weiß besser als jede Schätzung, was die Leitung trägt — er
+       misst es an den Bestätigungen. Solange Luft ist, gehen wir gleich in
+       die Nähe dieses Werts, statt uns in 8-%-Schritten heranzutasten: von
+       2500 auf 6000 kbit/s wären das elf Schritte, also gut zwanzig
+       Sekunden weiches Bild nach jeder Störung. Die 0,95 lassen Abstand,
+       damit die Messung nicht ihre eigene Obergrenze bestätigt. */
+    const gemessen = sitzung.durchsatzKbit ? Math.round(sitzung.durchsatzKbit * 0.95) : 0;
+    neu = Math.max(Math.round(jetzige * 1.08), gemessen);
   }
   neu = Math.max(400, Math.min(sitzung.rateMax, neu));
   if (neu === jetzige) return;
@@ -308,8 +392,8 @@ function hostRahmen(sitzung, art, inhalt) {
     /* Beide Zähler zusammen: was in Node wartet UND was der Kern noch nicht
        losgeworden ist. Der zweite ist auf einer langsamen Leitung der weitaus
        größere — genau ihn hat die Regel früher übersehen. */
-    const unterwegs = sendestau(sitzung) + ws.bufferedAmount;
-    if (unterwegs > STAU_GRENZE && !istSchluesselbild(inhalt)) {
+    const { stau, erlaubt } = stauMasse(sitzung);
+    if (stau > erlaubt && !istSchluesselbild(inhalt)) {
       sitzung.verworfen += 1;
       return;                       /* siehe Kopf: verwerfen statt stauen */
     }
@@ -323,10 +407,17 @@ function hostRahmen(sitzung, art, inhalt) {
     /* Bei jeder Meldung mitschreiben — so steht im Zustand immer der Stand
        der letzten zwei Sekunden, ohne eigenen Zeitgeber. */
     zustandSchreiben();
+    const mass = stauMasse(sitzung);
     senden(sitzung, N_INFO, Buffer.from(JSON.stringify({
       takt: sitzung.letzteMeldung,
       verworfen: sitzung.verworfen,
-      stau: sendestau(sitzung) + ws.bufferedAmount,
+      /* `stau` ist jetzt der echte Rückstand ohne Rohrfüllung. `unterwegs`
+         steht daneben, sonst wäre auf einer langen Leitung nicht zu sehen,
+         wieviel überhaupt in der Luft ist. */
+      stau: Math.round(mass.stau),
+      unterwegs: mass.unterwegs,
+      laufzeit: Math.round(sitzung.laufzeitMs ?? 0),
+      durchsatz: sitzung.durchsatzKbit ?? 0,
       rate: sitzung.rateJetzt ?? sitzung.rateMax ?? 0,
     })));
     sitzung.verworfen = 0;
