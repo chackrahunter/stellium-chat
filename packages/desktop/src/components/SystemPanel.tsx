@@ -100,20 +100,24 @@ export function SystemPanel({ onClose }: { onClose: () => void }) {
     if (!da) return <div className="sys__leer">{t('system.nichtDa')}</div>;
     if (!daten) return <div className="sys__leer"><Loader2 size={16} className="dreht" /></div>;
 
-    const s = daten.system ?? {};
-    const temp: number | null = Array.isArray(s.temperaturen) && s.temperaturen.length
-      ? Number(s.temperaturen[0]?.wert ?? s.temperaturen[0]) : null;
-    const ram = s.speicher ?? {};
-    const pl = s.platte ?? {};
+    /* Die Namen stammen aus `stellium-konsole.mjs json` und sind gegen die
+       echte Ausgabe geprüft, nicht geraten: der Block heisst `leistung`, die
+       CPU-Last ist ein ANTEIL von 0 bis 1 (nicht Prozent), der
+       Arbeitsspeicher liegt flach als ramAnteil/ramBelegt/ramGesamt, und die
+       Temperatur steht als [{ name, grad }]. */
+    const l = daten.leistung ?? {};
+    const temp: number | null = Array.isArray(l.temperaturen) && l.temperaturen.length
+      ? Number(l.temperaturen[0]?.grad) : null;
+    const pl = l.platte ?? {};
     const ab = daten.ablage ?? {};
     const w = daten.webseite ?? {};
 
     return (
       <div className="sys">
         <div className="sys__tachos">
-          <Tacho name={t('system.cpu')} anteil={(s.cpu ?? 0) / 100} wert={`${Math.round(s.cpu ?? 0)}%`} />
-          <Tacho name={t('system.ram')} anteil={(ram.belegt ?? 0) / (ram.gesamt || 1)}
-                 wert={`${Math.round(((ram.belegt ?? 0) / (ram.gesamt || 1)) * 100)}%`} />
+          <Tacho name={t('system.cpu')} anteil={l.cpu ?? 0} wert={`${Math.round((l.cpu ?? 0) * 100)}%`} />
+          <Tacho name={t('system.ram')} anteil={l.ramAnteil ?? 0}
+                 wert={`${Math.round((l.ramAnteil ?? 0) * 100)}%`} />
           <Tacho name={t('system.platte')} anteil={(pl.belegt ?? 0) / (pl.gesamt || 1)}
                  wert={`${Math.round(((pl.belegt ?? 0) / (pl.gesamt || 1)) * 100)}%`} />
           <Tacho name={t('system.ablage')} anteil={(ab.belegt ?? 0) / (ab.gesamt || 1)}
@@ -135,7 +139,7 @@ export function SystemPanel({ onClose }: { onClose: () => void }) {
             <Zeile name={t('system.tunnel')} ton={daten.dienste?.tunnel ? 'gut' : 'warn'}
                    wert={daten.dienste?.tunnel ? t('system.laeuft') : t('system.aus')} />
             <Zeile name={t('system.version')} wert={daten.version ?? '—'} />
-            <Zeile name={t('system.laufzeit')} wert={laufzeit(s.laufzeit ?? 0)} />
+            <Zeile name={t('system.laufzeit')} wert={laufzeit(l.laufzeit ?? 0)} />
           </section>
 
           <section className="sys__block">
@@ -166,12 +170,12 @@ export function SystemPanel({ onClose }: { onClose: () => void }) {
 
           <section className="sys__block">
             <h3 className="sys__titel"><HardDrive size={14} /> {t('system.netz')}</h3>
-            <Zeile name={t('system.empfangen')} wert={groesse(s.netz?.rein ?? 0)} />
-            <Zeile name={t('system.gesendet')} wert={groesse(s.netz?.raus ?? 0)} />
+            <Zeile name={t('system.empfangen')} wert={groesse(l.netz?.rein ?? 0)} />
+            <Zeile name={t('system.gesendet')} wert={groesse(l.netz?.raus ?? 0)} />
             <Zeile name={t('system.sicherungen')}
                    wert={daten.sicherung ? `${daten.sicherung.anzahl}` : '—'} />
             {Array.isArray(daten.bestandteile) && daten.bestandteile.slice(0, 4).map((b: any) => (
-              <Zeile key={b.name} name={b.name} wert={b.version ?? '—'} />
+              <Zeile key={b.name} name={b.name} wert={b.fassung ?? '—'} />
             ))}
           </section>
         </div>
