@@ -15,6 +15,7 @@
  */
 import { execFile } from 'node:child_process';
 import fs from 'node:fs';
+import { tokenLesen } from './verkaufzugang.js';
 
 const SKRIPT = process.env.STELLIUM_KONSOLE
   ?? '/opt/stellium/server-setup/stellium-konsole.mjs';
@@ -32,7 +33,24 @@ export function verfuegbar(): boolean {
 
 function holen(): Promise<unknown> {
   return new Promise((fertig, scheitern) => {
-    execFile('node', [SKRIPT, 'json'], { timeout: 20_000, maxBuffer: 8 * 1024 * 1024 },
+    /*
+     * Den Gumroad-Token als Umgebungsvariable durchreichen.
+     *
+     * Die Konsole sucht ihn zuerst dort (`process.env.GUMROAD_TOKEN`) und
+     * erst danach in `/etc/stellium-triton.env`. So kann er in der App
+     * hinterlegt werden — verschlüsselt in der Datenbank — statt im Klartext
+     * in einer Datei auf dem Pi zu liegen.
+     *
+     * Nur gesetzt, wenn es ihn gibt: eine leere Variable würde die Datei
+     * NICHT überschreiben (die Konsole prüft auf einen nichtleeren Wert),
+     * aber ein leerer Eintrag in der Umgebung ist trotzdem Unordnung.
+     */
+    const gumroad = tokenLesen();
+    execFile('node', [SKRIPT, 'json'], {
+      timeout: 20_000,
+      maxBuffer: 8 * 1024 * 1024,
+      env: gumroad ? { ...process.env, GUMROAD_TOKEN: gumroad } : process.env,
+    },
       (fehler, aus) => {
         if (fehler) { scheitern(fehler); return; }
         try { fertig(JSON.parse(aus)); } catch (f) { scheitern(f as Error); }

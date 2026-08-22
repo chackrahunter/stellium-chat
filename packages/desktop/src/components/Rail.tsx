@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { Bell, Bookmark, Bot, CalendarDays, Download, FolderOpen, Gauge, Inbox, Lightbulb, ListChecks, MessageSquare, Monitor, Settings, ShieldCheck, Sparkles, Star } from 'lucide-react';
+import { Bell, Bookmark, Bot, CalendarDays, Download, FolderOpen, Gauge, Inbox, Lightbulb, ListChecks, Mail, MessageSquare, Monitor, Settings, ShieldCheck, Sparkles, Star } from 'lucide-react';
 import { useStore } from '../state/store.js';
 import { useT } from '../i18n/index.js';
 import { imBrowser } from './DownloadPanel.jsx';
@@ -270,6 +270,16 @@ export function Rail() {
         <ListChecks size={20} />
         {offeneAufgaben > 0 && <span className="rail-btn__dot">{offeneAufgaben > 99 ? '99+' : offeneAufgaben}</span>}
       </button>
+
+      {/* Die Unternehmenspost. Steht bei den Aufgaben und nicht hinter dem
+          Stern: das ist Tagesgeschäft, kein selten gebrauchtes Werkzeug.
+          Wer `mail.lesen` nicht hat, sieht den Reiter gar nicht — eine leere
+          Tafel wäre schlechter als keine. */}
+      {self?.permissions['mail.lesen'] && (
+        <button className="rail-btn no-drag" onClick={() => setOverlay('post')} title={t('post.titel')}>
+          <Mail size={20} />
+        </button>
+      )}
 
       <button className="rail-btn no-drag" data-tour="calendar" onClick={() => setOverlay('calendar')} title={t('nav.calendar')}>
         <CalendarDays size={20} />

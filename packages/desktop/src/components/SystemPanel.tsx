@@ -234,6 +234,11 @@ export function SystemPanel({ onClose }: { onClose: () => void }) {
                   eine Messung, die gar nicht stattgefunden hat. */}
               {w.zugriff === false && <Notiz ton="warn" text={t('system.keinProtokoll')} />}
               {w.geteilt && <Notiz text={t('system.geteilt')} />}
+              {/* „261 · 326" sagt ohne diese Zeile nichts. Sie steht einmal
+                  über beiden Zeilen statt zweimal daneben — in einer schmalen
+                  Spalte ist das der Unterschied zwischen lesbar und
+                  überladen. */}
+              <Notiz text={t('system.besucherSeiten')} />
               <Zeile name={t('system.jetzt')} wert={w.jetzt ?? 0} />
               <Zeile name={t('system.heute')}
                      wert={`${w.heute?.besucher ?? 0} · ${w.heute?.seiten ?? 0}`} />

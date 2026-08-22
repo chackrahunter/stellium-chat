@@ -2794,7 +2794,15 @@ button.msg__author:hover { color: var(--violet-soft); text-decoration: underline
 .neu {
   display: flex;
   flex-direction: column;
-  max-height: min(84vh, 720px);
+  /* KEIN eigenes `max-height`. Hier stand `min(84vh, 720px)` — und `.panel`
+     darüber deckelt bei `min(78vh, 100%)` und schneidet ab (`overflow:
+     hidden`). Der Inhalt durfte damit höher werden als sein eigener Rahmen
+     erlaubt, und was unten herausragte, war der Knopf: die Liste rollte
+     zwar, aber „Alles klar" war halb abgeschnitten.
+     Die Höhe bestimmt der Rahmen. `min-height: 0` ist die Erlaubnis, darin
+     zu schrumpfen — ohne sie weigert sich ein Flex-Kind und wächst
+     stattdessen hinaus. */
+  min-height: 0;
   padding: 26px 26px 22px;
   text-align: center;
 }

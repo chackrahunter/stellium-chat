@@ -14,6 +14,7 @@ import './styles/app.css';
 /* Nach app.css, nicht davor: die mobile Ansicht baut auf app.css auf
    und muss deshalb später kommen. Als @import am Dateiende wäre sie
    ungültig — CSS erlaubt @import nur ganz oben. */
+import './styles/post.css';
 import './styles/mobil.css';
 
 /**

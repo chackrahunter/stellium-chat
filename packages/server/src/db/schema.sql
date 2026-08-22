@@ -681,3 +681,96 @@ CREATE TABLE IF NOT EXISTS praesenz_tage (
   PRIMARY KEY (user_id, tag)
 );
 CREATE INDEX IF NOT EXISTS idx_praesenz_tag ON praesenz_tage(tag);
+
+/* ── Post ──────────────────────────────────────────────────
+   Was die KI aus einer eingegangenen Mail gemacht hat. Der Text der Mail
+   selbst steht NICHT hier: er liegt bei Gmail und wird von dort geholt.
+   Eine zweite Kopie wäre eine zweite Stelle, die man schützen muss, und
+   sie liefe irgendwann auseinander. Hier steht nur, was Stellium selbst
+   entschieden hat. */
+CREATE TABLE IF NOT EXISTS mail_sichtung (
+  mail_id TEXT PRIMARY KEY,
+  thread_id   TEXT NOT NULL,
+  gesichtet_am INTEGER NOT NULL,
+  /* Die Einordnung der KI als JSON — Absenderart, Anliegen, Dringlichkeit.
+ Als Text und nicht in Spalten: welche Felder nützlich sind, weiß man
+ erst nach einigen Wochen echter Post. */
+  einordnung  TEXT,
+  /* 'gemeldet' = niemand muss antworten, die Leitung wurde benachrichtigt.
+ 'entwurf'  = ein Entwurf wartet auf Freigabe.
+ 'gesendet' / 'abgelehnt' = entschieden. */
+  zustand TEXT NOT NULL DEFAULT 'gemeldet'
+);
+
+CREATE TABLE IF NOT EXISTS mail_entwuerfe (
+  idTEXT PRIMARY KEY,
+  mail_id   TEXT NOT NULL,
+  thread_id TEXT NOT NULL,
+  anTEXT NOT NULL,
+  betreff   TEXT NOT NULL,
+  text  TEXT NOT NULL,
+  /* Warum die KI meint, dass geantwortet werden sollte — steht neben dem
+ Entwurf, damit man nicht raten muss, worauf er antwortet. */
+  begruendung   TEXT,
+  zustand   TEXT NOT NULL DEFAULT 'offen',
+  erstellt_am   INTEGER NOT NULL,
+  entschieden_am INTEGER,
+  entschieden_von TEXT REFERENCES users(id) ON DELETE SET NULL,
+  /* Die Kennung der wirklich gesendeten Mail — der Beweis, dass es hinaus
+ ist, und der Weg zurück zum Verlauf. */
+  gesendet_id   TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_mail_entwurf_zustand ON mail_entwuerfe(zustand, erstellt_am);
+CREATE TABLE IF NOT EXISTS mail_nachrichten (
+  id           TEXT PRIMARY KEY,
+  /* An welche Adresse sie ging — daraus entstehen die Ordner in der
+     Oberflaeche. "support@stellium.club" und "billing@stellium.club" landen
+     im selben Postfach, sollen aber getrennt zu lesen sein. */
+  fach         TEXT NOT NULL,
+  richtung     TEXT NOT NULL,           -- 'ein' oder 'aus'
+  /* Verschluesselt wie Chatnachrichten: das ist Schriftwechsel mit Kunden,
+     und wer die Datenbankdatei hat, soll ihn nicht lesen koennen. */
+  von          TEXT NOT NULL,
+  an           TEXT NOT NULL,
+  betreff      TEXT NOT NULL,
+  text         TEXT NOT NULL,
+  html         TEXT,
+  /* Die Kennungen, an denen Mailprogramme einen Verlauf aufhaengen. Ohne sie
+     waere jede Antwort eine neue Nachricht mit "Re:" davor. */
+  message_id   TEXT,
+  referenzen   TEXT,
+  thread_id    TEXT,
+  /* Der Umschlagabsender ist NICHT der sichtbare. "From:" steht im
+     Mailprogramm, "MAIL FROM" zaehlt fuer SPF. Gehen sie auseinander, gehoert
+     das dem Menschen gezeigt, der eine Antwort freigibt. */
+  umschlag_von TEXT,
+  antwort_an   TEXT,
+  /* Was Cloudflare zu SPF/DKIM/DMARC gemeldet hat. Als Signal, nie als
+     Sperre: Post zu verlieren waere schlimmer. Der KI-Entwurf haengt daran. */
+  pruefung     TEXT,
+  /* Zustellschluessel des Workers — SHA-256 ueber den Rumpf. NICHT die
+     Message-ID des Absenders: die ist bei vielen Systemen vorhersagbar, und
+     wer sie vorher anmeldet, laesst die echte Mail lautlos als Dublette
+     verschwinden. */
+  zustell_schluessel TEXT,
+  am           INTEGER NOT NULL,
+  gelesen      INTEGER NOT NULL DEFAULT 0,
+  /* Anhaenge liegen als JSON daneben: Name, Typ, Groesse und der Ort in der
+     Ablage. Der Inhalt selbst gehoert nicht in die Datenbank. */
+  anhaenge     TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_mail_fach ON mail_nachrichten(fach, am DESC);
+CREATE INDEX IF NOT EXISTS idx_mail_thread ON mail_nachrichten(thread_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_mail_zustell ON mail_nachrichten(zustell_schluessel) WHERE zustell_schluessel IS NOT NULL;
+CREATE TABLE IF NOT EXISTS mail_partner (
+  /* Der Suchwert: derselbe Blindindex wie bei Konten. Die Adresse selbst ist
+     personenbezogen und liegt daneben verschluesselt — gesucht wird ueber den
+     Index, gelesen wird das Chiffrat. */
+  adresse_bidx TEXT PRIMARY KEY,
+  adresse      TEXT NOT NULL,
+  sprache      TEXT NOT NULL,
+  /* Wie sicher die Erkennung war, die zu dieser Sprache gefuehrt hat. Eine
+     spaetere, unsicherere Messung soll eine sichere nicht umwerfen. */
+  sicher       REAL NOT NULL DEFAULT 0,
+  seit         INTEGER NOT NULL
+);

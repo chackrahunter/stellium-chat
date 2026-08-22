@@ -25,6 +25,9 @@ import * as store from '../services/store.js';
 import * as files from '../services/files.js';
 import * as releases from '../services/releases.js';
 import * as fernzugang from '../services/fernzugang.js';
+import * as mailzugang from '../services/mailzugang.js';
+import * as verkaufzugang from '../services/verkaufzugang.js';
+import * as post from '../services/post.js';
 import { downloadSeite, systemErkennen } from './download/seite.js';
 
 import { broadcastAll, sitzungenBeenden, verbindungen } from '../ws/gateway.js';
@@ -1231,6 +1234,114 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       throw err;
     }
     return z;
+  });
+
+  /* ── Postfach: lesen und antworten ───────────────────────────
+     `mail.lesen` sieht die Post des Unternehmens — das ist Schriftwechsel mit
+     Kunden und Fremden. `mail.senden` gibt etwas nach draußen. Zwei Rechte,
+     weil es zwei sehr verschiedene Dinge sind. */
+  app.get('/api/post/faecher', async (req) => {
+    requirePermission(requireUser(req), 'mail.lesen');
+    return { faecher: post.faecher() };
+  });
+
+  app.get('/api/post/liste', async (req) => {
+    requirePermission(requireUser(req), 'mail.lesen');
+    const q = req.query as { fach?: string; anzahl?: string; vor?: string };
+    return {
+      nachrichten: post.liste(
+        q.fach && q.fach !== 'alle' ? q.fach : null,
+        Number(q.anzahl) || 50,
+        q.vor ? Number(q.vor) : undefined,
+      ),
+    };
+  });
+
+  app.get('/api/post/nachricht/:id', async (req, reply) => {
+    requirePermission(requireUser(req), 'mail.lesen');
+    const n = post.nachricht((req.params as { id: string }).id);
+    if (!n) return fehler(reply, 404, 'fehler.nichtGefunden', 'Diese Nachricht gibt es nicht.');
+    /* Gelesen setzen beim Öffnen — nicht in einer eigenen Route. Ein Zähler,
+       den man von Hand zurücksetzen muss, läuft irgendwann auseinander. */
+    if (!n.gelesen && n.richtung === 'ein') post.gelesenSetzen(n.id, true);
+    return { nachricht: { ...n, gelesen: true } };
+  });
+
+  app.get('/api/post/verlauf/:threadId', async (req) => {
+    requirePermission(requireUser(req), 'mail.lesen');
+    return { nachrichten: post.verlauf((req.params as { threadId: string }).threadId) };
+  });
+
+  app.post('/api/post/senden', async (req, reply) => {
+    const userId = requireUser(req);
+    requirePermission(userId, 'mail.senden');
+    const k = req.body as {
+      fach?: string; an?: string; betreff?: string; text?: string;
+      antwortAuf?: { messageId: string | null; referenzen: string | null; threadId: string | null };
+    };
+    if (!k?.an || !k?.text) {
+      return fehler(reply, 400, 'fehler.unvollstaendig', 'Empfänger und Text sind nötig.');
+    }
+    try {
+      return await post.senden({
+        fach: k.fach, an: k.an, betreff: k.betreff ?? '', text: k.text, antwortAuf: k.antwortAuf,
+      });
+    } catch (f) {
+      const e = f as { code?: string; status?: number; message?: string };
+      return fehler(reply, e.status ?? 502, e.code ?? 'fehler.post',
+        e.message ?? 'Senden fehlgeschlagen.');
+    }
+  });
+
+  /* ── Verkauf: der Gumroad-Schlüssel ──────────────────────────
+     Ohne ihn kennt die Konsole nur die öffentlichen Zahlen. Hinterlegen darf
+     ihn der Inhaber; ansehen kann ihn niemand, auch er nicht. */
+  app.get('/api/verkauf/zugang', async (req) => {
+    const userId = requireUser(req);
+    requirePermission(userId, 'verkauf.verwalten');
+    return verkaufzugang.tokenStand();
+  });
+
+  app.post('/api/verkauf/zugang', async (req) => {
+    const userId = requireUser(req);
+    requirePermission(userId, 'verkauf.verwalten');
+    const körper = req.body as { token?: string };
+    verkaufzugang.tokenSetzen(körper?.token ?? '', userId);
+    return verkaufzugang.tokenStand();
+  });
+
+  /* ── Postfach: Zugangsdaten ──────────────────────────────────
+     Genau wie beim Fernzugang: hinterlegen darf nur der Inhaber, ANSEHEN
+     kann es niemand. Zurück kommt bloß, DASS etwas hinterlegt ist. Ein
+     Schlüssel, den man versehentlich weiterreichen kann, ist keiner mehr. */
+  app.get('/api/post/zugang', async (req) => {
+    const userId = requireUser(req);
+    requirePermission(userId, 'mail.verwalten');
+    return mailzugang.zugangStand();
+  });
+
+  app.post('/api/post/zugang', async (req, reply) => {
+    const userId = requireUser(req);
+    requirePermission(userId, 'mail.verwalten');
+    const körper = req.body as {
+      absender?: string; name?: string; versandSchluessel?: string; eingangGeheimnis?: string;
+    };
+    /* Ein zu kurzes Eingangsgeheimnis ist schlimmer als keins: es sieht nach
+       Schutz aus. Der Worker legt es jeder Anfrage bei, und dieser Endpunkt
+       hängt öffentlich am Tunnel. */
+    if (körper?.eingangGeheimnis && körper.eingangGeheimnis.trim().length < 32) {
+      return fehler(reply, 400, 'fehler.zuKurz',
+        'Das Eingangsgeheimnis braucht mindestens 32 Zeichen.');
+    }
+    mailzugang.zugangSetzen(körper ?? {}, userId);
+    return mailzugang.zugangStand();
+  });
+
+  app.delete('/api/post/zugang', async (req) => {
+    const userId = requireUser(req);
+    requirePermission(userId, 'mail.verwalten');
+    mailzugang.zugangLoeschen(userId);
+    return mailzugang.zugangStand();
   });
 
   app.post('/api/fern/zugang', async (req) => {

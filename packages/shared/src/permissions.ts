@@ -53,6 +53,11 @@ export type PermissionKey =
   /* System */
   | 'system.ansehen'
   | 'verkauf.sehen'
+  | 'verkauf.verwalten'
+  /* Post */
+  | 'mail.lesen'
+  | 'mail.senden'
+  | 'mail.verwalten'
   /* Fernzugriff */
   | 'fern.zugriff'
   | 'fern.verwalten'
@@ -66,7 +71,7 @@ export type PermissionKey =
 export interface PermissionInfo {
   key: PermissionKey;
   /** Gruppe für die Darstellung in den Einstellungen. */
-  group: 'nachrichten' | 'kanaele' | 'inhalte' | 'ki' | 'system' | 'fernzugriff' | 'verwaltung';
+  group: 'nachrichten' | 'kanaele' | 'inhalte' | 'ki' | 'system' | 'post' | 'fernzugriff' | 'verwaltung';
   labelDe: string;
   labelEn: string;
   hintDe: string;
@@ -212,6 +217,24 @@ export const PERMISSIONS: PermissionInfo[] = [
     hintDe: 'Mitglieder, Preise, Probezeit und den monatlich wiederkehrenden Umsatz. Ohne dieses Recht bleibt die Kachel unsichtbar — sie erscheint nicht leer, sondern gar nicht.',
     hintEn: 'Members, prices, trial period and monthly recurring revenue. Without this the card stays invisible — it does not appear empty, it does not appear at all.' },
 
+  { key: 'mail.lesen', group: 'post',
+    labelDe: 'Postfach lesen', labelEn: 'Read the mailbox',
+    hintDe: 'Sieht die Post des Unternehmens — alle Ordner, auch Spam und Gesendet. Das ist der Schriftwechsel mit Kunden und Fremden; wer ihn liest, liest mit, was Einzelne geschrieben haben.',
+    hintEn: 'Sees the company mailbox — every folder, including spam and sent. This is correspondence with customers and strangers; whoever reads it reads what individuals wrote.' },
+  { key: 'mail.senden', group: 'post',
+    labelDe: 'Post senden und beantworten', labelEn: 'Send and answer mail',
+    hintDe: 'Schreibt im Namen des Unternehmens nach außen — und gibt die Entwürfe frei, die die KI vorschlägt. Ohne dieses Recht kann man Post lesen, aber nichts hinausgeben.',
+    hintEn: 'Writes to the outside in the name of the company — and approves the drafts the AI proposes. Without this you can read mail but send nothing.' },
+  { key: 'mail.verwalten', group: 'post', ownerOnly: true,
+    labelDe: 'Postfach einrichten', labelEn: 'Configure the mailbox',
+    hintDe: 'Zugangsdaten des Postfachs hinterlegen oder austauschen. Wer das hat, öffnet den Zugang für alle — angezeigt bekommt er ihn trotzdem nie.',
+    hintEn: 'Store or replace the mailbox credentials. Whoever has this opens access for everyone — but still never gets to see it.' },
+
+  { key: 'verkauf.verwalten', group: 'system', ownerOnly: true,
+    labelDe: 'Verkaufszugang einrichten', labelEn: 'Configure sales access',
+    hintDe: 'Den Gumroad-Schlüssel hinterlegen, mit dem die wirklichen Einnahmen abgerufen werden. Wer das hat, öffnet die Zahlen für alle mit dem Leserecht — angezeigt bekommt er den Schlüssel trotzdem nie.',
+    hintEn: 'Store the Gumroad key used to fetch actual earnings. Whoever has this opens the figures for everyone with the read permission — but never gets to see the key.' },
+
   { key: 'fern.zugriff', group: 'fernzugriff',
     labelDe: 'Pi fernsteuern', labelEn: 'Control the Pi remotely',
     hintDe: 'Sieht den Bildschirm des Pi und bedient ihn mit Maus, Tastatur und Zwischenablage. Adresse und Passwort holt die App selbst — sie stehen nirgends in der Oberfläche.',
@@ -327,6 +350,11 @@ const TEAMLEITUNG: PermissionKey[] = [
      Wer den Zugang benutzt, bekommt ihn dabei nie zu sehen — die App holt
      ihn sich selbst. */
   'fern.zugriff',
+  /* Die Post des Unternehmens gehört zur Führung — Abo-Anfragen und
+     Behördenpost landen bei ihr, nicht bei der Technik. Einrichten darf sie
+     das Postfach nicht: `mail.verwalten` bleibt beim Inhaber, wie beim
+     Fernzugang auch. */
+  'mail.lesen', 'mail.senden',
   /* Was das Geschäft einbringt, gehört zur Führung eines Teams. Die Technik
      bekommt es NICHT: wer den Server betreut, braucht Umsatzzahlen nicht,
      und beides in eine Rolle zu werfen hieße wieder, jedem zu geben, was er

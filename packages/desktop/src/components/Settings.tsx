@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Bell, Cpu, Globe, Loader2, Lock, LogOut, Palette, RefreshCw, Server, Sparkles, User, Volume2, X } from 'lucide-react';
+import { Bell, Cpu, Globe, Loader2, Lock, LogOut, Mail, Palette, RefreshCw, Server, Sparkles, User, Volume2, Wallet, X } from 'lucide-react';
 import { LANGUAGES, type AiCapabilities, type AiModelInfo } from '@stellium/shared';
 import { useStore } from '../state/store.js';
 import { useFokusfalle } from './Fokusfalle.jsx';
@@ -16,7 +16,7 @@ import { reiterWunschAbholen, VertraulichEinstellungen } from './Vertraulich.jsx
 import { spracheDesSystems } from '../i18n/index.js';
 
 type Tab = 'profil' | 'sprache' | 'modelle' | 'benachrichtigungen' | 'darstellung'
-  | 'vertraulich' | 'aktualisierung' | 'server';
+  | 'vertraulich' | 'post' | 'verkauf' | 'aktualisierung' | 'server';
 
 /**
  * Der Hinweis zum Stand der KI kommt als Kennung vom Server, mit deutschem
@@ -394,6 +394,10 @@ export function Settings({ onClose }: { onClose: () => void }) {
 
           {tab === 'vertraulich' && <VertraulichEinstellungen />}
 
+          {tab === 'post' && <PostEinstellungen />}
+
+          {tab === 'verkauf' && <VerkaufEinstellungen />}
+
           {tab === 'aktualisierung' && <UpdatePanel />}
 
           {tab === 'server' && (
@@ -417,6 +421,155 @@ export function Settings({ onClose }: { onClose: () => void }) {
   );
 }
 
+/**
+ * Die Zugangsdaten des Postfachs.
+ *
+ * Zwei Geheimnisse, zwei Richtungen: der Schlüssel des Versanddienstes für
+ * den Weg nach draußen, das Eingangsgeheimnis für den Weg herein. Beide
+ * werden verschlüsselt abgelegt und sind danach NICHT mehr anzeigbar —
+ * auch nicht dem, der sie eingetragen hat. Zurück kommt nur, DASS etwas
+ * hinterlegt ist. Ein Schlüssel, den man versehentlich weiterreichen kann,
+ * ist keiner mehr.
+ */
+function PostEinstellungen() {
+  const t = useT();
+  const [stand, setStand] = useState<{
+    versandBereit: boolean; eingangBereit: boolean; absender: string | null; name: string | null;
+  } | null>(null);
+  const [absender, setAbsender] = useState('');
+  const [name, setName] = useState('');
+  const [versand, setVersand] = useState('');
+  const [eingang, setEingang] = useState('');
+  const [laeuft, setLaeuft] = useState(false);
+
+  useEffect(() => {
+    void api.postZugang().then((z) => {
+      setStand(z);
+      setAbsender(z.absender ?? '');
+      setName(z.name ?? 'Stellium');
+    }).catch(() => setStand(null));
+  }, []);
+
+  /* Im Browser gewürfelt und nicht getippt: ein selbst ausgedachtes Wort ist
+     kürzer und einfacher, als es aussieht. */
+  const wuerfeln = () => {
+    const b = new Uint8Array(32);
+    crypto.getRandomValues(b);
+    setEingang(btoa(String.fromCharCode(...b)).replace(/[+/=]/g, '').slice(0, 43));
+  };
+
+  const speichern = async () => {
+    setLaeuft(true);
+    try {
+      const z = await api.postZugangSetzen({
+        absender: absender.trim() || undefined,
+        name: name.trim(),
+        /* Leere Felder lassen den bisherigen Wert stehen — so lässt sich der
+           Name ändern, ohne die Schlüssel noch einmal einzugeben. */
+        versandSchluessel: versand.trim() || undefined,
+        eingangGeheimnis: eingang.trim() || undefined,
+      });
+      setStand((s) => (s ? { ...s, ...z } : s));
+      setVersand('');
+      setEingang('');
+    } finally {
+      setLaeuft(false);
+    }
+  };
+
+  return (
+    <>
+      <div className="field">
+        <label className="field__label">{t('post.absender')}</label>
+        <input className="input" value={absender} onChange={(e) => setAbsender(e.target.value)}
+               placeholder="support@stellium.club" />
+        <p className="field__hint">{t('post.absenderHint')}</p>
+      </div>
+
+      <div className="field">
+        <label className="field__label">{t('post.name')}</label>
+        <input className="input" value={name} onChange={(e) => setName(e.target.value)}
+               placeholder="Stellium" />
+        <p className="field__hint">{t('post.nameHint')}</p>
+      </div>
+
+      <div className="field">
+        <label className="field__label">
+          {t('post.versand')} · {stand?.versandBereit ? t('post.bereit') : t('post.fehlt')}
+        </label>
+        <input className="input" type="password" autoComplete="off"
+               value={versand} onChange={(e) => setVersand(e.target.value)}
+               placeholder="re_..." />
+        <p className="field__hint">{t('post.versandHint')}</p>
+      </div>
+
+      <div className="field">
+        <label className="field__label">
+          {t('post.eingang')} · {stand?.eingangBereit ? t('post.bereit') : t('post.fehlt')}
+        </label>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <input className="input" type="password" autoComplete="off" style={{ flex: 1 }}
+                 value={eingang} onChange={(e) => setEingang(e.target.value)} />
+          <button className="btn" type="button" onClick={wuerfeln}>{t('post.erzeugen')}</button>
+        </div>
+        <p className="field__hint">{t('post.eingangHint')}</p>
+      </div>
+
+      <p className="field__hint">{t('post.geheimHinweis')}</p>
+
+      <button className="btn btn--primary" disabled={laeuft} onClick={() => void speichern()}>
+        <Mail size={15} /> {t('common.save')}
+      </button>
+    </>
+  );
+}
+
+/**
+ * Der Gumroad-Schlüssel.
+ *
+ * Er lag bis hierher im Klartext in `/etc/stellium-triton.env` auf dem Pi —
+ * wer ihn wechseln wollte, brauchte eine SSH-Sitzung. Hier liegt er
+ * verschlüsselt in der Datenbank, und der Server reicht ihn beim Aufruf der
+ * Konsole durch. Angezeigt wird er danach nie wieder.
+ */
+function VerkaufEinstellungen() {
+  const t = useT();
+  const [stand, setStand] = useState<{ hinterlegt: boolean } | null>(null);
+  const [token, setToken] = useState('');
+  const [laeuft, setLaeuft] = useState(false);
+
+  useEffect(() => {
+    void api.verkaufZugang().then(setStand).catch(() => setStand(null));
+  }, []);
+
+  const speichern = async () => {
+    setLaeuft(true);
+    try {
+      setStand(await api.verkaufZugangSetzen(token.trim()));
+      setToken('');
+    } finally {
+      setLaeuft(false);
+    }
+  };
+
+  return (
+    <>
+      <div className="field">
+        <label className="field__label">
+          {t('verkauf.token')} · {stand?.hinterlegt ? t('post.bereit') : t('post.fehlt')}
+        </label>
+        <input className="input" type="password" autoComplete="off"
+               value={token} onChange={(e) => setToken(e.target.value)} />
+        <p className="field__hint">{t('verkauf.tokenHint')}</p>
+      </div>
+      <button className="btn btn--primary" disabled={laeuft || !token.trim()}
+              onClick={() => void speichern()}>
+        <Wallet size={15} /> {t('common.save')}
+      </button>
+    </>
+  );
+}
+
 function Tabs({ tab, setTab }: { tab: Tab; setTab: (t: Tab) => void }) {
   const t = useT();
   const items: { id: Tab; label: string; icon: React.ReactNode }[] = [
@@ -426,6 +579,8 @@ function Tabs({ tab, setTab }: { tab: Tab; setTab: (t: Tab) => void }) {
     { id: 'benachrichtigungen', label: t('settings.notifications'), icon: <Bell size={14} /> },
     { id: 'darstellung', label: t('settings.appearance'), icon: <Palette size={14} /> },
     { id: 'vertraulich', label: t('vertraulich.tab'), icon: <Lock size={14} /> },
+    { id: 'post', label: t('settings.post'), icon: <Mail size={14} /> },
+    { id: 'verkauf', label: t('settings.verkauf'), icon: <Wallet size={14} /> },
     { id: 'aktualisierung', label: t('update.tab'), icon: <RefreshCw size={14} /> },
     { id: 'server', label: t('settings.server'), icon: <Server size={14} /> },
   ];

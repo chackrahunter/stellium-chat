@@ -429,6 +429,22 @@ export const api = {
       verlauf: { tag: string; sekunden: number }[];
     }>(`/api/praesenz/${encodeURIComponent(userId)}?zeitraum=${zeitraum}`),
 
+  verkaufZugang: () => request<{ hinterlegt: boolean; verschluesselt: boolean }>('/api/verkauf/zugang'),
+  verkaufZugangSetzen: (token: string) => request<{ hinterlegt: boolean }>(
+    '/api/verkauf/zugang', { method: 'POST', body: JSON.stringify({ token }) }),
+
+  /* Postfach: dieselbe Trennung wie beim Fernzugang. Zurück kommt nur, DASS
+     etwas hinterlegt ist — die Schlüssel selbst gibt der Server nie heraus,
+     auch nicht an den, der sie eingetragen hat. */
+  postZugang: () => request<{
+    versandBereit: boolean; eingangBereit: boolean; verschluesselt: boolean;
+    absender: string | null; name: string | null;
+  }>('/api/post/zugang'),
+  postZugangSetzen: (werte: {
+    absender?: string; name?: string; versandSchluessel?: string; eingangGeheimnis?: string;
+  }) => request<{ versandBereit: boolean; eingangBereit: boolean }>(
+    '/api/post/zugang', { method: 'POST', body: JSON.stringify(werte) }),
+
   fernStand: () => request<{ hinterlegt: boolean; verschluesselt: boolean; kennung: string | null; darf: boolean }>('/api/fern/stand'),
   fernZugang: () => request<{ adresse: string; passwort: string; kennung: string }>('/api/fern/zugang'),
   fernZugangSetzen: (werte: { adresse?: string; passwort?: string; kennung?: string }) =>

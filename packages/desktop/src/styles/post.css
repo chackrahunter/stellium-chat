@@ -1,0 +1,225 @@
+/* ── Post — das Unternehmenspostfach ─────────────────────────────
+   Nutzt ausschließlich Farbtoken, Radien und Abstände aus tokens.css sowie
+   allgemeine Klassen aus app.css (.chan, .chan__badge, .empty-state, .pill,
+   .btn, .textarea, .muted, .spin, .truncate — siehe dort). Diese Datei fügt
+   nur hinzu, was für die drei Spalten der Tafel eigen ist; app.css selbst
+   bleibt unangetastet. */
+
+.post {
+  display: grid;
+  grid-template-columns: 190px minmax(240px, 330px) minmax(0, 1fr);
+  gap: var(--sp-3);
+  height: min(66vh, 600px);
+  min-height: 380px;
+}
+
+/* Dieselbe Regel wie `.app > * { min-height: 0; max-height: 100%; }` im
+   Grundgerüst der App, aus demselben Grund: ohne sie wachsen die Spalten mit
+   ihrem Inhalt über die feste Höhe von `.post` hinaus, und jede Spalte
+   verliert ihren eigenen Bildlauf — die Fächerliste, die Nachrichtenliste
+   und der Verlauf scrollten dann alle gemeinsam mit dem ganzen Fenster
+   statt für sich. */
+.post > * { min-width: 0; min-height: 0; }
+
+/* ── Fächer ─────────────────────────────────────────────────────── */
+
+.post__faecher {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow-y: auto;
+  padding-inline-end: 6px;
+  border-inline-end: 1px solid var(--line);
+}
+
+/* ── Liste ──────────────────────────────────────────────────────── */
+
+.post__liste {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow-y: auto;
+  padding-inline-end: 6px;
+  border-inline-end: 1px solid var(--line);
+}
+
+.post-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  padding: 9px 11px;
+  border-radius: var(--r-sm);
+  text-align: start;
+  color: var(--tx-mid);
+  transition: background var(--t-fast);
+}
+.post-row:hover { background: var(--bg-hover); }
+.post-row[aria-current='true'] { background: var(--bg-active); }
+
+/* „ungelesen fett" — nur Absender und Betreff, der Ausschnitt bleibt in
+   normaler Stärke, sonst wiegt eine unread-Zeile schwerer als die Betreff-
+   zeile selbst und das Auge findet den eigentlichen Titel nicht mehr. */
+.post-row--ungelesen .post-row__von,
+.post-row--ungelesen .post-row__betreff { color: var(--tx-hi); font-weight: 700; }
+
+.post-row__kopf { display: flex; align-items: baseline; gap: 8px; }
+.post-row__von { flex: 1; min-width: 0; font-size: 13px; display: inline-flex; align-items: center; gap: 3px; }
+.post-row__richtung { flex: none; color: var(--tx-lo); }
+.post-row__zeit { flex: none; font-size: 11px; color: var(--tx-lo); font-variant-numeric: tabular-nums; }
+.post-row__betreff { font-size: 12.5px; }
+.post-row__auszug { font-size: 11.5px; color: var(--tx-lo); }
+
+/* ── Ausgewählte Nachricht mit Verlauf und Antwort ─────────────────── */
+
+.post__detail {
+  display: flex;
+  flex-direction: column;
+}
+
+.post__betreff {
+  flex: none;
+  margin: 0 0 10px;
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  overflow-wrap: anywhere;
+}
+
+.post__verlauf {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding-inline-end: 6px;
+}
+
+.post__eintrag {
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  border-radius: var(--r-md);
+  border: 1px solid var(--line);
+  background: var(--bg-panel-2);
+}
+/* Die eigene Seite des Verlaufs bekommt einen Streifen, wie an anderer
+   Stelle in der App schon üblich (.msg--mention, .week__ev) — ein Blick
+   genügt, um gesendet von eingegangen zu unterscheiden. */
+.post__eintrag--richtung-aus { border-inline-start: 3px solid var(--violet); }
+.post__eintrag--aktiv { border-color: var(--violet-soft); box-shadow: 0 0 0 1px rgba(124, 92, 255, 0.25); }
+
+.post__eintrag-kopf {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 6px;
+  font-size: 12px;
+  color: var(--tx-lo);
+}
+.post__eintrag-richtung { display: inline-flex; align-items: center; flex: none; }
+.post__eintrag-adresse { flex: 1; min-width: 0; color: var(--tx-mid); }
+.post__eintrag-zeit { flex: none; font-variant-numeric: tabular-nums; }
+
+.post__anhaenge { display: flex; flex-wrap: wrap; gap: 6px; margin: 2px 0 8px; }
+.post__anhang {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--bg-hover);
+  font-size: 11.5px;
+  color: var(--tx-mid);
+}
+
+.post__text {
+  font-size: 13.5px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--tx-hi);
+}
+
+.post__html-zeile { margin-top: 8px; }
+
+.post__html-rahmen {
+  display: block;
+  width: 100%;
+  height: min(48vh, 420px);
+  margin-top: 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  /* Mailinhalt geht von einem hellen Hintergrund aus — dieselbe Farbe steht
+     auch im Dokument selbst (siehe htmlDokument() in PostPanel.tsx), damit
+     vor dem ersten Farbauftrag kein dunkler Blitz aus dem Rest der App
+     durchscheint. */
+  background: #fff;
+}
+
+.post__html-hinweis {
+  margin: 6px 0 0;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11.5px;
+  color: var(--amber);
+}
+
+/* ── Antwort ────────────────────────────────────────────────────── */
+
+.post__antwort {
+  flex: none;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.post__antwort-ziel { margin: 0; font-size: 11.5px; }
+.post__antwort-fuss { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.post__antwort-hinweis { font-size: 10.5px; }
+
+/* ── Fehler & Zugänglichkeit ────────────────────────────────────── */
+
+.post__fehler {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 10px 4px;
+  color: var(--rose);
+  font-size: 12.5px;
+}
+
+/* Nur für Bildschirmleseprogramme: Fett allein ist ein reines Farb-/
+   Gewichtssignal und kommt dort nicht an. */
+.post__sr-only {
+  position: absolute;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden;
+  /* Nachfolger von `clip: rect(...)` — dieselbe Wirkung, aber nicht als
+     veraltet markiert. */
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ── Schmales Fenster ───────────────────────────────────────────── */
+
+@media (max-width: 720px) {
+  .post {
+    grid-template-columns: 1fr;
+    grid-auto-rows: auto;
+    height: auto;
+    max-height: min(70vh, 640px);
+    overflow-y: auto;
+  }
+  .post__faecher,
+  .post__liste {
+    border-inline-end: 0;
+    border-bottom: 1px solid var(--line);
+    max-height: 160px;
+    padding-inline-end: 0;
+    padding-bottom: 8px;
+  }
+}
