@@ -340,6 +340,16 @@ if (probe) {
       },
     });
     ok(`auf ${server} veröffentlicht — die Clients sehen es sofort`);
+    /* Der Bauordner ist jetzt oben und wird hier nicht mehr gebraucht. Vier
+       Plattformen, entpackt und geschnürt, sind rund 15 GB — die blieben
+       sonst bis zur nächsten Auslieferung liegen, und irgendwann ist die
+       Platte voll. Genau so ist am 22.08.2026 der Windows-Bau mit ENOSPC
+       abgebrochen, ohne eine Zeile im Protokoll. */
+    try {
+      const bauOrdner = path.join(wurzel, 'packages/desktop/release');
+      fs.rmSync(bauOrdner, { recursive: true, force: true });
+      sag(`  ${F.grau}Bauordner geleert${F.aus}`);
+    } catch { /* liegen zu bleiben ist kein Grund, die Auslieferung zu melden */ }
   } catch (err) {
     raus(`Veröffentlichen fehlgeschlagen: ${err.message}`);
   }

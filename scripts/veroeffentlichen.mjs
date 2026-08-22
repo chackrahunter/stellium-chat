@@ -16,9 +16,8 @@
  * Alles, was fehlt, wird erfragt. Die Änderungsliste darf mehrzeilig sein —
  * jede Zeile wird den anderen nach dem Update als eigener Punkt gezeigt.
  */
-import { execFileSync } from 'node:child_process';
+import { execFileSync, execSync } from 'node:child_process';
 import crypto from 'node:crypto';
-import { execSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -84,6 +83,32 @@ if (!nurHochladen) {
   paket.version = version;
   fs.writeFileSync(paketDatei, `${JSON.stringify(paket, null, 2)}\n`);
   ok(`packages/desktop/package.json → ${version}`);
+
+  /*
+   * Erst Platz schaffen, dann bauen.
+   *
+   * `release/` wurde nie geleert und wuchs mit jeder Auslieferung: vier
+   * Plattformen, jeweils entpackt UND geschnürt. Am 22.08.2026 waren es
+   * 15 GB, die Platte war voll, und der Windows-Bau brach mit ENOSPC ab —
+   * ohne Ausgabe im Protokoll, weil electron-builder seinen Fehler nicht
+   * mehr schreiben konnte. Ein Fehler ohne Meldung ist der teuerste.
+   *
+   * Vorher UND nachher: vorher, damit alte Stände nicht mitgeliefert werden
+   * können; nachher, damit die 15 GB nicht bis zur nächsten Auslieferung
+   * liegen bleiben.
+   */
+  const bauOrdner = path.join(wurzel, 'packages/desktop/release');
+  fs.rmSync(bauOrdner, { recursive: true, force: true });
+
+  /* Vier Plattformen brauchen rund 15 GB. Lieber hier mit einem klaren Satz
+     abbrechen als mitten im Bau ohne Meldung. */
+  try {
+    const df = execFileSync('df', ['-k', wurzel], { encoding: 'utf8' }).trim().split('\n')[1];
+    const freiGb = Number(df.split(/\s+/)[3]) / 1024 / 1024;
+    if (freiGb < 20) {
+      sag(`  ${F.gelb}!${F.aus} nur ${freiGb.toFixed(1)} GB frei — vier Plattformen brauchen rund 15`);
+    }
+  } catch { /* ohne df eben ohne Warnung */ }
 
   schritt('Bauen');
   lauf('npm', ['run', 'build'], { stdio: 'inherit' });
