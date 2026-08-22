@@ -1108,6 +1108,8 @@ export const pl = {
   'fern.keinRecht': 'Nie masz do tego uprawnień.',
   'fern.nichtEingerichtet': 'Dla Pi nie zapisano jeszcze dostępu.',
   'fern.trennen': 'Rozłącz',
+  'fern.eigenesFenster': 'Własne okno',
+  'fern.eigenesFensterHilfe': 'Przenieś ekran Pi do własnego okna — czat pozostaje dostępny.',
   'fern.passwort': 'Hasło',
   'fern.verbindet': 'Łączenie …',
   'fern.nichtVerbunden': 'Brak połączenia',

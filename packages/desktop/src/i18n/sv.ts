@@ -1108,6 +1108,8 @@ export const sv = {
   'fern.keinRecht': 'Du har inte behörighet till det.',
   'fern.nichtEingerichtet': 'Ingen åtkomst är ännu sparad för Pi:n.',
   'fern.trennen': 'Koppla från',
+  'fern.eigenesFenster': 'Eget fönster',
+  'fern.eigenesFensterHilfe': 'Flytta Pi-skärmen till ett eget fönster — chatten går att använda samtidigt.',
   'fern.passwort': 'Lösenord',
   'fern.verbindet': 'Ansluter …',
   'fern.nichtVerbunden': 'Inte ansluten',

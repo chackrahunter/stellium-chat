@@ -1108,6 +1108,8 @@ export const zh = {
   'fern.keinRecht': '你没有此权限。',
   'fern.nichtEingerichtet': '尚未为 Pi 保存访问信息。',
   'fern.trennen': '断开',
+  'fern.eigenesFenster': '独立窗口',
+  'fern.eigenesFensterHilfe': '把 Pi 屏幕移到独立窗口 — 聊天应用仍可继续使用。',
   'fern.passwort': '密码',
   'fern.verbindet': '连接中 …',
   'fern.nichtVerbunden': '未连接',

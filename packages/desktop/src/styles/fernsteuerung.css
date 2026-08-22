@@ -121,3 +121,41 @@
 @media (prefers-reduced-motion: reduce) {
   .dreht { animation: none; }
 }
+
+/* ── Betrachter im eigenen Fenster ─────────────────────────────
+   Kein Tafelrahmen: den zeichnet hier das Fenster selbst, und zwei
+   Rahmen ineinander sehen aus wie ein Fehler. Stattdessen eine schmale
+   Leiste mit Takt und Werkzeugen, darunter der Schirm über alles Übrige. */
+.fern-fenster {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  height: 100dvh;
+  background: var(--bg-void);
+}
+
+.fern-fenster__leiste {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line);
+  background: var(--bg-elevated);
+  color: var(--tx-mid);
+  /* Auf macOS liegen die Fensterknöpfe im Inhalt — ohne diesen Platz
+     lägen sie auf dem Titel. */
+  padding-left: 12px;
+}
+.fern-fenster__titel { font-size: 13px; font-weight: 600; color: var(--tx-hi); }
+.fern-fenster__takt {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 11.5px;
+  color: var(--tx-lo);
+  /* Der Takt ändert sich zweimal je Sekunde. Ohne feste Ziffernbreite
+     zappelt die ganze Leiste mit. */
+  font-variant-numeric: tabular-nums;
+}
+
+/* Der Schirm füllt das Fenster; die Bühne bringt ihre eigene Zentrierung
+   mit, hier muss sie nur die volle Höhe bekommen. */
+.fern-fenster .fern { height: 100%; min-height: 0; }
+.fern-fenster .fern__buehne { height: 100%; }

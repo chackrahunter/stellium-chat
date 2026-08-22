@@ -30,6 +30,8 @@ const api = {
       ipcRenderer.invoke('fern:verbinden', adresse, passwort),
     trennen: () => ipcRenderer.invoke('fern:trennen'),
     lage: () => ipcRenderer.invoke('fern:lage'),
+    fenster: () => ipcRenderer.invoke('fern:fenster'),
+    fensterOffen: () => ipcRenderer.invoke('fern:fensterOffen'),
     eingabe: (zeilen: string) => ipcRenderer.send('fern:eingabe', zeilen),
     steuer: (wunsch: unknown) => ipcRenderer.send('fern:steuer', wunsch),
     aufBild: (ruf: (daten: Uint8Array) => void) => {

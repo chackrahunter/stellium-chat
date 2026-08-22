@@ -1108,6 +1108,8 @@ export const cs = {
   'fern.keinRecht': 'K tomu nemáš oprávnění.',
   'fern.nichtEingerichtet': 'Pro Pi zatím není uložen přístup.',
   'fern.trennen': 'Odpojit',
+  'fern.eigenesFenster': 'Vlastní okno',
+  'fern.eigenesFensterHilfe': 'Přesunout obrazovku Pi do vlastního okna — chat zůstane použitelný.',
   'fern.passwort': 'Heslo',
   'fern.verbindet': 'Připojuji …',
   'fern.nichtVerbunden': 'Nepřipojeno',

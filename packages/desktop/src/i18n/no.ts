@@ -1108,6 +1108,8 @@ export const no = {
   'fern.keinRecht': 'Du har ikke rettighet til dette.',
   'fern.nichtEingerichtet': 'Det er ennå ikke lagret tilgang til Pi-en.',
   'fern.trennen': 'Koble fra',
+  'fern.eigenesFenster': 'Eget vindu',
+  'fern.eigenesFensterHilfe': 'Flytt Pi-skjermen til sitt eget vindu — chatten kan brukes samtidig.',
   'fern.passwort': 'Passord',
   'fern.verbindet': 'Kobler til …',
   'fern.nichtVerbunden': 'Ikke tilkoblet',

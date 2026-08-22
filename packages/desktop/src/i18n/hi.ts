@@ -1108,6 +1108,8 @@ export const hi = {
   'fern.keinRecht': 'आपको इसका अधिकार नहीं है।',
   'fern.nichtEingerichtet': 'Pi के लिए अभी कोई पहुँच सहेजी नहीं गई है।',
   'fern.trennen': 'अलग करें',
+  'fern.eigenesFenster': 'अलग विंडो',
+  'fern.eigenesFensterHilfe': 'Pi की स्क्रीन को अलग विंडो में ले जाएँ — चैट ऐप साथ में चलती रहती है।',
   'fern.passwort': 'पासवर्ड',
   'fern.verbindet': 'जुड़ रहा है …',
   'fern.nichtVerbunden': 'जुड़ा नहीं',

@@ -1108,6 +1108,8 @@ export const ru = {
   'fern.keinRecht': 'У тебя нет на это прав.',
   'fern.nichtEingerichtet': 'Доступ к Pi ещё не сохранён.',
   'fern.trennen': 'Отключиться',
+  'fern.eigenesFenster': 'Отдельное окно',
+  'fern.eigenesFensterHilfe': 'Перенести экран Pi в отдельное окно — чат останется доступен.',
   'fern.passwort': 'Пароль',
   'fern.verbindet': 'Подключение …',
   'fern.nichtVerbunden': 'Нет подключения',

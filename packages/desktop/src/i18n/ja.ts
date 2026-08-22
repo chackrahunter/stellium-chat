@@ -1108,6 +1108,8 @@ export const ja = {
   'fern.keinRecht': 'これを行う権限がありません。',
   'fern.nichtEingerichtet': 'Pi のアクセス情報はまだ保存されていません。',
   'fern.trennen': '切断',
+  'fern.eigenesFenster': '独立ウィンドウ',
+  'fern.eigenesFensterHilfe': 'Pi の画面を独立したウィンドウへ — チャットはそのまま使えます。',
   'fern.passwort': 'パスワード',
   'fern.verbindet': '接続中 …',
   'fern.nichtVerbunden': '未接続',

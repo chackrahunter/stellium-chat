@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { App } from './App.jsx';
 import { Fangkorb } from './components/Fangkorb.jsx';
 import { Startbildschirm } from './components/Startbildschirm.jsx';
+import { Fernsteuerung } from './components/Fernsteuerung.jsx';
 import { einrichtungNoetig } from './lib/installation.js';
 import { updatesVerbinden } from './lib/updates.js';
 import { auffrischenVerbinden } from './lib/auffrischen.js';
@@ -45,7 +46,14 @@ tastaturVerbinden();
 createRoot(container).render(
   <StrictMode>
     <Fangkorb>
-      {einrichtungNoetig() ? <Startbildschirm /> : <App />}
+      {/* `#fern` heißt: dieses Fenster zeigt NUR den Bildschirm des Pi.
+          Es meldet sich nicht am Chatserver an und baut keine Oberfläche
+          auf — beides bräuchte es nicht, und beides kostete Speicher und
+          eine zweite Verbindung. Geöffnet wird es aus dem Hauptfenster
+          heraus (fern:fenster im Hauptprozess). */}
+      {location.hash === '#fern'
+        ? <Fernsteuerung eigenstaendig onClose={() => window.close()} />
+        : einrichtungNoetig() ? <Startbildschirm /> : <App />}
     </Fangkorb>
   </StrictMode>,
 );

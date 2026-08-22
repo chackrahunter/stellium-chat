@@ -1108,6 +1108,8 @@ export const fi = {
   'fern.keinRecht': 'Sinulla ei ole tähän oikeutta.',
   'fern.nichtEingerichtet': 'Pi:lle ei ole vielä tallennettu pääsyä.',
   'fern.trennen': 'Katkaise',
+  'fern.eigenesFenster': 'Oma ikkuna',
+  'fern.eigenesFensterHilfe': 'Siirrä Pin näyttö omaan ikkunaan — chat pysyy käytettävissä.',
   'fern.passwort': 'Salasana',
   'fern.verbindet': 'Yhdistetään …',
   'fern.nichtVerbunden': 'Ei yhteyttä',

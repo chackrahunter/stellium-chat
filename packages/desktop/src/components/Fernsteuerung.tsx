@@ -13,7 +13,7 @@
  * dieselbe Zahl Bilder ankommt.
  */
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { Monitor, Power, Loader2, AlertTriangle, Keyboard } from 'lucide-react';
+import { AlertTriangle, ExternalLink, Keyboard, Loader2, Monitor, Power } from 'lucide-react';
 import { Shell } from './Panels.jsx';
 import { api } from '../net/api.js';
 import { t } from '../i18n';
@@ -49,7 +49,9 @@ const KNOPF: Record<number, number> = { 0: 272, 1: 274, 2: 273 };  /* links, mit
 
 type Lage = 'getrennt' | 'verbindet' | 'meldet an' | 'offen' | 'fehler';
 
-export function Fernsteuerung({ onClose }: { onClose: () => void }) {
+export function Fernsteuerung(
+  { onClose, eigenstaendig = false }: { onClose: () => void; eigenstaendig?: boolean },
+) {
   const leinwand = useRef<HTMLCanvasElement>(null);
   const dekoder = useRef<VideoDecoder | null>(null);
   const zeitmarke = useRef(0);
@@ -250,6 +252,17 @@ export function Fernsteuerung({ onClose }: { onClose: () => void }) {
         <Keyboard size={14} />
         {steuert ? t('fern.steuertAn') : t('fern.steuertAus')}
       </button>
+      {/* Nur im Hauptfenster: im Betrachter selbst wäre der Knopf sinnlos. */}
+      {!eigenstaendig && (
+        <button
+          type="button"
+          className="fern__knopf"
+          onClick={() => void fern.fenster()}
+          title={t('fern.eigenesFensterHilfe')}
+        >
+          <ExternalLink size={14} /> {t('fern.eigenesFenster')}
+        </button>
+      )}
       <button type="button" className="fern__knopf" onClick={() => void fern.trennen()}>
         <Power size={14} /> {t('fern.trennen')}
       </button>
@@ -271,15 +284,7 @@ export function Fernsteuerung({ onClose }: { onClose: () => void }) {
     </div>
   );
 
-  return (
-    <Shell
-      title={t('fern.titel')}
-      icon={<Monitor size={16} />}
-      onClose={onClose}
-      width={1180}
-      subtitle={lage === 'offen' ? info?.takt : undefined}
-      actions={werkzeuge}
-    >
+  const inhalt = (
       <div className="fern" ref={feldRef}>
         {fehler && (
           <div className="fern__fehler">
@@ -311,6 +316,38 @@ export function Fernsteuerung({ onClose }: { onClose: () => void }) {
           )}
         </div>
       </div>
+  );
+
+  /* Im eigenen Fenster ohne Tafel: der Betrachter füllt dort alles, und ein
+     Rahmen mit Schließkreuz wäre neben dem Fensterrahmen der zweite. Die
+     Werkzeuge bleiben, sonst käme man an Steuern und Trennen nicht heran. */
+  if (eigenstaendig) {
+    return (
+      <div className="fern-fenster">
+        <div className="fern-fenster__leiste">
+          <Monitor size={15} />
+          <span className="fern-fenster__titel">{t('fern.titel')}</span>
+          {lage === 'offen' && info?.takt && (
+            <span className="fern-fenster__takt">{info.takt}</span>
+          )}
+          <span className="spacer" />
+          {werkzeuge}
+        </div>
+        {inhalt}
+      </div>
+    );
+  }
+
+  return (
+    <Shell
+      title={t('fern.titel')}
+      icon={<Monitor size={16} />}
+      onClose={onClose}
+      width={1180}
+      subtitle={lage === 'offen' ? info?.takt : undefined}
+      actions={werkzeuge}
+    >
+      {inhalt}
     </Shell>
   );
 }

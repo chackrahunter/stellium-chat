@@ -1108,6 +1108,8 @@ export const fr = {
   'fern.keinRecht': 'Tu n\'as pas le droit pour cela.',
   'fern.nichtEingerichtet': 'Aucun accès n\'est encore enregistré pour le Pi.',
   'fern.trennen': 'Déconnecter',
+  'fern.eigenesFenster': 'Fenêtre séparée',
+  'fern.eigenesFensterHilfe': 'Déplacer l’écran du Pi dans sa propre fenêtre — le chat reste utilisable.',
   'fern.passwort': 'Mot de passe',
   'fern.verbindet': 'Connexion …',
   'fern.nichtVerbunden': 'Non connecté',

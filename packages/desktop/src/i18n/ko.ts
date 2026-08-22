@@ -1108,6 +1108,8 @@ export const ko = {
   'fern.keinRecht': '이 작업 권한이 없습니다.',
   'fern.nichtEingerichtet': 'Pi 접속 정보가 아직 저장되지 않았습니다.',
   'fern.trennen': '연결 끊기',
+  'fern.eigenesFenster': '별도 창',
+  'fern.eigenesFensterHilfe': 'Pi 화면을 별도 창으로 — 채팅 앱을 계속 사용할 수 있습니다.',
   'fern.passwort': '비밀번호',
   'fern.verbindet': '연결 중 …',
   'fern.nichtVerbunden': '연결 안 됨',

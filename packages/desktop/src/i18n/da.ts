@@ -1108,6 +1108,8 @@ export const da = {
   'fern.keinRecht': 'Du har ikke rettighed til det.',
   'fern.nichtEingerichtet': 'Der er endnu ikke gemt adgang til Pi\'en.',
   'fern.trennen': 'Afbryd',
+  'fern.eigenesFenster': 'Eget vindue',
+  'fern.eigenesFensterHilfe': 'Flyt Pi-skærmen til sit eget vindue — chatten kan bruges samtidig.',
   'fern.passwort': 'Adgangskode',
   'fern.verbindet': 'Forbinder …',
   'fern.nichtVerbunden': 'Ikke forbundet',

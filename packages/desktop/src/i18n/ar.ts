@@ -1108,6 +1108,8 @@ export const ar = {
   'fern.keinRecht': 'ليس لديك صلاحية لذلك.',
   'fern.nichtEingerichtet': 'لم يُحفظ وصول للـ Pi بعد.',
   'fern.trennen': 'قطع الاتصال',
+  'fern.eigenesFenster': 'نافذة خاصة',
+  'fern.eigenesFensterHilfe': 'نقل شاشة الـPi إلى نافذة خاصة — يبقى تطبيق الدردشة قابلاً للاستخدام.',
   'fern.passwort': 'كلمة المرور',
   'fern.verbindet': 'جارٍ الاتصال …',
   'fern.nichtVerbunden': 'غير متصل',

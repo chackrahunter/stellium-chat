@@ -1145,6 +1145,8 @@ export const en: Partial<Dictionary> = {
   'fern.keinRecht': 'You don\'t have permission for this.',
   'fern.nichtEingerichtet': 'No access has been stored for the Pi yet.',
   'fern.trennen': 'Disconnect',
+  'fern.eigenesFenster': 'Own window',
+  'fern.eigenesFensterHilfe': 'Move the Pi screen into its own window — the chat app stays usable alongside.',
   'fern.passwort': 'Password',
   'fern.verbindet': 'Connecting …',
   'fern.nichtVerbunden': 'Not connected',

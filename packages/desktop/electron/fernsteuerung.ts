@@ -16,7 +16,9 @@
  * 1280x720 in RGBA sind 3,7 MB je Bild.
  */
 import crypto from 'node:crypto';
-import { clipboard, ipcMain, type BrowserWindow } from 'electron';
+import { app, BrowserWindow, clipboard, ipcMain } from 'electron';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 /*
  * Benutzt wird das **eingebaute** WebSocket von Node, nicht das Paket `ws`.
@@ -96,7 +98,27 @@ let paar: crypto.ECDH | null = null;
 let passwort = '';
 let lage: Lage = 'getrennt';
 let letzterFehler = '';
+const here = path.dirname(fileURLToPath(import.meta.url));
+const DEV_URL = process.env.VITE_DEV_SERVER_URL ?? 'http://localhost:5173';
+
 let fenster: (() => BrowserWindow | null) | null = null;
+
+/*
+ * Der Betrachter in einem eigenen Fenster.
+ *
+ * Bildstrom und Eingaben gehen dann NUR dorthin, nicht zusätzlich ins
+ * Hauptfenster. Beides zu beliefern klingt bequemer — man müsste nirgends
+ * umschalten —, hieße aber, jedes Bild zweimal über die Prozessgrenze zu
+ * schieben und zweimal zu dekodieren. Bei 45 Bildern in der Sekunde ist das
+ * kein Detail: die Hardware-Dekodierung läuft je Fenster einmal.
+ */
+let betrachter: BrowserWindow | null = null;
+
+/* Wohin Bild, Zustand und Meldungen gehen. */
+function ziel(): BrowserWindow | null {
+  if (betrachter && !betrachter.isDestroyed()) return betrachter;
+  return fenster?.() ?? null;
+}
 
 /* Was wir zuletzt selbst in die Ablage gelegt haben — damit wir es nicht
    gleich wieder zurückschicken und die beiden Seiten sich hochschaukeln. */
@@ -104,7 +126,11 @@ let ablageZuletzt = '';
 let ablageWacht: NodeJS.Timeout | null = null;
 
 function melden(): void {
-  fenster?.()?.webContents.send('fern:zustand', { lage, fehler: letzterFehler });
+  /* Der Zustand geht an BEIDE: das Hauptfenster braucht ihn für den
+     Verbinden-Knopf, auch wenn das Bild im eigenen Fenster läuft. */
+  for (const w of new Set([ziel(), fenster?.() ?? null])) {
+    if (w && !w.isDestroyed()) w.webContents.send('fern:zustand', { lage, fehler: letzterFehler });
+  }
 }
 
 function schliessen(grund: string): void {
@@ -220,7 +246,7 @@ function verbinden(adresse: string, pw: string): void {
       const paket = herein!.auf(Buffer.from(roh));
       if (!paket) return;                /* verfälscht — stillschweigend weg */
 
-      const f = fenster?.();
+      const f = ziel();
       if (!f) return;
       if (paket.art === N_BILD) {
         f.webContents.send('fern:bild', paket.inhalt);
@@ -273,6 +299,59 @@ export function fernsteuerungEinrichten(holeFenster: () => BrowserWindow | null)
   ipcMain.handle('fern:trennen', () => { schliessen(''); return true; });
   ipcMain.handle('fern:lage', () => ({ lage, fehler: letzterFehler }));
 
+  /*
+   * Den Betrachter in ein eigenes Fenster holen.
+   *
+   * Es lädt dieselbe Oberfläche mit `#fern` — deshalb braucht es weder einen
+   * zweiten Bau noch eine zweite Vorlage. Das Anmelden am Chatserver
+   * unterbleibt dort (siehe main.tsx): das Fenster zeigt nur den Bildschirm
+   * des Pi, alles andere bleibt im Hauptfenster.
+   *
+   * Steht es schon, wird es nach vorn geholt statt ein zweites zu öffnen —
+   * zwei Fenster auf denselben Strom hieße zweimal dekodieren.
+   */
+  ipcMain.handle('fern:fenster', () => {
+    if (betrachter && !betrachter.isDestroyed()) {
+      betrachter.show();
+      betrachter.focus();
+      return true;
+    }
+    betrachter = new BrowserWindow({
+      width: 1280,
+      height: 760,
+      minWidth: 640,
+      minHeight: 400,
+      show: false,
+      backgroundColor: '#080b16',
+      title: 'Pi fernsteuern',
+      webPreferences: {
+        preload: path.join(here, 'preload.mjs'),
+        additionalArguments: [`--stellium-locale=${app.getLocale()}`],
+        contextIsolation: true,
+        nodeIntegration: false,
+        sandbox: false,
+      },
+    });
+    betrachter.once('ready-to-show', () => betrachter?.show());
+    /* Zuerst aufräumen, dann den Zustand melden — sonst zeigt das
+       Hauptfenster den Knopf noch als "im eigenen Fenster", während das
+       Fenster schon zu ist. */
+    betrachter.on('closed', () => {
+      betrachter = null;
+      fenster?.()?.webContents.send('fern:zustand', { lage, fehler: letzterFehler });
+    });
+
+    const ziel_url = process.env.VITE_DEV_SERVER_URL ?? DEV_URL;
+    if (process.env.VITE_DEV_SERVER_URL || !app.isPackaged) {
+      void betrachter.loadURL(`${ziel_url}#fern`);
+    } else {
+      void betrachter.loadFile(path.join(here, '../dist/index.html'), { hash: 'fern' });
+    }
+    return true;
+  });
+
+  ipcMain.handle('fern:fensterOffen', () => Boolean(betrachter && !betrachter.isDestroyed()));
+
   /* Eingaben kommen als fertige Zeilen aus der Ansicht — sie weiß, wo der
      Zeiger auf der Leinwand steht, der Hauptprozess nicht. */
   ipcMain.on('fern:eingabe', (_e, zeilen: string) => {
@@ -286,4 +365,6 @@ export function fernsteuerungEinrichten(holeFenster: () => BrowserWindow | null)
   });
 }
 
-export function fernsteuerungBeenden(): void { schliessen(''); }
+export function fernsteuerungBeenden(): void {
+  if (betrachter && !betrachter.isDestroyed()) betrachter.close();
+  betrachter = null; schliessen(''); }

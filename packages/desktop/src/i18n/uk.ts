@@ -1108,6 +1108,8 @@ export const uk = {
   'fern.keinRecht': 'У тебе немає на це прав.',
   'fern.nichtEingerichtet': 'Доступ до Pi ще не збережено.',
   'fern.trennen': 'Відʼєднатися',
+  'fern.eigenesFenster': 'Окреме вікно',
+  'fern.eigenesFensterHilfe': 'Перенести екран Pi в окреме вікно — чат лишається доступним.',
   'fern.passwort': 'Пароль',
   'fern.verbindet': 'Підключення …',
   'fern.nichtVerbunden': 'Не підключено',

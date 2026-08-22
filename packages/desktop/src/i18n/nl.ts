@@ -1108,6 +1108,8 @@ export const nl = {
   'fern.keinRecht': 'Je hebt hiervoor geen recht.',
   'fern.nichtEingerichtet': 'Voor de Pi is nog geen toegang opgeslagen.',
   'fern.trennen': 'Verbreken',
+  'fern.eigenesFenster': 'Eigen venster',
+  'fern.eigenesFensterHilfe': 'Zet het Pi-scherm in een eigen venster — de chat blijft bruikbaar.',
   'fern.passwort': 'Wachtwoord',
   'fern.verbindet': 'Verbinden …',
   'fern.nichtVerbunden': 'Niet verbonden',

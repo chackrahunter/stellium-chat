@@ -1108,6 +1108,8 @@ export const tr = {
   'fern.keinRecht': 'Bunun için yetkin yok.',
   'fern.nichtEingerichtet': 'Pi için henüz erişim kaydedilmedi.',
   'fern.trennen': 'Bağlantıyı kes',
+  'fern.eigenesFenster': 'Ayrı pencere',
+  'fern.eigenesFensterHilfe': 'Pi ekranını ayrı bir pencereye taşı — sohbet kullanılabilir kalır.',
   'fern.passwort': 'Parola',
   'fern.verbindet': 'Bağlanıyor …',
   'fern.nichtVerbunden': 'Bağlı değil',

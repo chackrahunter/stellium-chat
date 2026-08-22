@@ -1108,6 +1108,8 @@ export const ro = {
   'fern.keinRecht': 'Nu ai dreptul pentru asta.',
   'fern.nichtEingerichtet': 'Pentru Pi nu este încă salvat niciun acces.',
   'fern.trennen': 'Deconectează',
+  'fern.eigenesFenster': 'Fereastră proprie',
+  'fern.eigenesFensterHilfe': 'Mută ecranul Pi într-o fereastră proprie — chatul rămâne utilizabil.',
   'fern.passwort': 'Parolă',
   'fern.verbindet': 'Se conectează …',
   'fern.nichtVerbunden': 'Neconectat',

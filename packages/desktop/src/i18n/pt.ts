@@ -1108,6 +1108,8 @@ export const pt = {
   'fern.keinRecht': 'Não tens permissão para isto.',
   'fern.nichtEingerichtet': 'Ainda não há acesso guardado para o Pi.',
   'fern.trennen': 'Desligar',
+  'fern.eigenesFenster': 'Janela própria',
+  'fern.eigenesFensterHilfe': 'Mover o ecrã do Pi para uma janela própria — o chat continua utilizável.',
   'fern.passwort': 'Palavra-passe',
   'fern.verbindet': 'A ligar …',
   'fern.nichtVerbunden': 'Não ligado',
