@@ -810,6 +810,7 @@ const EINSTELLUNGEN: Record<string, { spalte: string; pruefen: (w: unknown) => u
   uiLanguage: { spalte: 'ui_language', pruefen: (w) => (w === null ? null : sprache(w)) },
   autoTranslate: { spalte: 'auto_translate', pruefen: (w) => (typeof w === 'boolean' ? (w ? 1 : 0) : undefined) },
   composeTargetPreview: { spalte: 'compose_target_preview', pruefen: (w) => (typeof w === 'boolean' ? (w ? 1 : 0) : undefined) },
+  autoStatus: { spalte: 'auto_status', pruefen: (w) => (typeof w === 'boolean' ? (w ? 1 : 0) : undefined) },
   notifyOn: { spalte: 'notify_on', pruefen: (w) => ausListe(w, ['all', 'mentions', 'none']) },
   theme: { spalte: 'theme', pruefen: (w) => ausListe(w, ['system', 'dark', 'light']) },
   density: { spalte: 'density', pruefen: (w) => ausListe(w, ['comfortable', 'compact']) },

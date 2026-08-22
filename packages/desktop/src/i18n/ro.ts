@@ -198,6 +198,8 @@ export const ro = {
   'settings.changePassword': 'Schimbă parola',
   'settings.currentPassword': 'Parola curentă',
   'settings.notifyOn': 'Notifică-mă despre',
+  'settings.autoStatus': 'Starea urmează fereastra',
+  'settings.autoStatusHint': 'Cât timp Stellium e în față ești online; imediat ce treci altundeva, absent. Dezactivat, starea rămâne cea aleasă de tine.',
   'settings.notifyAll': 'Fiecare mesaj nou',
   'settings.notifyMentions': 'Doar mențiuni și DM-uri',
   'settings.notifyNone': 'Niciodată',

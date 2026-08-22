@@ -198,6 +198,8 @@ export const hi = {
   'settings.changePassword': 'पासवर्ड बदलें',
   'settings.currentPassword': 'वर्तमान पासवर्ड',
   'settings.notifyOn': 'सूचना प्राप्त करें',
+  'settings.autoStatus': 'स्थिति खिड़की के साथ चलती है',
+  'settings.autoStatusHint': 'Stellium सामने हो तो आप ऑनलाइन हैं — हटते ही तुरंत अनुपस्थित। बंद करने पर स्थिति वही रहती है जो आपने खुद तय की।',
   'settings.notifyAll': 'हर नया संदेश',
   'settings.notifyMentions': 'केवल उल्लेख और निजी संदेश',
   'settings.notifyNone': 'कभी नहीं',

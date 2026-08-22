@@ -198,6 +198,8 @@ export const ar = {
   'settings.changePassword': 'تغيير كلمة المرور',
   'settings.currentPassword': 'كلمة المرور الحالية',
   'settings.notifyOn': 'إشعاري عند',
+  'settings.autoStatus': 'الحالة تتبع النافذة',
+  'settings.autoStatusHint': 'عندما يكون Stellium في المقدمة تكون متصلاً، وبمجرد الانتقال بعيدًا تصبح غائبًا فورًا. عند الإيقاف تبقى الحالة كما ضبطتها بنفسك.',
   'settings.notifyAll': 'كل رسالة جديدة',
   'settings.notifyMentions': 'الإشارات والرسائل الخاصة فقط',
   'settings.notifyNone': 'أبدًا',

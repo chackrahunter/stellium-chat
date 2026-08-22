@@ -198,6 +198,8 @@ export const fi = {
   'settings.changePassword': 'Vaihda salasana',
   'settings.currentPassword': 'Nykyinen salasana',
   'settings.notifyOn': 'Ilmoita kun',
+  'settings.autoStatus': 'Tila seuraa ikkunaa',
+  'settings.autoStatusHint': 'Kun Stellium on edessä, olet paikalla — heti kun siirryt muualle, poissa. Pois päältä tila pysyy sellaisena kuin itse asetit.',
   'settings.notifyAll': 'Jokainen uusi viesti',
   'settings.notifyMentions': 'Vain maininnat ja yksityisviestit',
   'settings.notifyNone': 'Ei koskaan',

@@ -198,6 +198,8 @@ export const cs = {
   'settings.changePassword': 'Změnit heslo',
   'settings.currentPassword': 'Stávající heslo',
   'settings.notifyOn': 'Upozorňovat na',
+  'settings.autoStatus': 'Stav sleduje okno',
+  'settings.autoStatusHint': 'Když je Stellium vpředu, jsi online — jakmile přepneš jinam, hned nepřítomný. Vypnuto zůstane stav takový, jaký sis nastavil.',
   'settings.notifyAll': 'Všechny nové zprávy',
   'settings.notifyMentions': 'Pouze zmínky a soukromé zprávy',
   'settings.notifyNone': 'Nikdy',

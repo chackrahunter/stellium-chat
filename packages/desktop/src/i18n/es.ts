@@ -198,6 +198,8 @@ export const es = {
   'settings.changePassword': 'Cambiar contraseña',
   'settings.currentPassword': 'Contraseña actual',
   'settings.notifyOn': 'Notificar sobre',
+  'settings.autoStatus': 'El estado sigue a la ventana',
+  'settings.autoStatusHint': 'Con Stellium en primer plano estás en línea; en cuanto cambias de ventana, ausente al instante. Desactivado, el estado queda como tú lo pusiste.',
   'settings.notifyAll': 'Todos los mensajes nuevos',
   'settings.notifyMentions': 'Solo menciones y MD',
   'settings.notifyNone': 'Nunca',

@@ -198,6 +198,8 @@ export const fr = {
   'settings.changePassword': 'Modifier le mot de passe',
   'settings.currentPassword': 'Mot de passe actuel',
   'settings.notifyOn': 'Me notifier pour',
+  'settings.autoStatus': 'Le statut suit la fenêtre',
+  'settings.autoStatusHint': 'Quand Stellium est au premier plan tu es en ligne ; dès que tu passes ailleurs, absent aussitôt. Désactivé, le statut reste celui que tu as choisi.',
   'settings.notifyAll': 'Tous les nouveaux messages',
   'settings.notifyMentions': 'Mentions et messages privés uniquement',
   'settings.notifyNone': 'Jamais',

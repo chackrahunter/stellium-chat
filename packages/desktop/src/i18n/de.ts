@@ -210,6 +210,8 @@ export const de = {
   'settings.changePassword': 'Passwort ändern',
   'settings.currentPassword': 'Bisheriges Passwort',
   'settings.notifyOn': 'Benachrichtigen bei',
+  'settings.autoStatus': 'Status folgt dem Fenster',
+  'settings.autoStatusHint': 'Ist Stellium im Vordergrund, bist du online — sobald du wegklickst, sofort abwesend. Ausgeschaltet bleibt der Status so, wie du ihn selbst gesetzt hast.',
   'settings.notifyAll': 'Allen neuen Nachrichten',
   'settings.notifyMentions': 'Nur Erwähnungen und DMs',
   'settings.notifyNone': 'Nie',

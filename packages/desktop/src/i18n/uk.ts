@@ -198,6 +198,8 @@ export const uk = {
   'settings.changePassword': 'Змінити пароль',
   'settings.currentPassword': 'Поточний пароль',
   'settings.notifyOn': 'Повідомляти про',
+  'settings.autoStatus': 'Статус слідує за вікном',
+  'settings.autoStatusHint': 'Поки Stellium попереду, ви в мережі; щойно перемкнетесь — одразу відійшов. Вимкнено: статус лишається таким, як ви його задали.',
   'settings.notifyAll': 'Кожне нове повідомлення',
   'settings.notifyMentions': 'Тільки згадки та особисті повідомлення',
   'settings.notifyNone': 'Ніколи',

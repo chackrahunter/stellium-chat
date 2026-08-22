@@ -51,6 +51,7 @@ export function toSelf(r: any): SelfUser {
   return {
     ...toUser(r),
     notifyOn: r.notify_on,
+    autoStatus: r.auto_status !== 0,
     quietHoursStart: r.quiet_hours_start ?? null,
     quietHoursEnd: r.quiet_hours_end ?? null,
     composeTargetPreview: Boolean(r.compose_target_preview),

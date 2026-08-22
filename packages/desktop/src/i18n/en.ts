@@ -187,6 +187,8 @@ export const en: Partial<Dictionary> = {
   'settings.changePassword': 'Change password',
   'settings.currentPassword': 'Current password',
   'settings.notifyOn': 'Notify me about',
+  'settings.autoStatus': 'Status follows the window',
+  'settings.autoStatusHint': 'While Stellium is in the foreground you are online — as soon as you click away, immediately away. Turned off, your status stays as you set it yourself.',
   'settings.notifyAll': 'Every new message',
   'settings.notifyMentions': 'Mentions and DMs only',
   'settings.notifyNone': 'Never',

@@ -48,18 +48,6 @@ import { sichereRaender } from '../lib/klemmen.js';
  */
 const NIE = 8_640_000_000_000;
 
-/**
- * Ab wann ohne jede Eingabe von selbst „abwesend" gilt.
- *
- * Fünf Minuten sind die Schwelle, die auch Bildschirmschoner verwenden, und
- * sie fühlt sich richtig an: wer nachdenkt oder eine lange Nachricht liest,
- * bleibt grün; wer den Platz verlässt, ist es nach kurzer Zeit nicht mehr.
- *
- * Dieser Wächter ist der genaue: er sieht echte Eingaben. Der Server hat für
- * Verbindungen, die ihn nicht mitbringen, eine zweite, viel großzügigere
- * Frist — er kennt nur Ereignisse und müsste sonst raten.
- */
-const LEERLAUF_MS = 5 * 60_000;
 
 /** So lang darf eine Meldung sein — was darüber steht, liest ohnehin niemand. */
 const MELDUNG_MAX = 80;
@@ -312,57 +300,75 @@ export function StatusMenu() {
   }, [offen]);
 
   /*
-   * Leerlaufwächter.
+   * Der Status folgt dem Fenster.
    *
-   * Ohne ihn bleibt ein vergessener, offener Rechner für immer grün — der
-   * häufigste Grund dafür, dass jemand als online erscheint, obwohl er es
-   * nicht ist. Er hängt hier, weil diese Komponente in der Leiste steckt und
-   * damit von der Anmeldung bis zum Schließen der App durchgehend lebt.
+   * Vorher hing er an einer Leerlaufuhr: alle 30 Sekunden nachsehen, ob seit
+   * einer Weile nichts getippt wurde, und dann auf abwesend gehen. Das hatte
+   * zwei Fehler. Der eine war die Unregelmäßigkeit — bis zu 30 Sekunden
+   * Verzug, und weil der Server dieselbe Regel noch einmal für sich anwandte,
+   * sprang der Status scheinbar willkürlich um. Der andere stand eine Zeile
+   * tiefer: `visibilitychange` rief `beruehren()`, und das meldet ONLINE.
+   * Wegklicken setzte die Leerlaufuhr also zurück, statt auf abwesend zu
+   * gehen — genau verkehrt herum.
+   *
+   * Jetzt zählt nur noch, ob das Fenster vorn ist: vorn heißt online, weg
+   * heißt sofort abwesend. Das ist die Regel, die jeder erwartet, und sie
+   * braucht keine Uhr.
+   *
+   * Der kurze Aufschub ist kein Zögern, sondern nötig: beim Umschalten
+   * zwischen Fenstern verliert das eigene für Sekundenbruchteile den Fokus,
+   * bevor es ihn zurückbekommt. Ohne ihn flackerte der Status für alle
+   * anderen sichtbar.
    */
+  const autoStatus = self?.autoStatus !== false;
   useEffect(() => {
-    if (!self) return;
-    let letzteEingabe = Date.now();
-    let alsAbwesendGemeldet = false;
+    if (!self || !autoStatus) return;
 
-    /*
-     * Ausdrücklich mit "statusExpiresAt: null". Das ist die Marke für „vom
-     * Wächter gemeldet, nicht vom Menschen gewählt": der Server verwirft eine
-     * solche Meldung, solange ein selbst gesetzter Status seine Frist noch
-     * hat. Über store.setStatus ginge das nicht — dessen Signatur kennt die
-     * Frist nicht, und genau das unterscheidet die beiden Wege.
-     */
+    /* Ausdrücklich mit "statusExpiresAt: null" — die Marke für „vom Wächter
+       gemeldet, nicht vom Menschen gewählt". Der Server verwirft eine solche
+       Meldung, solange ein selbst gesetzter Status seine Frist noch hat. */
     const melden = (status: UserStatus) => {
       socket.send({ t: 'presence:set', status, statusExpiresAt: null });
     };
 
-    const beruehren = () => {
-      letzteEingabe = Date.now();
-      if (!alsAbwesendGemeldet) return;
-      alsAbwesendGemeldet = false;
-      melden('online');
-    };
+    const vorn = () => document.visibilityState === 'visible' && document.hasFocus();
+    let gemeldet: UserStatus | null = null;
+    let aufschub = 0;
 
     const pruefen = () => {
-      if (alsAbwesendGemeldet) return;
-      if (Date.now() - letzteEingabe < LEERLAUF_MS) return;
-      alsAbwesendGemeldet = true;
-      melden('away');
+      const soll: UserStatus = vorn() ? 'online' : 'away';
+      if (soll === gemeldet) return;
+      gemeldet = soll;
+      melden(soll);
     };
 
-    /* Ein verstecktes Fenster bekommt gar keine Eingaben mehr — die Uhr läuft
-       dann von selbst ab, dafür braucht es keinen Sonderfall. Nur der Weg
-       zurück muss gemeldet werden. */
-    const events = ['pointerdown', 'pointermove', 'keydown', 'wheel', 'focus'] as const;
-    for (const name of events) window.addEventListener(name, beruehren, { passive: true });
-    document.addEventListener('visibilitychange', beruehren);
-    const takt = window.setInterval(pruefen, 30_000);
+    const spaeter = () => {
+      window.clearTimeout(aufschub);
+      aufschub = window.setTimeout(pruefen, 400);
+    };
+
+    for (const name of ['focus', 'blur'] as const) window.addEventListener(name, spaeter);
+    document.addEventListener('visibilitychange', spaeter);
+    pruefen();
+
+    /*
+     * Lebenszeichen, solange das Fenster vorn ist.
+     *
+     * Der Server hat eine eigene Leerlaufregel und schiebt nach einer Weile
+     * ohne Nachricht auf abwesend. Ohne dieses Zeichen fiele jemand, der eine
+     * lange Unterhaltung nur LIEST, nach ein paar Minuten auf abwesend —
+     * obwohl er direkt davorsitzt. Eine Minute ist reichlich unter jeder
+     * Leerlaufgrenze und kostet eine winzige Nachricht.
+     */
+    const puls = window.setInterval(() => { if (vorn()) melden('online'); }, 60_000);
 
     return () => {
-      for (const name of events) window.removeEventListener(name, beruehren);
-      document.removeEventListener('visibilitychange', beruehren);
-      clearInterval(takt);
+      window.clearTimeout(aufschub);
+      window.clearInterval(puls);
+      for (const name of ['focus', 'blur'] as const) window.removeEventListener(name, spaeter);
+      document.removeEventListener('visibilitychange', spaeter);
     };
-  }, [self?.id]);
+  }, [self, autoStatus]);
 
   /* Wann endet, was gerade gilt? Nur anzeigen, solange es in der Zukunft liegt —
      eine abgelaufene Frist räumt der Server ohnehin gleich ab, und „für immer"

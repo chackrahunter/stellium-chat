@@ -42,6 +42,8 @@ export interface User {
 /** Was der Client über sich selbst weiß (inkl. privater Felder). */
 export interface SelfUser extends User {
   notifyOn: 'all' | 'mentions' | 'none';
+  /** Status folgt dem Fenster: im Vordergrund online, sonst abwesend. */
+  autoStatus: boolean;
   quietHoursStart: number | null;  // Minuten seit Mitternacht, lokal
   quietHoursEnd: number | null;
   composeTargetPreview: boolean;   // Übersetzungs-Vorschau vor dem Senden

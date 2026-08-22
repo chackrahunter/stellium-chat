@@ -198,6 +198,8 @@ export const ko = {
   'settings.changePassword': '비밀번호 변경',
   'settings.currentPassword': '현재 비밀번호',
   'settings.notifyOn': '알림 설정',
+  'settings.autoStatus': '상태가 창을 따릅니다',
+  'settings.autoStatusHint': 'Stellium이 앞에 있으면 온라인, 다른 곳으로 넘어가면 바로 자리 비움이 됩니다. 끄면 직접 설정한 상태가 유지됩니다.',
   'settings.notifyAll': '새 메시지 모두',
   'settings.notifyMentions': '멘션 및 DM만',
   'settings.notifyNone': '알림 안 함',

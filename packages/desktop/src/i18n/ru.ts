@@ -198,6 +198,8 @@ export const ru = {
   'settings.changePassword': 'Сменить пароль',
   'settings.currentPassword': 'Текущий пароль',
   'settings.notifyOn': 'Уведомлять о',
+  'settings.autoStatus': 'Статус следует за окном',
+  'settings.autoStatusHint': 'Пока Stellium впереди, вы в сети; как только переключитесь — сразу отошёл. Выключено: статус остаётся таким, каким вы его задали.',
   'settings.notifyAll': 'Все новые сообщения',
   'settings.notifyMentions': 'Только упоминания и личные сообщения',
   'settings.notifyNone': 'Никогда',

@@ -198,6 +198,8 @@ export const ja = {
   'settings.changePassword': 'パスワードを変更',
   'settings.currentPassword': '現在のパスワード',
   'settings.notifyOn': '通知設定',
+  'settings.autoStatus': 'ステータスはウィンドウに従う',
+  'settings.autoStatusHint': 'Stellium が前面にあるときはオンライン、離れた瞬間に離席になります。オフにすると、自分で設定した状態のままです。',
   'settings.notifyAll': 'すべての新メッセージ',
   'settings.notifyMentions': 'メンションとDMのみ',
   'settings.notifyNone': '通知しない',

@@ -26,6 +26,8 @@ CREATE TABLE IF NOT EXISTS users (
   quiet_hours_start     INTEGER,
   quiet_hours_end       INTEGER,
   compose_target_preview INTEGER NOT NULL DEFAULT 1,
+  -- Status folgt dem Fenster (vorn = online, weg = abwesend)
+  auto_status           INTEGER NOT NULL DEFAULT 1,
   -- Schublade in der Verwaltung. NULL heißt: automatisch einsortieren.
   kategorie  TEXT,
   theme                 TEXT NOT NULL DEFAULT 'dark',

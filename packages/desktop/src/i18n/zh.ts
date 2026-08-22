@@ -198,6 +198,8 @@ export const zh = {
   'settings.changePassword': '更改密码',
   'settings.currentPassword': '当前密码',
   'settings.notifyOn': '通知方式',
+  'settings.autoStatus': '状态跟随窗口',
+  'settings.autoStatusHint': 'Stellium 在前台时你是在线；一旦切走，立即离开。关闭后，状态保持你自己设定的样子。',
   'settings.notifyAll': '所有新消息',
   'settings.notifyMentions': '仅提及和私信',
   'settings.notifyNone': '从不',

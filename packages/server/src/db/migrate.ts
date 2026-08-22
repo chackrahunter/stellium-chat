@@ -79,6 +79,12 @@ const COLUMNS: { table: string; column: string; definition: string }[] = [
   /* Projekte bündeln Aufgaben. Ohne Projekt bleibt die Spalte NULL — genau
      so, wie das Brett vorher aussah. */
   { table: 'tasks',  column: 'projekt_id',  definition: 'TEXT' },
+  /* Der Status folgt dem Fenster: vorn = online, weg = abwesend. Wer das
+     nicht will, schaltet es hier ab. Vorgabe an, weil es die Erwartung der
+     allermeisten ist — und weil ein vergessener offener Rechner sonst für
+     alle anderen grün bleibt. */
+  { table: 'users', column: 'auto_status', definition: 'INTEGER NOT NULL DEFAULT 1' },
+
   /* Vorschläge der Art „termin" brauchen einen Zeitpunkt. */
   { table: 'vorschlaege', column: 'beginnt_am',    definition: 'INTEGER' },
   { table: 'vorschlaege', column: 'dauer_minuten', definition: 'INTEGER' },

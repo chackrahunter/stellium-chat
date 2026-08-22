@@ -248,7 +248,16 @@ export function Settings({ onClose }: { onClose: () => void }) {
 
           {tab === 'benachrichtigungen' && (
             <>
-              <div className="field">
+              {/* Der Status gehört fachlich hierher: es ist dieselbe Frage —
+                  wann merkt Stellium, dass ich da bin, und wann nicht. */}
+              <Row
+                title={t('settings.autoStatus')}
+                sub={t('settings.autoStatusHint')}
+                checked={self.autoStatus}
+                onChange={(v) => updatePrefs({ autoStatus: v })}
+              />
+
+              <div className="field" style={{ marginTop: 'var(--sp-4)' }}>
                 <label className="field__label">{t('settings.notifyOn')}</label>
                 <select
                   className="select"

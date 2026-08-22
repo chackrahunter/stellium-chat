@@ -198,6 +198,8 @@ export const no = {
   'settings.changePassword': 'Endre passord',
   'settings.currentPassword': 'Nåværende passord',
   'settings.notifyOn': 'Varsle meg om',
+  'settings.autoStatus': 'Status følger vinduet',
+  'settings.autoStatusHint': 'Når Stellium ligger fremst, er du pålogget — så snart du klikker vekk, straks borte. Avslått blir statusen slik du selv satte den.',
   'settings.notifyAll': 'Alle nye meldinger',
   'settings.notifyMentions': 'Kun nevnelser og direktemeldinger',
   'settings.notifyNone': 'Aldri',

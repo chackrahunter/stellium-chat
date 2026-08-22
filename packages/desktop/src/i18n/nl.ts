@@ -198,6 +198,8 @@ export const nl = {
   'settings.changePassword': 'Wachtwoord wijzigen',
   'settings.currentPassword': 'Huidig wachtwoord',
   'settings.notifyOn': 'Melden bij',
+  'settings.autoStatus': 'Status volgt het venster',
+  'settings.autoStatusHint': 'Staat Stellium op de voorgrond, dan ben je online — klik je weg, dan meteen afwezig. Uit blijft je status zoals je hem zelf zette.',
   'settings.notifyAll': 'Alle nieuwe berichten',
   'settings.notifyMentions': 'Alleen vermeldingen en DM\'s',
   'settings.notifyNone': 'Nooit',

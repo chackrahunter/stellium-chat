@@ -198,6 +198,8 @@ export const sv = {
   'settings.changePassword': 'Ändra lösenord',
   'settings.currentPassword': 'Aktuellt lösenord',
   'settings.notifyOn': 'Meddela mig om',
+  'settings.autoStatus': 'Status följer fönstret',
+  'settings.autoStatusHint': 'När Stellium ligger överst är du online — så fort du klickar bort blir du frånvarande. Avstängt behåller statusen du satt själv.',
   'settings.notifyAll': 'Alla nya meddelanden',
   'settings.notifyMentions': 'Endast omnämnanden och DM',
   'settings.notifyNone': 'Aldrig',

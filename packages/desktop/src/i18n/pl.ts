@@ -198,6 +198,8 @@ export const pl = {
   'settings.changePassword': 'Zmień hasło',
   'settings.currentPassword': 'Obecne hasło',
   'settings.notifyOn': 'Powiadamiaj o',
+  'settings.autoStatus': 'Status podąża za oknem',
+  'settings.autoStatusHint': 'Gdy Stellium jest na wierzchu, jesteś online — po przełączeniu od razu zaraz wracam. Wyłączone: status zostaje taki, jaki ustawisz sam.',
   'settings.notifyAll': 'Wszystkie nowe wiadomości',
   'settings.notifyMentions': 'Tylko wzmianki i wiadomości prywatne',
   'settings.notifyNone': 'Nigdy',

@@ -198,6 +198,8 @@ export const da = {
   'settings.changePassword': 'Skift adgangskode',
   'settings.currentPassword': 'Nuværende adgangskode',
   'settings.notifyOn': 'Underret mig om',
+  'settings.autoStatus': 'Status følger vinduet',
+  'settings.autoStatusHint': 'Når Stellium er forrest, er du online — så snart du klikker væk, straks fraværende. Slået fra bliver status, som du selv satte den.',
   'settings.notifyAll': 'Alle nye beskeder',
   'settings.notifyMentions': 'Kun nævnelser og DMs',
   'settings.notifyNone': 'Aldrig',

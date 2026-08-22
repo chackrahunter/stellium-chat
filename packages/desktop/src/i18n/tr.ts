@@ -198,6 +198,8 @@ export const tr = {
   'settings.changePassword': 'Şifre değiştir',
   'settings.currentPassword': 'Mevcut şifre',
   'settings.notifyOn': 'Bildir',
+  'settings.autoStatus': 'Durum pencereyi izler',
+  'settings.autoStatusHint': 'Stellium öndeyken çevrimiçisin; başka yere geçince hemen uzakta. Kapalıyken durum senin ayarladığın gibi kalır.',
   'settings.notifyAll': 'Tüm yeni mesajlar',
   'settings.notifyMentions': 'Sadece bahsedenler ve DM\'ler',
   'settings.notifyNone': 'Hiç',
