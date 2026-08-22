@@ -132,10 +132,26 @@ Im Dashboard des Pi steht unten in der Fernzugriffs-Karte eine Zeile
 
 ## Wie es hinausgeht
 
-Port **7788**, freigegeben über NAT-PMP und in `stellium-zugang` aufgenommen,
-also stündlich erneuert. In der Firewall des Pi eigens erlaubt (`ufw allow
-7788/tcp`) — ohne das ging nichts durch, obwohl der Router weiterleitete und
-der Dienst lauschte.
+Port **7788**, freigegeben über NAT-PMP. In der Firewall des Pi eigens erlaubt
+(`ufw allow 7788/tcp`) — ohne das ging nichts durch, obwohl der Router
+weiterleitete und der Dienst lauschte.
+
+Die Freigabe im Router gilt **nur auf Zeit** (3600 s). Läuft sie ab, ist der
+Port zu und die App meldet „Keine Antwort — ist die Adresse richtig?", obwohl
+am Pi alles in Ordnung aussieht: Dienst aktiv, `ufw` offen, `ss` zeigt den
+Lauscher. Der Unterschied ist nur von außen sichtbar:
+
+    nc -z <öffentliche IP> 7788
+
+Hier stand früher, 7788 sei „in `stellium-zugang` aufgenommen, also stündlich
+erneuert". Das stimmte nie — `stellium-zugang` erneuert HTTP, HTTPS und SSH,
+sonst nichts. Deshalb blieb SSH erreichbar, während die Fernsteuerung nach
+einer Stunde still wegfiel. Die ungeprüfte Zeile war das eigentliche Problem:
+sie sah aus wie eine Zusage und war keine.
+
+Zuständig ist jetzt `stellium-fern-port.timer` (siehe `einheiten/`), alle
+20 Minuten — dreifacher Abstand zur Frist, damit ein ausgefallener Lauf
+nichts ausmacht.
 
 Kein TLS davor, und das ist kein Versäumnis: Handschlag und Strom sind
 Ende-zu-Ende verschlüsselt (ECDH P-256 + scrypt, AES-256-GCM). Eine zweite

@@ -1,0 +1,12 @@
+[Unit]
+Description=Stellium: Weiterleitung der Fernsteuerung alle 20 Minuten auffrischen
+
+[Timer]
+# 20 Minuten bei 60 Minuten Frist — dreifacher Sicherheitsabstand. Faellt
+# eine Auffrischung aus, bleibt der Port trotzdem offen.
+OnBootSec=45s
+OnUnitActiveSec=20min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

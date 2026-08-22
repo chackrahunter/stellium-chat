@@ -1,0 +1,11 @@
+[Unit]
+# Der Router vergisst Weiterleitungen: NAT-PMP vergibt sie nur auf Zeit
+# (hier 3600 s). Laeuft die Frist ab, ist der Port wieder zu und die App
+# meldet "Keine Antwort" — ohne dass sich am Pi etwas geaendert haette.
+# Deshalb wird die Freigabe regelmaessig neu angefordert, genau wie bei SSH.
+Description=Stellium: Weiterleitung der Fernsteuerung im Router auffrischen
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/natpmpc -a 7788 7788 tcp 3600
