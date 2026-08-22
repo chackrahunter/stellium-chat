@@ -24,8 +24,15 @@ await p.evaluate(([s, t]) => {
 await p.reload();
 await p.waitForSelector('.app', { timeout: 20000 });
 
-// So meldet ein iPhone 15 Pro seine Ränder.
-await p.addStyleTag({ content: ':root { --sicher-oben: 59px; --sicher-unten: 34px; --sicher-links: 0px; --sicher-rechts: 0px; }' });
+/* KEINE GERÄTERÄNDER MEHR EINSETZEN — sie kommen so nicht vor.
+   Hier stand `--sicher-oben: 59px; --sicher-unten: 34px`, "so wie ein iPhone
+   sie meldet". Das galt, solange `viewport-fit=cover` im Kopf der Seite
+   stand. Seit das draußen ist, meldet `env(safe-area-inset-*)` auf JEDEM
+   Gerät 0 — Safari setzt die Seite selbst unter die Statusleiste, statt sie
+   darunter malen zu lassen. Wer hier 59 px einsetzt, prüft ein Layout, das
+   ausgeliefert nie entsteht.
+   Die Messung darunter bleibt richtig und wird nur nicht mehr verstellt:
+   deckt der Hintergrund den Bildbereich bis an alle vier Ränder? */
 await p.waitForTimeout(900);
 
 /* WAS HIER FRÜHER GEMESSEN WURDE — UND WARUM ES NICHTS SAGTE
@@ -77,4 +84,3 @@ if (unlesbar.length) {
   console.log(`✗ ${unlesbar.length} Punkt(e) waren nicht lesbar — es wurde nichts gemessen.`);
 }
 process.exit(schwarz.length || unlesbar.length ? 1 : 0);
-process.exit(schwarz.length ? 1 : 0);

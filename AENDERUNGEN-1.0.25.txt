@@ -1,0 +1,3 @@
+Fernsteuerung: eigenes Fenster fuellt jetzt den Platz
+Fernsteuerung: Rueckstau als Zeit messen, nicht als Bytes
+Fernsteuerung: Router-Freigabe selbst erneuern

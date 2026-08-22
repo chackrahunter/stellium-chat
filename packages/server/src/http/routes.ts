@@ -1166,7 +1166,21 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       return { da: false };
     }
     try {
-      return { da: true, werte: await systemwerte.werte() };
+      const alles = await systemwerte.werte() as Record<string, unknown>;
+      /* Die Konsole liefert ALLES, was sie weiß — auch was das Geschäft
+         einbringt. Hier stand vorher `werte: await systemwerte.werte()`,
+         und damit ging `abo` an jeden, der `system.ansehen` hat. Solange
+         kein Gumroad-Token hinterlegt war, fiel das nicht auf: die Felder
+         waren null. Mit Token wären es Abonnentenzahl und Einnahmen
+         gewesen — und der Hinweis zu `system.ansehen` verspricht
+         ausdrücklich das Gegenteil ("nur Zahlen — Auslastung, Speicher,
+         Besucher").
+         Weggelassen statt geleert: ein Feld, das null ist, sieht aus wie
+         "es gibt gerade nichts". Fehlt es, ist klar, dass hier jemand
+         etwas nicht sehen darf. */
+      if (users.may(wer, 'verkauf.sehen')) return { da: true, werte: alles };
+      const { abo: _abo, kaufquote: _kaufquote, ...ohneGeld } = alles;
+      return { da: true, werte: ohneGeld };
     } catch (f) {
       return fehler(reply, 503, 'fehler.systemwerte',
         `Die Systemwerte sind gerade nicht zu holen: ${(f as Error).message}`);

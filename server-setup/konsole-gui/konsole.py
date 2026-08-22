@@ -139,6 +139,14 @@ TEXTE = {
         "ordner_hier": "diesen Ordner nehmen",
         # ── Website des Kollegen (läuft auf demselben Pi, gehört uns nicht)
         "web": "Triton Website",
+        # ── Verkauf (Abo bei Gumroad, siehe stellium-konsole.mjs)
+        "verkauf": "Verkauf",
+        "vk_produkt": "Produkt", "vk_mitglieder": "Mitglieder",
+        "vk_umsatz": "Umsatz je Monat", "vk_preis": "Preis",
+        "vk_probe": "Probezeit", "vk_einnahmen": "Einnahmen",
+        "vk_kein_token": "kein Gumroad-Token", "vk_geschaetzt": "aus der Mitgliederzahl",
+        "vk_tage": "{n} Tage", "vk_unvollstaendig": "unvollständig",
+        "vk_noch_keine": "noch keine",
         "web_jetzt": "gerade da", "web_heute_t": "heute",
         "web_zustand": "Auslieferung", "web_heute": "Heute", "web_woche_n": "{n} Tage",
         "web_verlauf": "24 Stunden", "web_beliebt": "Beliebt",
@@ -210,6 +218,14 @@ TEXTE = {
         "ordner_hier": "take this folder",
         # ── Colleague's website (same Pi, not ours)
         "web": "Triton Website",
+        # ── Sales (Gumroad subscription, see stellium-konsole.mjs)
+        "verkauf": "Sales",
+        "vk_produkt": "Product", "vk_mitglieder": "Members",
+        "vk_umsatz": "Monthly revenue", "vk_preis": "Price",
+        "vk_probe": "Trial", "vk_einnahmen": "Earnings",
+        "vk_kein_token": "no Gumroad token", "vk_geschaetzt": "from the member count",
+        "vk_tage": "{n} days", "vk_unvollstaendig": "incomplete",
+        "vk_noch_keine": "none yet",
         "web_jetzt": "here now", "web_heute_t": "today",
         "web_zustand": "Serving", "web_heute": "Today", "web_woche_n": "{n} days",
         "web_verlauf": "24 hours", "web_beliebt": "Most visited",
@@ -477,6 +493,19 @@ def prozent(anteil):
 
 def menge(n):
     """Eine ganze Zahl mit Tausenderpunkten — im Englischen mit Komma.
+
+
+# Währungszeichen statt Kürzel: „$25.00" liest sich, „2500 USD" rechnet man
+# erst. Die Beträge kommen aus Gumroad in Cent.
+WAEHRUNGSZEICHEN = {"USD": "$", "EUR": "€", "GBP": "£", "JPY": "¥"}
+
+
+def geld(cent, waehrung="USD"):
+    if cent is None:
+        return "—"
+    z = WAEHRUNGSZEICHEN.get((waehrung or "USD").upper())
+    betrag = f"{cent / 100:,.2f}"
+    return f"{z}{betrag}" if z else f"{betrag} {waehrung}"
 
     Heißt nicht `zahl`: so heißt schon das Schlüsselwort, mit dem ein Tacho
     seine große Ziffer bekommt, und beides in derselben Zeile zu lesen wäre
@@ -2226,7 +2255,14 @@ class Konsole:
         self.k_aussen.pack(fill="x")
 
         self.k_leistung = Karte(mitte, "leistung", F["rand"], "SYS·04")
-        self.k_leistung.pack(fill="x")
+        self.k_leistung.pack(fill="x", pady=(0, 12))
+        # Das Abo gehört zur Website des Kollegen, steht aber hier in der
+        # Mitte: rechts hätte die Spalte sonst drei Karten und die Mitte
+        # eine einzige. Grün, weil es das Einzige auf diesem Schirm ist, das
+        # Geld bedeutet — und weil es sich damit von den Auslastungswerten
+        # daneben unterscheidet.
+        self.k_verkauf = Karte(mitte, "verkauf", F["gut"], "PAY·07")
+        self.k_verkauf.pack(fill="x")
         # Triton läuft auf demselben Pi, gehört aber nicht uns: nur gelesen,
         # nie angefasst (server-setup/FREMDE-DIENSTE.md). Der eigene Ton hebt
         # die Karte von unseren ab.
@@ -3101,6 +3137,53 @@ class Konsole:
 
         for t in d.get("bestandteile", []):
             self.k_teile.feld(t["name"], t["fassung"], roh=t["name"])
+
+        # ── Verkauf
+        # Die Zahlen stehen längst in `stellium-konsole.mjs` — Mitglieder und
+        # Preise öffentlich, Einnahmen nur mit Gumroad-Token. Angezeigt wurden
+        # sie bisher nirgends.
+        ab = d.get("abo") or {}
+        if ab.get("da"):
+            waehrung = ab.get("waehrung") or "USD"
+            self.k_verkauf.feld("vk_produkt", ab.get("name") or "—")
+
+            mitglieder = ab.get("mitglieder")
+            self.k_verkauf.feld(
+                "vk_mitglieder",
+                "—" if mitglieder is None
+                else (f"0  ·  {T('vk_noch_keine')}" if mitglieder == 0 else menge(mitglieder)),
+                F["gut"] if mitglieder else F["zeit"])
+
+            # Der Monatsumsatz kann auf zwei Wegen entstehen. Ohne Token ist er
+            # aus der Mitgliederzahl gerechnet — das gehört danebengeschrieben,
+            # sonst liest sich eine Schätzung wie eine Abrechnung.
+            u = ab.get("umsatz") or {}
+            text = geld(u.get("monatCent"), u.get("waehrung") or waehrung)
+            if u.get("grundlage") == "mitgliederzahl":
+                text += f"  ·  {T('vk_geschaetzt')}"
+            self.k_verkauf.feld("vk_umsatz", text,
+                                F["gut"] if (u.get("monatCent") or 0) > 0 else F["zeit"])
+
+            self.k_verkauf.feld("vk_preis", ab.get("preisText") or "—")
+
+            pr = ab.get("probe") or {}
+            self.k_verkauf.feld(
+                "vk_probe",
+                f"{pr.get('anzahl')} {pr.get('einheit')}" if pr.get("anzahl") else "—",
+                F["zeit"])
+
+            # Ohne Token gibt es keine echten Einnahmen. Das steht als Grund da
+            # und nicht als Strich: „—" hieße „nichts eingenommen".
+            ein = ab.get("einnahmen")
+            if not ein:
+                self.k_verkauf.feld("vk_einnahmen", T("vk_kein_token"), F["zeit"])
+            else:
+                text = (f"{geld(ein.get('nettoCent'), ein.get('waehrung') or waehrung)}"
+                        f"  ·  {T('vk_tage', n=ein.get('tage', 30))}")
+                if ein.get("vollstaendig") is False:
+                    text += f"  ·  {T('vk_unvollstaendig')}"
+                self.k_verkauf.feld("vk_einnahmen", text,
+                                    F["warn"] if ein.get("vollstaendig") is False else F["gut"])
 
 
 if __name__ == "__main__":

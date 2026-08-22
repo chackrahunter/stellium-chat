@@ -838,12 +838,27 @@ function stutzen(karte, max) {
 
 const obenAuf = (karte, n) => Object.entries(karte).sort((a, b) => b[1] - a[1]).slice(0, n);
 
+/* Warum der letzte Journalabruf scheiterte — für die Anzeige, nicht fürs
+   Protokoll. Ohne das war "kein Zugriff" von "keine Besucher" nicht zu
+   unterscheiden: beides kam als lauter Nullen heraus. Genau so stand in der
+   Chat-App 0 Aufrufe, während auf dem Schreibtisch über tausend standen —
+   der Chat-Server läuft als `stellium` und darf das Journal von `caddy`
+   nicht lesen, der Schreibtisch läuft als Benutzer mit Journalrecht.
+   Eine Zahl, die falsch ist, aber richtig aussieht, ist schlimmer als eine
+   fehlende. */
+let journalFehler = null;
+
 function journal(args, puffer, zeit) {
   try {
-    return execFileSync('journalctl', args, {
+    const aus = execFileSync('journalctl', args, {
       encoding: 'utf8', timeout: zeit, maxBuffer: puffer, stdio: ['ignore', 'pipe', 'ignore'],
     });
-  } catch { return null; }
+    journalFehler = null;
+    return aus;
+  } catch (f) {
+    journalFehler = String(f?.message ?? f).slice(0, 120);
+    return null;
+  }
 }
 
 /** Aus den Journalzeilen die wenigen Angaben herausholen, die gebraucht werden. */
@@ -1021,7 +1036,7 @@ function standSchreiben(stand) {
 
 const tagBesucher = (d) => (d ? Object.keys(d.besucher ?? {}).length || d.besucherFest || 0 : 0);
 
-function webstatistik() {
+function webstatistikRechnen() {
   const laeuft = dienstAktiv('caddy');
   let stand = null;
   try { stand = JSON.parse(fs.readFileSync(WEBSTAT_DATEI, 'utf8')); } catch { /* noch keine */ }
@@ -1043,6 +1058,11 @@ function webstatistik() {
     else args.push(`--after-cursor=${stand.cursor}`);
     const roh = journal(args, erstes ? 512 * 1024 * 1024 : 64 * 1024 * 1024,
                         erstes ? 60000 : 5000);
+    /* Nur beim ersten Versuch aussagekräftig: danach steht im Zählstand
+       schon etwas, und ein einzelner Fehlschlag heißt nicht, dass der
+       Zugriff fehlt. */
+    stand.zugriff = roh !== null || Boolean(stand.cursor);
+    stand.zugriffGrund = roh === null ? journalFehler : null;
     if (roh !== null) {
       let text = roh;
       const marke = text.lastIndexOf('\n-- cursor: ');
@@ -1104,6 +1124,11 @@ function webstatistik() {
   const nun = Object.values(stand.jetzt);
   return {
     da: laeuft,
+    /* `da` sagt, ob Caddy läuft. Ob wir seine Zahlen auch LESEN durften,
+       ist eine zweite Frage — und ohne sie liest sich eine leere Statistik
+       wie eine Seite ohne Besucher. */
+    zugriff: stand.zugriff !== false,
+    zugriffGrund: stand.zugriffGrund ?? null,
     seit: tage[0] ?? null,
     /* Seit wann überhaupt wiedererkannt wird, wie viele Besucher das Buch
        kennt und wie lange ein Eintrag dort liegt. „Wiederkehrend" kann nie
@@ -1136,6 +1161,52 @@ function webstatistik() {
     kaputt: obenAuf(heute.fehlpfade, 4),
     serverfehler: obenAuf(heute.serverpfade, 3),
   };
+}
+
+/*
+ * Die fertigen Summen für Läufe weitergeben, die das Journal nicht lesen
+ * dürfen.
+ *
+ * Der Schreibtisch läuft als `aryan` (Gruppe `adm`) und darf das Journal von
+ * Caddy lesen. Der Chat-Server läuft als `stellium` und darf es nicht — er
+ * bekam deshalb überall Nullen, und die sahen aus wie eine Seite ohne
+ * Besucher. In der App stand 0, auf dem Schreibtisch daneben über tausend.
+ *
+ * Naheliegend wäre gewesen, beide auf dieselbe `STELLIUM_WEBSTAT`-Datei zu
+ * zeigen und sie gruppenlesbar zu machen. Das geht NICHT: in dieser Datei
+ * liegt neben den gehashten Besucherkennungen auch das Salz, mit dem sie
+ * gebildet wurden. Wer beides hat, probiert den IPv4-Raum durch und hat die
+ * Adressen zurück — genau das, was der Kopf dieser Datei ausschließt.
+ *
+ * Weitergegeben wird deshalb nur, was ohnehin angezeigt wird: Summen,
+ * Ranglisten von Pfaden und Rechnernamen. Keine Kennung, kein Salz.
+ */
+const WEBSTAT_TEILEN = process.env.STELLIUM_WEBSTAT_TEILEN || null;
+
+function webstatistik() {
+  const eigen = webstatistikRechnen();
+  if (!WEBSTAT_TEILEN) return eigen;
+
+  if (eigen.zugriff) {
+    try {
+      fs.mkdirSync(WEBSTAT_TEILEN.slice(0, WEBSTAT_TEILEN.lastIndexOf('/')),
+                   { recursive: true, mode: 0o750 });
+      const vorlaeufig = `${WEBSTAT_TEILEN}.${process.pid}`;
+      fs.writeFileSync(vorlaeufig, JSON.stringify({ zeit: Date.now(), werte: eigen }),
+                       { mode: 0o640 });
+      fs.renameSync(vorlaeufig, WEBSTAT_TEILEN);
+    } catch { /* Weitergeben ist eine Freundlichkeit, kein Auftrag */ }
+    return eigen;
+  }
+
+  /* Selbst nicht drangekommen — nehmen, was ein berechtigter Lauf hinterlegt
+     hat. `geteilt` steht dabei mit drin, damit die Anzeige sagen kann, woher
+     die Zahlen stammen, statt sie als eigene Messung auszugeben. */
+  try {
+    const d = JSON.parse(fs.readFileSync(WEBSTAT_TEILEN, 'utf8'));
+    if (d?.werte) return { ...d.werte, geteilt: true, geteiltZeit: d.zeit ?? null };
+  } catch { /* noch nichts hinterlegt */ }
+  return eigen;
 }
 
 /* ── Triton: das Abo bei Gumroad ───────────────────────────────

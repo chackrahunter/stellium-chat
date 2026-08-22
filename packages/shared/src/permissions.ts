@@ -52,6 +52,7 @@ export type PermissionKey =
   | 'vertraulich.freigabe_lesen'
   /* System */
   | 'system.ansehen'
+  | 'verkauf.sehen'
   /* Fernzugriff */
   | 'fern.zugriff'
   | 'fern.verwalten'
@@ -202,6 +203,15 @@ export const PERMISSIONS: PermissionInfo[] = [
     hintDe: 'Auslastung, Speicher, Temperatur, Dienste und Besucherzahlen des Servers. Nur Zahlen — keine Nachrichten, keine Namen von Besuchern, keine Adressen.',
     hintEn: 'Load, memory, temperature, services and visitor counts of the server. Numbers only — no messages, no visitor names, no addresses.' },
 
+  /* Bewusst NICHT Teil von `system.ansehen`. Dessen Hinweis verspricht
+     ausdrücklich "nur Zahlen — Auslastung, Speicher, Besucher"; Einnahmen
+     gehören in eine andere Klasse. Wer den Server im Blick behalten soll,
+     muss deshalb nicht auch sehen, was das Geschäft einbringt. */
+  { key: 'verkauf.sehen', group: 'system',
+    labelDe: 'Verkaufszahlen ansehen', labelEn: 'View sales figures',
+    hintDe: 'Mitglieder, Preise, Probezeit und den monatlich wiederkehrenden Umsatz. Ohne dieses Recht bleibt die Kachel unsichtbar — sie erscheint nicht leer, sondern gar nicht.',
+    hintEn: 'Members, prices, trial period and monthly recurring revenue. Without this the card stays invisible — it does not appear empty, it does not appear at all.' },
+
   { key: 'fern.zugriff', group: 'fernzugriff',
     labelDe: 'Pi fernsteuern', labelEn: 'Control the Pi remotely',
     hintDe: 'Sieht den Bildschirm des Pi und bedient ihn mit Maus, Tastatur und Zwischenablage. Adresse und Passwort holt die App selbst — sie stehen nirgends in der Oberfläche.',
@@ -317,6 +327,11 @@ const TEAMLEITUNG: PermissionKey[] = [
      Wer den Zugang benutzt, bekommt ihn dabei nie zu sehen — die App holt
      ihn sich selbst. */
   'fern.zugriff',
+  /* Was das Geschäft einbringt, gehört zur Führung eines Teams. Die Technik
+     bekommt es NICHT: wer den Server betreut, braucht Umsatzzahlen nicht,
+     und beides in eine Rolle zu werfen hieße wieder, jedem zu geben, was er
+     nicht braucht. */
+  'verkauf.sehen',
 ];
 
 /**

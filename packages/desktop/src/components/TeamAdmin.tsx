@@ -23,13 +23,23 @@ const ROLLEN: { wert: MemberRole; label: string; hinweis: string }[] = [
   { wert: 'guest',  label: t('admin.roleGuest'),  hinweis: t('role.guestHint') },
 ];
 
-/* Nur die Kennungen — die Überschriften kommen aus dem Wörterbuch. */
-const GRUPPEN = ['nachrichten', 'kanaele', 'inhalte', 'ki', 'fernzugriff', 'verwaltung'] as const;
+/* Nur die Kennungen — die Überschriften kommen aus dem Wörterbuch.
+   Reihenfolge wie in der Gruppenliste in permissions.ts, damit sich beide
+   nebeneinander lesen lassen.
+
+   `system` fehlte hier. Die Folge war kein Absturz und keine Fehlermeldung,
+   sondern etwas Unauffälligeres: `system.ansehen` gab es, der Server setzte
+   es durch — aber in dieser Ansicht kam es nie vor. Es ließ sich also
+   einzeln weder vergeben noch entziehen, nur über die Rolle. Wer eine
+   Gruppe hinzufügt, muss sie AUCH hier eintragen; die Liste ergibt sich
+   nicht von selbst aus dem Katalog. */
+const GRUPPEN = ['nachrichten', 'kanaele', 'inhalte', 'ki', 'system', 'fernzugriff', 'verwaltung'] as const;
 const GRUPPEN_SCHLUESSEL: Record<(typeof GRUPPEN)[number], string> = {
   nachrichten: 'perm.groupMessages',
   kanaele: 'perm.groupChannels',
   inhalte: 'perm.groupContent',
   ki: 'perm.groupAi',
+  system: 'perm.groupSystem',
   fernzugriff: 'perm.groupRemote',
   verwaltung: 'perm.groupAdmin',
 };

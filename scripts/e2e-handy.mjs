@@ -68,8 +68,11 @@ for (const name of ['iPhone 13', 'iPhone SE', 'Pixel 5', 'iPhone 13 landscape', 
   });
 
   await pruefe('Sicherheitsabstände wirken (Insel, Home-Leiste, Kamera)', async () => {
-    /* Headless gibt es kein env() — die Werte kommen über dieselben Variablen,
-       die sichere-bereiche.ts in der echten App setzt. */
+    /* Das prüft die MECHANIK, nicht einen Zustand: reagiert das Layout, wenn
+       Geräteränder gemeldet werden? Kommen tut das derzeit nirgends — ohne
+       `viewport-fit=cover` meldet env() überall 0, und sichere-bereiche.ts
+       setzt nur noch --wischzone. Die Prüfung bleibt trotzdem: sie hält die
+       Verkabelung in mobil.css am Leben, falls `cover` je zurückkommt. */
     const vorher = await p.locator('.header').boundingBox();
     await p.evaluate(() => {
       const s = document.documentElement.style;

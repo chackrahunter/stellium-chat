@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   Activity, AlertTriangle, Cpu, Gauge as GaugeIcon, Globe, HardDrive,
-  Loader2, MemoryStick, Server, Thermometer,
+  Loader2, MemoryStick, Server, Thermometer, Wallet,
 } from 'lucide-react';
 import { Shell } from './Panels.jsx';
-import { useT } from '../i18n';
+import { useT, currentUiLanguage } from '../i18n';
 import { api } from '../net/api.js';
 
 /**
@@ -19,14 +19,20 @@ import { api } from '../net/api.js';
 /* ── Tacho ─────────────────────────────────────────────────────
    Ein Bogen von 270 Grad, unten offen. Von Hand gezeichnet, weil eine
    Bibliothek dafür mehr wöge als die ganze Tafel. */
-function Tacho({ anteil, wert, name, warnAb = 0.8 }: {
-  anteil: number; wert: string; name: string; warnAb?: number;
+function Tacho({ anteil, wert, name, warnAb = 0.8, gutIstVoll = false }: {
+  anteil: number; wert: string; name: string; warnAb?: number; gutIstVoll?: boolean;
 }) {
   const a = Math.max(0, Math.min(1, anteil));
   const r = 34;                       /* Radius im Koordinatensystem */
   const umfang = 2 * Math.PI * r;
   const bogen = 0.75;                 /* 270 Grad von 360 */
-  const farbe = a >= 0.92 ? 'var(--red)' : a >= warnAb ? 'var(--amber)' : 'var(--cyan)';
+  /* Bei Auslastung heißt voll „eng" — da gehört Rot hin. Bei „Team online"
+     oder Besuchern heißt voll das Gegenteil, und ein roter Bogen wäre dort
+     eine Warnung vor einer guten Nachricht. Deshalb die Richtung als
+     Eigenschaft und nicht als Faustregel. */
+  const farbe = gutIstVoll
+    ? (a >= 0.5 ? 'var(--green)' : 'var(--cyan)')
+    : a >= 0.92 ? 'var(--red)' : a >= warnAb ? 'var(--amber)' : 'var(--cyan)';
   return (
     <div className="tacho">
       <svg viewBox="0 0 88 88" className="tacho__svg">
@@ -65,6 +71,37 @@ function laufzeit(sek: number): string {
   const t = Math.floor(sek / 86400);
   const h = Math.floor((sek % 86400) / 3600);
   return t > 0 ? `${t} d ${h} h` : `${h} h ${Math.floor((sek % 3600) / 60)} min`;
+}
+
+/* Beträge kommen in Cent und mit Währungskürzel — beides muss man dem
+   Browser sagen, sonst steht am Ende „2500 USD" da, wo „$25.00" hingehört.
+   Die Sprache ist die der Oberfläche, nicht die des Servers: derselbe Betrag
+   heißt im Deutschen 25,00 $ und im Englischen $25.00. */
+function geld(cent: number | null | undefined, waehrung: string | null | undefined): string {
+  if (cent === null || cent === undefined || !Number.isFinite(cent)) return '—';
+  try {
+    return new Intl.NumberFormat(currentUiLanguage(), {
+      style: 'currency', currency: waehrung || 'USD',
+    }).format(cent / 100);
+  } catch {
+    /* Unbekanntes Kürzel: lieber die nackte Zahl als gar nichts. */
+    return `${(cent / 100).toFixed(2)} ${waehrung ?? ''}`.trim();
+  }
+}
+
+/* „1 Woche" statt „week: 1". Intl kennt die Zeiteinheiten in allen Sprachen,
+   die hier vorkommen — ein eigener Satz Wörterbucheinträge für Tag, Woche,
+   Monat und Jahr wäre doppelte Arbeit mit mehr Fehlern. */
+function zeitspanne(anzahl: number | null | undefined, einheit: string | null | undefined,
+                   lang: 'long' | 'short' = 'long'): string {
+  if (!anzahl || !einheit) return '—';
+  try {
+    return new Intl.NumberFormat(currentUiLanguage(), {
+      style: 'unit', unit: einheit, unitDisplay: lang,
+    }).format(anzahl);
+  } catch {
+    return `${anzahl} ${einheit}`;
+  }
 }
 
 type Werte = Record<string, any>;
@@ -127,6 +164,35 @@ export function SystemPanel({ onClose }: { onClose: () => void }) {
                das der Maßstab und nicht 100. */
             <Tacho name={t('system.temperatur')} anteil={temp / 85} wert={`${Math.round(temp)}°`} warnAb={0.82} />
           )}
+          {/* Auslagerung nur zeigen, wo es sie gibt — ein Tacho, der immer
+              auf null steht, weil gar kein Auslagerungsspeicher eingerichtet
+              ist, sagt nichts. */}
+          {(l.swap?.gesamt ?? 0) > 0 && (
+            <Tacho name={t('system.swap')} anteil={(l.swap.belegt ?? 0) / l.swap.gesamt}
+                   wert={`${Math.round(((l.swap.belegt ?? 0) / l.swap.gesamt) * 100)}%`} />
+          )}
+          {/* Wie viel vom Team gerade da ist. Nenner sind die Konten, nicht
+              die Verbindungen: wer an zwei Geräten angemeldet ist, zählt
+              trotzdem als eine Person. */}
+          {(daten.inhalt?.users ?? 0) > 0 && (
+            <Tacho name={t('system.teamOnline')} gutIstVoll
+                   anteil={(daten.verbunden?.benutzer ?? 0) / daten.inhalt.users}
+                   wert={`${daten.verbunden?.benutzer ?? 0}/${daten.inhalt.users}`} />
+          )}
+          {/* Besucher der Webseite. Beide Nenner wachsen mit: „gerade da" im
+              Verhältnis zur letzten halben Stunde, „heute" zum besten Tag.
+              Ein fester Nenner wäre geraten und stünde nach der ersten guten
+              Woche daneben. */}
+          {w?.da && w.zugriff !== false && (
+            <>
+              <Tacho name={t('system.webJetzt')} gutIstVoll
+                     anteil={(w.jetzt ?? 0) / Math.max(w.jetzt30 ?? 0, w.jetzt ?? 0, 1)}
+                     wert={String(w.jetzt ?? 0)} />
+              <Tacho name={t('system.webHeute')} gutIstVoll
+                     anteil={(w.heute?.besucher ?? 0) / Math.max(w.besteTag ?? 0, w.heute?.besucher ?? 0, 1)}
+                     wert={String(w.heute?.besucher ?? 0)} />
+            </>
+          )}
         </div>
 
         <div className="sys__spalten">
@@ -156,6 +222,13 @@ export function SystemPanel({ onClose }: { onClose: () => void }) {
           {w?.da && (
             <section className="sys__block">
               <h3 className="sys__titel"><Globe size={14} /> {t('system.webseite')}</h3>
+              {/* Ohne Zugriff auf das Protokoll steht hier sonst überall 0 —
+                  und das liest sich wie eine Seite ohne Besucher, nicht wie
+                  eine Messung, die gar nicht stattgefunden hat. */}
+              {w.zugriff === false && (
+                <Zeile name="" ton="warn" wert={t('system.keinProtokoll')} />
+              )}
+              {w.geteilt && <Zeile name="" wert={t('system.geteilt')} />}
               <Zeile name={t('system.jetzt')} wert={w.jetzt ?? 0} />
               <Zeile name={t('system.heute')}
                      wert={`${w.heute?.besucher ?? 0} · ${w.heute?.seiten ?? 0}`} />
@@ -165,6 +238,42 @@ export function SystemPanel({ onClose }: { onClose: () => void }) {
               <Zeile name={t('system.fehler5xx')} ton={(w.heute?.f5xx ?? 0) > 0 ? 'warn' : undefined}
                      wert={w.heute?.f5xx ?? 0} />
               <Zeile name={t('system.uebertragen')} wert={groesse(w.heute?.bytes ?? 0)} />
+            </section>
+          )}
+
+          {/* Der Server lässt `abo` weg, wenn jemand `verkauf.sehen` nicht
+              hat — deshalb genügt hier die Frage, ob das Feld da ist. Ein
+              zweiter Rechtecheck in der Oberfläche wäre nicht nur doppelt,
+              er könnte auch auseinanderlaufen: was der Server nicht schickt,
+              kann die Ansicht nicht zeigen, und was er schickt, darf sie. */}
+          {daten.abo?.da && (
+            <section className="sys__block">
+              <h3 className="sys__titel"><Wallet size={14} /> {t('system.verkauf')}</h3>
+              <Zeile name={t('system.produkt')} wert={daten.abo.name ?? '—'} />
+              <Zeile name={t('system.mitglieder')} wert={daten.abo.mitglieder ?? '—'} />
+              <Zeile name={t('system.umsatz')}
+                     wert={geld(daten.abo.umsatz?.monatCent, daten.abo.umsatz?.waehrung ?? daten.abo.waehrung)} />
+              <Zeile name={t('system.preis')} wert={daten.abo.preisText ?? '—'} />
+              <Zeile name={t('system.probe')}
+                     wert={zeitspanne(daten.abo.probe?.anzahl, daten.abo.probe?.einheit)} />
+              {/* Ohne Gumroad-Token gibt es keine echten Einnahmen. Das steht
+                  hier als Grund und nicht als Strich: „—" hieße „gerade
+                  nichts verdient", und das wäre eine andere Aussage.
+
+                  Mit Token ist es der Netto-Betrag der letzten `tage` Tage —
+                  nicht seit Anfang. Der Zeitraum gehört daneben, sonst liest
+                  sich dieselbe Zahl als Gesamteinnahme. Die Währung kommt aus
+                  dem Einnahmenblock selbst und nicht von `abo.waehrung`: es
+                  sind zwei Felder, und sie müssen nicht übereinstimmen.
+                  `vollstaendig: false` heißt, Gumroad hatte mehr Seiten als
+                  abgerufen wurden — dann ist der Betrag zu niedrig, und das
+                  darf nicht wie eine gesicherte Zahl aussehen. */}
+              <Zeile name={t('system.einnahmen')}
+                     ton={daten.abo.einnahmen && daten.abo.einnahmen.vollstaendig === false ? 'warn' : undefined}
+                     wert={!daten.abo.einnahmen
+                       ? t('system.keinToken')
+                       : `${geld(daten.abo.einnahmen.nettoCent, daten.abo.einnahmen.waehrung)}`
+                         + ` · ${zeitspanne(daten.abo.einnahmen.tage, 'day', 'short')}`} />
             </section>
           )}
 
