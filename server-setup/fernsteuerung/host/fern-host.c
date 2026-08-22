@@ -867,6 +867,15 @@ int main(int argc, char **argv) {
       struct Auftrag *a = &L.auftrag[k];
       if (!a->benutzt || (!a->fertig && !a->versagt)) continue;
 
+      /* EINE Zahl, und das ist keine Bequemlichkeit.
+         Versucht wurde, Warten und Herüberholen zu trennen: Zeitpunkt der
+         Änderungsmeldung gegen Zeitpunkt des fertigen Bildes. Heraus kam
+         "warten 52,2 ms · lesen 0,1 ms" — der Compositor schickt beide
+         Ereignisse im selben Zug, und libwayland reicht sie in einem
+         Durchgang weiter. Von außen ist da nichts zu trennen; die 0,1 ms
+         waren der Abstand zweier Zeilen in derselben Zustellung, nicht die
+         Dauer des Kopierens. Wer es erneut versucht, braucht eine Quelle im
+         Compositor, nicht hier. */
       L.t_lesen += jetzt_ns() - a->gestellt_ns; L.n_lesen++;
       pthread_mutex_lock(&L.schloss);
       L.puffer[a->puffer].reserviert = false;
@@ -885,8 +894,12 @@ int main(int argc, char **argv) {
       double nk = L.n_kodiert ? (double)L.n_kodiert : 1.0;
       char zeile[200];
       snprintf(zeile, sizeof zeile,
-               "takt %.1f B/s  %.0f kbit/s   lesen %.1f ms  Farbe %.1f ms  "
-               "kodieren %.1f ms  verworfen %llu",
+               /* "abgriff" statt "lesen": die Zahl enthält die Wartezeit auf
+                  eine Änderung am Schirm und ist im Leerlauf fast nur das.
+                  Sie als Lesezeit zu lesen führt in die Irre — genau das ist
+                  hier zweimal passiert. */
+               "takt %.1f B/s  %.0f kbit/s   abgriff %.1f ms  "
+               "Farbe %.1f ms  kodieren %.1f ms  verworfen %llu",
                (double)L.bilder / s, (double)L.bytes * 8.0 / s / 1000.0,
                (double)L.t_lesen / nl / 1e6, (double)L.t_farbe / nk / 1e6,
                (double)L.t_kodieren / nk / 1e6, (unsigned long long)L.verworfen);
