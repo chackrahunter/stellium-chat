@@ -78,26 +78,64 @@ export function Fernsteuerung(
      der Sekunde ist "billig mal 45" trotzdem Arbeit, die niemand braucht.
      Ein Wechsel der Leinwand macht ihn ungültig, deshalb wird sie mitgeführt. */
   const malFlaeche = useRef<{ leinwand: HTMLCanvasElement; ctx: CanvasRenderingContext2D } | null>(null);
+  /* Das jüngste dekodierte Bild, das noch nicht auf dem Schirm ist. */
+  const naechstes = useRef<VideoFrame | null>(null);
+
+  /* Zeichnen im Takt des Bildschirms. Läuft, solange die Komponente lebt —
+     ohne Bild kostet ein Durchgang nichts. */
+  useEffect(() => {
+    let laeuft = true;
+    let anfrage = 0;
+    const malen = () => {
+      if (!laeuft) return;
+      anfrage = requestAnimationFrame(malen);
+      const bild = naechstes.current;
+      const c = leinwand.current;
+      if (!bild || !c) return;
+      naechstes.current = null;
+      if (c.width !== bild.displayWidth || c.height !== bild.displayHeight) {
+        c.width = bild.displayWidth;
+        c.height = bild.displayHeight;
+      }
+      if (malFlaeche.current?.leinwand !== c) {
+        const neu = c.getContext('2d');
+        malFlaeche.current = neu ? { leinwand: c, ctx: neu } : null;
+      }
+      malFlaeche.current?.ctx.drawImage(bild, 0, 0);
+      bild.close();
+    };
+    anfrage = requestAnimationFrame(malen);
+    return () => {
+      laeuft = false;
+      cancelAnimationFrame(anfrage);
+      /* Beim Verlassen das vorgemerkte Bild freigeben — sonst bleibt sein
+         Speicher hängen, bis die Seite neu lädt. */
+      naechstes.current?.close();
+      naechstes.current = null;
+    };
+  }, []);
 
   const dekoderRichten = useCallback(() => {
     if (dekoder.current) { try { dekoder.current.close(); } catch { /* schon zu */ } }
     const d = new VideoDecoder({
       output: (bild) => {
-        const c = leinwand.current;
-        if (!c) { bild.close(); return; }
-        if (c.width !== bild.displayWidth || c.height !== bild.displayHeight) {
-          c.width = bild.displayWidth;
-          c.height = bild.displayHeight;
-        }
-        if (malFlaeche.current?.leinwand !== c) {
-          const neu = c.getContext('2d');
-          malFlaeche.current = neu ? { leinwand: c, ctx: neu } : null;
-        }
-        malFlaeche.current?.ctx.drawImage(bild, 0, 0);
-        /* Muss sein: ein VideoFrame hält Speicher außerhalb des Müllsammlers.
-           Wer das vergisst, bekommt nach ein paar hundert Bildern einen
-           Dekodierer, der stehenbleibt. */
-        bild.close();
+        if (!leinwand.current) { bild.close(); return; }
+        /*
+         * Nicht sofort zeichnen, sondern das jüngste Bild vormerken und im
+         * Takt des Bildschirms zeichnen.
+         *
+         * Über eine lange Leitung kommen Bilder in Schüben: drei auf einmal,
+         * dann eine Pause. Sofort gezeichnet heißt dann dreimal zeichnen
+         * zwischen zwei Bildwiederholungen — zwei davon sieht niemand, und
+         * die Anzeige läuft nicht im Takt des Schirms. Genau das sieht aus
+         * wie Ruckeln, obwohl die Bilder ankommen.
+         *
+         * Ein überholtes Bild wird SOFORT geschlossen. Ein VideoFrame hält
+         * Speicher außerhalb des Müllsammlers; wer das vergisst, bekommt
+         * nach ein paar hundert Bildern einen Dekodierer, der stehenbleibt.
+         */
+        if (naechstes.current) naechstes.current.close();
+        naechstes.current = bild;
       },
       error: (f) => setFehler(String(f)),
     });
@@ -124,12 +162,18 @@ export function Fernsteuerung(
         wartetSchluesselbild.current = false;
       }
       try {
+        /* Zeitmarke aus der ECHTEN Ankunftszeit in Mikrosekunden.
+           Vorher stand hier ein fester Schritt von 33333 — also 30 Bilder je
+           Sekunde. Der Pi sendet 45; die Marken liefen damit langsamer als
+           die Wirklichkeit, und ein Dekodierer, der nach ihnen ausgibt,
+           staut. Sie müssen nur streng steigen, und die Uhr tut das. */
+        const nun = Math.round(performance.now() * 1000);
+        zeitmarke.current = nun > zeitmarke.current ? nun : zeitmarke.current + 1;
         d.decode(new EncodedVideoChunk({
           type: schluessel ? 'key' : 'delta',
           timestamp: zeitmarke.current,
           data: daten,
         }));
-        zeitmarke.current += 33333;
       } catch {
         wartetSchluesselbild.current = true;
       }
@@ -143,6 +187,16 @@ export function Fernsteuerung(
     const abInfo = fern.aufInfo((i: any) => setInfo(i));
     void fern.lage().then((z: { lage: Lage; fehler: string }) => {
       setLage(z.lage); setFehler(z.fehler);
+      /* Auch bei der ERSTABFRAGE den Dekodierer aufsetzen, nicht nur bei
+         einem Zustandswechsel.
+         Das Hauptfenster ist offen, bevor verbunden wird — es bekommt das
+         Ereignis "offen" und richtet ihn dabei ein. Ein Fenster, das erst
+         WÄHREND einer laufenden Verbindung aufgeht, bekommt nie ein
+         Ereignis: es fragt den Zustand ab, liest "offen" und hätte doch
+         keinen Dekodierer. Jedes Bild fiele dann in `if (!d) return`, und
+         das Fenster bliebe schwarz — genau so war es beim Betrachter im
+         eigenen Fenster. */
+      if (z.lage === 'offen') dekoderRichten();
     });
     void api.fernStand()
       .then(setStand)
