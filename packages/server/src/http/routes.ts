@@ -1269,7 +1269,9 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
   app.get('/api/post/verlauf/:threadId', async (req) => {
     requirePermission(requireUser(req), 'mail.lesen');
-    return { nachrichten: post.verlauf((req.params as { threadId: string }).threadId) };
+    /* `verlauf`, nicht `nachrichten`: es ist eine Kette, keine Liste — und
+       die Oberfläche liest genau diesen Namen. */
+    return { verlauf: post.verlauf((req.params as { threadId: string }).threadId) };
   });
 
   app.post('/api/post/senden', async (req, reply) => {

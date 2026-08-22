@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Bell, Cpu, Globe, Loader2, Lock, LogOut, Mail, Palette, RefreshCw, Server, Sparkles, User, Volume2, Wallet, X } from 'lucide-react';
+import { Bell, Cpu, Globe, KeyRound, Loader2, Lock, LogOut, Mail, Palette, RefreshCw, Server, Sparkles, User, Volume2, Wallet, X } from 'lucide-react';
 import { LANGUAGES, type AiCapabilities, type AiModelInfo } from '@stellium/shared';
 import { useStore } from '../state/store.js';
 import { useFokusfalle } from './Fokusfalle.jsx';
@@ -16,7 +16,7 @@ import { reiterWunschAbholen, VertraulichEinstellungen } from './Vertraulich.jsx
 import { spracheDesSystems } from '../i18n/index.js';
 
 type Tab = 'profil' | 'sprache' | 'modelle' | 'benachrichtigungen' | 'darstellung'
-  | 'vertraulich' | 'post' | 'verkauf' | 'aktualisierung' | 'server';
+  | 'vertraulich' | 'post' | 'schluessel' | 'aktualisierung' | 'server';
 
 /**
  * Der Hinweis zum Stand der KI kommt als Kennung vom Server, mit deutschem
@@ -396,7 +396,7 @@ export function Settings({ onClose }: { onClose: () => void }) {
 
           {tab === 'post' && <PostEinstellungen />}
 
-          {tab === 'verkauf' && <VerkaufEinstellungen />}
+          {tab === 'schluessel' && <SchluesselEinstellungen />}
 
           {tab === 'aktualisierung' && <UpdatePanel />}
 
@@ -438,8 +438,6 @@ function PostEinstellungen() {
   } | null>(null);
   const [absender, setAbsender] = useState('');
   const [name, setName] = useState('');
-  const [versand, setVersand] = useState('');
-  const [eingang, setEingang] = useState('');
   const [laeuft, setLaeuft] = useState(false);
 
   useEffect(() => {
@@ -450,28 +448,14 @@ function PostEinstellungen() {
     }).catch(() => setStand(null));
   }, []);
 
-  /* Im Browser gewürfelt und nicht getippt: ein selbst ausgedachtes Wort ist
-     kürzer und einfacher, als es aussieht. */
-  const wuerfeln = () => {
-    const b = new Uint8Array(32);
-    crypto.getRandomValues(b);
-    setEingang(btoa(String.fromCharCode(...b)).replace(/[+/=]/g, '').slice(0, 43));
-  };
-
   const speichern = async () => {
     setLaeuft(true);
     try {
       const z = await api.postZugangSetzen({
         absender: absender.trim() || undefined,
         name: name.trim(),
-        /* Leere Felder lassen den bisherigen Wert stehen — so lässt sich der
-           Name ändern, ohne die Schlüssel noch einmal einzugeben. */
-        versandSchluessel: versand.trim() || undefined,
-        eingangGeheimnis: eingang.trim() || undefined,
       });
       setStand((s) => (s ? { ...s, ...z } : s));
-      setVersand('');
-      setEingang('');
     } finally {
       setLaeuft(false);
     }
@@ -493,30 +477,6 @@ function PostEinstellungen() {
         <p className="field__hint">{t('post.nameHint')}</p>
       </div>
 
-      <div className="field">
-        <label className="field__label">
-          {t('post.versand')} · {stand?.versandBereit ? t('post.bereit') : t('post.fehlt')}
-        </label>
-        <input className="input" type="password" autoComplete="off"
-               value={versand} onChange={(e) => setVersand(e.target.value)}
-               placeholder="re_..." />
-        <p className="field__hint">{t('post.versandHint')}</p>
-      </div>
-
-      <div className="field">
-        <label className="field__label">
-          {t('post.eingang')} · {stand?.eingangBereit ? t('post.bereit') : t('post.fehlt')}
-        </label>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <input className="input" type="password" autoComplete="off" style={{ flex: 1 }}
-                 value={eingang} onChange={(e) => setEingang(e.target.value)} />
-          <button className="btn" type="button" onClick={wuerfeln}>{t('post.erzeugen')}</button>
-        </div>
-        <p className="field__hint">{t('post.eingangHint')}</p>
-      </div>
-
-      <p className="field__hint">{t('post.geheimHinweis')}</p>
-
       <button className="btn btn--primary" disabled={laeuft} onClick={() => void speichern()}>
         <Mail size={15} /> {t('common.save')}
       </button>
@@ -532,21 +492,84 @@ function PostEinstellungen() {
  * verschlüsselt in der Datenbank, und der Server reicht ihn beim Aufruf der
  * Konsole durch. Angezeigt wird er danach nie wieder.
  */
-function VerkaufEinstellungen() {
+function GeheimFeld({ label, stand, wert, setWert, platzhalter }: {
+  label: string; stand?: boolean; wert: string; setWert: (v: string) => void; platzhalter?: string;
+}) {
   const t = useT();
-  const [stand, setStand] = useState<{ hinterlegt: boolean } | null>(null);
-  const [token, setToken] = useState('');
+  return (
+    <div className="field">
+      <label className="field__label">
+        {label} · {stand ? t('post.bereit') : t('post.fehlt')}
+      </label>
+      <input className="input" type="password" autoComplete="off" placeholder={platzhalter}
+             value={wert} onChange={(e) => setWert(e.target.value)} />
+    </div>
+  );
+}
+
+/**
+ * Alle Geheimnisse an einer Stelle.
+ *
+ * Vorher lagen sie verstreut — der Gumroad-Schlüssel unter „Verkauf", die
+ * Postfach-Schlüssel unter „Postfach", der Fernzugang nirgends (den setzte
+ * man über die Kommandozeile). Verstreute Geheimnisse sind eine Einladung,
+ * eines zu vergessen: beim Übergeben, beim Wechseln, beim Aufräumen nach
+ * einem Verdacht.
+ *
+ * Angezeigt wird keines davon. Zurück kommt nur, DASS etwas hinterlegt ist.
+ */
+function SchluesselEinstellungen() {
+  const t = useT();
+  const [postStand, setPostStand] = useState<{ versandBereit: boolean; eingangBereit: boolean } | null>(null);
+  const [verkaufStand, setVerkaufStand] = useState<{ hinterlegt: boolean } | null>(null);
+  const [fernStand, setFernStand] = useState<{ hinterlegt: boolean } | null>(null);
+
+  const [versand, setVersand] = useState('');
+  const [eingang, setEingang] = useState('');
+  const [gumroad, setGumroad] = useState('');
+  const [fernAdresse, setFernAdresse] = useState('');
+  const [fernPasswort, setFernPasswort] = useState('');
   const [laeuft, setLaeuft] = useState(false);
 
   useEffect(() => {
-    void api.verkaufZugang().then(setStand).catch(() => setStand(null));
+    void api.postZugang().then(setPostStand).catch(() => {});
+    void api.verkaufZugang().then(setVerkaufStand).catch(() => {});
+    void api.fernStand().then(setFernStand).catch(() => {});
   }, []);
+
+  /* Im Browser gewürfelt statt getippt: ein selbst ausgedachtes Wort ist
+     kürzer und einfacher, als es aussieht. */
+  const wuerfeln = () => {
+    const b = new Uint8Array(32);
+    crypto.getRandomValues(b);
+    setEingang(btoa(String.fromCharCode(...b)).replace(/[+/=]/g, '').slice(0, 43));
+  };
 
   const speichern = async () => {
     setLaeuft(true);
     try {
-      setStand(await api.verkaufZugangSetzen(token.trim()));
-      setToken('');
+      /* Nur schicken, was ausgefüllt wurde. Leere Felder lassen den
+         bisherigen Wert stehen — sonst löschte ein Speichern alles, was man
+         gerade nicht eingetippt hat. */
+      if (versand || eingang) {
+        setPostStand(await api.postZugangSetzen({
+          versandSchluessel: versand.trim() || undefined,
+          eingangGeheimnis: eingang.trim() || undefined,
+        }));
+        setVersand(''); setEingang('');
+      }
+      if (gumroad.trim()) {
+        setVerkaufStand(await api.verkaufZugangSetzen(gumroad.trim()));
+        setGumroad('');
+      }
+      if (fernAdresse.trim() || fernPasswort.trim()) {
+        await api.fernZugangSetzen({
+          adresse: fernAdresse.trim() || undefined,
+          passwort: fernPasswort.trim() || undefined,
+        });
+        setFernStand(await api.fernStand());
+        setFernAdresse(''); setFernPasswort('');
+      }
     } finally {
       setLaeuft(false);
     }
@@ -554,17 +577,44 @@ function VerkaufEinstellungen() {
 
   return (
     <>
+      <p className="field__hint">{t('schluessel.hinweis')}</p>
+
+      <h3 className="ai-section__title">{t('schluessel.postfach')}</h3>
+      <GeheimFeld label={t('post.versand')} stand={postStand?.versandBereit}
+                  wert={versand} setWert={setVersand} platzhalter="re_..." />
       <div className="field">
         <label className="field__label">
-          {t('verkauf.token')} · {stand?.hinterlegt ? t('post.bereit') : t('post.fehlt')}
+          {t('post.eingang')} · {postStand?.eingangBereit ? t('post.bereit') : t('post.fehlt')}
         </label>
-        <input className="input" type="password" autoComplete="off"
-               value={token} onChange={(e) => setToken(e.target.value)} />
-        <p className="field__hint">{t('verkauf.tokenHint')}</p>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <input className="input" type="password" autoComplete="off" style={{ flex: 1 }}
+                 value={eingang} onChange={(e) => setEingang(e.target.value)} />
+          <button className="btn" type="button" onClick={wuerfeln}>{t('post.erzeugen')}</button>
+        </div>
+        <p className="field__hint">{t('post.eingangHint')}</p>
       </div>
-      <button className="btn btn--primary" disabled={laeuft || !token.trim()}
-              onClick={() => void speichern()}>
-        <Wallet size={15} /> {t('common.save')}
+
+      <h3 className="ai-section__title">{t('schluessel.verkauf')}</h3>
+      <GeheimFeld label={t('verkauf.token')} stand={verkaufStand?.hinterlegt}
+                  wert={gumroad} setWert={setGumroad} />
+      <p className="field__hint">{t('verkauf.tokenHint')}</p>
+
+      <h3 className="ai-section__title">{t('schluessel.fern')}</h3>
+      <div className="field">
+        <label className="field__label">
+          {t('fern.adresseLabel')} · {fernStand?.hinterlegt ? t('post.bereit') : t('post.fehlt')}
+        </label>
+        <input className="input" value={fernAdresse} onChange={(e) => setFernAdresse(e.target.value)}
+               placeholder="ws://..." />
+      </div>
+      <GeheimFeld label={t('fern.passwortLabel')} stand={fernStand?.hinterlegt}
+                  wert={fernPasswort} setWert={setFernPasswort} />
+
+      <h3 className="ai-section__title">{t('schluessel.anbieter')}</h3>
+      <p className="field__hint">{t('schluessel.anbieterHinweis')}</p>
+
+      <button className="btn btn--primary" disabled={laeuft} onClick={() => void speichern()}>
+        <KeyRound size={15} /> {t('common.save')}
       </button>
     </>
   );
@@ -580,7 +630,7 @@ function Tabs({ tab, setTab }: { tab: Tab; setTab: (t: Tab) => void }) {
     { id: 'darstellung', label: t('settings.appearance'), icon: <Palette size={14} /> },
     { id: 'vertraulich', label: t('vertraulich.tab'), icon: <Lock size={14} /> },
     { id: 'post', label: t('settings.post'), icon: <Mail size={14} /> },
-    { id: 'verkauf', label: t('settings.verkauf'), icon: <Wallet size={14} /> },
+    { id: 'schluessel', label: t('settings.schluessel'), icon: <KeyRound size={14} /> },
     { id: 'aktualisierung', label: t('update.tab'), icon: <RefreshCw size={14} /> },
     { id: 'server', label: t('settings.server'), icon: <Server size={14} /> },
   ];
