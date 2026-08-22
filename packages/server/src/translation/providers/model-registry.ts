@@ -250,14 +250,39 @@ export class ModelRegistry {
 
     // Von Hand gewählt: gilt, auch wenn die Liste gerade nicht abrufbar ist.
     if (this.manual.quality || this.manual.fast) {
-      const quality = this.manual.quality || this.selection.quality;
-      this.selection = {
-        quality,
-        fast: this.manual.fast || quality,
-        source: 'manual',
-        refreshedAt: Date.now(),
-      };
-      return;
+      /*
+       * ES SEI DENN, der Dienst kennt das gewählte Modell nachweislich nicht.
+       *
+       * Bei einem eigenen Modellserver wird das Modell ausgetauscht, indem
+       * eine andere Datei geladen wird — danach heisst es anders. Die Wahl in
+       * den Einstellungen zeigt dann auf einen Namen, den es nicht mehr gibt,
+       * und JEDE Anfrage scheitert mit 400. Das ist kein Randfall, sondern
+       * der normale Weg, ein Modell zu wechseln.
+       *
+       * `usable.length > 0` ist die Bedingung, die das sicher macht: nur wenn
+       * eine Liste WIRKLICH vorliegt, darf aus ihrer Abwesenheit auf ein
+       * fehlendes Modell geschlossen werden. Ist der Dienst gerade nicht
+       * erreichbar, ist die Liste leer, und dann bleibt die Wahl stehen — ein
+       * abgeschalteter Rechner darf keine Einstellung überschreiben.
+       */
+      const kennt = (name: string | null) => !name || usable.some((m) => m.id === name);
+      if (!usable.length || (kennt(this.manual.quality) && kennt(this.manual.fast))) {
+        const quality = this.manual.quality || this.selection.quality;
+        this.selection = {
+          quality,
+          fast: this.manual.fast || quality,
+          source: 'manual',
+          refreshedAt: Date.now(),
+        };
+        return;
+      }
+      console.warn(
+        `[ai] ${this.opts.name} kennt "${this.manual.quality ?? this.manual.fast}" nicht mehr`
+        + ` — nehme "${usable[0].id}" aus der Liste. Die Wahl in den Einstellungen`
+        + ' zeigt auf ein Modell, das dort nicht mehr geladen ist.',
+      );
+      /* Die Wahl NICHT löschen: sie gehört dem Menschen, der sie getroffen
+         hat. Wird das alte Modell wieder geladen, gilt sie sofort weiter. */
     }
 
     if (!usable.length) return;

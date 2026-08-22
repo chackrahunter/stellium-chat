@@ -1,0 +1,3 @@
+Die Reiterleiste oben in den Fenstern lässt sich jetzt rollen — mit dem Mausrad, und der gewählte Reiter kommt von selbst ins Bild.
+Ist die KI nicht erreichbar, steht das jetzt auch so da statt „konnte das gerade nicht erledigen". Wer die Meldung liest, sucht sonst den Fehler bei sich.
+Der Tab „Systemwerte" zeigte statt der Zahlen einen Absturz — behoben.
