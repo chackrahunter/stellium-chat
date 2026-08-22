@@ -313,6 +313,34 @@ if (probe) {
   fs.writeFileSync(paketDatei, `${JSON.stringify(paket, null, 2)}\n`);
   ok(`packages/desktop/package.json → ${naechste}`);
   ok(path.basename(notizenAblage));
+
+  /*
+   * Den Stand JETZT festhalten, nicht nach dem Bauen.
+   *
+   * Hier stand nichts, und `git add -A` kam erst hinter dem Bauen — also
+   * hinter zwanzig Minuten, in denen jemand weiterarbeiten kann. Wer das
+   * tut, bekommt seine Zwischenstände in den Commit „Fassung x.y.z", obwohl
+   * sie in den gebauten Paketen gar nicht drin sind. Genau das ist am
+   * 22.08.2026 passiert: v1.0.25 trug Änderungen, die kein Paket enthielt.
+   * Wer später fragt, aus welchem Stand eine Fassung gebaut wurde, bekommt
+   * dann eine Antwort, die stimmt aussieht und falsch ist.
+   *
+   * `git commit` schreibt den INDEX, nicht den Arbeitsbaum. Wird er vor dem
+   * Bauen gefüllt, kann danach am Arbeitsbaum passieren was will — der
+   * Commit bleibt der Stand, aus dem gebaut wurde.
+   *
+   * Scheitert das Bauen, bleibt ein gefüllter Index zurück. Das ist kein
+   * Schaden (committet wurde nichts) und mit `git reset` in einem Schritt
+   * zurückgenommen.
+   */
+  if (!ohneGit) {
+    try {
+      lauf('git', ['add', '-A']);
+      sag(`  ${F.grau}Stand für den Commit festgehalten${F.aus}`);
+    } catch (err) {
+      warn(`Stand ließ sich nicht festhalten: ${String(err.message).slice(0, 120)}`);
+    }
+  }
 }
 
 /* ── Bauen und hochladen ─────────────────────────────────────── */
@@ -350,7 +378,13 @@ if (probe) {
 if (!ohneGit && !probe) {
   schritt('Quelltext festhalten');
   try {
-    lauf('git', ['add', '-A']);
+    /* Der Index steht schon (siehe „Version setzen"). Nachzutragen ist nur,
+       was das Veröffentlichen selbst noch angefasst hat — es schreibt
+       `packages/desktop/package.json` ein zweites Mal auf dieselbe Version.
+       Ein `git add -A` an dieser Stelle würde wieder den ganzen
+       Arbeitsbaum einsammeln und damit genau den Fehler zurückholen, den
+       das Festhalten davor verhindert. */
+    lauf('git', ['add', '--', 'packages/desktop/package.json']);
     /* „Fassung 1.0.17" statt der ersten Zeile der Änderungsliste.
        Die wurde bei 68 Zeichen abgeschnitten — und weil die nächste
        Änderungsliste aus den Commit-Betreffen entsteht, stand dieser

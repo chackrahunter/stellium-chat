@@ -3412,6 +3412,17 @@ button.msg__author:hover { color: var(--violet-soft); text-decoration: underline
 .syszeile__wert--gut { color: var(--green, var(--cyan)); }
 .syszeile__wert--warn { color: var(--amber); }
 
+/* Ein ganzer Satz in einer Kachel — etwa „kein Zugriff auf das Protokoll".
+   Er steht über die volle Breite und darf umbrechen; eine `syszeile` mit
+   leerem Namen sähe aus wie ein Wert ohne Beschriftung. */
+.sys__notiz {
+  color: var(--tx-lo);
+  font-size: 12px;
+  line-height: 1.4;
+  padding: 4px 0 6px;
+}
+.sys__notiz--warn { color: var(--amber); }
+
 .sys__leer {
   display: flex; align-items: center; gap: 8px;
   color: var(--tx-lo); font-size: 13px; padding: 20px 0;

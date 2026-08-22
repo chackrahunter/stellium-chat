@@ -50,6 +50,13 @@ function Tacho({ anteil, wert, name, warnAb = 0.8, gutIstVoll = false }: {
   );
 }
 
+/* Ein Satz über die volle Breite statt einer Zeile mit leerem Namen: in
+   `.syszeile` trägt der Name `flex: 1 1 auto`, ein leerer schöbe den Text
+   nach rechts und ließe ihn in der schmalen Spalte zerfleddern. */
+function Notiz({ text, ton }: { text: string; ton?: 'warn' }) {
+  return <div className={`sys__notiz ${ton ? `sys__notiz--${ton}` : ''}`}>{text}</div>;
+}
+
 function Zeile({ name, wert, ton }: { name: string; wert: React.ReactNode; ton?: 'gut' | 'warn' }) {
   return (
     <div className="syszeile">
@@ -225,10 +232,8 @@ export function SystemPanel({ onClose }: { onClose: () => void }) {
               {/* Ohne Zugriff auf das Protokoll steht hier sonst überall 0 —
                   und das liest sich wie eine Seite ohne Besucher, nicht wie
                   eine Messung, die gar nicht stattgefunden hat. */}
-              {w.zugriff === false && (
-                <Zeile name="" ton="warn" wert={t('system.keinProtokoll')} />
-              )}
-              {w.geteilt && <Zeile name="" wert={t('system.geteilt')} />}
+              {w.zugriff === false && <Notiz ton="warn" text={t('system.keinProtokoll')} />}
+              {w.geteilt && <Notiz text={t('system.geteilt')} />}
               <Zeile name={t('system.jetzt')} wert={w.jetzt ?? 0} />
               <Zeile name={t('system.heute')}
                      wert={`${w.heute?.besucher ?? 0} · ${w.heute?.seiten ?? 0}`} />

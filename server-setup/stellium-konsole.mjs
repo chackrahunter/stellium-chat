@@ -1181,7 +1181,15 @@ function webstatistikRechnen() {
  * Weitergegeben wird deshalb nur, was ohnehin angezeigt wird: Summen,
  * Ranglisten von Pfaden und Rechnernamen. Keine Kennung, kein Salz.
  */
-const WEBSTAT_TEILEN = process.env.STELLIUM_WEBSTAT_TEILEN || null;
+/* Fester Ort statt einer Umgebungsvariablen: sonst müsste er an drei Stellen
+   gesetzt werden — Schreibtisch, Hintergrundlauf und Dienst —, und wo eine
+   davon vergessen wird, stehen wieder Nullen da. Wer in das Verzeichnis
+   schreiben darf, teilt; wer nicht, liest. Das entscheiden die Rechte, nicht
+   eine Einstellung, die auseinanderlaufen kann.
+   Gibt es das Verzeichnis nicht, scheitern beide Wege still und es bleibt
+   beim bisherigen Verhalten. */
+const WEBSTAT_TEILEN = process.env.STELLIUM_WEBSTAT_TEILEN
+  ?? '/var/lib/stellium-webstat/summen.json';
 
 function webstatistik() {
   const eigen = webstatistikRechnen();

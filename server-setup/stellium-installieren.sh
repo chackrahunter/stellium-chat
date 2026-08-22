@@ -1227,6 +1227,26 @@ chmod 755 /usr/local/bin/stellium-sichern
 install -d -m 750 -o "$BENUTZER" -g "$BENUTZER" /var/lib/stellium/sicherungen
 chmod g+rx /var/lib/stellium /var/lib/stellium/sicherungen
 [[ -n "${SUDO_USER:-}" ]] && usermod -aG "$BENUTZER" "$SUDO_USER" 2>/dev/null || true
+
+# Besucherzahlen der Website weiterreichen.
+#
+# Caddy protokolliert ins Journal. Lesen darf das nur, wer in `adm` oder
+# `systemd-journal` ist — der Schreibtisch (Konto der Person am Gerät) darf
+# es, der Chat-Server läuft als "$BENUTZER" und darf es nicht. Ohne diesen
+# Ordner bekommt er überall Nullen, und die sehen aus wie eine Seite ohne
+# Besucher statt wie eine Messung, die nicht stattgefunden hat.
+#
+# Hier landen nur die FERTIGEN SUMMEN — keine Besucherkennung, kein Salz.
+# Den rohen Zählstand zu teilen wäre falsch: dort liegen Kennungen und das
+# Salz beieinander, und wer beides hat, rechnet die Adressen zurück.
+#
+# 2750, nicht 750: das setgid-Bit sorgt dafür, dass neue Dateien die Gruppe
+# des Ordners erben. Ohne das bekommen sie die Gruppe dessen, der sie
+# anlegt, und der Chat-Server kommt trotz passender Ordnerrechte nicht
+# heran — gemessen und genau so erlebt.
+if [[ -n "${SUDO_USER:-}" ]]; then
+  install -d -m 2750 -o "$SUDO_USER" -g "$BENUTZER" /var/lib/stellium-webstat
+fi
 apt-get install -y -qq sqlite3 >/dev/null
 
 cat > /etc/systemd/system/stellium-sicherung.service <<'DIENST'

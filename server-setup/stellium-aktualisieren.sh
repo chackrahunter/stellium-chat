@@ -169,6 +169,17 @@ for werkzeug in stellium-zugang stellium-tunnel stellium-selbstupdate; do
 done
 [[ -f "$ZIEL/server-setup/stellium-konsole.mjs" ]] \
   && install -m 755 "$ZIEL/server-setup/stellium-konsole.mjs" /usr/local/lib/stellium/konsole.mjs
+# Die Oberfläche des Schreibtischs gehört mit aufgefrischt. Sie wurde bisher
+# NUR von konsole-gui/einrichten.sh installiert — also einmal beim
+# Einrichten und danach nie wieder. Änderungen daran erreichten den Pi
+# damit gar nicht, ohne dass etwas fehlschlug: die alte Fassung lief
+# einfach weiter.
+# Die laufende Anzeige merkt davon nichts; sie liest die Datei beim Start.
+# Absichtlich kein Neustart von hier aus: das ist der Schirm, auf den
+# jemand gerade schaut, und ein Aktualisierungslauf soll ihn nicht ohne
+# Vorwarnung schwarz machen.
+[[ -f "$ZIEL/server-setup/konsole-gui/konsole.py" && -f /usr/local/lib/stellium/konsole-gui.py ]] \
+  && install -m 755 "$ZIEL/server-setup/konsole-gui/konsole.py" /usr/local/lib/stellium/konsole-gui.py
 # "stellium-update" ist der Befehl, den man von Hand aufruft: er holt den
 # neuen Stand vom Server. Der Teil, der im entpackten Paket arbeitet, liegt
 # daneben und wird von dort aufgerufen — von Hand war er nur verwirrend.
