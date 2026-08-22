@@ -110,6 +110,27 @@ Gemessen, jeweils 33 Sekunden über die echte Leitung:
 
 **+45 % Bitrate bei gleicher Bildrate**, ohne dass die Verzögerung wegläuft.
 
+### Die Größe des Pi-Schirms selbst
+
+Der Headless-Ausgang stand auf **1920x917** — daher das leicht gedehnt
+wirkende Bild (Seitenverhältnis 2,09 statt 1,78). Konfiguriert war das
+nirgends: `~/.config/kanshi/config` war **0 Bytes**, und daneben lag ein
+`config.init` mit genau der richtigen Zeile. Irgendwann wurde die aktive
+Datei geleert, und der Ausgang fiel auf seine Vorgabe zurück.
+
+    profile {
+            output NOOP-1 enable scale 1.000000 mode 1920x1080@0.000 position 0,0 transform normal
+    }
+
+Wichtig beim Nachstellen: **keine eigene `~/.config/labwc/autostart`
+anlegen.** Die systemweite unter `/etc/xdg/labwc/autostart` startet Panel,
+Dateimanager und kanshi; eine Benutzerdatei ersetzt sie, statt sie zu
+ergänzen — der Schreibtisch käme ohne Panel hoch.
+
+Die Größe wird beim **Sitzungsbeginn** festgelegt, nicht beim Bildabgriff.
+Nach einer Änderung muss man einmal trennen und neu verbinden, sonst läuft
+der Abgriff mit der alten Größe weiter.
+
 ## Was drinsteckt
 
     host/fern-host.c      Abgriff (zwlr_screencopy v3) + x264, zwei Fäden

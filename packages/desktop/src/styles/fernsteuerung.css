@@ -23,7 +23,10 @@
 .fern__schirm {
   display: block;
   max-width: 100%;
-  max-height: min(66vh, 720px);
+  /* In der Tafel steht der Schirm zwischen anderem Inhalt und darf nicht die
+     ganze Seite einnehmen. Im eigenen Fenster gilt dieser Deckel nicht —
+     siehe unten. */
+  max-height: min(72vh, 900px);
   /* Ohne das rechnet der Browser beim Verkleinern glatt und macht feine
      Schrift matschig. Bei einem Schreibtisch mit viel Text ist scharf
      wichtiger als weich. */
@@ -162,4 +165,14 @@
 /* Der Schirm füllt das Fenster; die Bühne bringt ihre eigene Zentrierung
    mit, hier muss sie nur die volle Höhe bekommen. */
 .fern-fenster .fern { height: 100%; min-height: 0; }
-.fern-fenster .fern__buehne { height: 100%; }
+.fern-fenster .fern__buehne { height: 100%; min-height: 0; }
+
+/* Hier lag der Grund für die vielen schwarzen Ränder: der Schirm behielt
+   auch im eigenen Fenster seinen Deckel von 66 vh. Bei 1250 px Fensterhöhe
+   sind das 825 px — genau die Höhe, mit der das Bild ankam, während oben und
+   unten je 200 px leer blieben. Weil die Höhe begrenzte, blieb auch seitlich
+   Platz: die Breite folgt ja dem Seitenverhältnis.
+   Im Fenster gibt es nichts anderes zu sehen, also nimmt der Schirm alles.
+   Das Seitenverhältnis bleibt gewahrt — die Leinwand hat ihre eigene Größe,
+   `max-*` verkleinert nur gleichmäßig. */
+.fern-fenster .fern__schirm { max-height: 100%; max-width: 100%; }
