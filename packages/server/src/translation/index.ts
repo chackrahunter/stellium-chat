@@ -488,11 +488,32 @@ export async function translate(opts: TranslateOptions): Promise<TranslateOutcom
     },
   ): TranslateOutcome => {
     if (istEcho(masked, uebersetzt)) {
+      /*
+       * Zwei sehr verschiedene Fälle sehen hier gleich aus, und sie
+       * auseinanderzuhalten ist der Sinn dieser Zeilen.
+       *
+       * Steht die erkannte Ausgangssprache bereits auf der Zielsprache, ist
+       * ein unveränderter Text die RICHTIGE Antwort — es gibt nichts zu
+       * übersetzen. Das trifft ständig zu: der Assistent antwortet auf
+       * Deutsch, die Kanalsprache ist Englisch, und dann läuft eine
+       * Anfrage en → de über einen Text, der schon Deutsch ist.
+       *
+       * Vorher stand für beide Fälle derselbe Satz im Protokoll — „gab den
+       * Eingabetext zurück statt ihn zu übersetzen". Der liest sich wie ein
+       * Fehlschlag des Modells und ist meistens keiner. Er hat mich am
+       * 22.08.2026 durch eine halbe Fehlersuche geschickt: Endpunkt
+       * geprüft, Modell geprüft, Anweisung nachgestellt — alles in Ordnung,
+       * und die Meldung meinte von Anfang an etwas anderes.
+       */
+      const schonZiel = (zusatz.sourceLang ?? source) === target;
       console.warn(
-        `[translate] ${provider.name} gab den Eingabetext zurück statt ihn zu übersetzen`
-        + ` (${zusatz.sourceLang ?? source} → ${target}, ${masked.length} Zeichen,`
-        + ` ${Math.round(wortAehnlichkeit(masked, uebersetzt) * 100)} % Übereinstimmung)`
-        + ' — wird als unübersetzt gekennzeichnet.',
+        schonZiel
+          ? `[translate] ${provider.name}: nichts zu übersetzen — Text ist bereits ${target}`
+            + ` (${masked.length} Zeichen).`
+          : `[translate] ${provider.name} gab den Eingabetext zurück statt ihn zu übersetzen`
+            + ` (${zusatz.sourceLang ?? source} → ${target}, ${masked.length} Zeichen,`
+            + ` ${Math.round(wortAehnlichkeit(masked, uebersetzt) * 100)} % Übereinstimmung)`
+            + ' — wird als unübersetzt gekennzeichnet.',
       );
       return { ...base, ...zusatz, text: opts.text, noop: true, unuebersetzt: true, confidence: 0 };
     }
