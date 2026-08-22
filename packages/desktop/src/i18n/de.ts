@@ -283,6 +283,8 @@ export const de = {
   'post.kiFensterZuKlein': 'Das Kontextfenster des eingestellten Modells reicht für diese Anfrage nicht aus.',
   'post.kiOhneEntwurf': 'Die KI hat hier keinen Text geliefert — bitte von Hand schreiben.',
   'post.kiOhneThema': 'Ohne Angabe, worum es gehen soll, kann die KI keinen sinnvollen Text schreiben.',
+  'post.unbekanntesFach': 'Dieses Fach gibt es nicht.',
+  'post.ungueltigeFrist': 'Die Frist muss eine ganze Zahl von mindestens einem Tag sein.',
   'post.neueNachricht': 'Neue Mail',
   'post.absenderfach': 'Absenderfach',
   'post.empfaenger': 'Empfänger',
@@ -302,6 +304,18 @@ export const de = {
   'post.kiFehlgeschlagen': 'KI-Entwurf fehlgeschlagen',
   'post.kiKennzeichnungWarnung': 'Der Hinweis, dass diese Mail von der KI erzeugt wurde, fehlt jetzt im Text — trotzdem senden?',
   'post.kiUeberschreibenWarnung': 'Der vorhandene Text wird durch den KI-Entwurf ersetzt — weiter?',
+  'post.entwurfTitel': 'KI-Antwortentwurf',
+  'post.entwurfBegruendungLabel': 'Begründung der KI',
+  'post.entwurfEmpfaengerHinweis': 'Aus der Ursprungsmail — hier nicht änderbar.',
+  'post.entwurfTextLabel': 'Antworttext',
+  'post.entwurfFreigeben': 'Freigeben & senden',
+  'post.entwurfAblehnen': 'Ablehnen',
+  'post.entwurfAblehnenBestaetigen': 'Diesen Antwortentwurf wirklich ablehnen? Das lässt sich nicht rückgängig machen.',
+  'post.entwurfAbgelehnt': 'Entwurf abgelehnt.',
+  'post.entwurfAblehnenFehlgeschlagen': 'Ablehnen fehlgeschlagen.',
+  'post.entwurfUnvollstaendig': 'Betreff und Text dürfen nicht leer sein.',
+  'post.entwurfAdresseUngueltig': 'Der gespeicherte Entwurf hat keine gültige Empfängeradresse — bitte die Verwaltung verständigen.',
+  'post.entwuerfeFehler': 'Offene Antwortentwürfe konnten nicht geladen werden.',
   'settings.uiLanguage': 'Sprache der Oberfläche',
   'settings.uiLanguageHint': 'Menüs und Knöpfe. Unabhängig davon, in welche Sprache Nachrichten übersetzt werden.',
   'settings.myLanguage': 'Meine Anzeigesprache',
@@ -1731,4 +1745,61 @@ export const de = {
   'postSichtung.grund.keineAdresse': 'Keine eindeutige Antwortadresse — kein Entwurf entstanden.',
   'postSichtung.grund.modellFehler': 'Die KI konnte diese Mail nicht einordnen — bitte von Hand ansehen.',
   'postSichtung.abweichung': 'Achtung: Die Antwort ginge an {an}, geschrieben hat aber {von} — bitte vor der Freigabe prüfen.',
+
+  /* ── Postfach: Anhänge ─────────────────────────────────────── */
+  'post.anhaenge': 'Anhänge',
+  'post.anhaengeAria': 'Anhänge dieser Mail',
+  'post.anhangUngueltig': 'Ein Anhang ist nicht mehr verfügbar — bitte erneut anhängen.',
+  'post.anhaengeZuGross': 'Die Anhänge sind zusammen zu groß (je Datei höchstens 15 MB, insgesamt höchstens 20 MB).',
+  'post.anhangOhneKonto': 'Anhänge ohne bekannten Uploader — interner Fehler.',
+  'post.anhangNichtAngekommen': 'Nicht angekommen — zu groß oder unlesbar kodiert.',
+  'post.anhangKeinVirenschutz': 'Diese Anhänge wurden nicht auf Schadsoftware geprüft. Nur öffnen, wenn Absender und Inhalt vertrauenswürdig wirken.',
+  'post.anhangHinzufuegen': 'Anhang hinzufügen',
+  'post.anhangWirdHochgeladen': 'Wird hochgeladen …',
+  'post.anhangHochladenFehlgeschlagen': 'Anhang konnte nicht hochgeladen werden',
+
+  /* ── Postfach: Suche ──────────────────────────────────────────── */
+  'post.suchePlatzhalter': 'Betreff, Text, Absender, Fach …',
+  'post.sucheAria': 'Post durchsuchen',
+  'post.sucheLeer': 'Nichts gefunden.',
+  'post.sucheLeeren': 'Suche leeren',
+
+  /* ── Postfach: Alltag / Archiv / Papierkorb ──────────────────────
+     Serverseitig längst da (services/post.ts) — hier nur die Oberfläche
+     dazu. */
+  'post.ansichtAria': 'Ansicht',
+  'post.ansichtAktiv': 'Posteingang',
+  'post.ansichtArchiv': 'Archiv',
+  'post.ansichtPapierkorb': 'Papierkorb',
+  'post.aktionFehlgeschlagen': 'Das hat nicht geklappt.',
+  'post.archivieren': 'Archivieren',
+  'post.ausArchivHolen': 'Aus dem Archiv holen',
+  'post.entfernen': 'Entfernen',
+  'post.wiederherstellen': 'Wiederherstellen',
+  'post.endgueltigLoeschen': 'Endgültig löschen',
+  'post.endgueltigLoeschenBestaetigen': 'Diese Mail wirklich ENDGÜLTIG löschen? Das lässt sich nicht rückgängig machen — anders als Archivieren oder Entfernen ist der Inhalt danach unwiederbringlich weg.',
+  'post.endgueltigGeloescht': 'Endgültig gelöscht.',
+  'post.verfaelltAm': 'Verfällt am {datum} — Aufbewahrungsfrist des Fachs',
+
+  /* ── Postfach: Weiterleiten ───────────────────────────────────── */
+  'post.weiterleiten': 'Weiterleiten',
+  'post.weitergeleitet': 'Weitergeleitet.',
+  'post.weiterleitenBetreffHinweis': 'Geht mit „Fwd:" davor hinaus, unverändert.',
+  'post.mailNichtGefunden': 'Diese Mail gibt es nicht (mehr).',
+
+  /* ── Postfach: Aufbewahrungsfrist je Fach ────────────────────────
+     GET/POST/DELETE /api/post/fristen, hinter mail.verwalten. */
+  'post.fristenKnopf': 'Aufbewahrungsfristen',
+  'post.fristenTitel': 'Aufbewahrungsfrist je Fach',
+  'post.fristenHinweis': 'Ohne gesetzte Frist wird in einem Fach nichts von selbst gelöscht. Eine gesetzte Frist löscht abgelaufene Post ENDGÜLTIG — unabhängig davon, ob sie gelesen, archiviert oder entfernt wurde.',
+  'post.fristKeine': 'keine',
+  'post.fristTageAria': 'Frist für {fach} in Tagen',
+  'post.tage': 'Tage',
+  'post.fristGespeichert': 'Frist gespeichert.',
+  'post.fristAbschalten': 'Frist abschalten',
+  'post.fristAbschaltenBestaetigen': 'Frist für dieses Fach wieder abschalten? Ab dann verfällt dort nichts mehr von selbst.',
+  'post.fristAbgeschaltet': 'Frist abgeschaltet.',
+
+  /* ── Postfach: neue Ansicht/Route-Fehler ─────────────────────────── */
+  'fehler.unbekannteAnsicht': 'Diese Ansicht gibt es nicht.',
 } as const;

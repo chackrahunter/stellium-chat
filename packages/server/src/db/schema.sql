@@ -978,6 +978,51 @@ CREATE TABLE IF NOT EXISTS mail_partner (
 -- migrate.ts, nicht hier -- aus demselben Grund wie bei zustell_schluessel
 -- oben: diese Spalte ist auf einer bestehenden Datenbank erst nachgeruestet.
 
+/* Die Bytes eines Mailanhangs -- eingegangen oder ausgehend.
+   `mail_nachrichten.anhaenge` bleibt die Übersicht (Name/Typ/Größe/Ort als
+   JSON, verschlüsselt wie der Rest der Nachricht); hier liegt der Inhalt,
+   genau wie bei `attachments` für den Chat -- über dieselbe Blockablage
+   (services/ablage.ts, services/bloecke.ts), nicht über eine zweite. `art`
+   in `datei_bloecke` heisst dafür 'mail'.
+   Eine eingegangene Zeile ohne Bytes (zu gross fuer den Cloudflare-Worker,
+   siehe dort ANHANG_MAX/ANHAENGE_MAX_GESAMT) bekommt gar keine Zeile hier --
+   die Übersicht in mail_nachrichten.anhaenge zeigt das über `uebergross`. */
+CREATE TABLE IF NOT EXISTS mail_anhaenge (
+  id          TEXT PRIMARY KEY,
+  -- NULLABEL: ein ausgehender Anhang wird beim Verfassen hochgeladen, bevor
+  -- die Mail ueberhaupt existiert -- dieselbe Reihenfolge wie bei
+  -- attachments.message_id fuer den Chat (siehe dort). senden() traegt die
+  -- Kennung erst beim tatsaechlichen Versand nach ("WHERE mail_id IS NULL").
+  -- Ein eingegangener Anhang bekommt sie sofort, weil seine Mail zu diesem
+  -- Zeitpunkt schon eingefuegt ist.
+  mail_id     TEXT REFERENCES mail_nachrichten(id) ON DELETE CASCADE,
+  -- Reihenfolge unter den Anhaengen derselben Mail, 0-basiert. Bei einem noch
+  -- nicht verknuepften ausgehenden Anhang ohne Bedeutung (0) -- senden()
+  -- setzt den echten Wert beim Verknuepfen.
+  nummer      INTEGER NOT NULL DEFAULT 0,
+  -- Bereinigt beim Anlegen der Zeile (saubererDateiname() aus
+  -- util/dateiname.ts), nie erst beim Ausliefern.
+  name        TEXT NOT NULL,
+  -- Behauptet -- vom fremden Absender bei eingegangener Post, sonst vom
+  -- eigenen Client. Nie fuer den Content-Type beim Ausliefern eines
+  -- eingegangenen Anhangs benutzen -- siehe die Auslieferungsroute in
+  -- http/routes.ts.
+  mime        TEXT NOT NULL,
+  size        INTEGER NOT NULL,
+  -- Zwischenpfad, solange die Zerlegung in Bloecke noch aussteht (siehe
+  -- ablage.spaeterUebernehmen) -- danach unveraendert stehengelassen wie bei
+  -- attachments/files, denn oeffnen() braucht ihn fuer den Zustand davor.
+  path        TEXT NOT NULL,
+  encoding    TEXT,
+  stored_size INTEGER,
+  -- Nur bei einem ausgehenden, noch nicht gesendeten Anhang gesetzt -- damit
+  -- senden() pruefen kann, dass dieselbe Person verknuepft, die hochgeladen
+  -- hat. Bei eingegangener Post immer NULL: die kommt von niemandem im Haus.
+  uploaded_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+  created_at  INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_mail_anhaenge_mail ON mail_anhaenge(mail_id, nummer);
+
 /* ── Verkaufsstatistik ─────────────────────────────────────────
  * Zwei Entwurfsentscheidungen stecken in diesen Tabellen (siehe Auftrag
  * "Verkaufsstatistik ausbauen"):

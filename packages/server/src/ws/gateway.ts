@@ -40,6 +40,7 @@ import * as files from '../services/files.js';
 import * as ideas from '../services/ideas.js';
 import * as vorschlaege from '../services/vorschlaege.js';
 import * as patreon from '../services/patreon.js';
+import * as post from '../services/post.js';
 import * as partnerGruppen from '../services/post-partnergruppen.js';
 import * as postSichtung from '../services/post-sichtung.js';
 import * as push from '../services/push.js';
@@ -3416,6 +3417,26 @@ export function startBackgroundJobs(): () => void {
     }
   }, 5 * 60_000);
 
+  /* Aufbewahrungsfristen der Post durchsetzen — höchstens einmal am Tag: ein
+     Durchlauf, der jedes Fach mit gesetzter Frist gegen die ganze Tabelle
+     prüft, muss den Pi nicht öfter beschäftigen, als er etwas zu tun haben
+     kann (eine Frist zählt in Tagen, nicht in Minuten). Anders als die
+     übrigen Läufe hier oben feuert dieser einmal SOFORT beim Start und dann
+     erst im Takt: ohne den Sofortlauf läge eine längst abgelaufene Frist nach
+     jedem Neustart bis zu 24 Stunden unbemerkt liegen — bei einer Vorschrift,
+     die sich ausdrücklich auf eine Frist beruft, ist das kein Rundungsfehler,
+     sondern die Zusage selbst. */
+  const fristenLauf = () => {
+    try {
+      const weg = post.fristenAnwenden();
+      if (weg) console.log(`[post] ${weg} Mail(s) wegen abgelaufener Aufbewahrungsfrist endgültig gelöscht.`);
+    } catch (err) {
+      console.error('[post-fristen]', (err as Error).message);
+    }
+  };
+  fristenLauf();
+  const fristenTimer = setInterval(fristenLauf, 24 * 60 * 60_000);
+
   return () => {
     vorschlaege.zustellerSetzen(null);
     stopVorschlaege();
@@ -3430,6 +3451,7 @@ export function startBackgroundJobs(): () => void {
     clearInterval(wartungsTimer);
     clearInterval(freigabenTimer);
     clearInterval(heartbeat);
+    clearInterval(fristenTimer);
   };
 }
 

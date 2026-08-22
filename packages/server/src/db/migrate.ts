@@ -150,9 +150,33 @@ const COLUMNS: { table: string; column: string; definition: string }[] = [
   { table: 'mail_partner', column: 'gruppe_von_ki',       definition: 'INTEGER NOT NULL DEFAULT 0' },
   { table: 'mail_partner', column: 'gruppe_vorschlag_am', definition: 'INTEGER' },
   { table: 'mail_partner', column: 'gruppe_begruendung',  definition: 'TEXT' },
+
+  /* Postfach: Archivieren und „aus dem Weg räumen" — beides nullbare
+     Zeitpunkte, NULL heißt "gilt nicht". Siehe services/post.ts,
+     archiviertSetzen()/entferntSetzen() für die Verwendung und den
+     Dateikopf dort für die Begründung, warum das zwei unabhängige Spalten
+     sind und keine gemeinsame. */
+  { table: 'mail_nachrichten', column: 'archiviert_am', definition: 'INTEGER' },
+  { table: 'mail_nachrichten', column: 'entfernt_am',   definition: 'INTEGER' },
 ];
 
 export function migrate(): void {
+  /* Ohne das schreibt SQLite gelöschte Inhalte nur aus dem Baum aus, nicht
+     aus der Datei: der Platz gilt als frei, die alten Bytes bleiben aber
+     unverändert liegen, bis eine spätere Schreibung dieselbe Seite wieder
+     benutzt — auf einer kleinen, selten geschriebenen Datenbank unter
+     Umständen sehr lange. Für die meisten Tabellen im Haus ist das
+     hinnehmbar; für services/post.ts (endgueltigLoeschen(), Art. 17 DSGVO)
+     ist es das GENAUE GEGENTEIL dessen, was "endgültig löschen" verspricht —
+     ein DELETE allein reicht dafür nicht, die Bytes müssen überschrieben
+     werden. Eine Ausnahme nur für die Post zu schalten, ginge nicht: die
+     Einstellung gilt für die ganze Verbindung, nicht je Tabelle. Sie gilt
+     deshalb hier für das ganze Haus — jede andere Löschung (Konten,
+     Nachrichten, Notizen) bekommt dieselbe Härtung nebenbei geschenkt.
+     Muss bei JEDEM Start neu gesetzt werden: anders als journal_mode ist
+     secure_delete keine Eigenschaft der Datei, sondern der Verbindung. */
+  db.exec('PRAGMA secure_delete = ON');
+
   for (const { table, column, definition } of COLUMNS) {
     const existing = db.all<{ name: string }>(`PRAGMA table_info(${table})`);
     if (!existing.length) continue;                       // Tabelle gibt es noch nicht
@@ -316,6 +340,35 @@ export function migrate(): void {
   } catch (err) {
     console.warn('[db] Index idx_mail_partner_gruppe:', (err as Error).message);
   }
+
+  /* Indizes auf archiviert_am/entfernt_am — beide erst hier und nicht in
+     schema.sql, aus demselben Grund wie idx_mail_zustell oben: die Spalten
+     sind auf einer bestehenden Datenbank erst über die COLUMNS-Nachrüstung
+     weiter oben in dieser Datei entstanden, garantiert bis zu dieser Stelle.
+     Partielle Indizes (nur die gesetzten Werte), weil im Alltag fast jede
+     Zeile NULL trägt — ein Index über lauter NULL brächte nichts. */
+  try {
+    db.exec('CREATE INDEX IF NOT EXISTS idx_mail_archiviert ON mail_nachrichten(fach, archiviert_am) WHERE archiviert_am IS NOT NULL');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_mail_entfernt ON mail_nachrichten(fach, entfernt_am) WHERE entfernt_am IS NOT NULL');
+  } catch (err) {
+    console.warn('[db] Indizes für Archiv/Papierkorb der Post:', (err as Error).message);
+  }
+
+  /* Aufbewahrungsfrist der Post, je Fach. Fehlt eine Zeile für ein Fach, gilt
+     dort KEINE Frist — das ist die Vorgabe, bis jemand mit `mail.verwalten`
+     ausdrücklich eine setzt (siehe services/post.ts, fristSetzen()/
+     fristenStand()/fristenAnwenden()). Eine eigene, kleine Tabelle statt
+     eines JSON-Werts in app_settings: es gibt genau eine Zeile je Fach, sie
+     soll einzeln abfragbar und mit `gesetzt_von`/`gesetzt_am` nachvollziehbar
+     sein — dieselbe Bauart wie user_permissions oder mail_partner, nicht die
+     wie app_settings (dort stehen einzelne, globale Werte, keine Liste). */
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS post_fristen (
+      fach        TEXT PRIMARY KEY,
+      tage        INTEGER NOT NULL,
+      gesetzt_von TEXT REFERENCES users(id) ON DELETE SET NULL,
+      gesetzt_am  INTEGER NOT NULL
+    )`);
 
   /* Notizen — dieselben drei Tabellen wie in schema.sql, aus demselben Grund
      wie poll_participants und mail_partner oben: auf einer bestehenden

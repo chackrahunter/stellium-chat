@@ -30,6 +30,7 @@ import * as verkaufzugang from '../services/verkaufzugang.js';
 import * as patreon from '../services/patreon.js';
 import * as gumroad from '../services/gumroad.js';
 import * as post from '../services/post.js';
+import * as postSuche from '../services/post-suche.js';
 import * as postSichtung from '../services/post-sichtung.js';
 import * as postEntwurfKi from '../services/post-entwurf-ki.js';
 import * as partnerGruppen from '../services/post-partnergruppen.js';
@@ -1355,15 +1356,44 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     return { faecher: post.faecher() };
   });
 
-  app.get('/api/post/liste', async (req) => {
+  /** Nur diese drei Werte -- alles andere fiele sonst still auf "aktiv"
+      zurück (die Vorgabe von post.liste()) und verschwiege dabei, dass die
+      Anfrage selbst falsch war. */
+  const POST_ANSICHTEN = ['aktiv', 'archiviert', 'papierkorb'] as const;
+
+  app.get('/api/post/liste', async (req, reply) => {
     requirePermission(requireUser(req), 'mail.lesen');
-    const q = req.query as { fach?: string; anzahl?: string; vor?: string };
+    const q = req.query as { fach?: string; anzahl?: string; vor?: string; ansicht?: string };
+    if (q.ansicht && !(POST_ANSICHTEN as readonly string[]).includes(q.ansicht)) {
+      return fehler(reply, 400, 'fehler.unbekannteAnsicht', 'Diese Ansicht gibt es nicht.');
+    }
     return {
       nachrichten: post.liste(
         q.fach && q.fach !== 'alle' ? q.fach : null,
         Number(q.anzahl) || 50,
         q.vor ? Number(q.vor) : undefined,
+        (q.ansicht as (typeof POST_ANSICHTEN)[number] | undefined) ?? 'aktiv',
       ),
+    };
+  });
+
+  /**
+   * Volltextsuche über das Postfach — Betreff, Text, Absender, Fach und
+   * Anhangnamen (siehe Dateikopf services/post-suche.ts für die Begründung,
+   * warum derselbe Fingerabdruck-Index wie beim Chat und nicht ein eigenes
+   * Verfahren). `mail.lesen` genügt, dieselbe Schwelle wie `/api/post/liste`:
+   * die Suche zeigt nichts, was diese Person über die Liste ohnehin nicht
+   * schon sehen dürfte.
+   */
+  app.get('/api/post/suche', async (req) => {
+    requirePermission(requireUser(req), 'mail.lesen');
+    const q = req.query as { q?: string; fach?: string; limit?: string };
+    return {
+      treffer: postSuche.suchen({
+        q: q.q ?? '',
+        fach: q.fach ?? null,
+        limit: q.limit ? Number(q.limit) : undefined,
+      }),
     };
   });
 
@@ -1382,6 +1412,114 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     /* `verlauf`, nicht `nachrichten`: es ist eine Kette, keine Liste — und
        die Oberfläche liest genau diesen Namen. */
     return { verlauf: post.verlauf((req.params as { threadId: string }).threadId) };
+  });
+
+  /* ── Postfach: weiterleiten ────────────────────────────────────
+     Eine bestehende Mail mit Text und Anhängen an eine andere Adresse geben
+     — siehe services/post.ts, weiterleiten() für die ausführliche
+     Begründung (freie Empfängeradresse, Herkunftsfach, warum der fremde Text
+     nie zu einer Kopfzeile werden kann). `mail.senden`, nicht zusätzlich
+     `mail.lesen`: dieselbe Schwelle wie bei `/api/post/entwuerfe/:id/senden`
+     weiter unten, das die Ursprungsmail ebenfalls allein hinter
+     `mail.senden` liest — wer senden darf, darf dafür auch die Mail lesen,
+     auf die sich der Versand bezieht. */
+  app.post('/api/post/nachricht/:id/weiterleiten', async (req, reply) => {
+    const userId = requireUser(req);
+    requirePermission(userId, 'mail.senden');
+    const { id } = req.params as { id: string };
+    const k = req.body as { fach?: string; an?: string };
+    if (!k?.an) return fehler(reply, 400, 'fehler.unvollstaendig', 'Ein Empfänger ist nötig.');
+    try {
+      return await post.weiterleiten(id, { fach: k.fach, an: k.an }, userId);
+    } catch (f) {
+      const e = f as { code?: string; status?: number; message?: string };
+      return fehler(reply, e.status ?? 502, e.code ?? 'fehler.post',
+        e.message ?? 'Weiterleiten fehlgeschlagen.');
+    }
+  });
+
+  /* ── Postfach: Archivieren, aus dem Weg räumen, endgültig löschen ───
+     Serverseitig längst da (services/post.ts: archiviertSetzen(),
+     entferntSetzen(), endgueltigLoeschen()) — hier nur die Türen dazu. Drei
+     verschiedene Rechte für drei verschieden schwere Handlungen:
+     Archivieren/Entfernen sind jederzeit umkehrbar und laufen deshalb unter
+     `mail.senden` (derselben Schwelle wie „aktiv mit dem Postfach
+     arbeiten"), endgültiges Löschen ist es nicht und bleibt hinter
+     `mail.verwalten` — derselben Schwelle, unter der auch der Postfach-
+     Zugang selbst eingerichtet wird. */
+
+  app.post('/api/post/nachricht/:id/archivieren', async (req, reply) => {
+    requirePermission(requireUser(req), 'mail.senden');
+    const { id } = req.params as { id: string };
+    const k = req.body as { archiviert?: boolean };
+    const ok = post.archiviertSetzen(id, k?.archiviert !== false);
+    if (!ok) return fehler(reply, 404, 'fehler.nichtGefunden', 'Diese Nachricht gibt es nicht.');
+    return { ok: true };
+  });
+
+  app.post('/api/post/nachricht/:id/entfernen', async (req, reply) => {
+    requirePermission(requireUser(req), 'mail.senden');
+    const { id } = req.params as { id: string };
+    const ok = post.entferntSetzen(id, true);
+    if (!ok) return fehler(reply, 404, 'fehler.nichtGefunden', 'Diese Nachricht gibt es nicht.');
+    return { ok: true };
+  });
+
+  app.post('/api/post/nachricht/:id/wiederherstellen', async (req, reply) => {
+    requirePermission(requireUser(req), 'mail.senden');
+    const { id } = req.params as { id: string };
+    const ok = post.entferntSetzen(id, false);
+    if (!ok) return fehler(reply, 404, 'fehler.nichtGefunden', 'Diese Nachricht gibt es nicht.');
+    return { ok: true };
+  });
+
+  /**
+   * Endgültig löschen — Art. 17 DSGVO, unumkehrbar (siehe services/post.ts,
+   * Dateikopf des Abschnitts „Archivieren, aus dem Weg räumen, endgültig
+   * löschen" für den Unterschied zu den beiden Routen oben). Die
+   * ausdrückliche Bestätigung dafür sitzt in der Oberfläche (PostPanel.tsx)
+   * — hier nur die schärfere Rechteschwelle, `mail.verwalten` statt
+   * `mail.senden`.
+   */
+  app.delete('/api/post/nachricht/:id', async (req, reply) => {
+    requirePermission(requireUser(req), 'mail.verwalten');
+    const { id } = req.params as { id: string };
+    const ok = post.endgueltigLoeschen(id);
+    if (!ok) return fehler(reply, 404, 'fehler.nichtGefunden', 'Diese Nachricht gibt es nicht.');
+    return { ok: true };
+  });
+
+  /* ── Postfach: Aufbewahrungsfrist je Fach ─────────────────────
+     `mail.verwalten`, dieselbe Schwelle wie beim Postfach-Zugang selbst: wie
+     lange Post aufbewahrt wird, ist eine Einrichtungsentscheidung, keine
+     tägliche Arbeit am Postfach (die läuft unter `mail.lesen`/`mail.senden`,
+     siehe oben). */
+
+  app.get('/api/post/fristen', async (req) => {
+    requirePermission(requireUser(req), 'mail.verwalten');
+    return { fristen: post.fristenStand() };
+  });
+
+  app.post('/api/post/fristen', async (req, reply) => {
+    const userId = requireUser(req);
+    requirePermission(userId, 'mail.verwalten');
+    const k = req.body as { fach?: string; tage?: number };
+    if (!k?.fach || k.tage === undefined) {
+      return fehler(reply, 400, 'fehler.unvollstaendig', 'Fach und Frist sind nötig.');
+    }
+    try {
+      return { frist: post.fristSetzen(k.fach, Number(k.tage), userId) };
+    } catch (f) {
+      const e = f as { code?: string; status?: number; message?: string };
+      return fehler(reply, e.status ?? 400, e.code ?? 'fehler.post', e.message ?? 'Frist ließ sich nicht setzen.');
+    }
+  });
+
+  app.delete('/api/post/fristen/:fach', async (req) => {
+    requirePermission(requireUser(req), 'mail.verwalten');
+    const { fach } = req.params as { fach: string };
+    post.fristLoeschen(fach);
+    return { ok: true };
   });
 
   /* ── Postfach: Briefpartner-Gruppen ───────────────────────────
@@ -1433,6 +1571,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const k = req.body as {
       fach?: string; an?: string; betreff?: string; text?: string;
       antwortAuf?: { messageId: string | null; referenzen: string | null; threadId: string | null };
+      anhaenge?: string[];
     };
     if (!k?.an || !k?.text) {
       return fehler(reply, 400, 'fehler.unvollstaendig', 'Empfänger und Text sind nötig.');
@@ -1440,12 +1579,110 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     try {
       return await post.senden({
         fach: k.fach, an: k.an, betreff: k.betreff ?? '', text: k.text, antwortAuf: k.antwortAuf,
-      });
+        anhaenge: Array.isArray(k.anhaenge) ? k.anhaenge : undefined,
+      }, userId);
     } catch (f) {
       const e = f as { code?: string; status?: number; message?: string };
       return fehler(reply, e.status ?? 502, e.code ?? 'fehler.post',
         e.message ?? 'Senden fehlgeschlagen.');
     }
+  });
+
+  /* ── Postfach: Anhänge ─────────────────────────────────────────
+   *
+   * Der Inhalt selbst liegt im Blockspeicher (services/ablage.ts, art
+   * 'mail'), nicht hier — diese drei Routen sind die einzige Berührung mit
+   * den Bytes: ausliefern, hochladen (für eine noch nicht gesendete Mail),
+   * verwerfen (Schreibfenster ohne zu senden geschlossen).
+   *
+   * KEIN VIRENSCHUTZ: ein Anhang aus fremder Post wird ungeprüft
+   * entgegengenommen und ungeprüft ausgeliefert. Die Oberfläche sagt das
+   * ausdrücklich (siehe PostAnhaenge.tsx) — diese Route täuscht keine
+   * Sicherheit vor, die es nicht gibt.
+   */
+
+  /**
+   * Einen Anhang herunterladen — nur wer die Mail lesen darf (`mail.lesen`,
+   * dieselbe Schwelle wie jede andere Postfach-Route), und nur, wenn er
+   * wirklich an einer Mail hängt: `post.anhangFuerAuslieferung()` lässt einen
+   * noch nicht verknüpften Entwurfsanhang gar nicht erst durch.
+   *
+   * `requireLeser` statt `requireUser`, wie bei `/storage/:id` oben: ein
+   * Downloadknopf ist ein `<a href>`, kein `fetch()` mit eigenem Kopf — der
+   * Nachweis muss deshalb auch in der Adresse (`?token=`) gehen dürfen.
+   *
+   * IMMER `application/octet-stream` und IMMER `attachment` — nie der vom
+   * Absender BEHAUPTETE Typ, nie inline, ganz gleich was in der Datenbank
+   * steht oder wie die Datei heißt. Das ist der Unterschied zu `/storage/:id`
+   * und `/files/:id` oben, die für Bilder/PDF eine Ausnahme machen: DIESE
+   * Bytes kommen von einem Fremden im Internet, nicht von einem angemeldeten
+   * Kollegen, und verdienen deshalb keine. Ein als `bild.png` benannter
+   * HTML-Anhang bleibt damit eine Datei, die der Browser herunterlädt — nie
+   * eine, die er rendert oder ausführt.
+   */
+  app.get('/api/post/anhang/:id', async (req, reply) => {
+    const userId = requireLeser(req);
+    requirePermission(userId, 'mail.lesen');
+    const { id } = req.params as { id: string };
+    const anhang = post.anhangFuerAuslieferung(id);
+    if (!anhang) return fehler(reply, 404, 'fehler.nichtGefunden', 'Diesen Anhang gibt es nicht.');
+
+    reply.header('content-type', 'application/octet-stream');
+    reply.header('x-content-type-options', 'nosniff');
+    reply.header('content-disposition', `attachment; filename*=UTF-8''${encodeURIComponent(anhang.name)}`);
+
+    const strom = ablage.oeffnen({ id: anhang.id, art: 'mail', pfad: anhang.path, encoding: anhang.encoding });
+    if (!strom) return fehler(reply, 404, 'fehler.nichtGefunden', 'Diesen Anhang gibt es nicht.');
+    return reply.send(strom);
+  });
+
+  /**
+   * Einen Anhang für eine noch nicht gesendete Mail hochladen — Schreibfenster
+   * (PostSchreiben.tsx) und die Antwort im Postfach-Reiter nutzen dieselbe
+   * Route. `mail.senden`, nicht `mail.lesen`: nur wer senden darf, soll
+   * überhaupt etwas anhängen können. Größe hier grob gedeckelt (dieselbe
+   * Grenze wie /api/uploads); die scharfe Prüfung je Anhang und insgesamt
+   * sitzt in post.senden() (siehe dort, AUSGANG_ANHANG_MAX).
+   */
+  app.post('/api/post/anhang', async (req, reply) => {
+    const userId = requireUser(req);
+    requirePermission(userId, 'mail.senden');
+    const file = await req.file({ limits: { fileSize: config.maxUploadBytes } });
+    if (!file) return fehler(reply, 400, 'fehler.keineDatei', 'Keine Datei im Request');
+
+    const id = newId('ma_');
+    const target = path.join(config.uploadDir, id);
+    try {
+      await pipeline(file.file, fs.createWriteStream(target));
+    } catch (err) {
+      await fs.promises.rm(target, { force: true });
+      return fehler(reply, 500, 'fehler.uploadFehlgeschlagen',
+        `Upload fehlgeschlagen: ${(err as Error).message}`, { grund: (err as Error).message });
+    }
+    if (file.file.truncated) {
+      await fs.promises.rm(target, { force: true });
+      return fehler(reply, 413, 'fehler.dateiZuGross',
+        `Datei überschreitet ${config.maxUploadBytes / 1024 / 1024} MB`,
+        { mb: String(config.maxUploadBytes / 1024 / 1024) });
+    }
+
+    const size = (await fs.promises.stat(target)).size;
+    const anhang = post.ausgehenderAnhangAnlegen({
+      id, name: file.filename || 'datei', mime: file.mimetype || 'application/octet-stream',
+      size, storedPath: target, hochgeladenVon: userId,
+    });
+    return { anhang };
+  });
+
+  /** Einen noch nicht gesendeten Anhang verwerfen — z. B. beim Schließen des
+      Schreibfensters ohne zu senden. */
+  app.delete('/api/post/anhang/:id', async (req, reply) => {
+    const userId = requireUser(req);
+    requirePermission(userId, 'mail.senden');
+    const { id } = req.params as { id: string };
+    const weg = post.ausgehenderAnhangVerwerfen(id, userId);
+    if (!weg) return fehler(reply, 404, 'fehler.nichtGefunden', 'Diesen Anhang gibt es nicht.');
+    return { ok: true };
   });
 
   /* ── Postfach: frei verfassen ─────────────────────────────────
@@ -1535,25 +1772,87 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   });
 
   /**
-   * Einen Entwurf freigeben und wirklich senden.
+   * Genau eine Mailadresse — wortgleich mit der Prüfung in post.ts und
+   * post-sichtung.ts. Duplikat statt Import, aus demselben Grund, den beide
+   * Stellen für sich schon nennen: keine der beiden Dateien exportiert sie,
+   * und diese Route ist gerade die dritte, unabhängige Stelle, die genau
+   * diese eine Frage beantworten muss ("ist das wirklich nur EINE Adresse?"),
+   * unmittelbar bevor `entwurf.an` tatsächlich verwendet wird — siehe die
+   * Begründung direkt an der Prüfung unten.
+   */
+  const EINE_ADRESSE = /^[^\s@,;:<>"'()[\]\\]+@[^\s@,;:<>"'()[\]\\]+\.[^\s@,;:<>"'()[\]\\]{2,}$/;
+
+  /**
+   * Einen Entwurf freigeben und senden — mit dem Text, den ein Mensch gerade
+   * geprüft und womöglich verändert hat.
    *
-   * Reihenfolge absichtlich: erst `requirePermission`, DANN `post.senden()`,
-   * erst danach `entwurfAbschliessen()` als Buchführung. `entwurfAbschliessen`
-   * prüft `mail.senden` zwar selbst noch einmal (siehe dort — das schützt
-   * jeden künftigen zweiten Aufrufer, der nicht über diese Route läuft), aber
-   * das reicht hier nicht: säße die einzige Prüfung dort, würde die Mail
-   * schon verschickt, BEVOR die fehlende Berechtigung überhaupt auffiele.
+   * GEÄNDERTE REGEL: Der Entwurf kannte bis eben keine Bearbeitung — „freige-
+   * geben wird genau das, was geprüft wurde". Der Auftraggeber wollte den
+   * Text vor dem Senden anpassen können, zu Recht: sonst schreibt man die
+   * Antwort bei jeder Kleinigkeit von Hand neu, und der Entwurf war umsonst.
+   * Die neue Regel: was im Feld steht, geht hinaus. `text` und `betreff`
+   * kommen deshalb jetzt aus der Anfrage, nicht mehr ausschließlich aus dem
+   * gespeicherten Entwurf.
+   *
+   * `an` NICHT: Die Empfängeradresse bleibt, wo sie war — aus dem
+   * gespeicherten Entwurf, nie aus der Anfrage. Das ist keine Regel, die sich
+   * mit dem Wunsch nach Bearbeitung ändert: Sie darf weiterhin niemals aus
+   * etwas stammen, das sich von außen beeinflussen ließe (siehe Dateikopf
+   * post-sichtung.ts, „an kommt niemals aus dem Modell" — dieselbe Grenze,
+   * jetzt zusätzlich gegen den Anfragekörper dieser Route gezogen, selbst
+   * wenn ein Mensch mit `mail.senden` dahintersteht). `EINE_ADRESSE` prüft
+   * sie hier trotzdem noch einmal, obwohl `entwurfAnlegen()` das beim
+   * Anlegen längst tat: eine gespeicherte Adresse ist erst unmittelbar vor
+   * der tatsächlichen Verwendung wirklich geprüft, nicht nur irgendwann
+   * beim Entstehen.
+   *
+   * Reihenfolge weiterhin absichtlich: erst `requirePermission`, DANN der
+   * bearbeitete Text FESTGEHALTEN (`entwurfBearbeiten()` — sonst stünde im
+   * Verlauf hinterher etwas anderes als das, was tatsächlich hinausging),
+   * DANN `post.senden()`, erst danach `entwurfAbschliessen()` als
+   * Buchführung. `entwurfAbschliessen` prüft `mail.senden` zwar selbst noch
+   * einmal (siehe dort — das schützt jeden künftigen zweiten Aufrufer, der
+   * nicht über diese Route läuft), aber das reicht hier nicht: säße die
+   * einzige Prüfung dort, würde die Mail schon verschickt, BEVOR die
+   * fehlende Berechtigung überhaupt auffiele.
    */
   app.post('/api/post/entwuerfe/:id/senden', async (req, reply) => {
     const userId = requireUser(req);
     requirePermission(userId, 'mail.senden');
     const { id } = req.params as { id: string };
 
+    const k = req.body as { text?: string; betreff?: string; anhaenge?: string[] };
+    const text = (k?.text ?? '').trim();
+    const betreff = (k?.betreff ?? '').trim();
+    if (!text || !betreff) {
+      return fehler(reply, 400, 'post.entwurfUnvollstaendig', 'Betreff und Text dürfen nicht leer sein.');
+    }
+
     const entwurf = postSichtung.entwurfLesen(id);
     if (!entwurf) return fehler(reply, 404, 'fehler.nichtGefunden', 'Diesen Entwurf gibt es nicht.');
     if (entwurf.zustand !== 'offen') {
       return fehler(reply, 409, 'fehler.entwurfEntschieden', 'Über diesen Entwurf ist schon entschieden.');
     }
+    // Letzte Prüfung der gespeicherten Empfängeradresse, unmittelbar bevor
+    // sie verwendet wird — siehe Begründung im Dateikopf dieser Route oben.
+    // Sollte praktisch nie greifen (entwurfAnlegen() prüft das schon beim
+    // Anlegen); greift sie doch, ist das ein Zeichen für eine beschädigte
+    // Zeile und kein Fall, den ein Mensch durch erneutes Klicken löst.
+    if (!EINE_ADRESSE.test(entwurf.an)) {
+      console.error('[post/entwuerfe] Entwurf mit ungültiger Empfängeradresse:', id);
+      return fehler(reply, 500, 'post.entwurfAdresseUngueltig',
+        'Der gespeicherte Entwurf hat keine gültige Empfängeradresse.');
+    }
+
+    // Festhalten VOR dem Versand: sonst stünde im Verlauf hinterher etwas
+    // anderes als das, was tatsächlich gesendet wurde (siehe entwurfBearbeiten()
+    // in post-sichtung.ts). `false` heißt: zwischen dem entwurfLesen() oben und
+    // hier ist der Entwurf schon entschieden worden — sauber abgebrochen,
+    // BEVOR irgendetwas an den Versanddienst geht.
+    if (!postSichtung.entwurfBearbeiten(id, { text, betreff })) {
+      return fehler(reply, 409, 'fehler.entwurfEntschieden', 'Über diesen Entwurf ist schon entschieden.');
+    }
+
     // Woher geschrieben wird (`fach`) kommt aus der URSPRUNGSMAIL — also aus
     // dem Fach, an das der Kunde geschrieben hat, nicht aus dem Entwurf: der
     // kennt gar kein eigenes Fach (siehe entwurfAnlegen() in post-sichtung.ts).
@@ -1565,10 +1864,17 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       versandt = await post.senden({
         fach: mail.an,
         an: entwurf.an,
-        betreff: entwurf.betreff,
-        text: entwurf.text,
+        betreff,
+        text,
         antwortAuf: { messageId: mail.messageId, referenzen: mail.referenzen, threadId: entwurf.threadId },
-      });
+        // Wie beim freien Antworten (`/api/post/senden` oben): Kennungen
+        // zuvor hochgeladener, noch nicht verknüpfter Anhänge — `userId` als
+        // zweites Argument von senden() ist deshalb hier NICHT optional
+        // ausgelassen, sonst schlägt anhaengeZumVersandLesen() mit
+        // 'post.anhangOhneKonto' fehl, sobald der Kasten in PostPanel.tsx
+        // (EntwurfKarte) einen Anhang mitgibt.
+        anhaenge: Array.isArray(k.anhaenge) ? k.anhaenge : undefined,
+      }, userId);
     } catch (f) {
       const e = f as { code?: string; status?: number; message?: string };
       return fehler(reply, e.status ?? 502, e.code ?? 'fehler.post',

@@ -77,6 +77,7 @@ export function initDb(): void {
   migrate();
   setupFts();
   indexAufFingerabdruckeUmstellen();
+  mailIndexAufFingerabdruckeUmstellen();
 }
 
 /**
@@ -118,8 +119,55 @@ function indexAufFingerabdruckeUmstellen(): void {
 }
 
 /**
+ * Dieselbe Nachrüstung wie `indexAufFingerabdruckeUmstellen()` oben, aber für
+ * die Post (`mail_fts`) — bewusst eine EIGENE Funktion mit einem EIGENEN
+ * Merker (`mail_fts_format`, nicht `fts_format`).
+ *
+ * Ein gemeinsamer Merker mit den Chatnachrichten wäre falsch: `fts_format`
+ * steht auf jedem bestehenden Server längst korrekt (der Chat läuft ja schon
+ * lange), und die Funktion oben bräche deshalb beim ersten Start nach DIESER
+ * Änderung sofort wieder ab (`stand === INDEX_FORMAT`) — der Postfach-Index
+ * bliebe leer, bis irgendwann zufällig einmal der Schlüssel wechselt. Der
+ * eigene Merker sorgt dafür, dass die Post bei ihrer EIGENEN ersten Begegnung
+ * mit diesem Index einmal vollständig eingelesen wird — unabhängig davon, ob
+ * für den Chat gerade ein Neuaufbau ansteht oder nicht. Beide Merker
+ * vergleichen trotzdem gegen denselben `INDEX_FORMAT`-Wert: hängt der
+ * Suchschlüssel (Masterpasswort) von einem künftigen Wechsel ab, betrifft das
+ * beide Index-Tabellen gleichermaßen, und beide bauen dann unabhängig neu.
+ */
+function mailIndexAufFingerabdruckeUmstellen(): void {
+  if (!db.fts) return;
+  if (!db.all('PRAGMA table_info(mail_nachrichten)').length) return; // Tabelle fehlt noch
+  const stand = db.get<{ value: string }>(
+    "SELECT value FROM app_settings WHERE key = 'mail_fts_format'",
+  )?.value;
+  if (stand === INDEX_FORMAT) return;
+
+  const ids = db.all<{ id: string }>('SELECT id FROM mail_nachrichten').map((r) => r.id);
+
+  db.run('DELETE FROM mail_fts');
+  for (const id of ids) reindexMail(id);
+
+  db.run(
+    `INSERT INTO app_settings (key, value, updated_by, updated_at) VALUES ('mail_fts_format', ?, NULL, ?)
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+    INDEX_FORMAT, Date.now(),
+  );
+  if (ids.length) console.log(`[db] Volltextindex der Post neu aufgebaut (${ids.length} Mails).`);
+}
+
+/**
  * Volltextindex über Original UND alle Übersetzungen — so findet eine
  * deutsche Suchanfrage auch Nachrichten, die auf Englisch geschrieben wurden.
+ *
+ * `mail_fts` trägt dieselbe Bauart für das Postfach — EINE Zeile je Mail
+ * (nicht je Sprache: eine Mail hat keine gespeicherten Übersetzungen), dafür
+ * mit `fach` als zweiter UNINDEXED-Spalte für die Eingrenzung auf ein Fach
+ * (siehe services/post-suche.ts). Beide Tabellen leben an derselben Stelle,
+ * weil beide von `db.fts` abhängen: schlägt `CREATE VIRTUAL TABLE ... fts5`
+ * für die eine fehl, schlägt sie aus demselben Grund (kein FTS5 im
+ * gebundenen SQLite) auch für die andere fehl — ein gemeinsamer Versuch,
+ * eine gemeinsame Flagge.
  */
 function setupFts(): void {
   try {
@@ -128,6 +176,14 @@ function setupFts(): void {
         message_id UNINDEXED,
         channel_id UNINDEXED,
         lang       UNINDEXED,
+        body,
+        tokenize = 'unicode61 remove_diacritics 2'
+      );
+    `);
+    db.exec(`
+      CREATE VIRTUAL TABLE IF NOT EXISTS mail_fts USING fts5(
+        mail_id UNINDEXED,
+        fach    UNINDEXED,
         body,
         tokenize = 'unicode61 remove_diacritics 2'
       );
@@ -224,6 +280,79 @@ export function removeFromIndex(messageId: string): void {
 export function removeChannelFromIndex(channelId: string): void {
   if (!db.fts) return;
   db.run('DELETE FROM message_fts WHERE channel_id = ?', channelId);
+}
+
+/**
+ * Nur die Namen aus der verschlüsselten Anhang-Übersicht einer Mail — für den
+ * Suchindex weiter unten.
+ *
+ * Eigenständig hier und nicht aus services/post.ts importiert: post.ts
+ * importiert seinerseits `db` aus dieser Datei (siehe Dateikopf dort), ein
+ * Import in die Gegenrichtung wäre ein Kreis. Dieselbe kleine Duplikation wie
+ * bei `reindexMessage()` oben, das aus demselben Grund direkt gegen
+ * `messages`/`message_translations` liest statt über services/messages.ts.
+ */
+function anhangNamenFuerIndex(gespeichert: string | null): string[] {
+  if (!gespeichert) return [];
+  try {
+    const wert = JSON.parse(entschluesseln(gespeichert)) as unknown;
+    if (!Array.isArray(wert)) return [];
+    return wert
+      .map((a) => (a && typeof a === 'object' && typeof (a as { name?: unknown }).name === 'string'
+        ? (a as { name: string }).name
+        : ''))
+      .filter(Boolean);
+  } catch {
+    return []; // ein kaputter Wert reißt sonst den ganzen Indexlauf mit
+  }
+}
+
+/**
+ * Index einer Mail neu aufbauen — für `services/post.ts`
+ * (eingangAufnehmen()/senden()) und für den Neuaufbau oben.
+ *
+ * EIN Fingerabdruck-Bündel je Mail, nicht je Feld: Betreff, Text, Absender,
+ * Fach und Anhangnamen landen zusammen in `body` (siehe Dateikopf
+ * `crypto/nachrichten.ts`, `suchWorte()` zerlegt ohnehin in einzelne Wörter,
+ * eine Suche nach "Rechnung" findet also gleichermaßen einen Treffer im
+ * Betreff wie im Namen eines Anhangs `Rechnung.pdf`). `fach` steht ZUSÄTZLICH
+ * als eigene Spalte, damit eine Suche sich auf ein einzelnes Fach eingrenzen
+ * lässt, ohne den Fingerabdruck des Fachnamens selbst zur Bedingung machen zu
+ * müssen (services/post-suche.ts).
+ *
+ * Warum Fach UND Absender UND Anhangnamen mit hineingehören, steht in
+ * services/post-suche.ts (Dateikopf) — hier nur der Aufbau des Indexeintrags
+ * selbst.
+ */
+export function reindexMail(mailId: string): void {
+  if (!db.fts) return;
+  db.run('DELETE FROM mail_fts WHERE mail_id = ?', mailId);
+  const z = db.get<{
+    fach: string; von: string; betreff: string; text: string; anhaenge: string | null;
+  }>('SELECT fach, von, betreff, text, anhaenge FROM mail_nachrichten WHERE id = ?', mailId);
+  if (!z) return;
+
+  const buendel = [
+    entschluesseln(z.betreff),
+    entschluesseln(z.text),
+    entschluesseln(z.von),
+    z.fach,
+    ...anhangNamenFuerIndex(z.anhaenge),
+  ].join(' ');
+
+  db.run(
+    'INSERT INTO mail_fts (mail_id, fach, body) VALUES (?,?,?)',
+    mailId, z.fach, suchWorte(buendel),
+  );
+}
+
+/** Eine Mail aus dem Suchindex nehmen — beim endgültigen Löschen
+    (services/post.ts, mailsHartLoeschen()). Archivieren/Entfernen rühren den
+    Index NICHT an: diese Post existiert weiterhin und soll weiter gefunden
+    werden, nur eben nicht mehr in der aktiven Liste stehen. */
+export function removeMailFromIndex(mailId: string): void {
+  if (!db.fts) return;
+  db.run('DELETE FROM mail_fts WHERE mail_id = ?', mailId);
 }
 
 export function now(): number { return Date.now(); }

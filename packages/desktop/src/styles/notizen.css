@@ -25,6 +25,12 @@
   border-inline-end: 1px solid var(--line);
 }
 
+/* .files-search (app.css) trägt `flex: 1` — richtig in der Zeile, in der sie
+   bei FilesPanel.tsx steht, aber .notizen__liste ist eine SPALTE: darin
+   streckt `flex: 1` das Suchfeld über die ganze verfügbare Höhe statt nur
+   über die Breite. `flex: 0 0 auto` lässt es bei seiner eigenen Höhe. */
+.notizen__liste .files-search { flex: 0 0 auto; }
+
 .notizen-row__titel { display: flex; align-items: baseline; gap: 6px; }
 .notizen-row__titel .truncate { flex: 1; }
 

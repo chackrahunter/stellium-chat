@@ -17,7 +17,16 @@ import {
   teileWegraeumen,
 } from './bloecke.js';
 
-export type Art = 'file' | 'attachment';
+/* 'mail' kam später dazu (Anhänge eingehender/ausgehender Post, siehe
+   services/post.ts) — dieselbe Blockablage wie für 'file'/'attachment',
+   nur eine dritte Herkunftstabelle. Überall, wo bisher NUR diese zwei Arten
+   vorkamen (nochJemandBraucht, nochGebraucht, verwaisteAufraeumen unten),
+   musste die Dritte mit hinein — sonst blieben ihre Blöcke für immer als
+   "gebraucht" stehen, weil niemand nach ihrer Tabelle sah. */
+export type Art = 'file' | 'attachment' | 'mail';
+
+/** Jede Tabelle, die Zeilen im Blockspeicher besitzen kann. */
+const ALLE_TABELLEN = ['files', 'attachments', 'mail_anhaenge'] as const;
 
 /**
  * Der Zwischenstand: die Zeile steht, die Datei liegt ganz da, die Zerlegung
@@ -32,8 +41,10 @@ export type Art = 'file' | 'attachment';
 export const UEBERNAHME_OFFEN = 'uebernahme';
 
 /** Zu welcher Tabelle eine Art gehört. */
-function tabelleVon(art: Art): 'files' | 'attachments' {
-  return art === 'file' ? 'files' : 'attachments';
+function tabelleVon(art: Art): (typeof ALLE_TABELLEN)[number] {
+  if (art === 'file') return 'files';
+  if (art === 'attachment') return 'attachments';
+  return 'mail_anhaenge';
 }
 
 /**
@@ -46,7 +57,7 @@ function tabelleVon(art: Art): 'files' | 'attachments' {
  * zählen nicht mit: die brauchen die Datei nicht mehr.
  */
 function nochJemandBraucht(pfad: string, art: Art, id: string): boolean {
-  const offen = (tabelle: 'files' | 'attachments', ausser: string | null) => db.get<{ n: number }>(
+  const offen = (tabelle: (typeof ALLE_TABELLEN)[number], ausser: string | null) => db.get<{ n: number }>(
     `SELECT COUNT(*) n FROM ${tabelle}
       WHERE path = ? AND (encoding IS NULL OR encoding <> 'bloecke')
         AND (? IS NULL OR id <> ?)`,
@@ -54,8 +65,11 @@ function nochJemandBraucht(pfad: string, art: Art, id: string): boolean {
   )?.n ?? 0;
 
   const eigene = tabelleVon(art);
-  const fremde = eigene === 'files' ? 'attachments' : 'files';
-  return offen(eigene, id) + offen(fremde, null) > 0;
+  let summe = offen(eigene, id);
+  for (const tabelle of ALLE_TABELLEN) {
+    if (tabelle !== eigene) summe += offen(tabelle, null);
+  }
+  return summe > 0;
 }
 
 /**
@@ -67,7 +81,7 @@ function nochJemandBraucht(pfad: string, art: Art, id: string): boolean {
  * nicht mit: die brauchen die ganze Datei nicht mehr.
  */
 export function nochGebraucht(pfad: string): boolean {
-  for (const tabelle of ['files', 'attachments'] as const) {
+  for (const tabelle of ALLE_TABELLEN) {
     const n = db.get<{ n: number }>(
       `SELECT COUNT(*) n FROM ${tabelle}
         WHERE path = ? AND (encoding IS NULL OR encoding <> 'bloecke')`,
@@ -519,7 +533,8 @@ export function verwaisteAufraeumen(): { dateien: number; bloecke: number; befre
   const verwaist = db.all<{ art: Art; datei_id: string }>(
     `SELECT DISTINCT art, datei_id FROM datei_bloecke
       WHERE (art = 'file'       AND datei_id NOT IN (SELECT id FROM files))
-         OR (art = 'attachment' AND datei_id NOT IN (SELECT id FROM attachments))`,
+         OR (art = 'attachment' AND datei_id NOT IN (SELECT id FROM attachments))
+         OR (art = 'mail'       AND datei_id NOT IN (SELECT id FROM mail_anhaenge))`,
   );
   if (!verwaist.length) return { dateien: 0, bloecke: 0, befreit: 0 };
 

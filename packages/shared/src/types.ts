@@ -813,6 +813,33 @@ export interface PostMeldung {
   abweichung: PostMeldungAbweichung | null;
 }
 
+/**
+ * Ein Anhang an einer Mail — eingegangen oder ausgehend.
+ *
+ * `typ` ist die Behauptung des Absenders (oder, beim Verfassen, der eigene
+ * Dateityp) und taugt nur für ein Symbol in der Oberfläche. Ausgeliefert wird
+ * ein eingegangener Anhang IMMER als `application/octet-stream` mit
+ * erzwungenem Download — welcher Typ hier steht, ändert daran nichts (siehe
+ * die Begründung an der Auslieferungsroute in http/routes.ts).
+ *
+ * `id` fehlt (ist `null`), wenn es zu diesem Anhang keine Bytes gibt — zu
+ * groß für den Cloudflare-Worker, keine oder eine unlesbare Kodierung. Das
+ * ist ein Zustand, den die Oberfläche ZEIGEN muss (siehe PostAnhaenge.tsx),
+ * nicht stillschweigend weglassen: eine Bewerbung ohne Lebenslauf soll
+ * auffallen, nicht als vollständig durchgehen.
+ */
+export interface MailAnhang {
+  /** Kennung des `mail_anhaenge`-Eintrags — Grundlage für den Downloadpfad. `null` ohne Bytes. */
+  id: string | null;
+  name: string;
+  typ: string;
+  groesse: number;
+  /** Keine Bytes verfügbar — meist zu groß für den Worker (>1 MB je Anhang
+      oder die Mail insgesamt >5 MB), seltener eine unlesbare Kodierung.
+      In beiden Fällen bleibt `id` null — siehe Dateikopf. */
+  uebergross: boolean;
+}
+
 /* ── Protokoll ────────────────────────────────────────────────── */
 
 /** Ergebnis einer Besprechung, weitergabefähig zusammengefasst. */

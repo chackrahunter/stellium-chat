@@ -6,6 +6,7 @@ import { db } from '../db/index.js';
 import { config } from '../config.js';
 import { huelleLesen } from '../crypto/dateien.js';
 import * as ablage from './ablage.js';
+import { saubererDateiname } from '../util/dateiname.js';
 
 /**
  * Dateiablage, unabhängig von Nachrichten.
@@ -382,9 +383,12 @@ export function folders(channelId?: string | null, fuerUserId?: string): string[
   return rows.map((r) => r.folder).filter((f) => f !== '');
 }
 
-function saubererName(name: string): string {
-  return path.basename(name).replace(/[^\p{L}\p{N}._ ()-]/gu, '_').slice(0, 160).trim();
-}
+/* saubererName() zog nach util/dateiname.ts um (dort saubererDateiname) —
+   services/post.ts braucht dieselbe Erlaubnisliste jetzt für Mailanhänge,
+   und eine zweite, eigene Fassung dort hätte denselben Angriff zweimal zu
+   Ende gedacht. Der Name bleibt hier als lokales Bindeglied stehen, damit
+   sich an den Aufrufstellen unten nichts ändert. */
+const saubererName = saubererDateiname;
 
 /** "  Berichte / 2026 " -> "Berichte/2026" */
 function normalisierterOrdner(ordner: string): string {

@@ -50,12 +50,15 @@
  * gilt, wenn ein Mensch den Entwurf danach überarbeitet": nie SILENT, in
  * jedem Fall eine bewusste Entscheidung der sendenden Person.
  */
-import { useEffect, useState } from 'react';
-import { AlertTriangle, Loader2, Mail, Send, Sparkles } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import {
+  AlertTriangle, Loader2, Mail, Paperclip, Send, Sparkles, X,
+} from 'lucide-react';
 import { useStore } from '../state/store.js';
 import { t as tStatisch, useT, spracheName, type TranslationKey } from '../i18n/index.js';
 import { Shell } from './Panels.jsx';
 import { ApiError, serverUrl, token } from '../net/api.js';
+import { fileSize } from '../lib/format.js';
 import '../styles/post-schreiben.css';
 
 /* ── Abruf ───────────────────────────────────────────────────────
@@ -118,9 +121,65 @@ async function kiEntwurfHolen(eingabe: { fach: string; an: string; thema: string
   });
 }
 
-async function neueMailSenden(eingabe: { fach: string; an: string; betreff: string; text: string }): Promise<{ id: string }> {
+async function neueMailSenden(
+  eingabe: { fach: string; an: string; betreff: string; text: string; anhaenge?: string[] },
+): Promise<{ id: string }> {
   return postFetch<{ id: string }>('/api/post/senden', { method: 'POST', body: JSON.stringify(eingabe) });
 }
+
+/* ── Anhänge ─────────────────────────────────────────────────────
+   Hochgeladen wird SOFORT beim Auswählen, nicht erst beim Senden — dieselbe
+   Reihenfolge wie beim Anhängen im Chat (Composer.tsx): die Kennung liegt
+   dann längst bereit, wenn `senden()` unten sie nur noch mitschickt.
+   `mail_id` bleibt beim Server so lange NULL, bis wirklich gesendet wird
+   (siehe services/post.ts, ausgehenderAnhangAnlegen). */
+
+interface AusgehenderAnhang { id: string; name: string; mime: string; size: number }
+
+/** Eigener `fetch()` statt `postFetch()`: eine Datei geht als `FormData`
+    hinaus, und `postFetch()` setzt bei jedem gesetzten Rumpf ausnahmslos
+    `content-type: application/json` — das zerstört die Mehrteil-Grenze
+    (`boundary`) eines Formulardatensatzes, der Server bekäme keine gültige
+    Mehrteil-Anfrage mehr zu sehen. */
+async function anhangHochladen(datei: File): Promise<AusgehenderAnhang> {
+  const form = new FormData();
+  form.append('file', datei);
+  const headers = new Headers();
+  const nachweis = token();
+  if (nachweis) headers.set('authorization', `Bearer ${nachweis}`);
+
+  let antwort: Response;
+  try {
+    antwort = await fetch(`${serverUrl()}/api/post/anhang`, { method: 'POST', body: form, headers });
+  } catch {
+    throw new ApiError(tStatisch('api.serverUnreachable', { adresse: serverUrl() }), 0);
+  }
+  if (!antwort.ok) {
+    let message = tStatisch('api.error', { status: antwort.status });
+    let code: string | undefined;
+    try {
+      const rumpf = await antwort.json() as { error?: string; code?: string };
+      message = rumpf.error ?? message;
+      code = rumpf.code;
+    } catch { /* keine JSON-Antwort */ }
+    if (code) {
+      const uebersetzt = tStatisch(code as TranslationKey);
+      if (uebersetzt && uebersetzt !== code) message = uebersetzt;
+    }
+    throw new ApiError(message, antwort.status, code);
+  }
+  return (await antwort.json() as { anhang: AusgehenderAnhang }).anhang;
+}
+
+/** Ohne Rumpf — `postFetch()` setzt hier keinen Kopf, der stören könnte. */
+async function anhangVerwerfen(id: string): Promise<void> {
+  await postFetch(`/api/post/anhang/${encodeURIComponent(id)}`, { method: 'DELETE' });
+}
+
+/** Höchstens so viele auf einmal — reine Übersichtsgrenze für DIESES
+    Fenster, keine Sicherheitsgrenze (die sitzt serverseitig in post.ts,
+    AUSGANG_ANHANG_MAX/AUSGANG_ANHAENGE_MAX_GESAMT). */
+const ANHAENGE_MAX_UI = 10;
 
 /** Nur ein Hinweis fürs Auge — die echte Sperre steht serverseitig, siehe Dateikopf. */
 const ADRESSE_GROB = /^[^\s@,;]+@[^\s@,;]+\.[^\s@,;]{2,}$/;
@@ -171,6 +230,43 @@ function SchreibFenster({ onClose, onGesendet }: { onClose: () => void; onGesend
   // Bytegleicher Wortlaut der zuletzt von der KI gelieferten Kennzeichnung —
   // für die Warnung in senden() weiter unten, siehe Dateikopf.
   const [kiKennzeichnung, setKiKennzeichnung] = useState<string | null>(null);
+
+  const [anhaenge, setAnhaenge] = useState<AusgehenderAnhang[]>([]);
+  const [hochladend, setHochladend] = useState(0);
+  const dateiInput = useRef<HTMLInputElement>(null);
+
+  const dateienHinzufuegen = async (dateien: FileList) => {
+    const liste = Array.from(dateien).slice(0, Math.max(0, ANHAENGE_MAX_UI - anhaenge.length));
+    setHochladend((v) => v + liste.length);
+    await Promise.all(liste.map(async (datei) => {
+      try {
+        const angelegt = await anhangHochladen(datei);
+        setAnhaenge((v) => [...v, angelegt]);
+      } catch (err) {
+        useStore.getState().toast({
+          kind: 'error', title: t('post.anhangHochladenFehlgeschlagen'), body: (err as Error).message,
+        });
+      } finally {
+        setHochladend((v) => v - 1);
+      }
+    }));
+  };
+
+  const anhangEntfernen = (id: string) => {
+    // Sofort aus der Ansicht — nicht erst, wenn der Server geantwortet hat:
+    // dieselbe Vorgabe wie überall sonst beim Entfernen in dieser App.
+    setAnhaenge((v) => v.filter((a) => a.id !== id));
+    void anhangVerwerfen(id).catch(() => { /* verwaist harmlos, siehe post.ts */ });
+  };
+
+  /* Fenster schließen — ob durch Abbrechen oder nach erfolgreichem Senden.
+     Ein bereits VERSCHICKTER Anhang (mail_id längst gesetzt) lehnt der Server
+     beim Verwerfen einfach ab (siehe ausgehenderAnhangVerwerfen in post.ts) —
+     kein Sonderfall hier nötig, nur ein harmloser Fehlschlag im Hintergrund. */
+  const schliessen = () => {
+    anhaenge.forEach((a) => { void anhangVerwerfen(a.id).catch(() => {}); });
+    onClose();
+  };
 
   useEffect(() => {
     (async () => {
@@ -236,7 +332,10 @@ function SchreibFenster({ onClose, onGesendet }: { onClose: () => void; onGesend
     }
     setSendenLaedt(true);
     try {
-      await neueMailSenden({ fach: absenderFach, an: an.trim(), betreff: betreff.trim(), text });
+      await neueMailSenden({
+        fach: absenderFach, an: an.trim(), betreff: betreff.trim(), text,
+        anhaenge: anhaenge.length ? anhaenge.map((a) => a.id) : undefined,
+      });
       useStore.getState().toast({ kind: 'ok', title: t('post.gesendet') });
       onGesendet();
       onClose();
@@ -249,10 +348,11 @@ function SchreibFenster({ onClose, onGesendet }: { onClose: () => void; onGesend
     }
   };
 
-  const sendenGesperrt = !absenderFach || !adresseGueltig || !betreff.trim() || !text.trim() || sendenLaedt;
+  const sendenGesperrt = !absenderFach || !adresseGueltig || !betreff.trim() || !text.trim()
+    || sendenLaedt || hochladend > 0;
 
   return (
-    <Shell title={t('post.neueNachricht')} icon={<Mail size={18} />} onClose={onClose} width={540}>
+    <Shell title={t('post.neueNachricht')} icon={<Mail size={18} />} onClose={schliessen} width={540}>
       <div className="post-schreiben">
         {faecherFehler && <div className="post__fehler"><AlertTriangle size={13} /> {faecherFehler}</div>}
 
@@ -309,6 +409,47 @@ function SchreibFenster({ onClose, onGesendet }: { onClose: () => void; onGesend
               if ((e.metaKey || e.ctrlKey) && e.key === 'Enter' && !sendenGesperrt) { e.preventDefault(); void senden(); }
             }}
           />
+        </div>
+
+        <div className="field">
+          <input
+            ref={dateiInput}
+            type="file"
+            multiple
+            hidden
+            onChange={(e) => { if (e.target.files?.length) void dateienHinzufuegen(e.target.files); e.target.value = ''; }}
+          />
+          <div className="post-schreiben__anhaenge">
+            {anhaenge.map((a) => (
+              <span key={a.id} className="post-schreiben__anhang" title={a.name}>
+                <span className="post-schreiben__anhang-name truncate">{a.name}</span>
+                <span className="post-schreiben__anhang-groesse">{fileSize(a.size)}</span>
+                <button
+                  type="button"
+                  className="post-schreiben__anhang-entfernen"
+                  title={t('common.remove')}
+                  aria-label={t('common.remove')}
+                  onClick={() => anhangEntfernen(a.id)}
+                >
+                  <X size={11} />
+                </button>
+              </span>
+            ))}
+            {hochladend > 0 && (
+              <span className="post-schreiben__anhang muted">
+                <Loader2 size={11} className="spin" /> {t('post.anhangWirdHochgeladen')}
+              </span>
+            )}
+            {anhaenge.length + hochladend < ANHAENGE_MAX_UI && (
+              <button
+                type="button"
+                className="btn btn--ghost"
+                onClick={() => dateiInput.current?.click()}
+              >
+                <Paperclip size={13} /> {t('post.anhangHinzufuegen')}
+              </button>
+            )}
+          </div>
         </div>
 
         {kiOffen && (

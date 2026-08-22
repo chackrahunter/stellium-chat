@@ -16,10 +16,17 @@
  * an die geschrieben wurde. `support@` und `billing@` landen im selben
  * Postfach und sind trotzdem getrennt zu lesen.
  */
-import { db } from '../db/index.js';
+import fs from 'node:fs';
+import path from 'node:path';
+import { pipeline } from 'node:stream/promises';
+import { db, reindexMail, removeMailFromIndex } from '../db/index.js';
 import { newId } from '../util/id.js';
 import { verschluesseln, entschluesseln } from '../crypto/nachrichten.js';
 import { zugangLesen, zugangStand } from './mailzugang.js';
+import { config } from '../config.js';
+import * as ablage from './ablage.js';
+import { saubererDateiname } from '../util/dateiname.js';
+import type { MailAnhang } from '@stellium/shared';
 
 const VERSAND_ENDE = 'https://api.resend.com/emails';
 
@@ -43,7 +50,17 @@ export interface Nachricht {
   threadId: string | null;
   am: number;
   gelesen: boolean;
-  anhaenge: Array<{ name: string; typ: string; groesse: number }>;
+  anhaenge: MailAnhang[];
+  /** Aus dem Blickfeld genommen, ohne gelöscht zu sein — Zeitpunkt oder null.
+      Siehe archiviertSetzen() weiter unten. */
+  archiviertAm: number | null;
+  /** „Aus dem Weg geräumt", umkehrbar — Zeitpunkt oder null. Siehe
+      entferntSetzen() weiter unten. */
+  entferntAm: number | null;
+  /** Wann die Aufbewahrungsfrist des FACHS dieser Mail ablaufen würde — null,
+      solange für dieses Fach keine Frist gesetzt ist. Siehe fristenStand()
+      weiter unten; muss in der Oberfläche sichtbar sein, BEVOR sie zuschlägt. */
+  verfaelltAm: number | null;
 }
 
 interface Zeile {
@@ -51,9 +68,36 @@ interface Zeile {
   betreff: string; text: string; html: string | null; message_id: string | null;
   referenzen: string | null; thread_id: string | null; am: number;
   gelesen: number; anhaenge: string | null;
+  archiviert_am: number | null; entfernt_am: number | null;
 }
 
-function auspacken(z: Zeile): Nachricht {
+/** Millisekunden je Tag — für die Aufbewahrungsfrist weiter unten. */
+const TAG_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Die Anhang-Übersicht auspacken — seit Kurzem verschlüsselt wie jedes andere
+ * Feld dieser Nachricht (Name und Typ können genauso viel über Kunden
+ * verraten wie der Betreff selbst). `entschluesseln()` lässt Klartext aus der
+ * Zeit vor dieser Umstellung unverändert durch (siehe dort: ein Wert ohne
+ * "m1:"-Vorspann gilt schon als Klartext) — alte Zeilen bleiben also ohne
+ * jede Nachrüstung lesbar.
+ */
+function anhaengeAuspacken(gespeichert: string | null): MailAnhang[] {
+  if (!gespeichert) return [];
+  try {
+    const wert = JSON.parse(entschluesseln(gespeichert));
+    return Array.isArray(wert) ? wert : [];
+  } catch {
+    // Kaputter Wert reißt sonst die ganze Liste mit, nicht nur diese eine Zeile.
+    return [];
+  }
+}
+
+/** `fristTage` fehlt in keinem echten Aufruf (siehe liste()/nachricht()/
+    verlauf()) — optional nur, damit ein Aufruf ohne Fristenkontext nicht
+    bricht, sondern schlicht `verfaelltAm: null` liefert. */
+function auspacken(z: Zeile, fristTage?: Map<string, number>): Nachricht {
+  const frist = fristTage?.get(z.fach);
   return {
     id: z.id,
     fach: z.fach,
@@ -68,9 +112,10 @@ function auspacken(z: Zeile): Nachricht {
     threadId: z.thread_id,
     am: z.am,
     gelesen: z.gelesen === 1,
-    // Kaputter Wert reißt sonst die ganze Liste mit (JSON.parse wirft),
-    // nicht nur diese eine Zeile -- darum hier abgefangen statt durchgereicht.
-    anhaenge: z.anhaenge ? (() => { try { return JSON.parse(z.anhaenge); } catch { return []; } })() : [],
+    anhaenge: anhaengeAuspacken(z.anhaenge),
+    archiviertAm: z.archiviert_am,
+    entferntAm: z.entfernt_am,
+    verfaelltAm: frist ? z.am + frist * TAG_MS : null,
   };
 }
 
@@ -86,6 +131,12 @@ export const FAECHER = [
   'info', 'support', 'billing', 'sales', 'security', 'privacy', 'abuse', 'jobs',
 ] as const;
 const FACH_SONST = 'sonstiges';
+
+/** Alle Fächer, inklusive des Auffangbeckens „sonstiges" — für die
+    Aufbewahrungsfrist weiter unten, die auch für nicht zugeordnete Post
+    gelten soll. Unzugeordnete Post ist nicht weniger schutzwürdig als
+    zugeordnete. */
+export const ALLE_FAECHER = [...FAECHER, FACH_SONST] as const;
 
 /* Eine Message-ID ist ein sehr enges Format. Sie ungeprüft zu übernehmen
    hieße, sie später ungeprüft in eine ausgehende Kopfzeile zu schreiben —
@@ -161,6 +212,97 @@ function istBestaetigt(pruefung: unknown): boolean {
   return typeof pruefung === 'string' && /dmarc=pass/i.test(pruefung);
 }
 
+/**
+ * Dieselben Grenzen wie im Cloudflare-Worker (ANHANG_MAX / ANHAENGE_MAX_GESAMT
+ * in server-setup/postfach/worker/src/index.ts) — hier UNABHÄNGIG nachgeprüft
+ * an den tatsächlich dekodierten Bytes, nicht nur der Behauptung `uebergross`
+ * des Workers geglaubt. Der Worker ist die erste Hürde, nicht die einzige: wer
+ * das geteilte Geheimnis kennt oder dessen Fassung des Workers einen Fehler
+ * hat, soll hier trotzdem scheitern — genau das Prinzip, mit dem diese Datei
+ * schon die Message-ID und die Absenderadresse behandelt.
+ */
+const ANHANG_MAX = 1 * 1024 * 1024;
+const ANHAENGE_MAX_GESAMT = 5 * 1024 * 1024;
+/** Nur die Zeichen, aus denen Base64 wirklich besteht — `Buffer.from()` ist
+    sonst zu gutmütig und schluckt beliebigen Müll klaglos, statt zu melden,
+    dass da kein gültiger Anhang stand. */
+const BASE64_FORM = /^[A-Za-z0-9+/]*={0,2}$/;
+
+interface AnhangVorbereitet {
+  name: string; typ: string; groesse: number; uebergross: boolean;
+  /** Gesetzt, wenn (und nur wenn) Bytes wirklich auf der Platte liegen. */
+  attId: string | null;
+  tempPfad: string | null;
+}
+
+/**
+ * Die rohe Anhangliste des Workers in etwas Verwendbares verwandeln — und
+ * dabei NACHPRÜFEN statt glauben. Schreibt kleine Zwischendateien, aber noch
+ * keine Datenbankzeile in `mail_anhaenge`: die Mail selbst existiert an
+ * dieser Stelle noch nicht, und `mail_anhaenge.mail_id` zeigt per
+ * Fremdschlüssel auf eine Zeile, die erst eingangAufnehmen() gleich danach
+ * anlegt (schema.sql setzt `PRAGMA foreign_keys = ON` — eine Kindzeile vor
+ * der Elternzeile lehnt SQLite deshalb ab).
+ *
+ * Der Dateiname landet dabei NIRGENDS im Dateisystempfad — die einzige Wehr
+ * gegen `../` und Konsorten, die sich nicht durch eine vergessene Prüfung
+ * umgehen lässt. Der Zwischenpfad entsteht ausschließlich aus einer selbst
+ * erzeugten Kennung.
+ */
+function anhaengeVorbereiten(rohListe: unknown[]): AnhangVorbereitet[] {
+  let gesamtBytes = 0;
+  return rohListe.map((a) => {
+    const x = a as {
+      name?: unknown; typ?: unknown; groesse?: unknown; uebergross?: unknown; inhalt?: unknown;
+    };
+    const name = saubererDateiname(kappen(x.name, 200) || 'ohne-namen');
+    const typ = kappen(x.typ, 120) || 'application/octet-stream';
+
+    let bytes: Buffer | null = null;
+    let zuGross = x.uebergross === true;
+    if (typeof x.inhalt === 'string' && x.inhalt.length > 0) {
+      if (BASE64_FORM.test(x.inhalt)) {
+        try {
+          const dekodiert = Buffer.from(x.inhalt, 'base64');
+          if (dekodiert.length > 0
+            && dekodiert.length <= ANHANG_MAX
+            && gesamtBytes + dekodiert.length <= ANHAENGE_MAX_GESAMT) {
+            bytes = dekodiert;
+            gesamtBytes += dekodiert.length;
+          } else {
+            zuGross = true;
+          }
+        } catch {
+          zuGross = true; // kaputtes Base64 -- Bytes gelten als nicht angekommen
+        }
+      } else {
+        zuGross = true; // keine Base64-Form -- dieselbe Behandlung wie "kam nicht an"
+      }
+    }
+
+    const groesse = bytes
+      ? bytes.length
+      : (typeof x.groesse === 'number' && x.groesse >= 0 ? Math.trunc(x.groesse) : 0);
+
+    let attId: string | null = null;
+    let tempPfad: string | null = null;
+    if (bytes) {
+      attId = newId('ma_');
+      tempPfad = path.join(config.uploadDir, attId);
+      try {
+        fs.writeFileSync(tempPfad, bytes);
+      } catch (fehler) {
+        console.error('[post] Anhang ließ sich nicht ablegen:', (fehler as Error).message);
+        try { fs.rmSync(tempPfad, { force: true }); } catch { /* nie entstanden */ }
+        attId = null;
+        tempPfad = null;
+      }
+    }
+
+    return { name, typ, groesse, uebergross: zuGross, attId, tempPfad };
+  });
+}
+
 export function eingangAufnehmen(roh: EingangRoh, zustellSchluessel?: string):
 { id: string; doppelt: boolean } {
   /* Idempotenz am Zustellschlüssel des Workers, nicht an der Message-ID des
@@ -187,7 +329,10 @@ export function eingangAufnehmen(roh: EingangRoh, zustellSchluessel?: string):
   const ersteRef = referenzen?.split(' ')[0] ?? null;
   const threadId = ersteRef && verlaufErlaubt(ersteRef, von, bestaetigt) ? ersteRef : messageId;
 
-  const anhaenge = Array.isArray(roh.anhaenge) ? roh.anhaenge.slice(0, 25) : [];
+  const rohAnhaenge = Array.isArray(roh.anhaenge) ? roh.anhaenge.slice(0, 25) : [];
+  /* Bytes ablegen (falls vorhanden) und Grenzen unabhängig nachprüfen, BEVOR
+     die Mail selbst in der Datenbank steht — siehe anhaengeVorbereiten(). */
+  const vorbereitet = anhaengeVorbereiten(rohAnhaenge);
   const id = newId('po_');
 
   db.run(
@@ -206,23 +351,44 @@ export function eingangAufnehmen(roh: EingangRoh, zustellSchluessel?: string):
     kappen(roh.pruefung, 2000) || null,
     zustellSchluessel ?? null,
     am,
-    /* Nur die Beschreibung der Anhänge, nicht ihr Inhalt. */
-    JSON.stringify(anhaenge.map((a) => {
-      const x = a as { name?: unknown; typ?: unknown; groesse?: unknown; uebergross?: unknown };
-      return {
-        name: kappen(x.name, 200) || 'ohne-namen',
-        typ: kappen(x.typ, 120) || 'application/octet-stream',
-        groesse: typeof x.groesse === 'number' ? x.groesse : 0,
-        uebergross: x.uebergross === true,
-      };
-    })),
+    /* Die Übersicht -- verschlüsselt wie jedes andere Feld dieser Nachricht
+       (siehe anhaengeAuspacken() oben). `id` verweist auf `mail_anhaenge`, wo
+       der eigentliche Inhalt liegt; ohne Bytes bleibt `id` null UND
+       `uebergross` macht das für die Oberfläche sichtbar, statt den Anhang
+       einfach verschwinden zu lassen. */
+    verschluesseln(JSON.stringify(vorbereitet.map((v) => ({
+      name: v.name, typ: v.typ, groesse: v.groesse, uebergross: v.uebergross, id: v.attId,
+    })))),
   );
+
+  /* Erst JETZT, NACH der Zeile oben: mail_anhaenge.mail_id zeigt per
+     Fremdschlüssel auf mail_nachrichten(id) (ON DELETE CASCADE, schema.sql
+     setzt PRAGMA foreign_keys = ON) -- eine Kindzeile vor der Elternzeile
+     lehnt SQLite ab. */
+  vorbereitet.forEach((v, nummer) => {
+    if (!v.attId || !v.tempPfad) return;
+    db.run(
+      `INSERT INTO mail_anhaenge (id, mail_id, nummer, name, mime, size, path, encoding, stored_size, uploaded_by, created_at)
+       VALUES (?,?,?,?,?,?,?,NULL,NULL,NULL,?)`,
+      v.attId, id, nummer, v.name, v.typ, v.groesse, v.tempPfad, Date.now(),
+    );
+    /* Angemeldet, nicht abgewartet -- derselbe Weg wie jeder andere Upload
+       (siehe ablage.spaeterUebernehmen()): sofort ausliefer- und lesbar, im
+       Hintergrund in den Blockspeicher zerlegt. */
+    ablage.spaeterUebernehmen({ id: v.attId, art: 'mail', pfad: v.tempPfad, mime: v.typ });
+  });
 
   /* Aus dem Text lernen, welche Sprache dieser Briefpartner spricht — hier
      beim Eintreffen, nicht erst beim Antworten. Sonst hinge es davon ab, ob
      jemand antwortet, und die nächste Rechnung ginge wieder auf Englisch
      hinaus. */
   spracheLernen(von, kappen(roh.text, 4000));
+
+  /* Nach der Zeile, nicht davor: der Suchindex liest dieselbe Zeile noch
+     einmal aus der Datenbank (siehe reindexMail() in db/index.ts), die muss
+     also schon stehen. Über den Anhang-Namen hinaus deckt das auch den
+     Normalfall ab, in dem `vorbereitet` oben nichts zu tun hatte. */
+  reindexMail(id);
 
   return { id, doppelt: false };
 }
@@ -240,7 +406,26 @@ export interface Ausgang {
   text: string;
   /** Für eine Antwort: die Kennungen der Ursprungsnachricht. */
   antwortAuf?: { messageId: string | null; referenzen: string | null; threadId: string | null };
+  /** Kennungen zuvor hochgeladener, noch nicht verknüpfter mail_anhaenge-
+      Zeilen (siehe ausgehenderAnhangAnlegen() weiter unten) — höchstens 25,
+      Reihenfolge = Reihenfolge in der Mail. */
+  anhaenge?: string[];
 }
+
+/**
+ * Dieselben zwei Grenzen wie beim Eingang (ANHANG_MAX/ANHAENGE_MAX_GESAMT),
+ * aber eigene, großzügigere Werte: ein ausgehender Anhang stammt von einem
+ * angemeldeten Kollegen, nicht von einem Fremden — die Vorsicht gilt hier der
+ * harten Grenze von Resend, nicht dem Absender. Laut
+ * resend.com/docs/dashboard/emails/attachments (Abschnitt „Attachment
+ * Limitations", Stand 22.08.2026): „Emails can be no larger than 40MB
+ * (including attachments after Base64 encoding)." Base64 vergrößert Rohbytes
+ * um rund ein Drittel — 20 MB Rohanhänge werden daraus rund 26,7 MB, mit
+ * reichlich Luft für Text, Kopfzeilen und das JSON drumherum, bevor Resend
+ * selbst ablehnt.
+ */
+const AUSGANG_ANHANG_MAX = 15 * 1024 * 1024;
+const AUSGANG_ANHAENGE_MAX_GESAMT = 20 * 1024 * 1024;
 
 /**
  * Genau eine Mailadresse — wortgleich mit der Prüfung in post-sichtung.ts.
@@ -281,7 +466,60 @@ export function absenderFaecher(): string[] {
   return domaene ? FAECHER.map((lokal) => `${lokal}@${domaene}`) : [];
 }
 
-export async function senden(m: Ausgang): Promise<{ id: string }> {
+interface AnhangZumVersand { id: string; name: string; mime: string; size: number; inhaltBase64: string }
+
+/**
+ * Zuvor hochgeladene Anhänge für den Versand lesen — Eigentum und Zustand
+ * geprüft, nicht angenommen.
+ *
+ * Nur Zeilen, die (a) wirklich `hochgeladenVon` gehören und (b) noch an
+ * KEINER Mail hängen (`mail_id IS NULL`), kommen durch — dieselbe Regel wie
+ * bei `attachments.message_id` im Chat (siehe messages.ts): eine fremde oder
+ * schon verbrauchte Kennung ergibt dieselbe Meldung wie eine erfundene, sonst
+ * verriete der Unterschied, ob sie überhaupt existiert.
+ */
+async function anhaengeZumVersandLesen(ids: string[], hochgeladenVon: string): Promise<AnhangZumVersand[]> {
+  const gefunden: AnhangZumVersand[] = [];
+  let gesamt = 0;
+  for (const anhangId of ids) {
+    const zeile = db.get<{
+      id: string; name: string; mime: string; size: number; path: string;
+      encoding: string | null; uploaded_by: string | null; mail_id: string | null;
+    }>('SELECT id, name, mime, size, path, encoding, uploaded_by, mail_id FROM mail_anhaenge WHERE id = ?', anhangId);
+    if (!zeile || zeile.uploaded_by !== hochgeladenVon || zeile.mail_id !== null) {
+      throw new PostFehler('post.anhangUngueltig',
+        'Ein Anhang ist nicht mehr verfügbar — bitte erneut anhängen.', 400);
+    }
+    if (zeile.size > AUSGANG_ANHANG_MAX || gesamt + zeile.size > AUSGANG_ANHAENGE_MAX_GESAMT) {
+      throw new PostFehler('post.anhaengeZuGross',
+        `Die Anhänge sind zusammen zu groß (je Datei höchstens ${Math.round(AUSGANG_ANHANG_MAX / 1024 / 1024)} MB, `
+        + `insgesamt höchstens ${Math.round(AUSGANG_ANHAENGE_MAX_GESAMT / 1024 / 1024)} MB).`, 400);
+    }
+    gesamt += zeile.size;
+
+    const strom = ablage.oeffnen({ id: zeile.id, art: 'mail', pfad: zeile.path, encoding: zeile.encoding });
+    if (!strom) {
+      throw new PostFehler('post.anhangUngueltig',
+        'Ein Anhang ist nicht mehr verfügbar — bitte erneut anhängen.', 400);
+    }
+    const stuecke: Buffer[] = [];
+    for await (const stueck of strom as AsyncIterable<Buffer>) stuecke.push(Buffer.from(stueck));
+    const inhalt = Buffer.concat(stuecke);
+    gefunden.push({
+      id: zeile.id, name: zeile.name, mime: zeile.mime, size: inhalt.length,
+      inhaltBase64: inhalt.toString('base64'),
+    });
+  }
+  return gefunden;
+}
+
+/**
+ * @param hochgeladenVon Wer angemeldet ist, wenn `m.anhaenge` gesetzt ist —
+ * fehlt es trotz gesetzter Anhänge, ist das ein Programmierfehler eines
+ * künftigen Aufrufers und wird laut gemeldet, nicht still ignoriert (sonst
+ * ginge eine Mail hinaus, die ihren erwarteten Anhang lautlos verliert).
+ */
+export async function senden(m: Ausgang, hochgeladenVon?: string): Promise<{ id: string }> {
   const z = zugangLesen();
   if (!z) {
     /* „Kein Versandweg hinterlegt" allein sagt nicht, WAS fehlt — und
@@ -322,6 +560,17 @@ export async function senden(m: Ausgang): Promise<{ id: string }> {
       : m.antwortAuf.messageId;
   }
 
+  /* Vor dem Versand lesen, nicht erst danach verknüpfen: eine Mail, die
+     längst bei Resend war, aber deren Anhang sich als fremd oder verschwunden
+     herausstellt, wäre nicht mehr rückgängig zu machen. */
+  const anhaengeIds = [...new Set(m.anhaenge ?? [])].slice(0, 25);
+  if (anhaengeIds.length && !hochgeladenVon) {
+    throw new PostFehler('post.anhangOhneKonto', 'Anhänge ohne bekannten Uploader — interner Fehler.', 500);
+  }
+  const anhaengeZeilen = anhaengeIds.length
+    ? await anhaengeZumVersandLesen(anhaengeIds, hochgeladenVon!)
+    : [];
+
   const antwort = await fetch(VERSAND_ENDE, {
     method: 'POST',
     headers: {
@@ -334,6 +583,13 @@ export async function senden(m: Ausgang): Promise<{ id: string }> {
       subject: m.betreff,
       text: m.text,
       ...(Object.keys(kopf).length ? { headers: kopf } : {}),
+      /* `content` (Base64) statt `path`: die Datei liegt in unserem eigenen
+         Blockspeicher, nicht unter einer öffentlich erreichbaren Adresse, die
+         Resend selbst abrufen könnte (siehe resend.com/docs/dashboard/emails/
+         attachments, Abschnitt „Send attachments from a local file"). */
+      ...(anhaengeZeilen.length
+        ? { attachments: anhaengeZeilen.map((a) => ({ filename: a.name, content: a.inhaltBase64 })) }
+        : {}),
     }),
     signal: AbortSignal.timeout(20_000),
   }).catch((f) => {
@@ -411,55 +667,236 @@ export async function senden(m: Ausgang): Promise<{ id: string }> {
     `INSERT INTO mail_nachrichten
        (id, fach, richtung, von, an, betreff, text, html,
         message_id, referenzen, thread_id, am, gelesen, anhaenge)
-     VALUES (?,?,'aus',?,?,?,?,NULL,?,?,?,?,1,'[]')`,
+     VALUES (?,?,'aus',?,?,?,?,NULL,?,?,?,?,1,?)`,
     id, absender.toLowerCase(),
     verschluesseln(absender), verschluesseln(empfaenger),
     verschluesseln(m.betreff), verschluesseln(m.text),
     d.id ?? null, kopf.References ?? null,
     m.antwortAuf?.threadId ?? d.id ?? null,
     Date.now(),
+    /* Dieselbe verschlüsselte Übersicht wie beim Eingang (siehe
+       anhaengeAuspacken() oben) -- `uebergross` ist hier immer false, denn
+       AUSGANG_ANHANG_MAX/AUSGANG_ANHAENGE_MAX_GESAMT haben schon vor dem
+       Versand geprüft (anhaengeZumVersandLesen() oben). */
+    verschluesseln(JSON.stringify(anhaengeZeilen.map((a) => (
+      { name: a.name, typ: a.mime, groesse: a.size, uebergross: false, id: a.id }
+    )))),
   );
+
+  /* Erst NACH der Zeile oben verknüpfen -- dieselbe Fremdschlüssel-Reihenfolge
+     wie beim Eingang (eingangAufnehmen() oben): mail_anhaenge.mail_id zeigt
+     auf eine Zeile, die jetzt gerade erst entstanden ist. */
+  anhaengeZeilen.forEach((a, nummer) => {
+    db.run('UPDATE mail_anhaenge SET mail_id = ?, nummer = ? WHERE id = ?', id, nummer, a.id);
+  });
+
+  // Auch das Gesendete muss sich wiederfinden lassen — dieselbe Regel wie
+  // beim Eingang oben (eingangAufnehmen()).
+  reindexMail(id);
+
   return { id };
+}
+
+/* ── Weiterleiten ──────────────────────────────────────────────
+ *
+ * Eine bestehende Mail — meistens eine eingegangene — mit ihrem Text und
+ * ihren Anhängen an eine andere Adresse geben. Baut bewusst auf `senden()`
+ * oben auf statt eine zweite Versandstrecke zu eröffnen: dieselbe Prüfung der
+ * Empfängeradresse (`EINE_ADRESSE`), derselbe Weg zum Versanddienst, dieselbe
+ * Fehlerübersetzung.
+ *
+ * DREI DINGE, DIE HIER LEICHT SCHIEFGEHEN KÖNNEN — UND WARUM SIE ES HIER NICHT TUN
+ *
+ * 1. DER EMPFÄNGER IST FREI EINGEBBAR. Weiterleiten heißt: an eine Adresse
+ *    schreiben, mit der bisher niemand Kontakt hatte. `an` läuft deshalb
+ *    genauso durch `senden()` wie beim freien Verfassen — `EINE_ADRESSE`
+ *    entscheidet, keine Sonderregel für Weiterleitungen.
+ *
+ * 2. AUS WELCHEM FACH SIE HINAUSGEHT, ENTSCHEIDET, WOHIN GEANTWORTET WIRD.
+ *    Das Fach kommt deshalb NICHT automatisch aus der Ursprungsmail, sondern
+ *    von der Aufrufstelle (siehe `fach` unten) — die Route lässt es wählen,
+ *    mit dem Fach der Ursprungsmail nur als VORGABE (siehe dort). Genau wie
+ *    beim freien Verfassen wird das hier nicht noch einmal geprüft — dieselbe,
+ *    schon bestehende Lücke wie in `/api/post/senden` (siehe dort: `fach`
+ *    landet ungeprüft im „From", solange es ein '@' enthält). Sie zu schließen
+ *    ist nicht Teil dieses Auftrags; Weiterleiten öffnet sie nicht neu, sie
+ *    war schon vorher da.
+ *
+ * 3. DER TEXT STAMMT VON EINEM FREMDEN. `senden()` setzt `kopf['In-Reply-To']`
+ *    und `kopf.References` ausschließlich aus `antwortAuf` — und genau DAS
+ *    wird hier bewusst NIE mitgegeben. Eine Weiterleitung ist keine Antwort:
+ *    der neue Empfänger war nie Teil des ursprünglichen Verlaufs, ein
+ *    `In-Reply-To` auf eine Nachricht, die er nie bekommen hat, wäre falsch —
+ *    und mit `antwortAuf` bliebe außerdem sein einziger Weg zu, um Kopfzeilen
+ *    des VERSANDS zu beeinflussen, gleich ganz verschlossen. Betreff und Text
+ *    des Fremden werden ausschließlich als JSON-WERTE an den Versanddienst
+ *    gereicht (`subject`/`text` in `senden()` oben) — nie zu einer rohen
+ *    Kopfzeile zusammengesetzt, in die sich ein eingebettetes Zeilenende
+ *    einschmuggeln könnte. Es gibt in dieser Funktion keine einzige Stelle,
+ *    an der Text aus `original.betreff`/`original.text`/`original.von` in
+ *    ein `headers`-Feld für Resend fließt.
+ */
+export interface Weiterleitung {
+  /** Aus welchem Fach die Weiterleitung hinausgeht — bestimmt die
+      Absenderadresse, siehe `senden()`, `Ausgang.fach`. */
+  fach?: string;
+  an: string;
+}
+
+/**
+ * @param hochgeladenVon Wer weiterleitet — zugleich „Eigentümer" der ggf.
+ * kopierten Anhänge, siehe `anhangFuerWeiterleitungKopieren()` unten.
+ */
+export async function weiterleiten(
+  mailId: string, eingabe: Weiterleitung, hochgeladenVon: string,
+): Promise<{ id: string }> {
+  const original = nachricht(mailId);
+  if (!original) {
+    throw new PostFehler('post.mailNichtGefunden', 'Diese Mail gibt es nicht (mehr).', 404);
+  }
+
+  const anhaengeIds: string[] = [];
+  for (const a of original.anhaenge) {
+    if (!a.id) continue; // nie angekommen -- nichts zum Anhängen da (siehe uebergross)
+    // eslint-disable-next-line no-await-in-loop -- Anhänge einer Mail sind
+    // höchstens 25 (siehe eingangAufnehmen()), eine Reihenfolge kostet hier
+    // nichts, was eine Parallelisierung wieder wert wäre.
+    const kopie = await anhangFuerWeiterleitungKopieren(a.id, hochgeladenVon);
+    if (kopie) anhaengeIds.push(kopie.id);
+  }
+
+  const betreffOhnePrefix = (original.betreff || '').trim();
+  const betreff = /^(fwd|wg)[:.]/i.test(betreffOhnePrefix) ? betreffOhnePrefix : `Fwd: ${betreffOhnePrefix}`;
+
+  return senden({
+    fach: eingabe.fach,
+    an: eingabe.an,
+    betreff,
+    text: original.text,
+    anhaenge: anhaengeIds.length ? anhaengeIds : undefined,
+    // Kein antwortAuf -- siehe Dateikopf, Punkt 3.
+  }, hochgeladenVon);
+}
+
+/**
+ * Einen bestehenden Anhang für eine Weiterleitung übernehmen, ohne die Bytes
+ * ein zweites Mal vom Absender zu verlangen.
+ *
+ * Bevorzugter Weg: der Ursprung ist längst in den Blockspeicher zerlegt (der
+ * Regelfall — eine weitergeleitete Mail ist so gut wie nie taufrisch, die
+ * Zerlegung läuft im Hintergrund und ist meist binnen Sekunden durch, siehe
+ * ablage.spaeterUebernehmen()). Dann teilt `ablage.bloeckeTeilen()` nur die
+ * LISTE der Blöcke — dieselben Bytes, zwei unabhängige Datenbankzeilen, jede
+ * für sich später löschbar (siehe verweiseNachrechnen() in bloecke.ts).
+ * KEINE zweite Kopie auf der Platte.
+ *
+ * Liegt der Ursprung ausnahmsweise noch als GANZE Datei da (gerade erst
+ * angekommen, die Zerlegung im Hintergrund noch nicht durch), fällt diese
+ * Funktion auf denselben Weg zurück, den eingangAufnehmen() für jeden Anhang
+ * ohnehin schon geht: Bytes lesen, eine EIGENE Zwischendatei schreiben,
+ * eigenständig zur Zerlegung anmelden. Eine zweite Datenbankzeile auf
+ * DENSELBEN Pfad wäre hier riskant: die Zerlegung des Originals kann die
+ * Ausgangsdatei in genau diesem schmalen Zeitfenster schon wegräumen, während
+ * die Kopie noch darauf zeigt — die eigene Zwischendatei umgeht das
+ * vollständig, auf Kosten eines kurzlebigen doppelten Schreibvorgangs.
+ *
+ * `null`, wenn der Ursprung nicht mehr da ist oder sich nicht mehr lesen
+ * lässt — dieselbe „lieber ohne diesen einen Anhang weiterleiten als gar
+ * nicht" Haltung wie beim ersten Eingang (siehe anhaengeVorbereiten()).
+ */
+async function anhangFuerWeiterleitungKopieren(
+  anhangId: string, hochgeladenVon: string,
+): Promise<AusgehenderAnhang | null> {
+  const quelle = db.get<{
+    id: string; name: string; mime: string; size: number;
+    path: string; encoding: string | null; stored_size: number | null;
+  }>('SELECT id, name, mime, size, path, encoding, stored_size FROM mail_anhaenge WHERE id = ?', anhangId);
+  if (!quelle) return null;
+
+  const neueId = newId('ma_');
+
+  if (quelle.encoding === 'bloecke') {
+    db.run(
+      `INSERT INTO mail_anhaenge (id, mail_id, nummer, name, mime, size, path, encoding, stored_size, uploaded_by, created_at)
+       VALUES (?,NULL,0,?,?,?,NULL,'bloecke',?,?,?)`,
+      neueId, quelle.name, quelle.mime, quelle.size, quelle.stored_size, hochgeladenVon, Date.now(),
+    );
+    ablage.bloeckeTeilen({ id: quelle.id, art: 'mail' }, { id: neueId, art: 'mail' });
+    return { id: neueId, name: quelle.name, mime: quelle.mime, size: quelle.size };
+  }
+
+  const strom = ablage.oeffnen({ id: quelle.id, art: 'mail', pfad: quelle.path, encoding: quelle.encoding });
+  if (!strom) return null;
+  const zielPfad = path.join(config.uploadDir, neueId);
+  try {
+    await pipeline(strom, fs.createWriteStream(zielPfad));
+  } catch (fehler) {
+    console.error('[post] Anhang ließ sich für die Weiterleitung nicht kopieren:', (fehler as Error).message);
+    try { fs.rmSync(zielPfad, { force: true }); } catch { /* nie entstanden */ }
+    return null;
+  }
+  const groesse = fs.statSync(zielPfad).size;
+  return ausgehenderAnhangAnlegen({
+    id: neueId, name: quelle.name, mime: quelle.mime, size: groesse,
+    storedPath: zielPfad, hochgeladenVon,
+  });
 }
 
 /* ── Lesen ─────────────────────────────────────────────────── */
 
-/** Die Ordner mit ihren Zählständen — daraus entsteht die Seitenleiste. */
+/** Die Ordner mit ihren Zählständen — daraus entsteht die Seitenleiste.
+    Zählt nur AKTIVE Post mit, dieselbe Ansicht, die liste() ohne `ansicht`
+    zeigt — sonst stünde in der Seitenleiste eine Zahl, zu der die Liste
+    darunter nicht passt, sobald einmal etwas archiviert oder entfernt wurde. */
 export function faecher(): Array<{ fach: string; gesamt: number; ungelesen: number }> {
   return db.all<{ fach: string; gesamt: number; ungelesen: number }>(
     `SELECT fach,
             COUNT(*) AS gesamt,
             SUM(CASE WHEN gelesen = 0 AND richtung = 'ein' THEN 1 ELSE 0 END) AS ungelesen
        FROM mail_nachrichten
+      WHERE archiviert_am IS NULL AND entfernt_am IS NULL
       GROUP BY fach
       ORDER BY fach`);
 }
 
-export function liste(fach: string | null, anzahl = 50, vor?: number): Nachricht[] {
+/** Welcher Ausschnitt: der Alltag, das Archiv, oder der Papierkorb (was aus
+    dem Weg geräumt wurde und sich noch zurückholen lässt). */
+export type PostAnsicht = 'aktiv' | 'archiviert' | 'papierkorb';
+
+export function liste(fach: string | null, anzahl = 50, vor?: number, ansicht: PostAnsicht = 'aktiv'): Nachricht[] {
   /* Im Dienst deckeln, nicht erst in der Route: ein zweiter Aufrufer käme
      sonst daran vorbei und holte beliebig viele Zeilen — jede davon wird
      entschlüsselt. */
   anzahl = Math.min(Math.max(1, Math.trunc(anzahl) || 50), 200);
+  /* Drei sich AUSSCHLIESSENDE Ausschnitte, keine Kombination: der Papierkorb
+     zeigt, was entfernt wurde, unabhängig davon, ob es vorher archiviert war
+     — sonst verschwände eine archivierte und dann entfernte Mail zwischen
+     beiden Ansichten, statt in einer von beiden aufzutauchen. */
+  const zustand = ansicht === 'archiviert' ? 'AND archiviert_am IS NOT NULL AND entfernt_am IS NULL'
+    : ansicht === 'papierkorb' ? 'AND entfernt_am IS NOT NULL'
+      : 'AND archiviert_am IS NULL AND entfernt_am IS NULL';
   const zeilen = fach
     ? db.all<Zeile>(
-      `SELECT * FROM mail_nachrichten WHERE fach = ? AND am < ?
+      `SELECT * FROM mail_nachrichten WHERE fach = ? AND am < ? ${zustand}
         ORDER BY am DESC LIMIT ?`, fach, vor ?? Number.MAX_SAFE_INTEGER, anzahl)
     : db.all<Zeile>(
-      `SELECT * FROM mail_nachrichten WHERE am < ?
+      `SELECT * FROM mail_nachrichten WHERE am < ? ${zustand}
         ORDER BY am DESC LIMIT ?`, vor ?? Number.MAX_SAFE_INTEGER, anzahl);
-  return zeilen.map(auspacken);
+  const fristen = fristenTageKarte();
+  return zeilen.map((z) => auspacken(z, fristen));
 }
 
 export function nachricht(id: string): Nachricht | null {
   const z = db.get<Zeile>('SELECT * FROM mail_nachrichten WHERE id = ?', id);
-  return z ? auspacken(z) : null;
+  return z ? auspacken(z, fristenTageKarte()) : null;
 }
 
 /** Der ganze Verlauf zu einer Nachricht, älteste zuerst. */
 export function verlauf(threadId: string): Nachricht[] {
+  const fristen = fristenTageKarte();
   return db.all<Zeile>(
     'SELECT * FROM mail_nachrichten WHERE thread_id = ? ORDER BY am ASC', threadId,
-  ).map(auspacken);
+  ).map((z) => auspacken(z, fristen));
 }
 
 export function gelesenSetzen(id: string, gelesen: boolean): void {
@@ -534,4 +971,381 @@ export function spracheLernen(adresse: string, text: string): string {
     bidx, verschluesseln(adresse), erkannt.lang, erkannt.confidence, Date.now(),
   );
   return erkannt.lang;
+}
+
+/* ── Archivieren, aus dem Weg räumen, endgültig löschen ───────────
+ *
+ * Drei verschiedene Dinge, drei verschiedene Schwellen — sie heißen nicht
+ * zufällig verschieden:
+ *
+ *   · `archiviertSetzen()` nimmt Post aus dem Blickfeld, ohne sie
+ *     anzutasten — für erledigte Vorgänge. Rein umkehrbar, jederzeit.
+ *
+ *   · `entferntSetzen(id, true)` räumt „aus dem Weg", nach demselben Bild wie
+ *     `deleted_at` bei Chatnachrichten (siehe messages.ts, deleteMessage()):
+ *     reversibel, aber OHNE Zeitfenster — anders als beim Chat gehört diese
+ *     Post nicht einer einzelnen Person, die „ihre" Nachricht gerade eben
+ *     zurücknehmen will, sondern der Firma, und es gibt keinen Anlass, das
+ *     Rückgängigmachen zu befristen. `entferntSetzen(id, false)` holt sie
+ *     zurück — siehe fristenAnwenden() weiter unten dafür, dass ein
+ *     „Entfernen" die Aufbewahrungsfrist NICHT anhält: entfernte Post ist
+ *     noch da und zählt weiter mit.
+ *
+ *   · `endgueltigLoeschen()` ist etwas ANDERES als beides zusammen, nicht nur
+ *     mehr davon: der Inhalt verschwindet aus der Datenbank, nicht nur aus
+ *     der Liste. Das ist das Recht auf Löschung aus Art. 17 DSGVO, kein
+ *     Aufräumen — und es reicht tiefer als die beiden Zustände oben: aktive,
+ *     archivierte UND schon entfernte Post lässt sich damit endgültig
+ *     löschen. Die beiden Spalten oben spielen für `endgueltigLoeschen()`
+ *     keine Rolle mehr, sie werden mitgelöscht, nicht abgefragt.
+ */
+
+/** Aus dem Blickfeld nehmen (archiviert = true) oder zurückholen (false). */
+export function archiviertSetzen(id: string, archiviert: boolean): boolean {
+  const r = db.run(
+    'UPDATE mail_nachrichten SET archiviert_am = ? WHERE id = ?',
+    archiviert ? Date.now() : null, id,
+  );
+  return r.changes > 0;
+}
+
+/** Aus dem Weg räumen (entfernt = true) oder zurückholen (entfernt = false). */
+export function entferntSetzen(id: string, entfernt: boolean): boolean {
+  const r = db.run(
+    'UPDATE mail_nachrichten SET entfernt_am = ? WHERE id = ?',
+    entfernt ? Date.now() : null, id,
+  );
+  return r.changes > 0;
+}
+
+/**
+ * Adressen, die NACH dem Löschen der übergebenen Zeilen noch irgendwo in
+ * mail_nachrichten stehen — als `von` ODER `an`, ohne Rücksicht auf Fach oder
+ * Richtung.
+ *
+ * Ein einziger Durchlauf durch das, was übrig bleibt, statt einer Abfrage je
+ * Adresse: bei einem Aufräumlauf mit vielen abgelaufenen Zeilen (siehe
+ * fristenAnwenden() weiter unten) wären das sonst n mal m Entschlüsselungen
+ * statt einmal n. `von`/`an` sind mit zufälligem IV verschlüsselt — ein
+ * SQL-„WHERE von = ?" auf dem Chiffrat geht nicht, es bleibt nur der
+ * Durchlauf mit Entschlüsseln (dieselbe Bauart wie in verlaufErlaubt() oben,
+ * nur ohne dessen LIMIT: hier muss es vollständig sein, sonst überlebte eine
+ * Adresse in mail_partner grundlos einen Treffer, der weiter unten im
+ * Ergebnis gar nicht mehr auftaucht).
+ */
+function nochVorhandeneAdressen(): Set<string> {
+  const uebrig = new Set<string>();
+  for (const z of db.all<{ von: string; an: string }>('SELECT von, an FROM mail_nachrichten')) {
+    uebrig.add(entschluesseln(z.von).toLowerCase());
+    uebrig.add(entschluesseln(z.an).toLowerCase());
+  }
+  return uebrig;
+}
+
+/**
+ * Eine oder mehrere Mails WIRKLICH löschen — für Art. 17 DSGVO und für die
+ * Aufbewahrungsfrist (fristenAnwenden() weiter unten benutzt diese Funktion
+ * als Werkzeug, mail für mail ist hier nur der Sonderfall n=1).
+ *
+ * Nimmt, anders als archiviertSetzen()/entferntSetzen(), auch alles mit, was
+ * AUS der Mail entstanden ist:
+ *
+ *   · mail_sichtung   — die Einordnung der KI zu genau dieser Mail.
+ *   · mail_entwuerfe  — ein Antwortentwurf, der an ihr hängt (auch ein noch
+ *     offener — eine abgelaufene Frist wartet nicht auf eine Entscheidung,
+ *     die niemand getroffen hat).
+ *   · mail_anhaenge   — fällt über ON DELETE CASCADE mit der Mail selbst weg,
+ *     aber NUR die Datenbankzeile. Die eigentlichen Bytes liegen im
+ *     Blockspeicher (bloecke/datei_bloecke) oder noch als ganze Datei da,
+ *     solange die Zerlegung im Hintergrund läuft (ablage.spaeterUebernehmen()
+ *     in eingangAufnehmen() oben) — beides räumt eine Kaskade NICHT ab,
+ *     dieselbe Lücke wie beim Löschen eines Kanals (siehe channels.ts,
+ *     deleteChannel(): "was ON DELETE CASCADE abräumt, muss der Blockspeicher
+ *     von Hand nach"). Genau dieselben zwei Aufräumschritte deshalb auch
+ *     hier: ablage.verwaisteAufraeumen() für Blöcke, ablage.dateienAufraeumen()
+ *     für noch ganze Dateien. Ohne das bliebe der Anhang selbst — ein
+ *     Lebenslauf, eine Rechnung — lesbar auf der Platte liegen, während die
+ *     Mail, die ihn brachte, längst weg ist.
+ *   · mail_partner    — NUR, wenn keine der gelöschten Mails und auch keine
+ *     verbliebene Mail mehr dieselbe Adresse trägt (weder als `von` noch als
+ *     `an`). Sprache und Gruppe eines Briefpartners sind aus Mailtext GELERNT
+ *     (spracheLernen() oben, post-partnergruppen.ts) — genau die Art Rest,
+ *     die beim Löschen einer Chatnachricht bisher im Übersetzungsspeicher
+ *     liegen blieb, bis dropMessageTranslations() das schloss (siehe
+ *     messages.ts, deleteMessage()). Bleibt eine andere, NICHT gelöschte Mail
+ *     von/an dieselbe Adresse stehen, bleibt auch der Partnereintrag — sonst
+ *     verlöre ein bestehender Verlauf grundlos seine gelernte Sprache und
+ *     Gruppe.
+ *
+ * Gibt zurück, wie viele Zeilen aus mail_nachrichten wirklich weg sind.
+ */
+function mailsHartLoeschen(ids: string[]): number {
+  if (!ids.length) return 0;
+  const platz = ids.map(() => '?').join(',');
+  const zeilen = db.all<{ id: string; von: string; an: string }>(
+    `SELECT id, von, an FROM mail_nachrichten WHERE id IN (${platz})`, ...ids);
+  if (!zeilen.length) return 0;
+
+  /* VOR dem Löschen gemerkt, nicht danach gesucht: nach dem DELETE (unten)
+     weiß niemand mehr, welche Anhangpfade zu diesen Mails gehörten — dieselbe
+     Reihenfolge wie in channels.ts, deleteChannel(). */
+  const anhangPfade = db.all<{ path: string }>(
+    `SELECT path FROM mail_anhaenge WHERE mail_id IN (${platz})`, ...ids,
+  ).map((r) => r.path);
+
+  let geloescht = 0;
+  db.transaction(() => {
+    for (const z of zeilen) {
+      geloescht += db.run('DELETE FROM mail_nachrichten WHERE id = ?', z.id).changes;
+      db.run('DELETE FROM mail_sichtung WHERE mail_id = ?', z.id);
+      db.run('DELETE FROM mail_entwuerfe WHERE mail_id = ?', z.id);
+    }
+
+    const betroffeneAdressen = new Set<string>();
+    for (const z of zeilen) {
+      betroffeneAdressen.add(entschluesseln(z.von).toLowerCase());
+      betroffeneAdressen.add(entschluesseln(z.an).toLowerCase());
+    }
+    const uebrig = nochVorhandeneAdressen();
+    for (const adresse of betroffeneAdressen) {
+      if (!adresse || uebrig.has(adresse)) continue;
+      db.run('DELETE FROM mail_partner WHERE adresse_bidx = ?', blindIndex(adresse));
+    }
+  });
+
+  /* Auch aus dem Suchindex — sonst fände eine Suche nach einem Wort aus
+     genau diesem Betreff oder Text weiterhin eine Mail, die es laut
+     mail_nachrichten längst nicht mehr gibt. Nach der Transaktion, nicht
+     darin: mail_fts ist eine virtuelle Tabelle ohne Fremdschlüssel und ohne
+     Kaskade (siehe removeChannelFromIndex() in db/index.ts für dieselbe
+     Einschränkung bei message_fts) — das DELETE oben räumt sie nicht mit ab.
+     Deckt beide Aufrufer dieser Funktion ab: endgueltigLoeschen() (ein
+     einzelner Wunsch nach Art. 17 DSGVO) und fristenAnwenden() (viele Zeilen
+     auf einmal, siehe dort). */
+  for (const z of zeilen) removeMailFromIndex(z.id);
+
+  /* mail_anhaenge ist mit der Mail über die Kaskade schon weg — was jetzt noch
+     aufzuräumen bleibt, ist der INHALT, den die Kaskade nicht kennt (siehe
+     Dateikopf oben). Beide Aufräumfunktionen sind genau für diesen Fall
+     gebaut (siehe ablage.ts) und unbedenklich, auch wenn nichts zu tun ist —
+     derselbe Aufruf wie in channels.ts, deleteChannel(). */
+  ablage.verwaisteAufraeumen();
+  ablage.dateienAufraeumen(anhangPfade);
+
+  /* Das DELETE oben nimmt die Zeile aus der Datenbank — aber im WAL-Modus
+     (schema.sql: PRAGMA journal_mode = WAL) landet eine Änderung zuerst im
+     `-wal`-Nebendatei und erst bei einem Checkpoint in der Hauptdatei. Ohne
+     diesen Aufruf bliebe der gelöschte Inhalt dort möglicherweise noch
+     tagelang lesbar liegen, bis SQLite von selbst aufräumt (Vorgabe: alle
+     1000 Seiten) — für ein Recht auf Löschung ist "irgendwann von selbst"
+     zu wenig. TRUNCATE, nicht FULL: FULL setzt nur die Leseposition zurück
+     und lässt die Datei so groß, wie sie war — die alten Seiten blieben als
+     Datenmüll am Ende der Datei liegen. TRUNCATE schneidet die Datei
+     wirklich auf null zurück. Best effort, kein harter Fehler: eine Sperre
+     durch einen gerade lesenden Vorgang darf das Löschen selbst (oben schon
+     geschehen) nicht rückgängig machen, nur den Aufräumschritt verschieben. */
+  try {
+    db.exec('PRAGMA wal_checkpoint(TRUNCATE)');
+  } catch (err) {
+    console.warn('[post] WAL-Checkpoint nach endgültigem Löschen:', (err as Error).message);
+  }
+
+  return geloescht;
+}
+
+/** Eine einzelne Mail endgültig löschen. `false`, wenn es sie nicht (mehr) gab. */
+export function endgueltigLoeschen(id: string): boolean {
+  return mailsHartLoeschen([id]) > 0;
+}
+
+/* ── Aufbewahrungsfrist ────────────────────────────────────────
+ *
+ * Jedes Fach kann eine EIGENE Frist bekommen, weil die Fächer verschieden
+ * sind: `jobs@` trägt Bewerbungsunterlagen, `billing@` möglicherweise
+ * aufbewahrungspflichtige Belege, `abuse@`/`security@` sind Vorfallsakten.
+ * Eine einzige Frist fürs ganze Postfach läge für irgendein Fach immer
+ * falsch.
+ *
+ * OHNE gesetzte Frist passiert nichts — das ist die Vorgabe für JEDES Fach,
+ * bis jemand mit `mail.verwalten` ausdrücklich eine Zahl einträgt. Erfunden
+ * wird hier keine Frist: welche für ein Unternehmen richtig ist, weiß dieser
+ * Code nicht, und er tut nicht so, als wüsste er es.
+ */
+
+interface FristZeile { fach: string; tage: number; gesetzt_von: string | null; gesetzt_am: number; }
+
+export interface FristStand {
+  fach: string;
+  /** null = keine Frist gesetzt — Grundlage für den sichtbaren Hinweis in
+      der Oberfläche, dass hier (noch) nichts verfällt. */
+  tage: number | null;
+  gesetztVon: string | null;
+  gesetztAm: number | null;
+}
+
+/** Nur die gesetzten Fristen, als Nachschlagetabelle fach → tage — für
+    auspacken()/verfaelltAm, wo nur die Zahl zählt, nicht wer sie gesetzt hat. */
+function fristenTageKarte(): Map<string, number> {
+  return new Map(
+    db.all<{ fach: string; tage: number }>('SELECT fach, tage FROM post_fristen')
+      .map((r) => [r.fach, r.tage]),
+  );
+}
+
+/** JEDES Fach, mit seiner Frist ODER mit `tage: null` — Grundlage für den
+    sichtbaren Hinweis „keine Frist gesetzt" in der Einstellungsansicht. */
+export function fristenStand(): FristStand[] {
+  const gesetzt = new Map(
+    db.all<FristZeile>('SELECT fach, tage, gesetzt_von, gesetzt_am FROM post_fristen')
+      .map((r) => [r.fach, r]),
+  );
+  return ALLE_FAECHER.map((fach) => {
+    const z = gesetzt.get(fach);
+    return z
+      ? { fach, tage: z.tage, gesetztVon: z.gesetzt_von, gesetztAm: z.gesetzt_am }
+      : { fach, tage: null, gesetztVon: null, gesetztAm: null };
+  });
+}
+
+/** Eine Frist setzen oder ändern. `tage` muss eine ganze Zahl ≥ 1 sein. */
+export function fristSetzen(fach: string, tage: number, userId: string): FristStand {
+  if (!(ALLE_FAECHER as readonly string[]).includes(fach)) {
+    throw new PostFehler('post.unbekanntesFach', 'Dieses Fach gibt es nicht.', 400);
+  }
+  if (!Number.isInteger(tage) || tage < 1) {
+    throw new PostFehler('post.ungueltigeFrist',
+      'Die Frist muss eine ganze Zahl von mindestens einem Tag sein.', 400);
+  }
+  const jetzt = Date.now();
+  db.run(
+    `INSERT INTO post_fristen (fach, tage, gesetzt_von, gesetzt_am) VALUES (?,?,?,?)
+     ON CONFLICT(fach) DO UPDATE SET
+       tage = excluded.tage, gesetzt_von = excluded.gesetzt_von, gesetzt_am = excluded.gesetzt_am`,
+    fach, tage, userId, jetzt,
+  );
+  return { fach, tage, gesetztVon: userId, gesetztAm: jetzt };
+}
+
+/** Die Frist eines Fachs wieder abschalten — ab dann verfällt dort nichts mehr. */
+export function fristLoeschen(fach: string): void {
+  db.run('DELETE FROM post_fristen WHERE fach = ?', fach);
+}
+
+/**
+ * Post löschen, deren Frist abgelaufen ist — je Fach, und NUR für Fächer mit
+ * gesetzter Frist. Bemisst sich am ALTER der Mail (`am`), nicht an ihrem
+ * Zustand: auch gelesene, archivierte oder schon „entfernte" Post verfällt
+ * mit — die Frist ist eine Aussage über das Alter der Daten, keine über die
+ * Aufmerksamkeit, die ihr bisher jemand geschenkt hat. Ein offener KI-Entwurf
+ * zu einer verfallenden Mail geht mit ihr (siehe mailsHartLoeschen() oben) —
+ * eine Frist, die auf eine Entscheidung wartet, ist trotzdem eine Frist.
+ *
+ * Aufgerufen aus dem Hintergrundlauf in ws/gateway.ts (startBackgroundJobs,
+ * höchstens einmal am Tag) — und direkt von hier aus für Prüfläufe, die nicht
+ * einen Tag auf den nächsten Durchlauf warten wollen.
+ *
+ * Gibt zurück, wie viele Mails wirklich weg sind — für die Protokollzeile im
+ * Aufräumlauf, nach demselben Muster wie vertraulich.abgelaufeneAufraeumen().
+ */
+export function fristenAnwenden(jetzt = Date.now()): number {
+  const fristen = db.all<{ fach: string; tage: number }>('SELECT fach, tage FROM post_fristen');
+  if (!fristen.length) return 0;
+
+  let gesamt = 0;
+  for (const { fach, tage } of fristen) {
+    const grenze = jetzt - tage * TAG_MS;
+    const abgelaufen = db.all<{ id: string }>(
+      'SELECT id FROM mail_nachrichten WHERE fach = ? AND am < ?', fach, grenze);
+    if (!abgelaufen.length) continue;
+    gesamt += mailsHartLoeschen(abgelaufen.map((z) => z.id));
+  }
+  return gesamt;
+}
+
+/* ── Anhänge ───────────────────────────────────────────────────
+ *
+ * Der Inhalt liegt in mail_anhaenge/ablage.ts (art 'mail'), nicht hier —
+ * diese drei Funktionen sind die einzige Berührung dieser Datei mit den
+ * Bytes selbst: ablegen (eingegangen, s.o., oder gerade erst hochgeladen für
+ * einen noch nicht gesendeten Entwurf), ausliefern, verwerfen. Wer eine Mail
+ * lesen darf, darf auch ihre Anhänge herunterladen — dieselbe Schwelle
+ * (`mail.lesen`), geprüft in der Route, nicht hier: hier steht nur noch die
+ * Frage, ob der Anhang überhaupt an einer Mail hängt.
+ */
+
+/**
+ * Ein Anhang zum Ausliefern — nur wenn er wirklich an einer Mail hängt.
+ *
+ * Ein noch nicht verknüpfter Anhang (gerade erst hochgeladen, aber noch nicht
+ * gesendet) gehört noch niemandem außer seinem Hochlader und läuft nicht über
+ * diese Funktion — siehe senden() weiter oben für den Weg, auf dem er an eine
+ * Mail kommt. `null` heißt hier immer "gibt es nicht", ohne Unterschied
+ * zwischen "nie existiert" und "existiert, aber noch nicht verschickt" — der
+ * Unterschied ist für die Auslieferungsroute bedeutungslos, beides ist "noch
+ * nicht zu holen".
+ */
+export function anhangFuerAuslieferung(id: string): {
+  id: string; mailId: string; name: string; path: string; encoding: string | null;
+} | null {
+  const z = db.get<{ id: string; mail_id: string | null; name: string; path: string; encoding: string | null }>(
+    'SELECT id, mail_id, name, path, encoding FROM mail_anhaenge WHERE id = ?', id,
+  );
+  if (!z || !z.mail_id) return null;
+  return {
+    id: z.id, mailId: z.mail_id, name: z.name, path: z.path, encoding: z.encoding,
+  };
+}
+
+export interface AusgehenderAnhang { id: string; name: string; mime: string; size: number }
+
+/**
+ * Einen Anhang für eine noch nicht gesendete Mail ablegen — vor senden().
+ *
+ * `mail_id` bleibt NULL, bis senden() ihn tatsächlich verschickt (siehe
+ * dort) — dieselbe Reihenfolge wie bei attachments.message_id für den Chat
+ * (messages.ts): hochladen, während geschrieben wird; verknüpfen, wenn (und
+ * nur wenn) wirklich gesendet wird.
+ */
+export function ausgehenderAnhangAnlegen(input: {
+  /** Von der Route vergeben, VOR dem Schreiben der Datei -- dieselbe Kennung
+      benennt Datenbankzeile und Zwischendatei, genau wie bei `/api/uploads`
+      für Chatanhänge (siehe dort). */
+  id: string;
+  name: string; mime: string; size: number; storedPath: string; hochgeladenVon: string;
+}): AusgehenderAnhang {
+  const { id } = input;
+  const name = saubererDateiname(input.name) || 'ohne-namen';
+  const mime = input.mime || 'application/octet-stream';
+  db.run(
+    `INSERT INTO mail_anhaenge (id, mail_id, nummer, name, mime, size, path, encoding, stored_size, uploaded_by, created_at)
+     VALUES (?,NULL,0,?,?,?,?,NULL,NULL,?,?)`,
+    id, name, mime, input.size, input.storedPath, input.hochgeladenVon, Date.now(),
+  );
+  ablage.spaeterUebernehmen({ id, art: 'mail', pfad: input.storedPath, mime });
+  return {
+    id, name, mime, size: input.size,
+  };
+}
+
+/**
+ * Einen noch nicht gesendeten Anhang verwerfen — etwa beim Schließen des
+ * Schreibfensters ohne zu senden. Nur der Hochlader selbst, und nur solange
+ * er an keiner Mail hängt (dieselbe Regel wie beim Lesen für den Versand,
+ * siehe anhaengeZumVersandLesen() weiter oben). `false` heißt: gab es so
+ * nicht (falsche Kennung, fremd, oder schon verschickt).
+ */
+export function ausgehenderAnhangVerwerfen(id: string, userId: string): boolean {
+  const z = db.get<{ uploaded_by: string | null; mail_id: string | null; path: string }>(
+    'SELECT uploaded_by, mail_id, path FROM mail_anhaenge WHERE id = ?', id,
+  );
+  if (!z || z.uploaded_by !== userId || z.mail_id !== null) return false;
+  ablage.loeschen(id, 'mail');
+  db.run('DELETE FROM mail_anhaenge WHERE id = ?', id);
+  /* Dieselbe Gegenprobe wie files.ts::deleteFile(): solange die Zerlegung in
+     den Blockspeicher noch aussteht, liegt die Datei noch ganz auf der
+     Platte, und ablage.loeschen() allein rührt sie nicht an. */
+  if (!ablage.nochGebraucht(z.path)) {
+    fs.promises.rm(z.path, { force: true }).catch(() => {});
+  }
+  return true;
 }

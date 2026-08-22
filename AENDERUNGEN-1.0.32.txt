@@ -1,0 +1,20 @@
+Das Postfach ist vollstaendig
+- Anhaenge kommen an und lassen sich oeffnen. Bisher wurden sie stillschweigend
+  verworfen - jeder Anhang, den jemand geschickt hat, war verloren.
+- Anhaenge an ausgehende Mail und an Antworten.
+- Suche ueber Betreff, Text, Absender, Fach und Anhangnamen - auch durch die
+  Verschluesselung hindurch.
+- Weiterleiten an eine beliebige Adresse, mit Anhaengen.
+- Archivieren, in den Papierkorb legen, zurueckholen.
+- Endgueltig loeschen fuer den Fall, dass jemand die Loeschung seiner Daten verlangt.
+- Aufbewahrungsfristen je Fach - standardmaessig aus, bis jemand sie setzt.
+  Eine ablaufende Frist ist an der Mail sichtbar, bevor sie zuschlaegt.
+- KI-Entwuerfe lassen sich ansehen, bearbeiten, freigeben oder ablehnen.
+  Was im Feld steht, geht hinaus. Der Empfaenger bleibt unveraenderlich.
+
+Behoben
+- Endgueltiges Loeschen loeschte nicht wirklich: der Inhalt blieb im Journal
+  der Datenbank stehen. Jetzt wird wirklich ueberschrieben - fuer alles im Haus.
+- Anhangnamen fremder Post lagen unverschluesselt in der Datenbank.
+- Das Suchfeld bei den Notizen streckte sich ueber die ganze Hoehe.
+- Ein Anhang, der zu gross ankommt, faellt nicht mehr lautlos weg - man sieht es.

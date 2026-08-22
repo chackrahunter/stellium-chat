@@ -21,6 +21,55 @@
    statt für sich. */
 .post > * { min-width: 0; min-height: 0; }
 
+/* ── Suche ──────────────────────────────────────────────────────── */
+
+.post__suche {
+  position: relative;
+  flex: none;
+  margin-bottom: 8px;
+}
+.post__suche-symbol {
+  position: absolute;
+  inset-inline-start: 9px;
+  top: 50%;
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+.post__suche-feld { width: 100%; padding-inline-start: 28px; padding-inline-end: 26px; }
+.post__suche-loeschen {
+  position: absolute;
+  inset-inline-end: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: grid;
+  place-items: center;
+  width: 18px; height: 18px;
+  border-radius: 50%;
+  color: var(--tx-lo);
+}
+.post__suche-loeschen:hover { background: var(--bg-hover); color: var(--tx-hi); }
+
+/* ── Alltag / Archiv / Papierkorb ───────────────────────────────── */
+
+.post__ansicht {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.post__ansicht .pill { height: 26px; padding: 0 9px; font-size: 11px; }
+
+/* Kennzeichnet in einer Zeile, die aus verschiedenen Zuständen stammen kann
+   (Suchergebnisse, siehe Dateikopf), ob sie archiviert oder im Papierkorb
+   liegt — dieselbe unaufdringliche Bauart wie .post-row__zeit daneben. */
+.post-row__zustand {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-top: 1px;
+  font-size: 10.5px;
+  color: var(--tx-lo);
+}
+
 /* ── Fächer ─────────────────────────────────────────────────────── */
 
 .post__faecher {
@@ -146,6 +195,34 @@
 .post__eintrag-adresse { flex: 1; min-width: 0; color: var(--tx-mid); }
 .post__eintrag-zeit { flex: none; font-variant-numeric: tabular-nums; }
 
+/* Weiterleiten, Archivieren/Entfernen, endgültig löschen — nur bei Bedarf
+   sichtbar (auf Hover/Fokus), damit ein Verlauf mit vielen Einträgen nicht
+   von Symbolen zugestellt wird. `opacity` statt `display:none`, damit die
+   Tastatur (Tab) die Knöpfe trotzdem erreicht. */
+.post__eintrag-aktionen {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  margin-inline-start: 4px;
+  opacity: 0;
+  transition: opacity var(--t-fast);
+}
+.post__eintrag:hover .post__eintrag-aktionen,
+.post__eintrag-aktionen:focus-within { opacity: 1; }
+.icon-btn--gefahr:hover { background: color-mix(in srgb, var(--rose) 16%, transparent); color: var(--rose); }
+
+/* Aufbewahrungsfrist dieser einen Mail — sichtbar, bevor sie zuschlägt
+   (siehe services/post.ts, Feld verfaelltAm). Schlichte Auskunft, keine
+   Warnfarbe: eine gesetzte Frist ist eine bewusste Entscheidung. */
+.post__eintrag-frist {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin: 0 0 8px;
+  font-size: 11px;
+}
+
 .post__anhaenge { display: flex; flex-wrap: wrap; gap: 6px; margin: 2px 0 8px; }
 .post__anhang {
   display: inline-flex;
@@ -206,6 +283,109 @@
 .post__antwort-ziel { margin: 0; font-size: 11.5px; }
 .post__antwort-fuss { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .post__antwort-hinweis { font-size: 10.5px; }
+
+/* ── KI-Antwortentwurf im Verlauf ───────────────────────────────────
+   Direkt unter dem Verlaufseintrag der Mail, auf die er antwortet (siehe
+   EntwurfKarte in PostPanel.tsx) — ein eigener Rahmen in der Markenfarbe
+   statt der neutralen Umrandung eines .post__eintrag: das ist kein
+   vergangener Verlaufseintrag, sondern ein Vorschlag, der noch auf eine
+   Entscheidung wartet. Für Empfänger/Betreff/Text dieselben allgemeinen
+   Klassen wie im Schreibfenster (.field, .input, .textarea — siehe
+   post-schreiben.css), auch ohne eigenes Flex-Gerüst: jedes .field trägt
+   seinen eigenen Abstand nach unten, genau wie dort. */
+.post-entwurf {
+  padding: 12px 13px;
+  margin-bottom: 8px;
+  border-radius: var(--r-md);
+  border: 1px solid var(--violet-soft);
+  background: var(--bg-panel-2);
+}
+
+.post-entwurf__kopf {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--violet-soft);
+}
+
+.post-entwurf__begruendung {
+  margin: 0 0 10px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--tx-mid);
+}
+
+/* Dieselbe Bauart wie .postsicht-karte__warnung in post-meldungen.css —
+   eigenständig hier, damit diese Datei unabhängig bleibt (siehe dort für
+   die ausführliche Begründung der Farbe: Amber, weil das die einzige
+   Zeile hier ist, die vor einem tatsächlichen Risiko warnt). Sitzt VOR den
+   Feldern, nicht danach — sichtbar, bevor jemand auf „Freigeben" drückt. */
+.post-entwurf__warnung {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 0 0 10px;
+  padding: 7px 9px;
+  border-radius: var(--r-sm);
+  border: 1px solid color-mix(in srgb, var(--amber) 45%, transparent);
+  background: color-mix(in srgb, var(--amber) 12%, transparent);
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: var(--amber);
+}
+.post-entwurf__warnung svg { flex: none; margin-top: 1px; }
+
+.post-entwurf__empfaenger { margin: 0; font-size: 13px; color: var(--tx-hi); }
+
+.post-entwurf__fuss {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
+  margin-top: var(--sp-2);
+  padding-top: var(--sp-3);
+  border-top: 1px solid var(--line);
+}
+.post-entwurf__hinweis { font-size: 10.5px; }
+
+/* ── Weiterleiten-Fenster ───────────────────────────────────────── */
+
+/* Ursprünglicher Text — nur lesend (siehe Dateikopf WeiterleitenFenster in
+   PostPanel.tsx), deshalb wie eine Vorschau und nicht wie ein .textarea
+   gestaltet. */
+.post__weiterleiten-text {
+  max-height: 220px;
+  overflow-y: auto;
+  padding: 9px 11px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--line);
+  background: var(--bg-panel-2);
+  font-size: 12.5px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* ── Aufbewahrungsfrist je Fach (FristenFenster) ─────────────────── */
+
+.post-fristen__hinweis { margin: 0 0 var(--sp-3); font-size: 12px; }
+.post-fristen__zeile {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--line);
+}
+.post-fristen__zeile:last-child { border-bottom: 0; }
+.post-fristen__fach { flex: 1; min-width: 0; font-size: 13px; font-weight: 600; }
+.post-fristen__tage { width: 72px; text-align: end; }
+.post-fristen__einheit { font-size: 11.5px; }
 
 /* ── Fehler & Zugänglichkeit ────────────────────────────────────── */
 

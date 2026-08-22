@@ -25,3 +25,42 @@
   border: 1px solid var(--line);
   background: var(--bg-panel-2);
 }
+
+/* ── Anhänge beim Verfassen ────────────────────────────────────── */
+
+.post-schreiben__anhaenge {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.post-schreiben__anhang {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 220px;
+  padding: 4px 6px 4px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--bg-hover);
+  font-size: 11.5px;
+  color: var(--tx-mid);
+}
+.post-schreiben__anhang-name { min-width: 0; }
+.post-schreiben__anhang-groesse { flex: none; color: var(--tx-lo); font-variant-numeric: tabular-nums; }
+
+.post-schreiben__anhang-entfernen {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--tx-lo);
+  cursor: pointer;
+}
+.post-schreiben__anhang-entfernen:hover { background: var(--bg-active); color: var(--rose); }

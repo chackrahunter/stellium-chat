@@ -173,6 +173,20 @@ export interface PostEntwurf {
   entschiedenAm: number | null;
   entschiedenVon: string | null;
   gesendetId: string | null;
+  /**
+   * Strukturiert wie `PostMeldung.abweichung` — derselbe Warnsatz, nur als
+   * Werte statt Fließtext (siehe `abweichungAdressen()` weiter unten). Nur
+   * gesetzt, solange der Entwurf offen ist: einmal entschieden, ist der
+   * Hinweis Geschichte statt Handlungsaufforderung, genau wie bei
+   * `bauMeldung()` oben.
+   */
+  abweichung: PostMeldungAbweichung | null;
+  /**
+   * Der Wortlaut, an dem sich eine beim Bearbeiten entfernte Kennzeichnung
+   * erkennen lässt — siehe `kennzeichnungAusText()` weiter unten und, für
+   * die Herkunft dieser Bauart, den Dateikopf von PostSchreiben.tsx.
+   */
+  kennzeichnung: string;
 }
 
 /* ── Wer benachrichtigt wird ──────────────────────────────────── */
@@ -626,6 +640,33 @@ function kennzeichnungSichern(entwurf: string, sprache: string): string {
   return /StelliumAI/i.test(rumpf) ? rumpf : `${rumpf}\n\n${KENNZEICHNUNG_EN}`;
 }
 
+/**
+ * Der Wortlaut, an dem sich erkennen lässt, ob die Kennzeichnung im
+ * (womöglich von Hand bearbeiteten) Text noch steht — für die Oberfläche.
+ * Dieselbe Bauart wie `EntwurfSchreibenErgebnis.kennzeichnung` in
+ * post-entwurf-ki.ts: dort merkt sich die Oberfläche den genauen Wortlaut
+ * und fragt beim Senden einmal nach, wenn er fehlt, statt ihn zu erzwingen
+ * oder still verschwinden zu lassen (siehe PostSchreiben.tsx).
+ *
+ * Anders als dort ist der Wortlaut hier nicht immer bytegleich mit
+ * KENNZEICHNUNG_DE/_EN: `kennzeichnungSichern()` oben lässt für Sprachen
+ * jenseits Deutsch/Englisch auch eine vom Modell selbst übersetzte Erwähnung
+ * von "StelliumAI" gelten, statt stur die englische Zeile daruntersetzen.
+ * Deshalb wird hier zuerst nach den zwei festen Sätzen gesucht — und nur
+ * wenn keiner davon steckt, die Zeile genommen, die "StelliumAI" tatsächlich
+ * enthält. So bekommt die Oberfläche immer den Wortlaut, der nach
+ * `entwurfAnlegen()` tatsächlich im Text steht, nie einen geratenen — sonst
+ * würde ein unbearbeiteter Entwurf in einer dritten Sprache fälschlich als
+ * „Kennzeichnung fehlt" gemeldet, noch bevor überhaupt jemand etwas
+ * geändert hat.
+ */
+function kennzeichnungAusText(text: string): string {
+  if (text.includes(KENNZEICHNUNG_DE)) return KENNZEICHNUNG_DE;
+  if (text.includes(KENNZEICHNUNG_EN)) return KENNZEICHNUNG_EN;
+  const zeile = text.split('\n').map((z) => z.trim()).reverse().find((z) => /StelliumAI/i.test(z));
+  return zeile || KENNZEICHNUNG_EN;
+}
+
 /** „Re:" genau einmal davor. */
 function antwortBetreff(betreff: string): string {
   const roh = betreff.trim() || '(ohne Betreff)';
@@ -877,19 +918,29 @@ interface EntwurfZeile {
 }
 
 function entwurfAuspacken(z: EntwurfZeile): PostEntwurf {
+  const text = entschluesseln(z.text);
+  const an = entschluesseln(z.an);
+  /* Für die Abweichungswarnung wird die Ursprungsmail noch einmal gebraucht,
+     genau wie in meldungenListe() weiter unten — und aus demselben Grund nur
+     dort abgefragt, wo sie überhaupt noch etwas bedeutet (siehe PostEntwurf
+     oben): ein bereits entschiedener Entwurf bekommt gar nicht erst einen
+     zusätzlichen Lesezugriff auf `mail_nachrichten` spendiert. */
+  const mail = z.zustand === 'offen' ? nachricht(z.mail_id) : null;
   return {
     id: z.id,
     mailId: z.mail_id,
     threadId: z.thread_id,
-    an: entschluesseln(z.an),
+    an,
     betreff: entschluesseln(z.betreff),
-    text: entschluesseln(z.text),
+    text,
     begruendung: z.begruendung ? entschluesseln(z.begruendung) : null,
     zustand: z.zustand,
     erstelltAm: z.erstellt_am,
     entschiedenAm: z.entschieden_am,
     entschiedenVon: z.entschieden_von,
     gesendetId: z.gesendet_id,
+    abweichung: mail ? abweichungAdressen(mail, an) : null,
+    kennzeichnung: kennzeichnungAusText(text),
   };
 }
 
@@ -1053,11 +1104,47 @@ export function nachzusichten(anzahl = 20): string[] {
 /* ── Die Entscheidung eines Menschen festhalten ───────────────── */
 
 /**
+ * Den Text (und Betreff) eines offenen Entwurfs mit dem überschreiben, was
+ * ein Mensch beim Freigeben eingetippt hat — VOR dem Versand aufgerufen,
+ * nicht danach (siehe die Route `/api/post/entwuerfe/:id/senden` in
+ * routes.ts).
+ *
+ * Die geänderte Regel lautet: was im Feld steht, geht hinaus — vormals gab
+ * es dafür überhaupt kein Feld, „freigegeben wurde genau das, was geprüft
+ * wurde". Damit im Verlauf hinterher trotzdem exakt das steht, was
+ * tatsächlich gesendet wurde, muss die Bearbeitung hier landen, BEVOR
+ * `post.senden()` läuft — sonst zeigte `entwurfLesen()` bei einem späteren
+ * Blick in den Verlauf den ALTEN, ungeprüften Wortlaut, obwohl längst der
+ * neue hinausging.
+ *
+ * `an` ändert sich hier bewusst NICHT — dafür gibt es keinen Parameter, aus
+ * demselben Sicherheitsgrund wie beim ursprünglichen Entwurf (siehe
+ * Dateikopf: „an kommt niemals aus dem Modell" — und jetzt zusätzlich: nie
+ * aus einer Anfrage, auch wenn ein Mensch mit `mail.senden` dahintersteht).
+ *
+ * `WHERE zustand = 'offen'` ist derselbe Schutz wie in `entwurfAbschliessen()`
+ * weiter unten: lief zwischen dem `entwurfLesen()` der Route und diesem
+ * Aufruf schon eine zweite Entscheidung durch, ändert diese Funktion nichts
+ * (`changes` bleibt 0) — die Route bricht dann ab, BEVOR irgendetwas an den
+ * Versanddienst geht. Anders als eine Verwicklung NACH dem Versand (siehe
+ * der Kommentar dort) lässt sich das hier noch sauber verhindern.
+ */
+export function entwurfBearbeiten(entwurfId: string, eingabe: { text: string; betreff: string }): boolean {
+  return db.run(
+    `UPDATE mail_entwuerfe SET text = ?, betreff = ? WHERE id = ? AND zustand = 'offen'`,
+    verschluesseln(eingabe.text), verschluesseln(eingabe.betreff), entwurfId,
+  ).changes > 0;
+}
+
+/**
  * Was aus einem Entwurf geworden ist.
  *
  * Diese Funktion sendet NICHT — sie schreibt nur auf, was ein Mensch
- * entschieden hat. Das Senden selbst bleibt bei `post.senden()`, und der
- * Aufrufer nimmt dafür `an`, `betreff` und `text` aus `entwurfLesen()`.
+ * entschieden hat. Das Senden selbst bleibt bei `post.senden()`. Der
+ * Aufrufer nimmt `an` weiterhin ausschließlich aus `entwurfLesen()`;
+ * `betreff` und `text` stammen inzwischen aus der Freigabe-Anfrage selbst
+ * (siehe `entwurfBearbeiten()` direkt oben) — sie liegen zu diesem Zeitpunkt
+ * aber ohnehin schon, unverändert, in genau dieser Tabelle.
  *
  * Das Recht wird hier geprüft und nicht erst in der Route — aus demselben
  * Grund, aus dem post.ts den Eingang im Dienst prüft: eine zweite Stelle, die
