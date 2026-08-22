@@ -120,6 +120,11 @@ static struct {
   int64_t            zaehler;
 
   int   ziel_bilder, rate_kbit, n_auftraege, x_faeden;
+  /* Wie viele Streifen die Farbwandlung teilt. Getrennt von x_faeden,
+     weil beide um dieselben vier Kerne streiten: mehr Streifen nehmen
+     dem Kodierer und dem Compositor Zeit weg. 0 heisst: so viele wie
+     Kodierfaeden. */
+  int   n_streifen;
   bool  zeiger, nur_bei_aenderung, nur_lesen;
   int   aus_breite, aus_hoehe;      /* Ausschnitt beim Abgreifen */
   int   ziel_breite, ziel_hoehe;    /* Größe, in der gesendet wird */
@@ -419,8 +424,9 @@ static void *kodier_faden(void *arg) {
         /* In Streifen NUR, wenn nicht skaliert wird. Beim Skalieren hängen
            die Ausgabezeilen nicht mehr eins zu eins an den Eingabezeilen —
            ein Streifen wüsste dann nicht, wohin er schreiben darf. */
+        const int wunsch = L.n_streifen > 0 ? L.n_streifen : L.x_faeden;
         L.farb_streifen = (L.ziel_breite == (int)b->breite &&
-                           L.ziel_hoehe == (int)b->hoehe) ? L.x_faeden : 1;
+                           L.ziel_hoehe == (int)b->hoehe) ? wunsch : 1;
         if (L.farb_streifen > FARB_FAEDEN) L.farb_streifen = FARB_FAEDEN;
 
         /* Streifengrenzen auf GERADE Zeilen legen: 4:2:0 fasst je zwei
@@ -744,7 +750,28 @@ int main(int argc, char **argv) {
      nur ein und altern in der Schlange.
      Vier Fäden statt drei sind dagegen belegt: 34,3 gegen 27,9 B/s in der
      vollen Kette. */
-  L.n_auftraege = 1; L.x_faeden = 4;
+  L.n_auftraege = 1; L.x_faeden = 4; L.n_streifen = 0;
+  /*
+   * ZUR MESSMETHODE, damit hier niemand dieselbe Runde dreht.
+   *
+   * Ein Lauf von 7 Sekunden liefert zwei bis drei Meldungen, und zwischen
+   * ihnen ändert sich der Bildschirminhalt. Die Streuung liegt dann bei
+   * rund 5,5 Bildern je Sekunde — größer als fast jeder Unterschied, den
+   * man messen will. Auf solchen Zahlen sind in dieser Datei schon zwei
+   * Entscheidungen getroffen worden, die sich später als Rauschen
+   * herausstellten.
+   *
+   * Läufe von 30 Sekunden, gemittelt über alle 15 Meldungen, drücken die
+   * Streuung auf etwa 1,0. Erst damit lässt sich etwas unterscheiden.
+   *
+   * So gemessen ergab sich am 22.08.2026, native 1920x917:
+   *     Streifen 2 / Fäden 3   →  37,1   Streuung 1,0
+   *     Streifen 4 / Fäden 4   →  36,6   Streuung 0,7
+   * Also kein Unterschied. Wer hier weiter dreht, dreht an der falschen
+   * Schraube: der Abgriff braucht allein 16,6 ms, in der Kette aber 27 —
+   * die Differenz ist der Compositor, der sich dieselben vier Kerne teilt,
+   * und die holt keine Fadenzahl zurück.
+   */
   for (int i = 1; i < argc; i++) {
     if (!strcmp(argv[i], "--bilder") && i + 1 < argc)     L.ziel_bilder = atoi(argv[++i]);
     else if (!strcmp(argv[i], "--rate") && i + 1 < argc)  L.rate_kbit   = atoi(argv[++i]);
@@ -756,6 +783,7 @@ int main(int argc, char **argv) {
       sscanf(argv[++i], "%dx%d", &L.ziel_breite, &L.ziel_hoehe);
     else if (!strcmp(argv[i], "--auftraege") && i + 1 < argc) L.n_auftraege = atoi(argv[++i]);
     else if (!strcmp(argv[i], "--faeden") && i + 1 < argc)    L.x_faeden    = atoi(argv[++i]);
+    else if (!strcmp(argv[i], "--streifen") && i + 1 < argc)  L.n_streifen  = atoi(argv[++i]);
     else if (!strcmp(argv[i], "--ausschnitt") && i + 1 < argc)
       sscanf(argv[++i], "%dx%d", &L.aus_breite, &L.aus_hoehe);
   }
