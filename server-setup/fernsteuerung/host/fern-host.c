@@ -706,7 +706,22 @@ static void ablage_geaendert(const char *text, size_t laenge, void *nutzer) {
 /* ── Hauptschleife ───────────────────────────────────────────── */
 
 int main(int argc, char **argv) {
-  L.ziel_bilder = 30; L.rate_kbit = 6000; L.zeiger = true; L.nur_bei_aenderung = true;
+  /* `nur_bei_aenderung` ist AUS, und das kehrt die frühere Entscheidung um.
+     Der Gedanke dahinter war richtig: nur zu kopieren, wenn sich etwas
+     geändert hat, spart im Stillstand alles. Gemessen kostet er aber mehr,
+     als er spart. Am 21.08.2026 ohne Zuschauer, native 1920x917, je zwei
+     Durchgänge direkt hintereinander:
+         bei Änderung   34,0 · 27,5 B/s     abgriff 29,4 · 36,3 ms
+         jedes Bild     41,4 · 40,2 B/s     abgriff 24,1 · 24,9 ms
+     `copy_with_damage` wartet auf das nächste Änderungsereignis, und das
+     kommt im Takt des Ausgangs — die Wartezeit rastet damit auf Bildgrenzen
+     ein. Direktes Kopieren hat diese Rasterung nicht.
+     Der Preis ist Bandbreite: 5,0 statt 2,6 Mbit/s. Den fängt die Regelung
+     im Dienst ab, die die Rate an die Leitung anpasst — und ein
+     unveränderter Schirm kodiert ohnehin fast zu nichts.
+     Der Abgriff läuft nur, solange jemand zusieht; Rechenzeit im Leerlauf
+     kostet er also niemandem. `--nur-bei-aenderung` schaltet zurück. */
+  L.ziel_bilder = 30; L.rate_kbit = 6000; L.zeiger = true; L.nur_bei_aenderung = false;
   /* Erste Messreihe (1280x720, Bilder/s), als Kodieren noch 20 ms kostete:
        Aufträge 1 · Fäden 1 → 12,6      Aufträge 2 · Fäden 1 → 13,4
        Aufträge 1 · Fäden 2 → 14,8      Aufträge 2 · Fäden 2 → 18,5
@@ -735,6 +750,7 @@ int main(int argc, char **argv) {
     else if (!strcmp(argv[i], "--rate") && i + 1 < argc)  L.rate_kbit   = atoi(argv[++i]);
     else if (!strcmp(argv[i], "--ohne-zeiger"))           L.zeiger = false;
     else if (!strcmp(argv[i], "--immer"))                 L.nur_bei_aenderung = false;
+    else if (!strcmp(argv[i], "--nur-bei-aenderung"))    L.nur_bei_aenderung = true;
     else if (!strcmp(argv[i], "--nur-lesen"))             L.nur_lesen = true;
     else if (!strcmp(argv[i], "--ausgabe") && i + 1 < argc)
       sscanf(argv[++i], "%dx%d", &L.ziel_breite, &L.ziel_hoehe);
