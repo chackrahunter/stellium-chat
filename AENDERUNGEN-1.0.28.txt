@@ -1,0 +1,7 @@
+Das Menü einer Nachricht wurde unten am Rand abgeschnitten — es klappt jetzt nach oben, wenn darunter kein Platz mehr ist
+Die Einführung zeigte bei der ersten Anmeldung vier Schritte nicht, darunter den zur Übersetzung; sie wartet jetzt, bis die Oberfläche wirklich steht
+Übersetzungen: unübersetzbare Texte gingen bei jeder Anfrage erneut ans Modell — jetzt mit Merker, der nach einer Viertelstunde verfällt
+Die Aufräumroutine warf gültige Kurzphrasen wie „ok" aus dem Übersetzungsspeicher
+Das Stern-Menü öffnete in Sprachen mit Schreibrichtung von rechts nach links außerhalb des Bildes und ließ sich nicht mit der Tastatur bedienen
+Fernsteuerung: die Ratenregelung maß die gestaute statt der reinen Laufzeit und regelte dadurch in die falsche Richtung
+Die Oberfläche des Pi-Schreibtischs wird bei Aktualisierungen jetzt mit aufgefrischt — dort erscheint nun auch die Verkaufskachel
