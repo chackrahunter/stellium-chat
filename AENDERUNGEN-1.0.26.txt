@@ -1,0 +1,8 @@
+Verkaufszahlen: neue Kachel in der App und auf dem Pi-Schreibtisch, sichtbar für Leitung und Administratoren
+Systemwerte: acht Tachos statt fünf — dazu Auslagerung, Team online und Besucher der Webseite
+Die Besucherzahlen der Webseite standen in der App auf 0, weil der Chat-Server das Protokoll nicht lesen darf; er bekommt jetzt die Summen und sagt es, wenn nicht
+In der Rechteverwaltung fehlte die Gruppe „System" — Systemwerte ansehen ließ sich einzeln weder vergeben noch entziehen
+Die Systemwerte gaben die Verkaufszahlen an jeden weiter, der Systemwerte sehen darf
+Fernsteuerung: das eigene Fenster füllt jetzt den ganzen Platz statt zwei Dritteln der Höhe
+Fernsteuerung: die Freigabe im Router erneuert sich selbst — sie lief nach einer Stunde ab und die Verbindung fiel still weg
+Fernsteuerung: der Rückstau wird als Verzögerung gemessen statt als Bytes; über eine lange Leitung bringt das 45 Prozent mehr Bitrate
