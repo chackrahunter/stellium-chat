@@ -1,0 +1,31 @@
+Neu
+- Notizen: persoenliche Notizen, teilbar mit einzelnen Personen. Ende-zu-Ende
+  verschluesselt - auch der Server kann sie nicht lesen.
+- Firmenpostfach: support@, info@, sales@ und weitere. Die KI ordnet eingehende
+  Post ein und entwirft Antworten; gesendet wird nur nach Freigabe durch einen Menschen.
+- Lesebestaetigungen: wer eine Nachricht wann gelesen hat. In den Einstellungen
+  abschaltbar - dann sehen andere nichts mehr, der eigene Ungelesen-Zaehler bleibt.
+- Profilbild: eigenes Bild setzen. Standortdaten aus Fotos werden entfernt.
+- Masseinheiten werden mituebersetzt: "25 Grad" liest sich in den USA als "77 F".
+- Emoji-Suche funktioniert wirklich, dazu drei passende Vorschlaege je Nachricht.
+- Benachrichtigungen erreichen Telefone jetzt auch bei gesperrtem Bildschirm.
+- Eigenes Benachrichtigungsfenster auf macOS.
+- Datenschutzerklaerung und Nutzungsordnung unter /privacy und /terms.
+
+Behoben
+- Updates installieren sich wieder von selbst. Der Austausch scheiterte bisher
+  auf macOS lautlos und oeffnete stattdessen einen Ordner.
+- Benachrichtigungen fuer Aufgaben und KI-Vorschlaege kamen nie an.
+- Nach einem Kontowechsel im selben Fenster konnten fremde private Dateien
+  in der Ablage erscheinen.
+- Uploads brechen nicht mehr ab, wenn man die Ablage verlaesst. Nachrichten mit
+  Bild lassen sich sofort senden, das Bild wird nachgereicht.
+- "Anonyme" Umfragen sind jetzt auch in der Datenbank anonym.
+- Geloeschte Nachrichten verschwinden vollstaendig, auch aus dem Uebersetzungsspeicher.
+- Die erste Anmeldung folgt der Sprache des Rechners statt immer Deutsch zu sein.
+- Rund 150 Stellen, die in jeder Sprache deutsch blieben - darunter die komplette
+  Rechteliste. Ein- und Mehrzahl stimmen jetzt auch in Sprachen mit mehr als zwei Formen.
+- Die Ortszeit einer Person zeigt ihre Zeit, nicht die eigene.
+- Uebersetzung laenger Nachrichten: das Modell raeumte sie auf, statt sie zu uebersetzen.
+- Sprache kurzer Nachrichten wird nicht mehr geraten ("ok" galt als Spanisch).
+- Emoji-Auswahl, Zertifikatsanzeige im Dashboard, Sternmenue und Mail-Vorschau.
