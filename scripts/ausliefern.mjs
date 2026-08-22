@@ -340,16 +340,6 @@ if (probe) {
       },
     });
     ok(`auf ${server} veröffentlicht — die Clients sehen es sofort`);
-    /* Der Bauordner ist jetzt oben und wird hier nicht mehr gebraucht. Vier
-       Plattformen, entpackt und geschnürt, sind rund 15 GB — die blieben
-       sonst bis zur nächsten Auslieferung liegen, und irgendwann ist die
-       Platte voll. Genau so ist am 22.08.2026 der Windows-Bau mit ENOSPC
-       abgebrochen, ohne eine Zeile im Protokoll. */
-    try {
-      const bauOrdner = path.join(wurzel, 'packages/desktop/release');
-      fs.rmSync(bauOrdner, { recursive: true, force: true });
-      sag(`  ${F.grau}Bauordner geleert${F.aus}`);
-    } catch { /* liegen zu bleiben ist kein Grund, die Auslieferung zu melden */ }
   } catch (err) {
     raus(`Veröffentlichen fehlgeschlagen: ${err.message}`);
   }
@@ -413,9 +403,18 @@ if (!ohneGit && !probe) {
 if (!ohneGithub && !probe) {
   schritt('Release auf GitHub');
   const ordner = path.join(wurzel, 'packages/desktop/release');
-  const finde = (muster) => fs.readdirSync(ordner)
-    .filter((n) => muster.test(n) && n.includes(naechste))
-    .map((n) => path.join(ordner, n));
+  /* Fehlt der Ordner, ist das eine leere Liste und kein Absturz. Er fehlte
+     schon einmal, weil das Aufräumen eine Zeile zu früh stand — und dann
+     brach der ganze Lauf NACH dem erfolgreichen Hochladen ab. Die Fassung
+     war draußen, die Marke fehlte, und wer das Protokoll las, hielt die
+     Auslieferung für gescheitert. */
+  const finde = (muster) => {
+    let namen = [];
+    try { namen = fs.readdirSync(ordner); } catch { return []; }
+    return namen
+      .filter((n) => muster.test(n) && n.includes(naechste))
+      .map((n) => path.join(ordner, n));
+  };
 
   const dateien = [
     ...finde(/universal\.dmg$/), ...finde(/-arm64\.dmg$/),
@@ -436,6 +435,23 @@ if (!ohneGithub && !probe) {
   } catch (err) {
     warn(`GitHub übersprungen: ${(err.stdout || err.stderr || err.message).slice(0, 200)}`);
   }
+}
+
+/* ── Aufräumen ───────────────────────────────────────────────────
+   ERST HIER, nach dem Hochladen UND nach dem Release auf GitHub — das
+   braucht dieselben Dateien. Stand es davor, brach der Lauf mit ENOENT ab,
+   nachdem die Fassung längst draußen war.
+
+   Warum überhaupt: `release/` wurde nie geleert und wuchs mit jeder
+   Auslieferung — vier Plattformen, jeweils entpackt UND geschnürt, rund
+   15 GB. Am 22.08.2026 war die Platte davon voll, und der Windows-Bau brach
+   mit ENOSPC ab, ohne eine Zeile im Protokoll: electron-builder konnte
+   seinen eigenen Fehler nicht mehr schreiben. */
+if (!probe) {
+  try {
+    fs.rmSync(path.join(wurzel, 'packages/desktop/release'), { recursive: true, force: true });
+    sag(`  ${F.grau}Bauordner geleert${F.aus}`);
+  } catch { /* liegen zu bleiben ist kein Grund zu klagen */ }
 }
 
 /* ── Hier installieren ──────────────────────────────────────── */

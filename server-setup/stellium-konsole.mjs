@@ -341,11 +341,28 @@ function adressen() {
     if (tunnel) liste.push({ art: 'tunnel', url: tunnel });
   } catch { /* kein Tunnel eingerichtet */ }
 
-  for (const [, karten] of Object.entries(os.networkInterfaces())) {
-    for (const a of karten ?? []) {
-      if (a.family === 'IPv4' && !a.internal) liste.push({ art: 'lokal', url: `http://${a.address}` });
+  /*
+   * `os.networkInterfaces()` darf scheitern, und es tut es.
+   *
+   * Unter dem Dienstbenutzer scheitert es mit ERR_SYSTEM_ERROR 97
+   * (EAFNOSUPPORT): die systemd-Einheit schränkt die Adressfamilien ein, und
+   * uv_interface_addresses braucht eine, die dort fehlt. Von Hand als
+   * angemeldeter Benutzer läuft dieselbe Zeile durch — deshalb fiel es
+   * monatelang nicht auf und erst dann, als die Chat-App diese Werte über
+   * den Server holte.
+   *
+   * Eine Überwachungsanzeige darf an einer einzelnen Messung nicht sterben.
+   * Ohne den Fang riss dieser Aufruf die GESAMTE Ausgabe mit: keine
+   * Auslastung, keine Temperatur, keine Dienste — wegen einer Liste von
+   * Netzadressen, die nur zur Bequemlichkeit dabeisteht.
+   */
+  try {
+    for (const [, karten] of Object.entries(os.networkInterfaces())) {
+      for (const a of karten ?? []) {
+        if (a.family === 'IPv4' && !a.internal) liste.push({ art: 'lokal', url: `http://${a.address}` });
+      }
     }
-  }
+  } catch { /* dann eben ohne die lokalen Adressen */ }
   return liste;
 }
 
