@@ -1,0 +1,5 @@
+Übersetzungen fielen aus, weil ein Fehlversuch des Modells als gültige Übersetzung gemerkt wurde — betroffene Texte blieben dauerhaft unübersetzt
+Bereits gemerkte Fehlversuche werden beim Start entfernt
+Der Stern oben links öffnet jetzt ein Menü: die Leiste behält die acht Reiter des Arbeitstags, dahinter liegen Nachlese, Gemerktes, Fernsteuerung, Systemwerte, Team und Herunterladen
+Die Lücke in der Aufgabenspalte ist weg — dort wurde der Platz einer Karte freigehalten, die es nicht mehr gab
+Der Kasten „Das ist neu" rollt jetzt; bei vielen Punkten stand der Knopf unterhalb des Bildrands
