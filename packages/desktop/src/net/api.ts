@@ -418,7 +418,7 @@ export const api = {
      nirgends angezeigt und nirgends protokolliert. */
   /* Die Werte des Servers. `da: false` heißt nicht Fehler, sondern: auf
      diesem Rechner gibt es die Serverkonsole nicht. */
-  system: () => request<{ da: boolean; werte?: unknown }>('/api/system'),
+  system: () => request<{ da: boolean; werte?: unknown }>('/api/systemwerte'),
 
   /* Online-Zeit. `ich` steht für das eigene Konto — so braucht der Aufrufer
      die eigene Kennung nicht mitzuführen. */

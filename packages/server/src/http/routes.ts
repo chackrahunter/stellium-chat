@@ -1149,7 +1149,11 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
      Dieselben Zahlen, die die Konsole auf dem Pi zeigt. Nur Zahlen: keine
      Nachrichten, keine Namen von Besuchern, keine Adressen — die
      Besucherstatistik ist von Anfang an eine reine Zusammenfassung. */
-  app.get('/api/system', async (req, reply) => {
+  /* `/api/systemwerte` und nicht `/api/system`: den Namen gibt es schon —
+     http/konsole.ts bedient damit die Konsolenseite, die nur von der
+     Maschine selbst erreichbar ist. Fastify weist einen zweiten Eintrag
+     ab, und der Server käme gar nicht mehr hoch. */
+  app.get('/api/systemwerte', async (req, reply) => {
     const wer = requireUser(req);
     if (!users.may(wer, 'system.ansehen')) {
       return fehler(reply, 403, 'fehler.keinRecht',

@@ -1,0 +1,7 @@
+Neuer Tab „Systemwerte": Auslastung, Speicher, Temperatur, Dienste und Besucherzahlen des Servers — mit Tachos, wie auf dem Bildschirm des Pi. Auf allen Systemen.
+Neue Rolle „Technik" für alle, die den Server im Blick behalten sollen, ohne Konten oder Kanäle zu verwalten.
+Bei jedem Konto ist jetzt zu sehen, wie lange jemand online war — heute, Woche, Monat, Jahr, mit Verlaufslinie.
+Der Status folgt dem Fenster: vorn heißt online, weggeklickt heißt sofort abwesend. Abschaltbar in den Einstellungen.
+Benachrichtigungen kommen jetzt auch im Browser und auf dem Telefon an. Beim ersten Mal fragt Stellium einmal nach der Erlaubnis.
+Der Betrachter im eigenen Fenster blieb schwarz — behoben. Die Fernsteuerung läuft außerdem flüssiger.
+Die Einrichtungsseite auf dem Handy gibt es jetzt in allen 22 Sprachen statt nur auf Deutsch.
