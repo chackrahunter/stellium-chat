@@ -1,0 +1,4 @@
+Die Fernsteuerung des Pi lässt sich in ein eigenes Fenster legen — neben dem Verbinden-Knopf. Die Chat-App bleibt daneben bedienbar.
+Das Bild des Pi kommt jetzt in voller Auflösung statt heruntergerechnet, und es ist nicht mehr gestaucht.
+Die Fernsteuerung läuft flüssiger: der Rückstand von gut einer Sekunde ist weg, und es kommen rund ein Drittel mehr Bilder an.
+Den Pi fernsteuern darf jetzt auch die Teamleitung, nicht nur die Administration. Adresse und Passwort bleiben für alle unsichtbar.

@@ -146,6 +146,10 @@
   padding-left: 12px;
 }
 .fern-fenster__titel { font-size: 13px; font-weight: 600; color: var(--tx-hi); }
+/* Eigener Dehner statt `.spacer`: das ist mit `flex: 1` nur innerhalb der
+   Eingabeleiste definiert und bliebe hier wirkungslos — die Werkzeuge
+   klebten dann am Titel. */
+.fern-fenster__leiste .spacer { flex: 1 1 auto; }
 .fern-fenster__takt {
   font-family: var(--font-mono, ui-monospace, monospace);
   font-size: 11.5px;
