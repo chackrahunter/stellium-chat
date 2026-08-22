@@ -75,6 +75,8 @@ export function OnlineZeit({ userId }: { userId: string }) {
   const [zeitraum, setZeitraum] = useState<Zeitraum>('woche');
   const [daten, setDaten] = useState<Awaited<ReturnType<typeof api.praesenz>> | null>(null);
   const [fehler, setFehler] = useState<string | null>(null);
+  /* Kein Recht auf diese Zahlen — dann gar nichts zeigen. */
+  const [verdeckt, setVerdeckt] = useState(false);
   const [laedt, setLaedt] = useState(true);
 
   useEffect(() => {
@@ -82,11 +84,27 @@ export function OnlineZeit({ userId }: { userId: string }) {
     setLaedt(true);
     api.praesenz(userId, zeitraum)
       .then((d) => { if (!weg) { setDaten(d); setFehler(null); } })
-      .catch((f: Error) => { if (!weg) setFehler(f.message); })
+      .catch((f: Error) => {
+        if (weg) return;
+        /*
+         * Ein fehlendes Recht ist kein Fehler.
+         *
+         * Diese Anzeige steht in JEDER Kontokarte. Die eigene Zeit darf jeder
+         * sehen, die von anderen nur, wer Konten verwaltet — bei allen anderen
+         * antwortet der Server mit 403. Das als roten Kasten zu zeigen hiesse:
+         * in jeder fremden Kontokarte steht eine Fehlermeldung, obwohl alles
+         * richtig läuft. Dann verschwindet der Block einfach.
+         */
+        /* Am Statuscode und nicht am Text: die Meldung ist übersetzt, „403"
+           steht dort in keiner der 22 Sprachen. */
+        if ((f as { status?: number }).status === 403) { setVerdeckt(true); return; }
+        setFehler(f.message);
+      })
       .finally(() => { if (!weg) setLaedt(false); });
     return () => { weg = true; };
   }, [userId, zeitraum]);
 
+  if (verdeckt) return null;
   if (fehler) return <div className="onlinezeit__leer">{fehler}</div>;
 
   const zeitraeume: Zeitraum[] = ['heute', 'woche', 'monat', 'jahr'];
