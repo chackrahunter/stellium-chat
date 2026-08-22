@@ -1,6 +1,7 @@
 import { app, BrowserWindow, Menu, Notification, shell, ipcMain, nativeTheme, Tray, nativeImage } from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
+import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import {
   updaterInit, updaterAnmelden, updaterAbmelden, pruefen, installieren, letztesUpdate,
@@ -262,6 +263,47 @@ ipcMain.handle('app:info', () => ({
   version: app.getVersion(),
   isDev,
 }));
+
+/**
+ * Kommen Systembenachrichtigungen hier überhaupt durch?
+ *
+ * `Notification.isSupported()` sagt nur, ob Electron sie kennt — nicht, ob
+ * das System sie annimmt. Auf macOS ist das ein Unterschied mit Folgen: die
+ * Mitteilungszentrale nimmt nur Programme mit echter Entwicklersignatur an.
+ * Ein ad-hoc signiertes Programm darf `show()` aufrufen, es passiert
+ * schlicht nichts — ohne Fehler, ohne Nachfrage, ohne Spur im Protokoll.
+ * Auf diesem Rechner nachgesehen: Signature=adhoc, TeamIdentifier not set,
+ * und in den Einstellungen der Mitteilungszentrale taucht Stellium nicht auf.
+ *
+ * Deshalb wird es EINMAL beim Start festgestellt und nach außen gemeldet,
+ * damit die Oberfläche nicht behauptet, Benachrichtigungen seien erlaubt,
+ * während in Wahrheit keine ankommt.
+ */
+let systemMeldungenGehen: boolean | null = null;
+
+function meldungenMoeglich(): boolean {
+  if (systemMeldungenGehen !== null) return systemMeldungenGehen;
+  systemMeldungenGehen = Notification.isSupported();
+  if (systemMeldungenGehen && process.platform === 'darwin') {
+    try {
+      /* Das eigene Programmbündel prüfen. `codesign` gehört zum System und
+         ist überall da, wo Stellium läuft. */
+      const bündel = app.getAppPath().replace(/\/Contents\/Resources\/app(\.asar)?$/, '');
+      const aus = execFileSync('codesign', ['-dv', '--verbose=2', bündel],
+        { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }) + '';
+      systemMeldungenGehen = /TeamIdentifier=(?!not set)/.test(aus);
+    } catch (fehler) {
+      /* codesign schreibt seine Ausgabe auf stderr — bei Erfolg wie bei
+         Fehlschlag. Also auch dort nachsehen, statt blind auf false zu
+         gehen. */
+      const text = String((fehler as { stderr?: string }).stderr ?? '');
+      systemMeldungenGehen = /TeamIdentifier=(?!not set)/.test(text);
+    }
+  }
+  return systemMeldungenGehen;
+}
+
+ipcMain.handle('notify:moeglich', () => meldungenMoeglich());
 
 ipcMain.handle('notify', (_e, payload: { title: string; body: string; silent?: boolean; channelId?: string }) => {
   if (!Notification.isSupported()) return false;

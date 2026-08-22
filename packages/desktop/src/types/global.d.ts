@@ -10,6 +10,10 @@ export interface StelliumBridge {
   /** Sprache des Betriebssystems, z. B. "en-US". Im Browser undefined. */
   locale?: string;
   info(): Promise<{ locale: string; platform: string; arch: string; version: string; isDev: boolean }>;
+  /** Ob das System Benachrichtigungen ueberhaupt annimmt. Auf macOS haengt
+   *  das an der Signatur und nicht am Koennen von Electron. Optional, weil
+   *  aeltere App-Fassungen den Aufruf noch nicht kennen. */
+  notifyMoeglich?: () => Promise<boolean>;
   notify(payload: { title: string; body: string; silent?: boolean; channelId?: string }): Promise<boolean>;
   setBadge(count: number): Promise<boolean>;
   flashWindow(): Promise<boolean>;

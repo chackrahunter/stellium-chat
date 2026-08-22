@@ -32,6 +32,7 @@ import { useVorschlaege } from './state/vorschlaege.js';
 import { DownloadPanel } from './components/DownloadPanel.jsx';
 import { Fernsteuerung } from './components/Fernsteuerung.jsx';
 import { UpdateBanner, UpdateWillkommen, ServerWartung } from './components/UpdateBanner.jsx';
+import { MeldungBitte } from './components/MeldungBitte.jsx';
 import { Toasts } from './components/Toasts.jsx';
 import { Fangkorb } from './components/Fangkorb.jsx';
 import { FreigabenDialog, VorfallDialog, WiederherstellungHinweis } from './components/Vertraulich.jsx';
@@ -167,6 +168,7 @@ export function App() {
       <div className="rahmen">
         <ServerWartung />
         <UpdateBanner />
+        <MeldungBitte />
         <div className={clsx('app', threadParentId && 'app--thread', schubladeOffen && 'app--schublade')}>
         <Rail />
         <Sidebar />

@@ -25,6 +25,9 @@ const api = {
   setTheme: (theme: 'system' | 'dark' | 'light') => ipcRenderer.invoke('theme:set', theme) as Promise<boolean>,
   /* Fernsteuerung. Absichtlich schmal: die Ansicht kann verbinden, trennen,
      Eingaben schicken und zuhören — an den Sitzungsschlüssel kommt sie nicht. */
+  /* Ob das System überhaupt Benachrichtigungen annimmt — auf macOS hängt
+     das an der Signatur, nicht am Können von Electron. */
+  notifyMoeglich: () => ipcRenderer.invoke('notify:moeglich'),
   fern: {
     verbinden: (adresse: string, passwort: string) =>
       ipcRenderer.invoke('fern:verbinden', adresse, passwort),

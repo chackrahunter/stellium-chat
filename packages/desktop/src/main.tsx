@@ -9,6 +9,7 @@ import { updatesVerbinden } from './lib/updates.js';
 import { auffrischenVerbinden } from './lib/auffrischen.js';
 import { sichereBereicheVerbinden } from './lib/sichere-bereiche.js';
 import { tastaturVerbinden } from './lib/tastatur.js';
+import { meldewegPruefen, meldewegVorbereiten } from './lib/benachrichtigung.js';
 import './styles/app.css';
 /* Nach app.css, nicht davor: die mobile Ansicht baut auf app.css auf
    und muss deshalb später kommen. Als @import am Dateiende wäre sie
@@ -34,6 +35,12 @@ sichereBereicheVerbinden();
 /* iOS legt die Tastatur ÜBER die Seite statt sie zu verkleinern —
    diese Zeile macht die sichtbare Höhe als --vv-hoehe verfügbar. */
 tastaturVerbinden();
+/* Einmal nachsehen, ob das System Benachrichtigungen überhaupt annimmt —
+   sonst behaupten die Einstellungen etwas, das nicht stimmt. */
+meldewegPruefen();
+/* Der Service Worker ist auf dem Telefon der einzige Weg, auf dem eine
+   Benachrichtigung überhaupt ankommt — vor dem ersten Bedarf registrieren. */
+meldewegVorbereiten();
 
 /* Der äußerste Fangkorb. Ohne ihn hängt React bei einem Fehler beim Zeichnen
    den ganzen Baum aus: #root ist leer, das Fenster bleibt schwarz und nichts

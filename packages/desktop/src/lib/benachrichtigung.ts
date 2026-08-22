@@ -16,9 +16,64 @@ export type Erlaubnis = 'geht-nicht' | 'gefragt-werden' | 'erlaubt' | 'abgelehnt
 
 const inDerApp = (): boolean => typeof window !== 'undefined' && Boolean(window.stellium);
 
-/** Was der Browser gerade erlaubt. In der App immer "erlaubt". */
+/*
+ * Der Service Worker, sobald er bereit ist.
+ *
+ * Er ist nicht nur der schönere Weg, sondern auf dem Telefon der EINZIGE:
+ * eine Web-App auf dem iPhone-Startbildschirm kennt `new Notification(...)`
+ * nicht, iOS verlangt `ServiceWorkerRegistration.showNotification`. Chrome
+ * verlangt dasselbe für installierte Web-Apps. Deshalb wird er registriert,
+ * bevor irgendwer eine Benachrichtigung erwartet.
+ */
+let arbeiter: ServiceWorkerRegistration | null = null;
+
+export function meldewegVorbereiten(): void {
+  if (inDerApp()) return;                       /* dort macht es Electron */
+  if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return;
+  void navigator.serviceWorker.register('/sw.js')
+    .then((r) => { arbeiter = r; return navigator.serviceWorker.ready; })
+    .then((r) => { arbeiter = r; })
+    .catch(() => { /* ohne ihn bleibt der alte Weg, das ist kein Grund zu klagen */ });
+
+  /* Der Tipp auf eine Benachrichtigung kommt als Nachricht zurück. */
+  navigator.serviceWorker.addEventListener('message', (e) => {
+    const d = e.data as { art?: string; kanalId?: string } | undefined;
+    if (d?.art === 'kanal-oeffnen' && d.kanalId) {
+      window.dispatchEvent(new CustomEvent('stellium:kanal-oeffnen', { detail: d.kanalId }));
+    }
+  });
+}
+
+/*
+ * Ob die App überhaupt am System durchkommt. Wird einmal beim Start
+ * abgefragt und behalten — `erlaubnisStand()` ist synchron, ein Aufruf über
+ * die Prozessgrenze wäre es nicht.
+ *
+ * Bis die Antwort da ist, gilt `null` als "geht" — sonst blitzte in den
+ * Einstellungen für einen Moment eine Warnung auf, die dann wieder
+ * verschwindet.
+ */
+let appKannMelden: boolean | null = null;
+
+export function meldewegPruefen(): void {
+  if (!inDerApp()) return;
+  void window.stellium?.notifyMoeglich?.()
+    .then((geht: boolean) => { appKannMelden = geht; })
+    .catch(() => { /* ältere App-Fassung kennt den Aufruf nicht */ });
+}
+
+/**
+ * Was gerade möglich ist.
+ *
+ * Früher stand hier für die App bedingungslos "erlaubt". Das war falsch und
+ * hat den eigentlichen Fehler verdeckt: auf macOS nimmt die
+ * Mitteilungszentrale nur Programme mit echter Entwicklersignatur an. Ein
+ * ad-hoc signiertes Programm darf senden, es kommt nur nichts an — ohne
+ * Fehler und ohne Nachfrage. Die Einstellungen meldeten dann "erlaubt",
+ * während in Wahrheit nie etwas erschien.
+ */
 export function erlaubnisStand(): Erlaubnis {
-  if (inDerApp()) return 'erlaubt';
+  if (inDerApp()) return appKannMelden === false ? 'geht-nicht' : 'erlaubt';
   if (typeof Notification === 'undefined') return 'geht-nicht';
   if (Notification.permission === 'granted') return 'erlaubt';
   if (Notification.permission === 'denied') return 'abgelehnt';
@@ -58,6 +113,22 @@ export function zeigen(input: {
 
   if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return false;
 
+  /* Zuerst über den Service Worker. Auf dem Telefon ist das der einzige Weg,
+     der überhaupt etwas anzeigt; auf dem Schreibtisch ist er gleichwertig. */
+  if (arbeiter) {
+    try {
+      void arbeiter.showNotification(input.titel, {
+        body: input.text,
+        tag: input.gruppe ?? input.kanalId ?? 'stellium',
+        silent: input.still,
+        icon: '/stellium-192.png',
+        badge: '/stellium-192.png',
+        data: { kanalId: input.kanalId },
+      });
+      return true;
+    } catch { /* dann eben der alte Weg darunter */ }
+  }
+
   try {
     const n = new Notification(input.titel, {
       body: input.text,
@@ -65,8 +136,10 @@ export function zeigen(input: {
       // lebhaften Kanal zwanzig Kästchen übereinander.
       tag: input.gruppe ?? input.kanalId ?? 'stellium',
       silent: input.still,
-      icon: '/icon.png',
-      badge: '/icon.png',
+      /* stellium-192.png, nicht icon.png — die gab es nie, und ein Browser
+         zeigt dann ein namenloses graues Kästchen. */
+      icon: '/stellium-192.png',
+      badge: '/stellium-192.png',
     });
     n.onclick = () => {
       window.focus();

@@ -3291,3 +3291,20 @@ button.msg__author:hover { color: var(--violet-soft); text-decoration: underline
   margin: 16px 0 0;
   text-align: center;
 }
+
+/* ── Bitte um die Erlaubnis für Benachrichtigungen ─────────────
+   Derselbe schmale Streifen wie beim Update und aus demselben Grund: die
+   Bitte ist wichtig, aber nie so wichtig wie das Gespräch, in dem gerade
+   jemand steckt. Ein Fenster in der Mitte wäre es. */
+.meldung-bitte {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 14px;
+  border-bottom: 1px solid var(--line);
+  background: var(--bg-panel-2);
+  color: var(--tx-mid);
+  font-size: 13px;
+  overflow: hidden;
+}
+.meldung-bitte__text { flex: 1 1 auto; min-width: 0; }
