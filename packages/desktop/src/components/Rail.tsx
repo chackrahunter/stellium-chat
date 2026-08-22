@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Bell, Bookmark, Bot, CalendarDays, Download, FolderOpen, Gauge, Inbox, Lightbulb, ListChecks, MessageSquare, Monitor, Settings, ShieldCheck, Sparkles, Star } from 'lucide-react';
 import { useStore } from '../state/store.js';
 import { useT } from '../i18n/index.js';
@@ -5,6 +6,110 @@ import { imBrowser } from './DownloadPanel.jsx';
 import { StatusMenu } from './StatusMenu.jsx';
 import { useKiKanaele } from '../lib/ai-channels.js';
 import { useVorschlaege } from '../state/vorschlaege.js';
+
+/**
+ * Was hinter dem Stern liegt.
+ *
+ * Die Leiste war auf vierzehn Symbole gewachsen — untereinander eine Spalte,
+ * in der man suchen muss, und auf einem niedrigen Fenster passte sie nicht
+ * mehr ganz hinein. Geblieben sind die Reiter des Arbeitstags; hierher
+ * gewandert ist, was man selten und dann gezielt braucht.
+ *
+ * Warum `position: fixed` und nicht absolut in der Leiste: die Leiste ist
+ * sechzig Punkte breit, das Menü ist breiter, und irgendein Vorfahr schneidet
+ * am Ende immer ab. Fest positioniert hängt es an nichts und wird nirgends
+ * beschnitten — dafür muss die Stelle von Hand gemessen werden.
+ */
+function SternMenue({ eintraege }: {
+  eintraege: Array<{ id: string; symbol: ReactNode; text: string; tun: () => void }>;
+}) {
+  const t = useT();
+  const [offen, setOffen] = useState(false);
+  const [ort, setOrt] = useState<{ top: number; left: number } | null>(null);
+  const knopf = useRef<HTMLButtonElement>(null);
+  const kasten = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!offen) { setOrt(null); return; }
+    const messen = () => {
+      const r = knopf.current?.getBoundingClientRect();
+      if (!r) return;
+      setOrt({ top: Math.max(8, r.top), left: r.right + 10 });
+    };
+    messen();
+    window.addEventListener('resize', messen);
+    /* `true`: die Leiste selbst kann rollen, und dann wandert der Stern unter
+       dem stehenden Menü weg. */
+    window.addEventListener('scroll', messen, true);
+    return () => {
+      window.removeEventListener('resize', messen);
+      window.removeEventListener('scroll', messen, true);
+    };
+  }, [offen]);
+
+  /* Schließen wie überall sonst: Klick daneben, Escape. */
+  useEffect(() => {
+    if (!offen) return;
+    const beiTaste = (e: KeyboardEvent) => { if (e.key === 'Escape') setOffen(false); };
+    const beiKlick = (e: PointerEvent) => {
+      const z = e.target as Node;
+      if (kasten.current?.contains(z) || knopf.current?.contains(z)) return;
+      setOffen(false);
+    };
+    document.addEventListener('keydown', beiTaste);
+    document.addEventListener('pointerdown', beiKlick);
+    return () => {
+      document.removeEventListener('keydown', beiTaste);
+      document.removeEventListener('pointerdown', beiKlick);
+    };
+  }, [offen]);
+
+  if (!eintraege.length) {
+    /* Ohne Einträge bleibt der Stern, was er war: ein Zeichen, kein Knopf. */
+    return (
+      <div className="rail__logo no-drag" title="Stellium">
+        <Star size={21} color="#fff" fill="#fff" />
+      </div>
+    );
+  }
+
+  return (
+    <>
+      <button
+        ref={knopf}
+        className="rail__logo rail__logo--knopf no-drag"
+        aria-haspopup="menu"
+        aria-expanded={offen}
+        title={t('nav.mehr')}
+        onClick={() => setOffen((v) => !v)}
+      >
+        <Star size={21} color="#fff" fill="#fff" />
+      </button>
+
+      {offen && ort && (
+        <div
+          ref={kasten}
+          className="sternmenue"
+          role="menu"
+          style={{ top: ort.top, left: ort.left }}
+        >
+          <div className="sternmenue__titel">{t('nav.mehr')}</div>
+          {eintraege.map((e) => (
+            <button
+              key={e.id}
+              className="sternmenue__zeile"
+              role="menuitem"
+              onClick={() => { setOffen(false); e.tun(); }}
+            >
+              <span className="sternmenue__symbol">{e.symbol}</span>
+              {e.text}
+            </button>
+          ))}
+        </div>
+      )}
+    </>
+  );
+}
 
 export function Rail() {
   const t = useT();
@@ -35,9 +140,28 @@ export function Rail() {
 
   return (
     <nav className="rail drag-region">
-      <div className="rail__logo no-drag" title="Stellium">
-        <Star size={21} color="#fff" fill="#fff" />
-      </div>
+      {/* Werkzeuge statt Reiter: hier steht, was man selten und dann gezielt
+          braucht. Die Leiste darunter bleibt der Arbeitstag. */}
+      <SternMenue
+        eintraege={[
+          { id: 'catchup', symbol: <Sparkles size={17} />, text: t('nav.catchup'),
+            tun: () => setOverlay('catchup') },
+          { id: 'saved', symbol: <Bookmark size={17} />, text: t('nav.saved'),
+            tun: () => setOverlay('search') },
+          /* Nur in der installierten App: der Handschlag braucht scrypt aus
+             dem Hauptprozess, den es im Browser nicht gibt. */
+          ...(!imBrowser() ? [{ id: 'fern', symbol: <Monitor size={17} />, text: t('fern.titel'),
+            tun: () => setOverlay('fern') }] : []),
+          ...(darfSystem ? [{ id: 'system', symbol: <Gauge size={17} />, text: t('system.titel'),
+            tun: () => setOverlay('system') }] : []),
+          ...(self?.permissions['user.manage'] ? [{ id: 'team', symbol: <ShieldCheck size={17} />, text: t('nav.team'),
+            tun: () => setOverlay('team') }] : []),
+          /* Umgekehrt: wer die App schon hat, braucht keinen Weg zum
+             Herunterladen. */
+          ...(imBrowser() ? [{ id: 'download', symbol: <Download size={17} />, text: t('download.nav'),
+            tun: () => setOverlay('download') }] : []),
+        ]}
+      />
 
       <button
         className="rail-btn no-drag"
@@ -93,55 +217,14 @@ export function Rail() {
         <FolderOpen size={20} />
       </button>
 
-      {/* Nur im Browser: wer die App schon installiert hat, braucht keinen
-          Weg zum Herunterladen. imBrowser() ist bewusst keine Zustandsabfrage —
-          window.stellium ändert sich zur Laufzeit nie. */}
-      {imBrowser() && (
-        <button className="rail-btn no-drag" onClick={() => setOverlay('download')} title={t('download.nav')}>
-          <Download size={20} />
-        </button>
-      )}
-
       <button className="rail-btn no-drag" data-tour="ideas" onClick={() => setOverlay('ideas')} title={t('nav.ideas')}>
         <Lightbulb size={20} />
-      </button>
-
-      {/* Umgekehrt zum Herunterladen oben: Fernsteuerung gibt es NUR in der
-          installierten App. Sie läuft über den Hauptprozess, weil der
-          Handschlag scrypt braucht — im Browser gibt es das nicht. */}
-      {!imBrowser() && (
-        <button className="rail-btn no-drag" onClick={() => setOverlay('fern')} title={t('fern.titel')}>
-          <Monitor size={20} />
-        </button>
-      )}
-
-      {/* Anders als die Fernsteuerung überall: die Werte kommen über die
-          gewöhnliche Schnittstelle und brauchen keinen Hauptprozess. Web,
-          Mac, Windows, Linux — überall dasselbe. */}
-      {darfSystem && (
-        <button className="rail-btn no-drag" onClick={() => setOverlay('system')} title={t('system.titel')}>
-          <Gauge size={20} />
-        </button>
-      )}
-
-      <button className="rail-btn no-drag" onClick={() => setOverlay('catchup')} title={t('nav.catchup')}>
-        <Sparkles size={20} />
-      </button>
-
-      <button className="rail-btn no-drag" onClick={() => setOverlay('search')} title={t('nav.saved')}>
-        <Bookmark size={20} />
       </button>
 
       <button className="rail-btn no-drag" data-tour="reminders" onClick={() => setOverlay('reminders')} title={t('nav.reminders')}>
         <Bell size={20} />
         {reminders.length > 0 && <span className="rail-btn__dot">{reminders.length}</span>}
       </button>
-
-      {self?.permissions['user.manage'] && (
-        <button className="rail-btn no-drag" data-tour="team" onClick={() => setOverlay('team')} title={t('nav.team')}>
-          <ShieldCheck size={20} />
-        </button>
-      )}
 
       <span className="rail__spacer" />
 

@@ -43,6 +43,7 @@ export const no = {
   'nav.reminders': 'Påminnelser',
   'nav.team': 'Administrer team',
   'nav.settings': 'Innstillinger',
+  'nav.mehr': 'Mer',
   'nav.search': 'Søk',
   'nav.people': 'Team',
   'nav.glossary': 'Ordliste',

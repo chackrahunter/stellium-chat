@@ -43,6 +43,7 @@ export const zh = {
   'nav.reminders': '提醒',
   'nav.team': '团队管理',
   'nav.settings': '设置',
+  'nav.mehr': '更多',
   'nav.search': '搜索',
   'nav.people': '团队',
   'nav.glossary': '词汇表',

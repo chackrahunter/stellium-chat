@@ -43,6 +43,7 @@ export const nl = {
   'nav.reminders': 'Herinneringen',
   'nav.team': 'Team beheren',
   'nav.settings': 'Instellingen',
+  'nav.mehr': 'Meer',
   'nav.search': 'Zoeken',
   'nav.people': 'Team',
   'nav.glossary': 'Glossarium',

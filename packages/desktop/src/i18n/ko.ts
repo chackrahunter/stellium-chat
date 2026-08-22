@@ -43,6 +43,7 @@ export const ko = {
   'nav.reminders': '알림',
   'nav.team': '팀 관리',
   'nav.settings': '설정',
+  'nav.mehr': '더보기',
   'nav.search': '검색',
   'nav.people': '팀',
   'nav.glossary': '용어집',

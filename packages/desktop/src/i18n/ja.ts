@@ -43,6 +43,7 @@ export const ja = {
   'nav.reminders': 'リマインダー',
   'nav.team': 'チーム管理',
   'nav.settings': '設定',
+  'nav.mehr': 'その他',
   'nav.search': '検索',
   'nav.people': 'チーム',
   'nav.glossary': '用語集',

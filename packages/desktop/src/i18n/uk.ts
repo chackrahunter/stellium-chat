@@ -43,6 +43,7 @@ export const uk = {
   'nav.reminders': 'Нагадування',
   'nav.team': 'Керування командою',
   'nav.settings': 'Налаштування',
+  'nav.mehr': 'Ще',
   'nav.search': 'Пошук',
   'nav.people': 'Команда',
   'nav.glossary': 'Глосарій',

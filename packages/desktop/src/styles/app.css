@@ -277,6 +277,53 @@ a:hover { text-decoration: underline; }
 }
 .rail__spacer { flex: 1; }
 
+/* ── Was hinter dem Stern liegt ────────────────────────────────
+   Fest positioniert und nicht in der Leiste verankert: die ist sechzig Punkte
+   breit, das Menü ist breiter, und irgendein Vorfahr schneidet sonst ab. */
+.rail__logo--knopf { border: 0; padding: 0; cursor: pointer; }
+
+.sternmenue {
+  position: fixed;
+  z-index: 60;
+  min-width: 210px;
+  max-height: calc(100vh - 16px);
+  overflow-y: auto;
+  padding: 6px;
+  border-radius: var(--r-md);
+  border: 1px solid var(--line);
+  background: var(--bg-panel);
+  backdrop-filter: blur(24px);
+  box-shadow: 0 18px 48px -12px rgb(0 0 0 / 0.55);
+}
+
+.sternmenue__titel {
+  padding: 6px 10px 8px;
+  font-size: 11px;
+  font-weight: 620;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--tx-lo);
+}
+
+.sternmenue__zeile {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--tx-hi);
+  font-size: 13px;
+  text-align: start;
+  cursor: pointer;
+}
+.sternmenue__zeile:hover,
+.sternmenue__zeile:focus-visible { background: var(--bg-sunken); }
+.sternmenue__symbol { display: grid; place-items: center; color: var(--tx-mid); flex: none; }
+
+
 /* Auf macOS sitzen die Fensterknöpfe im Fensterinhalt, oben links — also
    genau dort, wo sonst das Logo steht. Die Rail bekommt deshalb Platz dafür,
    und die Seitenleiste rückt mit, damit die Kopfzeile auf einer Linie bleibt. */
@@ -2733,12 +2780,26 @@ button.msg__author:hover { color: var(--violet-soft); text-decoration: underline
 
 /* ── Was ist neu ───────────────────────────────────────────── */
 
-.neu { padding: 26px 26px 22px; text-align: center; }
+/* Der Kasten darf nie höher werden als das Fenster. Bei acht Punkten in der
+   Änderungsliste stand der Knopf sonst unterhalb des Bildrands — man sah
+   nicht nur den letzten Punkt nicht mehr, man kam auch nicht mehr an das
+   „Alles klar" heran. Deshalb wächst nur die Liste, und die scrollt. */
+.neu {
+  display: flex;
+  flex-direction: column;
+  max-height: min(84vh, 720px);
+  padding: 26px 26px 22px;
+  text-align: center;
+}
 
 .neu__stern {
   display: inline-grid;
   place-items: center;
   width: 54px; height: 54px;
+  /* `margin-inline: auto` statt der Zentrierung durch `text-align`: seit der
+     Kasten ein Flex-Behälter ist, wirkt `text-align` nicht mehr auf ihn, und
+     ohne das säße der Stern links am Rand. */
+  margin-inline: auto;
   margin-bottom: 14px;
   border-radius: 17px;
   color: #fff;
@@ -2749,13 +2810,27 @@ button.msg__author:hover { color: var(--violet-soft); text-decoration: underline
 .neu__titel { margin: 0 0 5px; font-size: 21px; font-weight: 660; letter-spacing: -0.02em; }
 .neu__text { margin: 0 0 16px; font-size: 13px; color: var(--text-dim); }
 
+/* Nachgeben soll allein die Liste. Ohne das verteilt Flex das Schrumpfen
+   anteilig auf alle Kinder — der Stern würde flacher, der Knopf niedriger,
+   und beides sähe nach Fehler aus statt nach Platzmangel. */
+.neu > .neu__stern,
+.neu > .neu__titel,
+.neu > .neu__text,
+.neu > .btn { flex: none; }
+
 .neu__liste {
   margin: 0 0 20px;
-  padding: 0;
+  padding: 0 2px 0 0;      /* Platz für den Rollbalken, sonst klebt er am Text */
   list-style: none;
   text-align: start;
   display: grid;
   gap: 7px;
+  /* `min-height: 0` ist hier nicht Zierrat: ohne das weigert sich ein
+     Flex-Kind zu schrumpfen und wächst über den Kasten hinaus, statt zu
+     rollen. Genau daran scheitert diese Art Kasten sonst. */
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .neu__liste li {

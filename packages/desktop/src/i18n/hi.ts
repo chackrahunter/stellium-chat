@@ -43,6 +43,7 @@ export const hi = {
   'nav.reminders': 'रिमाइंडर',
   'nav.team': 'टीम प्रबंधन',
   'nav.settings': 'सेटिंग्स',
+  'nav.mehr': 'और',
   'nav.search': 'खोज',
   'nav.people': 'टीम',
   'nav.glossary': 'शब्दकोश',

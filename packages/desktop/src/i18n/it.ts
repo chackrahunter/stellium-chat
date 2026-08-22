@@ -43,6 +43,7 @@ export const it = {
   'nav.reminders': 'Promemoria',
   'nav.team': 'Gestisci team',
   'nav.settings': 'Impostazioni',
+  'nav.mehr': 'Altro',
   'nav.search': 'Cerca',
   'nav.people': 'Team',
   'nav.glossary': 'Glossario',

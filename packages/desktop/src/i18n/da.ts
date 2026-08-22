@@ -43,6 +43,7 @@ export const da = {
   'nav.reminders': 'Påmindelser',
   'nav.team': 'Administrer team',
   'nav.settings': 'Indstillinger',
+  'nav.mehr': 'Mere',
   'nav.search': 'Søg',
   'nav.people': 'Team',
   'nav.glossary': 'Ordliste',

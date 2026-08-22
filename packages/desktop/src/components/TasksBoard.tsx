@@ -249,8 +249,20 @@ export function TasksBoard({ onClose }: { onClose: () => void }) {
 
     return (
       <motion.button
+        /* `layout` ordnet um, wenn sich die Reihenfolge ändert — das genügt.
+           Hier stand zusätzlich `layoutId={`task_${task.id}`}`, und das war
+           die Lücke in der Spalte: `layoutId` ist für Übergänge zwischen
+           VERSCHIEDENEN Komponenten gedacht (ein Element verschwindet hier
+           und taucht dort wieder auf). Framer-Motion legt dafür eine eigene
+           Projektion an und hält den Platz des alten Elements so lange frei,
+           bis der Übergang fertig ist. Wird er unterbrochen — ein Umlauf
+           mittendrin, ein Wechsel der Spalte, ein Scrollen —, bleibt der
+           Platz reserviert: eine leere Kartenhöhe mitten in der Spalte,
+           ohne dass eine Karte fehlt.
+           Jede Karte hat längst einen stabilen `key`; `layoutId` brachte
+           nichts dazu. Die Ideentafel nebenan macht es seit jeher ohne und
+           hat das Problem nicht. */
         layout
-        layoutId={`task_${task.id}`}
         className="task-card"
         draggable
         onDragStart={(e) => {

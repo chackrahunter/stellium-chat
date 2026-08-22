@@ -43,6 +43,7 @@ export const pl = {
   'nav.reminders': 'Przypomnienia',
   'nav.team': 'Zarządzaj zespołem',
   'nav.settings': 'Ustawienia',
+  'nav.mehr': 'Więcej',
   'nav.search': 'Szukaj',
   'nav.people': 'Zespół',
   'nav.glossary': 'Słownik',

@@ -43,6 +43,7 @@ export const cs = {
   'nav.reminders': 'Připomenutí',
   'nav.team': 'Správa týmu',
   'nav.settings': 'Nastavení',
+  'nav.mehr': 'Více',
   'nav.search': 'Hledat',
   'nav.people': 'Tým',
   'nav.glossary': 'Glossář',

@@ -43,6 +43,7 @@ export const ar = {
   'nav.reminders': 'التذكيرات',
   'nav.team': 'إدارة الفريق',
   'nav.settings': 'الإعدادات',
+  'nav.mehr': 'المزيد',
   'nav.search': 'بحث',
   'nav.people': 'الفريق',
   'nav.glossary': 'معجم',

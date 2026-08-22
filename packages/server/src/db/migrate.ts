@@ -1,6 +1,6 @@
 import { db } from './index.js';
 import { blindIndex, encryptField, encryptionActive } from '../crypto/pii.js';
-import { abdruck, istChiffrat, verschluesseln, verschluesselungAktiv } from '../crypto/nachrichten.js';
+import { abdruck, entschluesseln, istChiffrat, verschluesseln, verschluesselungAktiv } from '../crypto/nachrichten.js';
 
 /**
  * Spalten nachrüsten, die in älteren Datenbanken fehlen.
@@ -109,6 +109,9 @@ export function migrate(): void {
       PRIMARY KEY (user_id, tag)
     )`);
   db.exec('CREATE INDEX IF NOT EXISTS idx_praesenz_tag ON praesenz_tage(tag)');
+
+
+  echosVergessen();
 
   /* Indizes auf nachgerüstete Spalten gehören hierher, nicht in schema.sql:
      die läuft VOR dieser Nachrüstung, und auf einer bestehenden Datenbank
@@ -433,4 +436,48 @@ function encryptExistingUsers(): void {
     }
   });
   console.log(`[db] ${offen.length} Konten verschlüsselt (E-Mail und Benutzername).`);
+}
+
+/**
+ * Unübersetzte Texte aus dem Übersetzungsspeicher werfen.
+ *
+ * Bis 1.0.26 wurde jede Modellantwort gemerkt — auch die, in denen das Modell
+ * den Eingabetext unverändert zurückgegeben hatte. Damit war dieser Text
+ * dauerhaft unübersetzt: jeder spätere Treffer kam aus dem Speicher und
+ * bekam nie wieder eine Chance. Gemessen wurden 356 solcher Meldungen an
+ * einem Tag, bei keinem einzigen gescheiterten Nachfassen.
+ *
+ * Der Fehler selbst ist behoben (index.ts merkt Echos nicht mehr), aber die
+ * bereits gemerkten Zeilen blockieren weiter. Sie stehen verschlüsselt in der
+ * Datenbank, lassen sich also nicht mit SQL vergleichen — es bleibt der
+ * Durchgang durch alle Zeilen.
+ *
+ * Läuft bei jedem Start. Der Aufwand wächst mit der Zeilenzahl, ist aber
+ * einmal fällig: nach dem Aufräumen entstehen keine neuen mehr, und der
+ * Durchgang findet nichts. Bei sehr großen Beständen bricht er ab, bevor er
+ * einen Start spürbar aufhält — die Zeilen richten dort keinen neuen Schaden
+ * an, sie halten nur alte Texte unübersetzt.
+ */
+function echosVergessen(): void {
+  let zeilen: Array<{ key: string; source_text: string; target_text: string }>;
+  try {
+    zeilen = db.all('SELECT key, source_text, target_text FROM translation_memory LIMIT 50000');
+  } catch { return; }              // Tabelle gibt es noch nicht
+  if (!zeilen.length) return;
+
+  const weg: string[] = [];
+  for (const z of zeilen) {
+    try {
+      /* Genau gleich, nicht ähnlich: `istEcho` in der Übersetzung wertet auch
+         Wortähnlichkeit, und was dort knapp durchging, ist hier keine sichere
+         Fehlmessung. Gelöscht wird nur, was zweifelsfrei unübersetzt ist. */
+      if (entschluesseln(z.source_text) === entschluesseln(z.target_text)) weg.push(z.key);
+    } catch { /* nicht lesbar — dann auch nicht zu beurteilen */ }
+  }
+  if (!weg.length) return;
+
+  db.transaction(() => {
+    for (const k of weg) db.run('DELETE FROM translation_memory WHERE key = ?', k);
+  });
+  console.log(`[db] ${weg.length} unübersetzte Einträge aus dem Übersetzungsspeicher entfernt`);
 }

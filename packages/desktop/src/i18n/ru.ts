@@ -43,6 +43,7 @@ export const ru = {
   'nav.reminders': 'Напоминания',
   'nav.team': 'Управление командой',
   'nav.settings': 'Настройки',
+  'nav.mehr': 'Ещё',
   'nav.search': 'Поиск',
   'nav.people': 'Команда',
   'nav.glossary': 'Глоссарий',

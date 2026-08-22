@@ -43,6 +43,7 @@ export const pt = {
   'nav.reminders': 'Lembretes',
   'nav.team': 'Gerenciar equipe',
   'nav.settings': 'Configurações',
+  'nav.mehr': 'Mais',
   'nav.search': 'Buscar',
   'nav.people': 'Equipe',
   'nav.glossary': 'Glossário',

@@ -42,6 +42,7 @@ export const de = {
   'nav.reminders': 'Erinnerungen',
   'nav.team': 'Team verwalten',
   'nav.settings': 'Einstellungen',
+  'nav.mehr': 'Mehr',
   'nav.search': 'Suche',
   'nav.people': 'Team',
   'nav.glossary': 'Glossar',

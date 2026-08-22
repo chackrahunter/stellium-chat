@@ -43,6 +43,7 @@ export const fi = {
   'nav.reminders': 'Muistutukset',
   'nav.team': 'Hallinnoi tiimiä',
   'nav.settings': 'Asetukset',
+  'nav.mehr': 'Lisää',
   'nav.search': 'Haku',
   'nav.people': 'Tiimi',
   'nav.glossary': 'Sanasto',

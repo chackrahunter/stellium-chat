@@ -43,6 +43,7 @@ export const sv = {
   'nav.reminders': 'Påminnelser',
   'nav.team': 'Hantera team',
   'nav.settings': 'Inställningar',
+  'nav.mehr': 'Mer',
   'nav.search': 'Sök',
   'nav.people': 'Team',
   'nav.glossary': 'Glossarium',

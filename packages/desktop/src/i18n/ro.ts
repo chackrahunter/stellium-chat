@@ -43,6 +43,7 @@ export const ro = {
   'nav.reminders': 'Memento-uri',
   'nav.team': 'Gestionează echipa',
   'nav.settings': 'Setări',
+  'nav.mehr': 'Mai multe',
   'nav.search': 'Căutare',
   'nav.people': 'Echipă',
   'nav.glossary': 'Glosar',

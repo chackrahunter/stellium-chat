@@ -42,6 +42,7 @@ export const en: Partial<Dictionary> = {
   'nav.reminders': 'Reminders',
   'nav.team': 'Manage team',
   'nav.settings': 'Settings',
+  'nav.mehr': 'More',
   'nav.search': 'Search',
   'nav.people': 'Team',
   'nav.glossary': 'Glossary',

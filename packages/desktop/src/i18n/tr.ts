@@ -43,6 +43,7 @@ export const tr = {
   'nav.reminders': 'Hatırlatıcılar',
   'nav.team': 'Takımı yönet',
   'nav.settings': 'Ayarlar',
+  'nav.mehr': 'Daha fazla',
   'nav.search': 'Ara',
   'nav.people': 'Takım',
   'nav.glossary': 'Sözlük',
