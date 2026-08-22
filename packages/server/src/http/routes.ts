@@ -7,6 +7,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { normalizeLang, LANGUAGES } from '@stellium/shared';
 import { signToken, verifyPassword, verifyToken } from '../auth.js';
 import * as users from '../services/users.js';
+import * as praesenz from '../services/praesenz.js';
 import { may } from '../services/users.js';
 import { KONTO_KATEGORIEN } from '@stellium/shared';
 import { PERMISSIONS, type MemberRole, type PermissionKey } from '@stellium/shared';
@@ -1142,6 +1143,28 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
      Adresse und Passwort liegen verschlüsselt in den Einstellungen und
      werden NIE zurückgegeben — außer an jemanden, der sie gerade zum
      Verbinden braucht. Die Verwaltung sieht nur, DASS etwas hinterlegt ist. */
+
+  /* ── Online-Zeit ──────────────────────────────────────────────
+     Die eigene darf jeder sehen. Die von anderen nur, wer Konten verwaltet:
+     wie lange jemand vor der App sitzt, ist eine Aussage über seinen
+     Arbeitstag, und die geht nicht das ganze Team etwas an. */
+  app.get('/api/praesenz/:userId', async (req, reply) => {
+    const wer = requireUser(req);
+    const { userId } = req.params as { userId: string };
+    const ziel = userId === 'ich' ? wer : userId;
+    if (ziel !== wer && !users.may(wer, 'user.manage')) {
+      return fehler(reply, 403, 'fehler.keinRecht',
+        'Die Online-Zeit anderer sieht nur, wer Konten verwaltet.');
+    }
+    const roh = (req.query as { zeitraum?: string }).zeitraum ?? 'woche';
+    const zeitraum = (['heute', 'woche', 'monat', 'jahr'] as const)
+      .find((z) => z === roh) ?? 'woche';
+    return {
+      zeitraum,
+      summen: praesenz.summen(ziel),
+      verlauf: praesenz.verlauf(ziel, zeitraum),
+    };
+  });
 
   app.get('/api/fern/stand', async (req) => {
     const userId = requireUser(req);

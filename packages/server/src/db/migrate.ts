@@ -99,6 +99,17 @@ export function migrate(): void {
     console.log(`[db] Spalte ${table}.${column} ergänzt`);
   }
 
+  /* Auf einer bestehenden Datenbank gibt es die Tabelle noch nicht — sie
+     steht zwar in schema.sql, aber die läuft nur beim ersten Anlegen. */
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS praesenz_tage (
+      user_id  TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      tag      TEXT NOT NULL,
+      sekunden INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (user_id, tag)
+    )`);
+  db.exec('CREATE INDEX IF NOT EXISTS idx_praesenz_tag ON praesenz_tage(tag)');
+
   /* Indizes auf nachgerüstete Spalten gehören hierher, nicht in schema.sql:
      die läuft VOR dieser Nachrüstung, und auf einer bestehenden Datenbank
      gibt es die Spalte dort noch nicht. Fassung 1.0.17 ist genau daran auf

@@ -416,6 +416,15 @@ export const api = {
      unmittelbar vor dem Verbinden gerufen. Der Rückgabewert geht direkt
      an den Hauptprozess und wird nirgends in den Zustand geschrieben,
      nirgends angezeigt und nirgends protokolliert. */
+  /* Online-Zeit. `ich` steht für das eigene Konto — so braucht der Aufrufer
+     die eigene Kennung nicht mitzuführen. */
+  praesenz: (userId: string, zeitraum: 'heute' | 'woche' | 'monat' | 'jahr') =>
+    request<{
+      zeitraum: string;
+      summen: Record<'heute' | 'woche' | 'monat' | 'jahr', number>;
+      verlauf: { tag: string; sekunden: number }[];
+    }>(`/api/praesenz/${encodeURIComponent(userId)}?zeitraum=${zeitraum}`),
+
   fernStand: () => request<{ hinterlegt: boolean; verschluesselt: boolean; kennung: string | null; darf: boolean }>('/api/fern/stand'),
   fernZugang: () => request<{ adresse: string; passwort: string; kennung: string }>('/api/fern/zugang'),
   fernZugangSetzen: (werte: { adresse?: string; passwort?: string; kennung?: string }) =>

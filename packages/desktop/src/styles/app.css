@@ -3308,3 +3308,53 @@ button.msg__author:hover { color: var(--violet-soft); text-decoration: underline
   overflow: hidden;
 }
 .meldung-bitte__text { flex: 1 1 auto; min-width: 0; }
+
+/* ── Online-Zeit ───────────────────────────────────────────────
+   Linie statt Balken: Balken vergleichen einzelne Tage, eine Linie zeigt
+   den Verlauf — und bei 365 Werten wären Balken Striche von einem
+   Bildpunkt Breite. */
+.onlinezeit {
+  margin-top: var(--sp-4);
+  padding: 10px 12px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--bg-panel);
+}
+.onlinezeit__kopf { display: flex; align-items: center; gap: 8px; }
+.onlinezeit__titel { font-size: 12px; font-weight: 600; color: var(--tx-mid); }
+.onlinezeit__kopf .spacer { flex: 1 1 auto; }
+.onlinezeit__waehler { display: flex; gap: 2px; }
+.onlinezeit__tab {
+  border: 0;
+  background: transparent;
+  color: var(--tx-lo);
+  font-size: 11px;
+  padding: 3px 7px;
+  border-radius: var(--r-xs);
+  cursor: pointer;
+}
+.onlinezeit__tab:hover { background: var(--bg-hover); color: var(--tx-hi); }
+.onlinezeit__tab--an { background: var(--bg-active); color: var(--violet); }
+
+.onlinezeit__wert {
+  font-size: 19px;
+  font-weight: 650;
+  color: var(--tx-hi);
+  margin: 6px 0 2px;
+  /* Ohne feste Ziffernbreite springt die Zahl beim Umschalten des
+     Zeitraums seitlich. */
+  font-variant-numeric: tabular-nums;
+}
+
+/* Feste Höhe: das SVG dehnt sich mit preserveAspectRatio="none" auf die
+   Breite, die Höhe muss von hier kommen. */
+.onlinezeit__linie { display: block; width: 100%; height: 44px; }
+
+.onlinezeit__achse {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10.5px;
+  color: var(--tx-lo);
+  font-variant-numeric: tabular-nums;
+}
+.onlinezeit__leer { font-size: 12px; color: var(--tx-lo); padding: 8px 0; }

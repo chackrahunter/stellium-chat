@@ -11,6 +11,7 @@ import { config } from '../config.js';
 import { newId } from '../util/id.js';
 import { aiCapabilities, assistant, roundTrip, translate, translateMessage, translatePoll, translateChannel } from '../translation/index.js';
 import * as ai from '../services/ai.js';
+import * as praesenz from '../services/praesenz.js';
 import * as channels from '../services/channels.js';
 import * as messages from '../services/messages.js';
 import * as store from '../services/store.js';
@@ -2818,6 +2819,27 @@ export function startBackgroundJobs(): () => void {
             statusEmoji: null, statusText: null, statusExpiresAt: null, lastSeenAt: u.lastSeenAt,
           });
         }
+      }
+
+      /*
+       * Online-Zeit gutschreiben — 30 Sekunden je Durchgang für jeden, der
+       * gerade online ist.
+       *
+       * Hier und nicht beim Statuswechsel, weil ein Wechsel auch ausbleiben
+       * kann: ein abgestürzter Klient meldet sich nicht ab, und eine
+       * abgerissene Leitung erst recht nicht. Wer zählt, was gerade IST,
+       * braucht kein sauberes Ende.
+       */
+      try {
+        const online: string[] = [];
+        for (const uid of byUser.keys()) {
+          if (store.getUser(uid)?.status === 'online') online.push(uid);
+        }
+        praesenz.gutschreiben(online, 30);
+      } catch (err) {
+        /* Die Zeitmessung darf den Statuslauf nicht anhalten — sie ist eine
+           Beigabe, der Status ist die Aufgabe. */
+        console.error('[praesenz]', (err as Error).message);
       }
 
       /*

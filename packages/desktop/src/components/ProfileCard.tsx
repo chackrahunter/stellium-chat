@@ -1,4 +1,5 @@
 import { useRef } from 'react';
+import { OnlineZeit } from './OnlineZeit.jsx';
 import { motion } from 'framer-motion';
 import { AtSign, Clock, Languages, MessageSquare, X } from 'lucide-react';
 import { useStore } from '../state/store.js';
@@ -76,6 +77,12 @@ export function ProfileCard({ userId, onClose }: { userId: string; onClose: () =
               </div>
             )}
           </div>
+
+          {/* Die eigene Zeit sieht jeder, die von anderen nur, wer Konten
+              verwaltet — das entscheidet der Server, hier wird es nur
+              angefragt. Schlägt es fehl, zeigt die Komponente den Grund
+              statt zu verschwinden. */}
+          <OnlineZeit userId={isSelf ? 'ich' : user.id} />
 
           {!isSelf && (
             <button className="btn btn--primary btn--block" onClick={() => { openDm(user.id); onClose(); }}>

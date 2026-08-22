@@ -662,3 +662,22 @@ CREATE TABLE IF NOT EXISTS vorschlaege (
 CREATE UNIQUE INDEX IF NOT EXISTS idx_vorschlaege_dublette ON vorschlaege(channel_id, art, abdruck);
 CREATE INDEX IF NOT EXISTS idx_vorschlaege_fuer   ON vorschlaege(fuer_user_id, zustand, erstellt_am DESC);
 CREATE INDEX IF NOT EXISTS idx_vorschlaege_kanal  ON vorschlaege(channel_id, zustand);
+
+-- Wie lange jemand an einem Tag online war, in Sekunden.
+--
+-- Bewusst als Summe je Tag und nicht als Liste von Zeitspannen: eine Liste
+-- muss beim Abmelden sauber geschlossen werden, und genau das passiert bei
+-- einem Absturz, einem Neustart oder einer abgerissenen Leitung nicht. Dann
+-- steht dort eine offene Spanne, die entweder für immer weiterläuft oder
+-- verworfen werden muss. Eine Summe, die alle 30 Sekunden um 30 wächst,
+-- kann keinen halben Zustand haben.
+--
+-- Der Tag steht als UTC-Datum. In einem Team über mehrere Zeitzonen gibt es
+-- kein "heute", das für alle stimmt; UTC ist wenigstens für alle dasselbe.
+CREATE TABLE IF NOT EXISTS praesenz_tage (
+  user_id  TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  tag      TEXT NOT NULL,
+  sekunden INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (user_id, tag)
+);
+CREATE INDEX IF NOT EXISTS idx_praesenz_tag ON praesenz_tage(tag);
