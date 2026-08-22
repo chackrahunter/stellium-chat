@@ -31,6 +31,7 @@ import { VorschlagPosteingang } from './components/VorschlagPosteingang.jsx';
 import { useVorschlaege } from './state/vorschlaege.js';
 import { DownloadPanel } from './components/DownloadPanel.jsx';
 import { Fernsteuerung } from './components/Fernsteuerung.jsx';
+import { SystemPanel } from './components/SystemPanel.jsx';
 import { UpdateBanner, UpdateWillkommen, ServerWartung } from './components/UpdateBanner.jsx';
 import { MeldungBitte } from './components/MeldungBitte.jsx';
 import { Toasts } from './components/Toasts.jsx';
@@ -236,6 +237,7 @@ export function App() {
         {overlay === 'ideas' && <IdeaBoard key="ideas" onClose={closeOverlay} />}
         {overlay === 'download' && <DownloadPanel key="download" onClose={closeOverlay} />}
         {overlay === 'fern' && <Fernsteuerung key="fern" onClose={closeOverlay} />}
+        {overlay === 'system' && <SystemPanel key="system" onClose={closeOverlay} />}
         {vorschlagFilter && (
           <VorschlagPosteingang
             key="vorschlaege"

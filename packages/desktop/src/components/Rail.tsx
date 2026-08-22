@@ -1,4 +1,4 @@
-import { Bell, Bookmark, Bot, CalendarDays, Download, FolderOpen, Inbox, Lightbulb, ListChecks, MessageSquare, Settings, ShieldCheck, Sparkles, Star, Monitor } from 'lucide-react';
+import { Bell, Bookmark, Bot, CalendarDays, Download, FolderOpen, Gauge, Inbox, Lightbulb, ListChecks, MessageSquare, Monitor, Settings, ShieldCheck, Sparkles, Star } from 'lucide-react';
 import { useStore } from '../state/store.js';
 import { useT } from '../i18n/index.js';
 import { imBrowser } from './DownloadPanel.jsx';
@@ -9,6 +9,10 @@ import { useVorschlaege } from '../state/vorschlaege.js';
 export function Rail() {
   const t = useT();
   const self = useStore((s) => s.self);
+  /* Der Server schickt die Rechtekarte mit dem eigenen Konto mit — hier ist
+     sie nur die Frage, ob der Knopf erscheint. Entschieden wird ohnehin
+     dort: die Route prüft dasselbe Recht noch einmal. */
+  const darfSystem = self?.permissions?.['system.ansehen'] === true;
   const states = useStore((s) => s.states);
   const reminders = useStore((s) => s.reminders);
   const tasks = useStore((s) => s.tasks);
@@ -108,6 +112,15 @@ export function Rail() {
       {!imBrowser() && (
         <button className="rail-btn no-drag" onClick={() => setOverlay('fern')} title={t('fern.titel')}>
           <Monitor size={20} />
+        </button>
+      )}
+
+      {/* Anders als die Fernsteuerung überall: die Werte kommen über die
+          gewöhnliche Schnittstelle und brauchen keinen Hauptprozess. Web,
+          Mac, Windows, Linux — überall dasselbe. */}
+      {darfSystem && (
+        <button className="rail-btn no-drag" onClick={() => setOverlay('system')} title={t('system.titel')}>
+          <Gauge size={20} />
         </button>
       )}
 

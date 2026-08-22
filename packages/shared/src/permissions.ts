@@ -50,6 +50,8 @@ export type PermissionKey =
   /* Vertraulichkeit */
   | 'vertraulich.kanal'
   | 'vertraulich.freigabe_lesen'
+  /* System */
+  | 'system.ansehen'
   /* Fernzugriff */
   | 'fern.zugriff'
   | 'fern.verwalten'
@@ -63,7 +65,7 @@ export type PermissionKey =
 export interface PermissionInfo {
   key: PermissionKey;
   /** Gruppe für die Darstellung in den Einstellungen. */
-  group: 'nachrichten' | 'kanaele' | 'inhalte' | 'ki' | 'fernzugriff' | 'verwaltung';
+  group: 'nachrichten' | 'kanaele' | 'inhalte' | 'ki' | 'system' | 'fernzugriff' | 'verwaltung';
   labelDe: string;
   labelEn: string;
   hintDe: string;
@@ -195,6 +197,11 @@ export const PERMISSIONS: PermissionInfo[] = [
     hintDe: 'Wer das hat, gehört zur Verwaltung im Sinne der Freigabe — und kann mit dem Code einen vertraulichen Kanal öffnen.',
     hintEn: 'Whoever has this counts as management for a release — and can open a confidential channel with the code.' },
 
+  { key: 'system.ansehen', group: 'system',
+    labelDe: 'Systemwerte ansehen', labelEn: 'View system status',
+    hintDe: 'Auslastung, Speicher, Temperatur, Dienste und Besucherzahlen des Servers. Nur Zahlen — keine Nachrichten, keine Namen von Besuchern, keine Adressen.',
+    hintEn: 'Load, memory, temperature, services and visitor counts of the server. Numbers only — no messages, no visitor names, no addresses.' },
+
   { key: 'fern.zugriff', group: 'fernzugriff',
     labelDe: 'Pi fernsteuern', labelEn: 'Control the Pi remotely',
     hintDe: 'Sieht den Bildschirm des Pi und bedient ihn mit Maus, Tastatur und Zwischenablage. Adresse und Passwort holt die App selbst — sie stehen nirgends in der Oberfläche.',
@@ -225,7 +232,7 @@ export const PERMISSIONS: PermissionInfo[] = [
 export const PERMISSION_KEYS = PERMISSIONS.map((p) => p.key);
 
 export type MemberRoleName =
-  | 'owner' | 'admin' | 'moderator' | 'teamlead'
+  | 'owner' | 'admin' | 'moderator' | 'technik' | 'teamlead'
   | 'member' | 'contributor' | 'guest' | 'readonly' | 'bot';
 
 export interface RoleInfo {
@@ -282,11 +289,27 @@ const MODERATOR: PermissionKey[] = [
   'glossary.manage', 'task.delete', 'event.manage', 'file.manage', 'idea.manage',
 ];
 
+/**
+ * Hält den Server im Blick, ohne Konten oder Kanäle anzufassen.
+ *
+ * Eine eigene Rolle und nicht ein Recht an der Teamleitung: wer die Technik
+ * betreut, ist nicht zwangsläufig wer, der Leute aufnimmt — und umgekehrt.
+ * Beides in eine Rolle zu werfen hieße, jedem von beiden zu geben, was er
+ * nicht braucht.
+ */
+const TECHNIK: PermissionKey[] = [
+  ...MITGLIED,
+  'system.ansehen',
+];
+
 /** Führt ein Team: nimmt Leute auf und setzt Passwörter zurück. */
 const TEAMLEITUNG: PermissionKey[] = [
   ...MITGLIED,
   'mention.everyone', 'channel.create_private', 'channel.manage', 'channel.members',
   'user.invite', 'user.manage', 'task.delete', 'event.manage', 'idea.manage',
+  /* Wer ein Team führt, soll auch sehen, ob der Server steht — die Frage
+     kommt bei ihm an, nicht bei der Technik. */
+  'system.ansehen',
   /* Den Pi fernsteuern darf die Leitung von Haus aus — steht der Rechner
      still, hängt das ganze Team, und dann soll niemand erst den Inhaber
      suchen müssen. NUR das Benutzen: `fern.verwalten`, also Adresse und
@@ -326,6 +349,10 @@ export const ROLES: RoleInfo[] = [
     labelDe: 'Moderation', labelEn: 'Moderator',
     hintDe: 'Hält die Kanäle in Ordnung: fremde Nachrichten löschen, Umfragen beenden, Glossar pflegen. Ohne Kontoverwaltung.',
     hintEn: 'Keeps channels tidy: delete others’ messages, close polls, maintain the glossary. No account management.' },
+  { name: 'technik',
+    labelDe: 'Technik', labelEn: 'Technical',
+    hintDe: 'Sieht die Systemwerte des Servers — Auslastung, Speicher, Temperatur, Dienste. Verwaltet keine Konten und keine Kanäle.',
+    hintEn: 'Sees the server status — load, memory, temperature, services. Manages neither accounts nor channels.' },
   { name: 'teamlead',
     labelDe: 'Teamleitung', labelEn: 'Team lead',
     hintDe: 'Nimmt neue Leute auf und setzt Passwörter zurück. Vergibt keine Einzelrechte.',
@@ -356,6 +383,7 @@ export const ROLE_DEFAULTS: Record<MemberRoleName, PermissionKey[]> = {
   owner: [...ALLE],
   admin: ADMIN,
   moderator: MODERATOR,
+  technik: TECHNIK,
   teamlead: TEAMLEITUNG,
   member: MITGLIED,
   contributor: MITWIRKEND,

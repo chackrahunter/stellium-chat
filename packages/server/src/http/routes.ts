@@ -8,6 +8,7 @@ import { normalizeLang, LANGUAGES } from '@stellium/shared';
 import { signToken, verifyPassword, verifyToken } from '../auth.js';
 import * as users from '../services/users.js';
 import * as praesenz from '../services/praesenz.js';
+import * as systemwerte from '../services/systemwerte.js';
 import { may } from '../services/users.js';
 import { KONTO_KATEGORIEN } from '@stellium/shared';
 import { PERMISSIONS, type MemberRole, type PermissionKey } from '@stellium/shared';
@@ -1143,6 +1144,30 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
      Adresse und Passwort liegen verschlüsselt in den Einstellungen und
      werden NIE zurückgegeben — außer an jemanden, der sie gerade zum
      Verbinden braucht. Die Verwaltung sieht nur, DASS etwas hinterlegt ist. */
+
+  /* ── Systemwerte ──────────────────────────────────────────────
+     Dieselben Zahlen, die die Konsole auf dem Pi zeigt. Nur Zahlen: keine
+     Nachrichten, keine Namen von Besuchern, keine Adressen — die
+     Besucherstatistik ist von Anfang an eine reine Zusammenfassung. */
+  app.get('/api/system', async (req, reply) => {
+    const wer = requireUser(req);
+    if (!users.may(wer, 'system.ansehen')) {
+      return fehler(reply, 403, 'fehler.keinRecht',
+        'Die Systemwerte sieht nur, wer das Recht dazu hat.');
+    }
+    if (!systemwerte.verfuegbar()) {
+      /* Kein Fehler, sondern eine Aussage: auf einem Rechner ohne die
+         Serverkonsole gibt es diese Zahlen schlicht nicht. Die Oberfläche
+         soll das erklären können, statt ins Leere zu laufen. */
+      return { da: false };
+    }
+    try {
+      return { da: true, werte: await systemwerte.werte() };
+    } catch (f) {
+      return fehler(reply, 503, 'fehler.systemwerte',
+        `Die Systemwerte sind gerade nicht zu holen: ${(f as Error).message}`);
+    }
+  });
 
   /* ── Online-Zeit ──────────────────────────────────────────────
      Die eigene darf jeder sehen. Die von anderen nur, wer Konten verwaltet:
