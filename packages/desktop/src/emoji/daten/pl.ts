@@ -1,0 +1,88 @@
+/**
+ * Emoji-Namen und Suchbegriffe — PL.
+ *
+ * ERZEUGT von scripts/emoji-katalog-erzeugen.mjs aus emojibase-data
+ * (MIT-Lizenz, © Miles Johnson — github.com/milesj/emojibase, CLDR-Grundlage).
+ * Nicht von Hand ändern — neu erzeugen: node scripts/emoji-katalog-erzeugen.mjs
+ *
+ * Nur die im EmojiPicker tatsächlich gezeigten Emoji, nicht der volle
+ * Unicode-Bestand — siehe Kopfkommentar des Erzeuger-Skripts fürs Warum.
+ */
+import type { EmojiKatalog } from '../typen.js';
+
+const daten: EmojiKatalog = {
+  "👍": {"name":"kciuk w górę","keywords":["kciuk w górę","brawo","kciuk","lubię","lubię to","ok","okej","podoba mi się","ręka","tak","w porządku","zgoda"]},
+  "🎉": {"name":"tuba z konfetti","keywords":["tuba z konfetti","bal","impreza","konfetti","uroczystość"]},
+  "❤️": {"name":"czerwone serce","keywords":["czerwone serce","czerwone","kocham","miłość","serce"]},
+  "😂": {"name":"twarz ze łzami radości","keywords":["twarz ze łzami radości","absurd","buźka","haha","hehe","lol","płacz","wesoły","łza","łzy","łzy radości","śmiech","śmieszne"]},
+  "👀": {"name":"oczy","keywords":["oczy","obserwacja","obserwowanie","oko","twarz","wow"]},
+  "🚀": {"name":"rakieta","keywords":["rakieta","kosmiczny","kosmos","pojazd","statek"]},
+  "✅": {"name":"przycisk ze znacznikiem wyboru","keywords":["przycisk ze znacznikiem wyboru","parafka","ptaszek","tak","zaznaczenie","znacznik wyboru"]},
+  "🔥": {"name":"ogień","keywords":["ogień","pożar","płomień"]},
+  "🙏": {"name":"złożone ręce","keywords":["złożone ręce","dziękuję","modlitwa","prosić","ręka"]},
+  "💡": {"name":"żarówka","keywords":["żarówka","idea","pomysł","prąd","światło"]},
+  "👏": {"name":"klaskanie","keywords":["klaskanie","brawa","brawo","klaskać","oklaski","ręce","ręka"]},
+  "🤝": {"name":"uścisk dłoni","keywords":["uścisk dłoni","cześć","dłonie","powitanie","ręce","ręka","spotkanie","tak","uścisk","zgoda"]},
+  "😀": {"name":"szeroko uśmiechnięta twarz","keywords":["szeroko uśmiechnięta twarz","haha","hehe","roześmiana buźka","uśmiech","śmiech"]},
+  "😄": {"name":"uśmiechnięta twarz z otwartymi ustami i roześmianymi oczami","keywords":["uśmiechnięta twarz z otwartymi ustami i roześmianymi oczami","buźka","haha","hehe","uśmiech","wesoły","zadowolenia","śmiech"]},
+  "😊": {"name":"uśmiechnięta twarz o roześmianych oczach","keywords":["uśmiechnięta twarz o roześmianych oczach","buźka","haha","hehe","przyjazny","serdeczny","uśmiech","śmiech"]},
+  "🙂": {"name":"lekko uśmiechnięta twarz","keywords":["lekko uśmiechnięta twarz","buźka","haha","hehe","miły","uśmiech","wesoły","śmiech"]},
+  "😉": {"name":"twarz puszczająca oko","keywords":["twarz puszczająca oko","buźka","mrugnięcie","oczko","puszczać oko","puszczenie oka","zaczepka"]},
+  "😍": {"name":"uśmiechnięta twarz z oczami w kształcie serca","keywords":["uśmiechnięta twarz z oczami w kształcie serca","buźka","kocham","miłość","serca","uśmiech","zachwyt","zakochany"]},
+  "🤔": {"name":"myśląca twarz","keywords":["myśląca twarz","buźka","hm","hmm","myślę","zamyślony","zastanawiam się","zastanowienie"]},
+  "😅": {"name":"uśmiechnięta twarz z otwartymi ustami, oblana zimnym potem","keywords":["uśmiechnięta twarz z otwartymi ustami, oblana zimnym potem","buźka","gafa","haha","hehe","kropla potu","oblana zimnym potem","pot","uśmiech","uśmiechnięta twarz z otwartymi ustami","wesoły","zawstydzony","śmiech"]},
+  "😬": {"name":"twarz z grymasem","keywords":["twarz z grymasem","buźka","grymas","grymaśna buźka","wyszczerz","zęby"]},
+  "😴": {"name":"śpiąca twarz","keywords":["śpiąca twarz","buźka","chrapanie","dobranoc","drzemka","noc","nuda","sen","spanie","spać","twarz","ziew","zmęczenie","zzz","śpiący"]},
+  "🥳": {"name":"świętująca twarz","keywords":["świętująca twarz","buźka","czapeczka","ekscytacja","hura","impreza","piszczałka","przyjęcie","trąbka","urodziny","święto","świętowanie","świętować","świętująca buźka","życzenia"]},
+  "😎": {"name":"uśmiechnięta twarz w okularach przeciwsłonecznych","keywords":["uśmiechnięta twarz w okularach przeciwsłonecznych","buźka","cool","haha","hehe","lato","luzak","na luzie","okulary","szpaner","uśmiech","zadowolony"]},
+  "🤯": {"name":"eksplodująca głowa","keywords":["eksplodująca głowa","buźka","eksplozja","głowa","nie wiedzieć","niemożliwe","szok","wybuch"]},
+  "😭": {"name":"głośno płacząca twarz","keywords":["głośno płacząca twarz","buźka","głośny płacz","płacz","smutny","zapłakana buźka","zapłakany","łzy"]},
+  "😤": {"name":"prychająca twarz","keywords":["prychająca twarz","buźka","furia","smutek","smutny","sukces","triumf","twarz","twarz z parą wylatującą z nosa","wygrana","złość","zły"]},
+  "🤗": {"name":"twarz z gestem przytulania","keywords":["twarz z gestem przytulania","buźka","przytulanie","przytulać","ręka","uśmiech","ściskam"]},
+  "🙃": {"name":"odwrócona twarz","keywords":["odwrócona twarz","buźka","do góry nogami","haha","hehe","uśmiech","wesoły","śmiech"]},
+  "😇": {"name":"uśmiechnięta twarz z aureolą","keywords":["uśmiechnięta twarz z aureolą","buźka","haha","hehe","nic nie zrobiłem","niewinny","niewinny uśmiech","wesoły","śmiech","świętoszek"]},
+  "👎": {"name":"kciuk w dół","keywords":["kciuk w dół","brzydkie","nie","nie lubię","nie podoba mi się","ręka"]},
+  "👌": {"name":"dłoń z gestem OK","keywords":["dłoń z gestem OK","dobre","dłoń","idealnie","ok","okej","potwierdzenie","racja","ręka","super","tak","w porządku","zgoda","znak ok"]},
+  "✌️": {"name":"gest V","keywords":["gest V","gest","pokoju","pokój","ręka","v","victoria","victorii","znak","zwycięstwa","zwycięstwo"]},
+  "🤞": {"name":"skrzyżowane palce","keywords":["skrzyżowane palce","kciuki","powodzenia","ręka","trzymam kciuki","trzymać"]},
+  "🙌": {"name":"wzniesione ręce","keywords":["wzniesione ręce","dłonie","hura","hurra","ręce","super","wzniesione"]},
+  "👋": {"name":"machająca dłoń","keywords":["machająca dłoń","cześć","dłoń","halo","hej","machać","pa","papa","powitanie","pożegnanie","ręka","witaj"]},
+  "🤙": {"name":"dłoń w geście „Zadzwoń do mnie”","keywords":["dłoń w geście „Zadzwoń do mnie”","dzwonić","dłoń w geście zadzwoń do mnie","essa","luz","ręka","telefonować","zadzwoń do mnie"]},
+  "💪": {"name":"napięty biceps","keywords":["napięty biceps","biceps","mięśnie","muskularny","muskuły","ręka","silny","siła","siłka","siłownia","ćwiczyć"]},
+  "🫶": {"name":"dłonie tworzące serce","keywords":["dłonie tworzące serce","<3","miłość","serce"]},
+  "🤌": {"name":"złączone palce","keywords":["złączone palce","gest","oczekiwanie","palce","poczekać","przesłuchanie","sarkazm","szczypta","włochy"]},
+  "✍️": {"name":"pisząca dłoń","keywords":["pisząca dłoń","dłoń","długopis","pisać","pisać odręcznie","piszę","ręka"]},
+  "💻": {"name":"laptop","keywords":["laptop","komputer","notebook","osobisty","wyświetlacz"]},
+  "📱": {"name":"telefon komórkowy","keywords":["telefon komórkowy","komóra","komórka","smartfon","telefon"]},
+  "📊": {"name":"wykres słupkowy","keywords":["wykres słupkowy","diagram","słupek","słupkowy","wykres"]},
+  "📈": {"name":"wykres wzrostu","keywords":["wykres wzrostu","akcje","hossa","rosnący","rynek byka","tendencja","trend","wykres","wzrost","wzrostowa","wzrostu","zwyżkowa","zwyżkowy"]},
+  "📉": {"name":"wykres spadku","keywords":["wykres spadku","akcje","bessa","malejący","rynek niedźwiedzia","spadek","spadkowa","spadku","strata","tendencja","trend","wykres","zniżkowa","zniżkowy"]},
+  "🗓️": {"name":"kalendarz na spirali","keywords":["kalendarz na spirali","kalendarz","na spirali","notatnik","notes","spirala"]},
+  "📌": {"name":"pinezka","keywords":["pinezka","przypiąć"]},
+  "📎": {"name":"spinacz","keywords":["spinacz","biuro","do papieru","druciany","spinać"]},
+  "✏️": {"name":"ołówek","keywords":["ołówek","pisak","rysować"]},
+  "🔧": {"name":"klucz warsztatowy","keywords":["klucz warsztatowy","klucz","mechanik","narzędzia","narzędzie","warsztat"]},
+  "⚙️": {"name":"koło zębate","keywords":["koło zębate","kółko","skrzynia biegów","zębate","zębatka"]},
+  "🧪": {"name":"probówka","keywords":["probówka","chemia","chemik","eksperyment","laboratorium","nauka"]},
+  "🐛": {"name":"gąsienica","keywords":["gąsienica","owad","robak","zwierzę"]},
+  "🚧": {"name":"prace drogowe","keywords":["prace drogowe","bariera","znak drogowy"]},
+  "📦": {"name":"paczka","keywords":["paczka","pakunek","przesyłka","pudełko"]},
+  "🔍": {"name":"lupa pochylona w lewo","keywords":["lupa pochylona w lewo","detektyw","lupa","pochylona","skierowana","szukaj","w lewo"]},
+  "⭐": {"name":"gwiazda","keywords":["gwiazda","gwiazdka","noc"]},
+  "✨": {"name":"gwiazdki","keywords":["gwiazdki","*","błysk","gwiazda","gwiazdy","iskry","noc","świeci","świecący"]},
+  "💫": {"name":"zawroty głowy","keywords":["zawroty głowy","gwiazda","gwiazdka","kosmos","noc","orbita","spadająca gwiazda"]},
+  "🌟": {"name":"błyszcząca gwiazda","keywords":["błyszcząca gwiazda","błyszcząca","gwiazda","gwiazdka","lśniąca","świecąca gwiazdka"]},
+  "⚡": {"name":"wysokie napięcie","keywords":["wysokie napięcie","błysk","błyskawica","elektryczność","napięcie","niebezpieczeństwo","piorun","prąd"]},
+  "💧": {"name":"kropla","keywords":["kropla","kropelka","pot","woda","łza"]},
+  "🌈": {"name":"tęcza","keywords":["tęcza","deszcz","gej","geje","kolory","les","lesbijki","lgbt","lgbtq","lgbtqia","nadzieja","pogoda","pride","słońce","transpłciowość"]},
+  "🎯": {"name":"strzał w 10","keywords":["strzał w 10","cel","dziesiątka","gra","lotki","strzał","trafienie","w 10","w dziesiątkę","zabawa"]},
+  "🏆": {"name":"puchar","keywords":["puchar","nagroda","sport","trofeum","zwycięstwo"]},
+  "🥇": {"name":"medal za 1. miejsce","keywords":["medal za 1. miejsce","medal","pierwsze miejsce","sport","zawody","zwycięstwo","złoto","złoty medal"]},
+  "💯": {"name":"sto punktów","keywords":["sto punktów","100","setka","sto","stówa","stówka"]},
+  "❗": {"name":"czerwony wykrzyknik","keywords":["czerwony wykrzyknik","!","krzyk","okrzyk","wykrzyknik"]},
+  "❓": {"name":"czerwony znak zapytania","keywords":["czerwony znak zapytania","?","co?","o co chodzi","o co chodzi?","pytajnik","pytanie","znak zapytania"]},
+  "✔️": {"name":"znacznik wyboru","keywords":["znacznik wyboru","gruby znacznik wyboru","haczyk","parafka","ptaszek","tak","zaznaczenie"]},
+  "❌": {"name":"znak krzyżyka","keywords":["znak krzyżyka","anuluj","czerwony","krzyżyk","mnożenie","x","znak","znak mnożenia","×"]},
+};
+
+export default daten;

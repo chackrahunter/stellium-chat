@@ -1,0 +1,88 @@
+/**
+ * Emoji-Namen und Suchbegriffe — NO.
+ *
+ * ERZEUGT von scripts/emoji-katalog-erzeugen.mjs aus emojibase-data
+ * (MIT-Lizenz, © Miles Johnson — github.com/milesj/emojibase, CLDR-Grundlage).
+ * Nicht von Hand ändern — neu erzeugen: node scripts/emoji-katalog-erzeugen.mjs
+ *
+ * Nur die im EmojiPicker tatsächlich gezeigten Emoji, nicht der volle
+ * Unicode-Bestand — siehe Kopfkommentar des Erzeuger-Skripts fürs Warum.
+ */
+import type { EmojiKatalog } from '../typen.js';
+
+const daten: EmojiKatalog = {
+  "👍": {"name":"tommel opp","keywords":["tommel opp","bra","fint","flott","greit","ja","klart","ok","okay","okei","tommel","topp"]},
+  "🎉": {"name":"smell-bon-bon","keywords":["smell-bon-bon","feiring","fest","serpentin"]},
+  "❤️": {"name":"rødt hjerte","keywords":["rødt hjerte","hjerte"]},
+  "😂": {"name":"gledestårer","keywords":["gledestårer","fjes","flire","glede","gøy","haha","hoho","latter","le","lol","morsomt","tårer"]},
+  "👀": {"name":"øyne","keywords":["øyne","fjes","øye"]},
+  "🚀": {"name":"rakett","keywords":["rakett","fremkomstmiddel","verdensrommet"]},
+  "✅": {"name":"hakemerke i firkant","keywords":["hakemerke i firkant","avkryssing","avmerking","hake","hakemerke","utført","✓"]},
+  "🔥": {"name":"ild","keywords":["ild","flamme"]},
+  "🙏": {"name":"foldede hender","keywords":["foldede hender","be","ber","bevegelse","bønn","hånd"]},
+  "💡": {"name":"lyspære","keywords":["lyspære","elektrisitet","idé","lys","pære","tegneserie"]},
+  "👏": {"name":"klappende hender","keywords":["klappende hender","hender","hånd","klapping"]},
+  "🤝": {"name":"håndhilse","keywords":["håndhilse","avtale","hånd","håndtrykk","møte"]},
+  "😀": {"name":"glisefjes","keywords":["glisefjes","fint","fjes","flir","glad","glis","latter","smilefjes","smiler","tenner"]},
+  "😄": {"name":"glisende fjes med smilende øyne","keywords":["glisende fjes med smilende øyne","fjes","flir","glis","latter","lol","med tenner","morsomt","smil","smilefjes","smilefjes med åpen munn og smilende øyne","øye"]},
+  "😊": {"name":"smil med smilende øyne","keywords":["smil med smilende øyne","fjes","rødme","smil","smilende øyne"]},
+  "🙂": {"name":"smiler litt","keywords":["smiler litt","fjes","smil"]},
+  "😉": {"name":"blunkende ansikt","keywords":["blunkende ansikt","blunk","fjes"]},
+  "😍": {"name":"smilefjes med hjerteøyne","keywords":["smilefjes med hjerteøyne","fjes","hjerte","hjerteøyne","kjærlighet","øyne"]},
+  "🤔": {"name":"tenkefjes","keywords":["tenkefjes","fjes","tankefull","tenker"]},
+  "😅": {"name":"glisende fjes som svetter","keywords":["glisende fjes som svetter","kaldsvette","munn","smil med svette","svett smil med åpen munn","åpen"]},
+  "😬": {"name":"grimase","keywords":["grimase","fjes"]},
+  "😴": {"name":"sover","keywords":["sover","fjes","gjesp","god natt","godnatt","natt","snork","sove","søvn","trett","trøtt"]},
+  "🥳": {"name":"partyfjes","keywords":["partyfjes","bursdag","feiring","fest","fløyte","fødselsdag","glad","gratulerer","hatt","hurra","jippi","party"]},
+  "😎": {"name":"smilefjes med solbriller","keywords":["smilefjes med solbriller","fjes","kul","lyst","sol","solbriller"]},
+  "🤯": {"name":"eksploderende hode","keywords":["eksploderende hode","forbløffet","overrasket","sjokkert"]},
+  "😭": {"name":"strigråter","keywords":["strigråter","fjes","gråt","tårer"]},
+  "😤": {"name":"triumferende","keywords":["triumferende","fjes","jeg vant","triumf"]},
+  "🤗": {"name":"fjes som gir klem","keywords":["fjes som gir klem","fjes","klem"]},
+  "🙃": {"name":"fjes som er opp-ned","keywords":["fjes som er opp-ned","fjes","opp-ned"]},
+  "😇": {"name":"smil med glorie","keywords":["smil med glorie","engel","fjes","glorie","smil","uskyldig"]},
+  "👎": {"name":"tommel ned","keywords":["tommel ned","hånd","tegn","tommel"]},
+  "👌": {"name":"OK-hånd","keywords":["OK-hånd","bra","glimrende","greit","hand","hånd","klart","kult","ok","okay","perfekt","supert","ålreit"]},
+  "✌️": {"name":"seierstegn","keywords":["seierstegn","hånd","peace-tegn"]},
+  "🤞": {"name":"kryssede fingre","keywords":["kryssede fingre","finger","flaks","hand","hell","hånd","kryss","lykke","tvi"]},
+  "🙌": {"name":"hevede hender","keywords":["hevede hender","begge hender","feirer","feiring","hånd","rekker begge armene i været"]},
+  "👋": {"name":"vinkende hånd","keywords":["vinkende hånd","farvel","hallo","hand","hei","hilse","hånd","sees","senere","ses","vinke"]},
+  "🤙": {"name":"ring meg-hånd","keywords":["ring meg-hånd","hånd","ringe"]},
+  "💪": {"name":"biceps","keywords":["biceps","fleks","muskel","muskelfleksing","sterk","tegneserie"]},
+  "🫶": {"name":"hjertehender","keywords":["hjertehender","<3","elsker deg","hender","hender som lager hjerte","hjerte","kjærlighet"]},
+  "🤌": {"name":"hånd med fingertuppene sammen","keywords":["hånd med fingertuppene sammen","betal","fingertupper","fingre","hand","hånd","penger","sarkastisk","spørsmål"]},
+  "✍️": {"name":"skrivende hånd","keywords":["skrivende hånd","hånd","kropp","skrive"]},
+  "💻": {"name":"bærbar datamaskin","keywords":["bærbar datamaskin","datamaskin","maskin","pc"]},
+  "📱": {"name":"mobiltelefon","keywords":["mobiltelefon","mobil","telefon"]},
+  "📊": {"name":"stolpediagram","keywords":["stolpediagram","diagram","histogram","søylediagram"]},
+  "📈": {"name":"diagram som peker oppover","keywords":["diagram som peker oppover","chart","graf","opp","positiv","stigende"]},
+  "📉": {"name":"diagram som peker nedover","keywords":["diagram som peker nedover","chart","fallende","graf","ned","negativ","synkende"]},
+  "🗓️": {"name":"spiralkalender","keywords":["spiralkalender","blokk","kalender","spiral"]},
+  "📌": {"name":"stift","keywords":["stift","kontorrekvisita"]},
+  "📎": {"name":"binders","keywords":["binders","kontorrekvisita"]},
+  "✏️": {"name":"blyant","keywords":["blyant"]},
+  "🔧": {"name":"fastnøkkel","keywords":["fastnøkkel","skrunøkkel","verktøy"]},
+  "⚙️": {"name":"tannhjul","keywords":["tannhjul","del","tann","verktøy"]},
+  "🧪": {"name":"prøverør","keywords":["prøverør","eksperiment","forskning","kjemi","kjemiker","lab","reagensrør"]},
+  "🐛": {"name":"insekt","keywords":["insekt","dyr","kryp","larve","åme"]},
+  "🚧": {"name":"anleggsarbeid","keywords":["anleggsarbeid","byggeplass","byggeskilt","skilt"]},
+  "📦": {"name":"pakke","keywords":["pakke","eske","levering"]},
+  "🔍": {"name":"forstørrelsesglass mot venstre","keywords":["forstørrelsesglass mot venstre","forstørrelse","glass","lupe","søk"]},
+  "⭐": {"name":"stjerne","keywords":["stjerne","verdensrommet"]},
+  "✨": {"name":"stjerner","keywords":["stjerner","*","glitrende","skinnende"]},
+  "💫": {"name":"svimmel","keywords":["svimmel","se stjerner","stjerner","tegneserie"]},
+  "🌟": {"name":"lysende stjerne","keywords":["lysende stjerne","glitrende","skinnende","stjerne","verdensrommet"]},
+  "⚡": {"name":"høyspenning","keywords":["høyspenning","fare","høy","høyspent","lyn","spenning"]},
+  "💧": {"name":"dråpe","keywords":["dråpe","drypp","tegneserie","vann"]},
+  "🌈": {"name":"regnbue","keywords":["regnbue","regn","vær"]},
+  "🎯": {"name":"blink","keywords":["blink","dart","midt i blinken","mål","pilspill","treff"]},
+  "🏆": {"name":"trofé","keywords":["trofé","premie"]},
+  "🥇": {"name":"gullmedalje","keywords":["gullmedalje","førsteplass","gull","medalje"]},
+  "💯": {"name":"hundre poeng","keywords":["hundre poeng","100","full pott","poeng"]},
+  "❗": {"name":"rødt utropstegn","keywords":["rødt utropstegn","!","rød","utrop","utropstegn"]},
+  "❓": {"name":"rødt spørsmålstegn","keywords":["rødt spørsmålstegn","?","rød","spørsmål","spørsmålstegn"]},
+  "✔️": {"name":"hakemerke","keywords":["hakemerke","hake","merke","✓"]},
+  "❌": {"name":"kryss","keywords":["kryss","avbryt","rødt kryss","x","×"]},
+};
+
+export default daten;

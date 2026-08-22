@@ -1,6 +1,7 @@
 import {
-  detectLanguage, maskText, normalizeLang, placeholdersIntact,
-  translatableLength, unmaskText, type AiCapabilities, type TranslationView,
+  detectLanguage, dezimaltrennzeichenFuerSprache, findMeasurements, maskText, messwertPlatzhalter,
+  messwerteInTextEinsetzen, normalizeLang, placeholdersIntact, PLACEHOLDER, translatableLength, unmaskText,
+  type AiCapabilities, type Massregion, type Messwert, type TranslationView,
 } from '@stellium/shared';
 import {
   config, aiConfigured, aktiverAnbieter, istLokal, laufzeitSetzen, lokaleEinstellung, type AiProvider,
@@ -19,7 +20,9 @@ import {
   createGroqProvider, createLokalProvider, createOpenAIProvider, OpenAICompatibleProvider,
 } from './providers/openai-compatible.js';
 import { ProviderError, type AssistantProvider, type TranslationProvider } from './providers/types.js';
-import { istEcho, wortAehnlichkeit } from './echo.js';
+import {
+  ECHO_MIN_WOERTER, istEcho, woerter, wortAehnlichkeit,
+} from './echo.js';
 import {
   ausfallMelden, erfolgMelden, lageVergessen, lokaleLage, lokaleLageJetzt, modelleAbfragen,
   type LokaleLage,
@@ -464,6 +467,16 @@ export interface TranslateOptions {
   context?: string | null;
   /** Cache überspringen (z.B. für den Round-Trip-Check). */
   skipCache?: boolean;
+  /**
+   * Maßangaben (25 °C, 10 kg, 5 km, …) als Sentinel im Ergebnis stehen
+   * lassen, statt sie unverändert im Ausgangswortlaut zu belassen — siehe
+   * messwerteMaskieren() unten und einheiten.ts. Nur von translateMessage()
+   * gesetzt: Umfragen, Kanalnamen und der Rückübersetzungs-Check
+   * (roundTrip()) laufen bewusst ohne, damit dort nie ein ungelöster
+   * Sentinel stehen bleiben kann — es ruft dort niemand
+   * messwerteFuerEmpfaenger() ab, der ihn wieder auflösen würde.
+   */
+  messwerte?: boolean;
 }
 
 export interface TranslateOutcome {
@@ -480,6 +493,47 @@ export interface TranslateOutcome {
    * `text` trägt dann das Original: unübersetzt, und das soll man sehen.
    */
   unuebersetzt: boolean;
+  /**
+   * Der Schlüssel in translation_memory, den dieses Ergebnis gerade trägt —
+   * null, wenn nichts im Satz-Cache stand oder landete (noop, unübersetzt,
+   * Echo). Der Aufrufer (translateMessage) verknüpft ihn mit der jeweiligen
+   * message_translations-Zeile, damit tmVerweiseNachrechnen() später weiß,
+   * welche Phrase noch gebraucht wird und welche nicht mehr.
+   */
+  memoryKey: string | null;
+  /** Siehe TranslationView.measurements — nur gefüllt, wenn opts.messwerte
+   *  gesetzt war UND der Text mindestens eine Maßangabe enthielt. */
+  measurements?: Record<number, Messwert>;
+}
+
+/**
+ * Bereits erkannte Maßangaben (siehe einheiten.ts, Positionen bezogen auf
+ * `masked` — also NACH Code/Link/Mention/Glossar-Maskierung, damit eine Zahl
+ * mitten in einem Codeblock nie mit angefasst wird) zusätzlich wie Code/
+ * Links maskieren: genau dieselbe {{n}}-Maschinerie, damit das Sprachmodell
+ * sie nie zu Gesicht bekommt. Rückwärts eingesetzt, damit die start/end-
+ * Positionen der noch ausstehenden Treffer gültig bleiben.
+ *
+ * Die Sentinel-Nummerierung (⟦m0⟧, ⟦m1⟧, …) folgt NICHT dem {{n}}-Index
+ * (der hängt auch davon ab, wie viel Code/Links/Mentions daneben stehen),
+ * sondern schlicht der Position von `funde` — dieselbe Reihenfolge, die eine
+ * erneute findMeasurements() auf demselben Text jederzeit reproduzieren
+ * kann. Das ist der Grund, warum translateMessage() im Direkttreffer-Zweig
+ * (Cache-Zeile ohne LLM-Aufruf) die Sentinel-Zuordnung einfach neu
+ * berechnen darf, statt sie mitzuspeichern.
+ */
+function messwerteMaskieren(
+  masked: string, tokens: string[], funde: Messwert[],
+): { masked: string; measurementTokens: Map<number, Messwert> } {
+  const measurementTokens = new Map<number, Messwert>();
+  let out = masked;
+  for (const m of [...funde].sort((a, b) => b.start - a.start)) {
+    const idx = tokens.length;
+    tokens.push(m.rohtext);
+    measurementTokens.set(idx, m);
+    out = out.slice(0, m.start) + PLACEHOLDER(idx) + out.slice(m.end);
+  }
+  return { masked: out, measurementTokens };
 }
 
 export async function translate(opts: TranslateOptions): Promise<TranslateOutcome> {
@@ -492,14 +546,39 @@ export async function translate(opts: TranslateOptions): Promise<TranslateOutcom
     confidence: null as number | null, cached: false, noop: false, unuebersetzt: false,
   };
 
-  if (source === target) return { ...base, text: opts.text, noop: true, confidence: 1 };
-
   const { protectedTerms, mapping } = glossaryFor(target);
-  const { masked, tokens } = maskText(opts.text, { protectedTerms });
+  const { masked: maskedOhneMesswerte, tokens } = maskText(opts.text, { protectedTerms });
+
+  /* Maßangaben auf dem BEREITS maskierten Text suchen (siehe Kommentar an
+     messwerteMaskieren) und dieselbe Sentinel-Ersetzung schon hier bereit-
+     stellen — für jeden Rückgabepfad unten, der gar nicht erst übersetzt
+     (schon Zielsprache, nichts Übersetzbares, Modell nicht erreichbar,
+     Fehler, Echo). Ohne das bekäme eine Empfängerin ihre eigene Einheit nur
+     dann, wenn tatsächlich übersetzt wurde — bei zwei Leuten mit derselben
+     Zielsprache (z. B. zwei „en"-Konten, eins in Denver, eins in London) ist
+     das aber gerade der HÄUFIGE Fall: source === target, nichts zu tun außer
+     der Maßangabe. */
+  const gefundeneMesswerte = opts.messwerte ? findMeasurements(maskedOhneMesswerte) : [];
+  const { masked, measurementTokens } = gefundeneMesswerte.length
+    ? messwerteMaskieren(maskedOhneMesswerte, tokens, gefundeneMesswerte)
+    : { masked: maskedOhneMesswerte, measurementTokens: new Map<number, Messwert>() };
+  const messwertIndex = new Map(gefundeneMesswerte.map((m, i) => [m, i] as const));
+  const messwerteRecord = gefundeneMesswerte.length
+    ? Object.fromEntries(gefundeneMesswerte.map((m, i) => [i, m])) : undefined;
+  /** Sentinel statt Rohtext für jede erkannte Maßangabe, alles andere unverändert. */
+  const mitMesswertSentinels = (text: string) => unmaskText(text, tokens, (idx, roh) => {
+    const mw = measurementTokens.get(idx);
+    return mw ? messwertPlatzhalter(messwertIndex.get(mw)!) : roh;
+  });
+  const mitSentinels = mitMesswertSentinels(masked);
+
+  if (source === target) {
+    return { ...base, text: mitSentinels, noop: true, confidence: 1, memoryKey: null, measurements: messwerteRecord };
+  }
 
   // Reiner Code / nur Links / nur Emojis -> nichts Übersetzbares übrig.
   if (translatableLength(masked) === 0) {
-    return { ...base, text: opts.text, noop: true, confidence: 1 };
+    return { ...base, text: mitSentinels, noop: true, confidence: 1, memoryKey: null, measurements: messwerteRecord };
   }
 
   const key = tmKey(source, target, masked);
@@ -517,6 +596,10 @@ export async function translate(opts: TranslateOptions): Promise<TranslateOutcom
     zusatz: {
       provider: string; model: string | null; confidence: number | null;
       cached: boolean; sourceLang?: string;
+      /** Nur setzen, wenn dieser Aufruf wirklich einen Cache-Treffer oder
+          einen frischen Eintrag in translation_memory abbildet — siehe die
+          beiden Echo-Zweige unten, die absichtlich keinen mitgeben. */
+      memoryKey?: string | null;
     },
   ): TranslateOutcome => {
     if (istEcho(masked, uebersetzt)) {
@@ -547,15 +630,25 @@ export async function translate(opts: TranslateOptions): Promise<TranslateOutcom
             + ` ${Math.round(wortAehnlichkeit(masked, uebersetzt) * 100)} % Übereinstimmung)`
             + ' — wird als unübersetzt gekennzeichnet.',
       );
-      return { ...base, ...zusatz, text: opts.text, noop: true, unuebersetzt: true, confidence: 0 };
+      // Ein Echo landet nie im Satz-Cache (siehe weiter unten) — memoryKey
+      // deshalb hier zwingend null, auch falls zusatz versehentlich einen trüge.
+      return {
+        ...base, ...zusatz, text: mitSentinels, noop: true, unuebersetzt: true, confidence: 0,
+        memoryKey: null, measurements: messwerteRecord,
+      };
     }
-    return { ...base, ...zusatz, text: unmaskText(uebersetzt, tokens) };
+    return {
+      ...base, ...zusatz, text: mitMesswertSentinels(uebersetzt),
+      measurements: messwerteRecord, memoryKey: zusatz.memoryKey ?? null,
+    };
   };
 
   if (!opts.skipCache) {
     const hot = memory.get(key);
     if (hot) {
-      return fertig(hot.text, { provider: hot.provider, model: hot.model, confidence: hot.confidence, cached: true });
+      return fertig(hot.text, {
+        provider: hot.provider, model: hot.model, confidence: hot.confidence, cached: true, memoryKey: key,
+      });
     }
 
     const row = db.get<{ target_text: string; provider: string }>(
@@ -568,7 +661,9 @@ export async function translate(opts: TranslateOptions): Promise<TranslateOutcom
         model: provider.model, confidence: 0.9,
       };
       memory.set(key, entry);
-      return fertig(entry.text, { provider: entry.provider, model: entry.model, confidence: entry.confidence, cached: true });
+      return fertig(entry.text, {
+        provider: entry.provider, model: entry.model, confidence: entry.confidence, cached: true, memoryKey: key,
+      });
     }
   }
 
@@ -578,7 +673,10 @@ export async function translate(opts: TranslateOptions): Promise<TranslateOutcom
      Merker auf: wer von Hand nachfordert, soll einen echten neuen Versuch
      bekommen. */
   if (!opts.skipCache && echoGemerkt(key)) {
-    return { ...base, text: opts.text, confidence: 0, noop: true, unuebersetzt: true };
+    return {
+      ...base, text: mitSentinels, confidence: 0, noop: true, unuebersetzt: true,
+      memoryKey: null, measurements: messwerteRecord,
+    };
   }
 
   /* Erst nachsehen, ob überhaupt jemand da ist. Ein Modell im eigenen Netz
@@ -593,7 +691,10 @@ export async function translate(opts: TranslateOptions): Promise<TranslateOutcom
       `[translate] ${lokaleEinstellung().baseUrl}: ${lage.fehler ?? 'antwortet nicht'}`
       + ' — nicht übersetzt, wird beim nächsten Mal erneut versucht.',
     );
-    return { ...base, text: opts.text, confidence: 0, noop: true, unuebersetzt: true };
+    return {
+      ...base, text: mitSentinels, confidence: 0, noop: true, unuebersetzt: true,
+      memoryKey: null, measurements: messwerteRecord,
+    };
   }
 
   const anfrage = {
@@ -642,19 +743,28 @@ export async function translate(opts: TranslateOptions): Promise<TranslateOutcom
     const status = err instanceof ProviderError ? err.status : undefined;
     if (status === undefined || status === 408) ausfallMelden((err as Error).message);
     // Lieber das Original zeigen als gar nichts.
-    return { ...base, text: opts.text, confidence: 0, noop: true, unuebersetzt: true };
+    return {
+      ...base, text: mitSentinels, confidence: 0, noop: true, unuebersetzt: true,
+      memoryKey: null, measurements: messwerteRecord,
+    };
   }
 
   const out = result.text;
   if (!placeholdersIntact(masked, out)) {
     // Modell hat Platzhalter verschluckt — Original zurückgeben statt Kauderwelsch.
     console.warn('[translate] Platzhalter beschädigt, nutze Original');
-    return { ...base, text: opts.text, confidence: 0, noop: true, unuebersetzt: true };
+    return {
+      ...base, text: mitSentinels, confidence: 0, noop: true, unuebersetzt: true,
+      memoryKey: null, measurements: messwerteRecord,
+    };
   }
 
   const finalSource = result.detectedSourceLang ? normalizeLang(result.detectedSourceLang) : source;
   if (finalSource === target) {
-    return { ...base, sourceLang: finalSource, text: opts.text, noop: true, confidence: 1 };
+    return {
+      ...base, sourceLang: finalSource, text: mitSentinels, noop: true, confidence: 1,
+      memoryKey: null, measurements: messwerteRecord,
+    };
   }
 
   const entry = { text: out, provider: provider.name, model: result.model, confidence: result.confidence };
@@ -703,7 +813,7 @@ export async function translate(opts: TranslateOptions): Promise<TranslateOutcom
 
   return fertig(out, {
     provider: entry.provider, model: entry.model, confidence: entry.confidence,
-    cached: false, sourceLang: finalSource,
+    cached: false, sourceLang: finalSource, memoryKey: key,
   });
 }
 
@@ -725,7 +835,61 @@ async function withRetry<T>(fn: () => Promise<T>, attempts = 3): Promise<T> {
 /* ── Nachrichten-Übersetzung mit persistentem Cache ───────────── */
 
 interface MessageRow {
-  id: string; channel_id: string; text: string; source_lang: string | null; deleted_at: number | null;
+  id: string; channel_id: string; user_id: string; text: string; source_lang: string | null; deleted_at: number | null;
+}
+
+/**
+ * Ausgangssprache, mit der eine Übersetzung tatsächlich anläuft, wenn die
+ * Nachricht selbst keine feststehende trägt (`source_lang` ist dann null —
+ * siehe messages.ts, dieselbe 0,35-Schwelle).
+ *
+ * Die Heuristik allein reicht bei kurzen Antworten nicht: „ok", „vale" oder
+ * „ya" fallen für sie überzeugend auf eine andere Sprache, obwohl es Wörter
+ * sind, die mehrere Sprachen teilen oder die dort zufällig eindeutig
+ * scheinen. Drei Wörter oder weniger ist dieselbe Grenze, unter der auch die
+ * Echo-Prüfung nichts mehr beurteilt (ECHO_MIN_WOERTER in echo.ts) — darunter
+ * kippt ein einziger Treffer die Konfidenz, ohne dass genug Text für einen
+ * echten Anhaltspunkt da wäre.
+ *
+ * Unterhalb der Wort- oder der Sicherheitsgrenze zählt die Sprache, die diese
+ * Person sich selbst eingestellt hat, mehr als ein einzelnes mehrdeutiges
+ * Wort: Wer sein Konto auf Englisch führt, schreibt ein kurzes „ok" nicht
+ * plötzlich auf Spanisch. Das Ergebnis fließt weiter in `translate()` als
+ * `source` und wird bei Erfolg auch in die Nachricht zurückgeschrieben (siehe
+ * unten) — ein besserer erster Wert hier verbessert also auch das, was
+ * dauerhaft in der Datenbank landet.
+ */
+/**
+ * Für jeden Ort, der eine Zeile aus message_translations OHNE Umweg über
+ * translate()/translateMessage() liest — hier für den Direkttreffer unten,
+ * genauso gebraucht von ws/gateway.ts: fillCachedTranslations() dort liest
+ * dieselbe Tabelle über eine EIGENE SQL-Abfrage (siehe Bericht) und braucht
+ * darum dieselbe Nachbildung der Sentinel-Nummerierung. Exportiert genau
+ * dafür — ws/gateway.ts ist für diese Änderung gerade gesperrt, die Stelle
+ * ist beschrieben statt gesetzt.
+ *
+ * Liefert dieselbe Sentinel-Nummerierung wie ein frischer translate()-
+ * Aufruf, aber ohne dessen ganze Maschinerie — nur Erkennung, kein LLM-
+ * Aufruf nötig. Funktioniert, weil findMeasurements() rein und
+ * deterministisch ist: derselbe (glossar-maskierte) Text liefert immer
+ * dieselben Treffer in derselben Reihenfolge, egal ob heute oder beim
+ * ursprünglichen Entstehen der Cache-Zeile.
+ */
+export function messwerteRecordFuer(text: string, targetLang: string): Record<number, Messwert> | undefined {
+  const { protectedTerms } = glossaryFor(targetLang);
+  const { masked } = maskText(text, { protectedTerms });
+  const funde = findMeasurements(masked);
+  return funde.length ? Object.fromEntries(funde.map((m, i) => [i, m])) : undefined;
+}
+
+function quellspracheSchaetzen(text: string, userId: string): string {
+  const erkannt = detectLanguage(text);
+  const genugText = woerter(text).length >= ECHO_MIN_WOERTER;
+  if (erkannt.lang !== 'unknown' && erkannt.confidence >= 0.35 && genugText) {
+    return erkannt.lang;
+  }
+  const eigene = db.get<{ language: string }>('SELECT language FROM users WHERE id = ?', userId)?.language;
+  return eigene ? normalizeLang(eigene) : (erkannt.lang !== 'unknown' ? erkannt.lang : 'en');
 }
 
 export async function translateMessage(
@@ -735,7 +899,7 @@ export async function translateMessage(
 ): Promise<TranslationView | null> {
   const target = normalizeLang(targetLang);
   const roh = db.get<MessageRow>(
-    'SELECT id, channel_id, text, source_lang, deleted_at FROM messages WHERE id = ?', messageId,
+    'SELECT id, channel_id, user_id, text, source_lang, deleted_at FROM messages WHERE id = ?', messageId,
   );
   if (!roh || roh.deleted_at) return null;
   // In der Tabelle liegt nur das Chiffrat — ab hier wird mit Klartext gearbeitet.
@@ -751,16 +915,20 @@ export async function translateMessage(
     // Nur gültig, wenn Text UND Provider noch dieselben sind. Sonst zeigt die
     // App nach einem Providerwechsel ewig die alten Ergebnisse an.
     if (cached && cached.source_hash === hash && cached.provider === provider.name) {
-      return { lang: target, text: entschluesseln(cached.text), provider: cached.provider, model: cached.model, confidence: cached.confidence, cached: true };
+      return {
+        lang: target, text: entschluesseln(cached.text), provider: cached.provider, model: cached.model,
+        confidence: cached.confidence, cached: true, measurements: messwerteRecordFuer(msg.text, target),
+      };
     }
   }
 
   const outcome = await translate({
     text: msg.text,
     targetLang: target,
-    sourceLang: msg.source_lang,
+    sourceLang: msg.source_lang ?? quellspracheSchaetzen(msg.text, msg.user_id),
     context: opts.context ?? null,
     skipCache: opts.force,
+    messwerte: true,
   });
 
   // Hat das Modell die Ausgangssprache bestimmt, wo wir unsicher waren?
@@ -777,31 +945,162 @@ export async function translateMessage(
   if (outcome.unuebersetzt) {
     return {
       lang: target, text: outcome.text, provider: outcome.provider, model: outcome.model,
-      confidence: 0, cached: outcome.cached, unuebersetzt: true,
+      confidence: 0, cached: outcome.cached, unuebersetzt: true, measurements: outcome.measurements,
     };
   }
 
-  if (outcome.noop) return null;
+  /* "noop" hieß bisher immer: nichts weiterzugeben, der Client zeigt ohnehin
+     schon message.text. Das stimmt nicht mehr uneingeschränkt — Ausgangs-
+     und Zielsprache können gleich sein (zwei „en"-Konten, eine Nachricht auf
+     Englisch) und TROTZDEM eine Maßangabe enthalten, die für genau diese
+     Empfängerin noch in ihre Einheit übersetzt werden muss (25 °C bleibt
+     Englisch -> Englisch, aber für Denver trotzdem 77 °F). Ohne diese
+     Ausnahme bekäme so ein Fall nie eine TranslationView — und der Sentinel
+     aus messwerteMaskieren() hätte nie eine Chance, aufgelöst zu werden. */
+  if (outcome.noop) {
+    if (!outcome.measurements) return null;
+    return {
+      lang: target, text: outcome.text, provider: outcome.provider, model: outcome.model,
+      confidence: outcome.confidence, cached: outcome.cached, measurements: outcome.measurements,
+    };
+  }
+
+  /* Ersetzt diese Übersetzung eine frühere (Provider gewechselt, erzwungener
+     Neuversuch), hing die alte Zeile an einem eigenen Schlüssel in
+     translation_memory — den holt niemand mehr, wenn die neue Zeile ihn
+     überschreibt. Deshalb vorher lesen, nicht raten. */
+  const vorherigerSchluessel = db.get<{ tm_key: string | null }>(
+    'SELECT tm_key FROM message_translations WHERE message_id = ? AND lang = ?', messageId, target,
+  )?.tm_key ?? null;
 
   db.run(
-    `INSERT INTO message_translations (message_id, lang, text, provider, model, confidence, source_hash, created_at)
-     VALUES (?,?,?,?,?,?,?,?)
+    `INSERT INTO message_translations (message_id, lang, text, provider, model, confidence, source_hash, tm_key, created_at)
+     VALUES (?,?,?,?,?,?,?,?,?)
      ON CONFLICT(message_id, lang) DO UPDATE SET
        text = excluded.text, provider = excluded.provider, model = excluded.model,
-       confidence = excluded.confidence, source_hash = excluded.source_hash, created_at = excluded.created_at`,
-    messageId, target, verschluesseln(outcome.text), outcome.provider, outcome.model, outcome.confidence, hash, Date.now(),
+       confidence = excluded.confidence, source_hash = excluded.source_hash,
+       tm_key = excluded.tm_key, created_at = excluded.created_at`,
+    messageId, target, verschluesseln(outcome.text), outcome.provider, outcome.model, outcome.confidence,
+    hash, outcome.memoryKey, Date.now(),
   );
   reindexMessage(messageId);
+  // Alter und neuer Schlüssel können sich dadurch geändert haben, wie viele
+  // Nachrichten sie noch halten — siehe tmVerweiseNachrechnen().
+  tmVerweiseNachrechnen([vorherigerSchluessel, outcome.memoryKey]);
 
   return {
     lang: target, text: outcome.text, provider: outcome.provider,
     model: outcome.model, confidence: outcome.confidence, cached: outcome.cached,
+    measurements: outcome.measurements,
   };
 }
 
-/** Edits invalidieren alle Übersetzungen der Nachricht. */
+/**
+ * DER KNACKPUNKT (siehe Auftrag): message_translations/translation_memory
+ * sind pro (Nachricht, Zielsprache) zwischengespeichert — bewusst geteilt
+ * zwischen allen Empfänger:innen dieser Sprache, siehe translate()/
+ * translateMessage() oben. Zwei Personen mit target=lang="en", eine in
+ * Denver, eine in London, bekommen deshalb GENAU dieselbe TranslationView
+ * aus dem Cache — mit ⟦m0⟧-Sentinels statt fertiger Zahlen an der Stelle
+ * jeder Maßangabe (siehe messwerteMaskieren, einheiten.ts).
+ *
+ * Diese Funktion ist der einzige Ort, an dem ein Sentinel durch eine
+ * fertige, für EINE bestimmte Person passende Zahl ersetzt wird — reine,
+ * synchrone Zeichenkettenarbeit, kein Netz- oder Datenbankzugriff, beliebig
+ * oft wiederholbar für beliebig viele Empfänger:innen derselben gecachten
+ * Übersetzung. `region` kommt aus regionFuerZeitzone(user.timezone), `sprache`
+ * aus DEMSELBEN `target`/`lang`, das an dieser Stelle ohnehin schon für
+ * translateMessage() gilt (User.language — die Sprache, IN DIE übersetzt
+ * wird — NICHT SelfUser.uiLanguage, das nur Menüs/Knöpfe betrifft und mit der
+ * Übersetzungssprache auseinanderfallen kann).
+ *
+ * WICHTIG: das muss an JEDER Stelle laufen, die eine TranslationView über die
+ * Leitung an genau eine Person schickt. Stand bei der Untersuchung für dieses
+ * Modul (ws/gateway.ts ist gesperrt, eine andere Änderung läuft dort gerade —
+ * hier nur beschrieben, nicht gesetzt):
+ *   - jeder der sechs Orte, die ein `{ t: 'translation', … }`-Ereignis
+ *     verschicken (sendToUser bzw. send(session, …), aktuell in etwa bei den
+ *     Zeilen 431, 564, 1217, 1485, 1526, 2812 — Zeilennummern verschieben
+ *     sich, der Text `{ t: 'translation'` findet sie zuverlässiger);
+ *   - fillCachedTranslations() (aktuell ~Zeile 397): liest message_
+ *     translations über eine EIGENE SQL-Abfrage, ohne über translateMessage()
+ *     zu gehen, und setzt `m.translation` von Hand — dieselbe Stelle braucht
+ *     zusätzlich `measurements: messwerteRecordFuer(m.text, target)` (jetzt
+ *     exportiert, siehe oben), SONST bleibt für jede Nachricht, die NUR über
+ *     den Verlauf geladen wird (nicht frisch über translateInBackground),
+ *     ein ungelöster ⟦m0⟧-Sentinel im Text stehen;
+ *   - jede Stelle, die `m.translation` unverändert weiterreicht (z. B. das
+ *     `if (m.translation) send(session, { t: 'translation', … })` beim
+ *     Öffnen eines Threads).
+ *
+ * Das zurückgegebene Objekt trägt `measurements` NICHT mehr — es ist bereits
+ * aufgelöst und muss (und soll) nicht über die Leitung gehen.
+ */
+export function messwerteFuerEmpfaenger(
+  view: TranslationView, region: Massregion, sprache: string,
+): TranslationView {
+  if (!view.measurements) return view;
+  const text = messwerteInTextEinsetzen(
+    view.text, view.measurements, region, dezimaltrennzeichenFuerSprache(sprache),
+  );
+  const { measurements: _messwerte, ...ohneMesswerte } = view;
+  return { ...ohneMesswerte, text };
+}
+
+/**
+ * Alle Übersetzungen einer Nachricht wegwerfen — bei einem Edit (der Text
+ * passt nicht mehr) und beim Löschen (siehe services/messages.ts).
+ *
+ * Nimmt dabei den Übersetzungsspeicher mit: jede betroffene Zeile trug einen
+ * tm_key, und der Schlüssel in translation_memory dahinter darf nur bestehen
+ * bleiben, wenn ihn noch eine ANDERE Nachricht hält. Ohne diesen Schritt
+ * überlebte der Inhalt einer gelöschten Nachricht — Quelle UND Übersetzung —
+ * unter einem anderen Namen im Übersetzungsspeicher weiter, obwohl die
+ * Nachricht selbst als gelöscht gilt.
+ */
 export function dropMessageTranslations(messageId: string): void {
+  const schluessel = db.all<{ tm_key: string | null }>(
+    'SELECT tm_key FROM message_translations WHERE message_id = ?', messageId,
+  ).map((r) => r.tm_key);
   db.run('DELETE FROM message_translations WHERE message_id = ?', messageId);
+  tmVerweiseNachrechnen(schluessel);
+}
+
+/**
+ * Den Verweiszähler dieser Schlüssel aus der Wahrheit neu bestimmen — und
+ * freigeben, was keine bestehende Nachricht mehr braucht.
+ *
+ * Dieselbe Machart wie verweiseNachrechnen()/freigeben() für den
+ * Blockspeicher (services/bloecke.ts): nicht hoch- und runterzählen, sondern
+ * nachsehen, wie viele Zeilen in message_translations gerade noch auf den
+ * Schlüssel zeigen (message_translations.tm_key). Ein Zähler, den man
+ * einzeln fortschreibt, läuft irgendwann auseinander — hier genügt ein Weg,
+ * auf dem eine Übersetzung verschwindet, ohne dass diese Funktion gerufen
+ * wird, und schon zählt es nicht mehr. Nachsehen kann sich nicht verzählen.
+ *
+ * Aufgeräumt wird ausdrücklich nur unter den übergebenen Schlüsseln, nicht
+ * mit einem Rundumschlag über die ganze Tabelle: Zeilen, die eine Umfrage
+ * oder eine Kanalangabe im selben Übersetzungsspeicher angelegt hat, tragen
+ * `verweise = 0` und werden von dieser Funktion nie angefasst, wenn niemand
+ * ihren Schlüssel hier übergibt — sie sind nicht Gegenstand dieser Zählung.
+ *
+ * Erreicht ein übergebener Schlüssel 0, heißt das: keine bestehende Nachricht
+ * hält ihn mehr. Dann wird die Zeile GELÖSCHT, nicht nur auf 0 gesetzt — der
+ * Übersetzungsspeicher wäre sonst der einzige Ort, an dem Quelle und
+ * Übersetzung einer gelöschten Nachricht überleben.
+ */
+export function tmVerweiseNachrechnen(keys: Iterable<string | null | undefined>): void {
+  const eindeutig = new Set<string>();
+  for (const k of keys) if (k) eindeutig.add(k);
+  for (const key of eindeutig) {
+    db.run(
+      `UPDATE translation_memory SET verweise =
+         (SELECT COUNT(*) FROM message_translations WHERE tm_key = translation_memory.key)
+       WHERE key = ?`,
+      key,
+    );
+    db.run('DELETE FROM translation_memory WHERE key = ? AND verweise <= 0', key);
+  }
 }
 
 /* ── Round-Trip-Prüfung ───────────────────────────────────────── */
@@ -812,7 +1111,7 @@ export function dropMessageTranslations(messageId: string): void {
  * sieht das als Warnhinweis.
  */
 export async function roundTrip(messageId: string, targetLang: string): Promise<{ backTranslation: string; similarity: number } | null> {
-  const roh = db.get<MessageRow>('SELECT id, channel_id, text, source_lang, deleted_at FROM messages WHERE id = ?', messageId);
+  const roh = db.get<MessageRow>('SELECT id, channel_id, user_id, text, source_lang, deleted_at FROM messages WHERE id = ?', messageId);
   if (!roh || roh.deleted_at) return null;
   const msg = { ...roh, text: entschluesseln(roh.text) };
   const gespeichert = db.get<{ text: string }>(
@@ -821,7 +1120,9 @@ export async function roundTrip(messageId: string, targetLang: string): Promise<
   if (!gespeichert) return null;
   const translated = { text: entschluesseln(gespeichert.text) };
 
-  const sourceLang = msg.source_lang ?? detectLanguage(msg.text).lang;
+  // Dieselbe Schätzung wie oben — sonst schlägt der Rückweg für dieselben
+  // kurzen, mehrdeutigen Nachrichten dieselbe Kapriole wie die Hinübersetzung.
+  const sourceLang = msg.source_lang ?? quellspracheSchaetzen(msg.text, msg.user_id);
   const back = await translate({
     text: translated.text,
     targetLang: sourceLang,

@@ -3,10 +3,9 @@ import { motion } from 'framer-motion';
 import { Hash, Lock, Search, Sparkles } from 'lucide-react';
 import { useStore } from '../state/store.js';
 import { useFokusfalle } from './Fokusfalle.jsx';
-import { useT, t } from '../i18n/index.js';
+import { useT, spracheName } from '../i18n/index.js';
 import { kanalName } from '../lib/format.js';
 import { Avatar } from './Avatar.jsx';
-import { languageInfo } from '../lib/format.js';
 
 interface Item {
   id: string;
@@ -20,6 +19,12 @@ interface Item {
 export function QuickSwitcher({ onClose }: { onClose: () => void }) {
   const kasten = useRef<HTMLDivElement>(null);
   useFokusfalle(kasten, true, onClose);
+  /* Reaktiv statt des Modul-t aus i18n/index.js: das lief bisher nur beim
+     Laden des Moduls an den Zustand an, nicht bei jedem Aufbau der Liste
+     unten — bei einem Sprachwechsel blieben Kanal-Hinweistexte und
+     Aktionsnamen hier in der alten Sprache stehen, bis irgendein anderer
+     Grund den useMemo ohnehin neu laufen ließ. */
+  const t = useT();
   const channels = useStore((s) => s.channels);
   const users = useStore((s) => s.users);
   const self = useStore((s) => s.self);
@@ -48,7 +53,9 @@ export function QuickSwitcher({ onClose }: { onClose: () => void }) {
       if (u.id === self?.id || u.disabled || u.technisch) continue;
       out.push({
         id: u.id, kind: 'user', title: u.displayName,
-        sub: `@${u.handle} · ${languageInfo(u.language).native}${u.title ? ` · ${u.title}` : ''}`,
+        // spracheName() statt languageInfo(...).native: der Eigenname gehört
+        // in eine Auswahlliste, nicht in eine Zeile mitten in der Oberfläche.
+        sub: `@${u.handle} · ${spracheName(u.language)}${u.title ? ` · ${u.title}` : ''}`,
         icon: <Avatar user={u} size={24} showPresence />,
         run: () => { store.openDm(u.id); onClose(); },
       });
@@ -76,7 +83,7 @@ export function QuickSwitcher({ onClose }: { onClose: () => void }) {
     );
 
     return out;
-  }, [channels, users, self, activeChannelId, onClose]);
+  }, [channels, users, self, activeChannelId, onClose, t]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase().replace(/^[#@]/, '');

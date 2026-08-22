@@ -1,9 +1,10 @@
 {
   "name": "@stellium/desktop",
-  "version": "1.0.28",
+  "version": "1.0.29",
   "private": true,
   "type": "module",
   "main": "dist-electron/main.js",
+  "desktopName": "stellium.desktop",
   "scripts": {
     "dev": "vite",
     "dev:electron": "npm run build:electron && electron .",
@@ -15,7 +16,7 @@
     "dist:linux": "electron-builder --linux",
     "dist:all": "electron-builder -mwl",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.electron.json --noEmit",
-    "build:electron": "tsc -p tsconfig.electron.json && node -e \"const fs=require('fs');fs.renameSync('dist-electron/preload.js','dist-electron/preload.mjs')\"",
+    "build:electron": "tsc -p tsconfig.electron.json && node -e \"const fs=require('fs');for(const f of fs.readdirSync('dist-electron'))if(/preload\\.js$/.test(f))fs.renameSync('dist-electron/'+f,'dist-electron/'+f.replace(/\\.js$/,'.mjs'))\"",
     "dist:mac:universal": "electron-builder --mac --universal",
     "dist:mac:intel": "electron-builder --mac --x64",
     "build:web": "vite build"
@@ -123,6 +124,7 @@
       "synopsis": "Team-Chat mit Live-Übersetzung",
       "description": "Team-Chat für Unternehmen mit durchgehender Live-Übersetzung: jede Person schreibt und liest in der eigenen Sprache.",
       "executableName": "stellium",
+      "syncDesktopName": true,
       "desktop": {
         "entry": {
           "Name": "Stellium",

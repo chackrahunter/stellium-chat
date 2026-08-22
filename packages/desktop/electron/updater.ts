@@ -71,8 +71,17 @@ let installiertBeimBeenden = false;
    selben App-Ordner auf. */
 let installiertGerade = false;
 /* Eine Version, deren Austausch stumm gescheitert ist. Die wird nicht wieder
-   von selbst eingespielt — sonst dreht sich das Laden endlos im Kreis. */
+   von selbst eingespielt — sonst dreht sich das Laden endlos im Kreis.
+   Zusammen mit dem Zeitpunkt: ein für immer gültiger Ausschluss traf schon
+   einmal einen Fehlschlag, der nichts mit der Version zu tun hatte (Platte
+   kurz voll, Datei gerade in Benutzung) — und sperrte sie dann auf ewig vom
+   automatischen Weg, bis irgendwann von Hand nachgesehen wurde. Nach der
+   Abkühlung darf es die App von selbst noch einmal versuchen: lang genug, um
+   keine Schleife zu drehen, kurz genug, dass ein behobenes Problem nicht
+   wochenlang unbemerkt bleibt. */
 let gescheitert: string | null = null;
+let gescheitertSeit: number | null = null;
+const GESCHEITERT_ABKUEHLUNG_MS = 24 * 60 * 60 * 1000;
 
 function fristStarten(sekunden = FRIST_MS / 1000): void {
   if (frist) clearTimeout(frist);
@@ -104,6 +113,10 @@ export function updaterInit(win: BrowserWindow): void {
     const vermerk = JSON.parse(fs.readFileSync(datei, 'utf8')) as Vermerk;
     if (vermerk.version && vermerk.version !== app.getVersion()) {
       gescheitert = vermerk.version;
+      // installiertAm ist der Zeitpunkt, zu dem der Austausch ANGESTOSSEN
+      // wurde — nicht wann er scheiterte, aber nah genug dafür: gescheitert
+      // ist er ja, weil dieser Start immer noch die alte Fassung meldet.
+      gescheitertSeit = vermerk.installiertAm;
       // Den Vermerk wegräumen, sonst begrüßt der Willkommensgruß eine Fassung,
       // die gar nicht läuft.
       fs.rmSync(datei, { force: true });
@@ -173,22 +186,26 @@ export async function pruefen(manuell = false): Promise<Fern | null> {
     /* Ist derselbe Austausch schon einmal stumm gescheitert, wird er nicht
        von selbst wiederholt — sonst lädt die App dieselbe Datei, startet neu,
        scheitert erneut, und das im Takt der Prüfung. Auf Knopfdruck darf man
-       es weiter versuchen; vielleicht war die Platte nur kurz voll. */
-    if (update.version === gescheitert && !manuell) {
+       es weiter versuchen; vielleicht war die Platte nur kurz voll. Nach der
+       Abkühlung (siehe GESCHEITERT_ABKUEHLUNG_MS) darf auch die automatische
+       Prüfung es noch einmal versuchen — ein einmaliger Ausrutscher soll die
+       Fassung nicht auf Dauer vom eigenen Weg ausschließen. */
+    const abgekuehlt = gescheitertSeit !== null && Date.now() - gescheitertSeit > GESCHEITERT_ABKUEHLUNG_MS;
+    if (update.version === gescheitert && !manuell && !abgekuehlt) {
       melden('update:error', {
-        message: `Version ${update.version} ließ sich beim letzten Mal nicht einspielen. `
-          + 'Unter „Nach Updates suchen“ kannst du es erneut versuchen.',
+        key: 'update.previouslyFailed',
+        params: { version: update.version },
         version: update.version,
       });
       return null;
     }
-    if (manuell) gescheitert = null;
+    if (manuell || abgekuehlt) { gescheitert = null; gescheitertSeit = null; }
 
     melden('update:found', update);
     await laden(update);
     return update;
   } catch (err) {
-    if (manuell) melden('update:error', { message: (err as Error).message });
+    if (manuell) melden('update:error', { key: 'update.checkFailed', params: { grund: (err as Error).message } });
     return null;
   } finally {
     laeuft = false;
@@ -220,7 +237,8 @@ async function laden(update: Fern): Promise<void> {
   const frei = freierPlatz(ordner);
   if (frei !== null && frei < noetig) {
     melden('update:error', {
-      message: `Zu wenig Platz: ${(noetig / 1e9).toFixed(1)} GB nötig, ${(frei / 1e9).toFixed(1)} GB frei.`,
+      key: 'update.notEnoughSpace',
+      params: { noetig: (noetig / 1e9).toFixed(1), frei: (frei / 1e9).toFixed(1) },
     });
     return;
   }
@@ -380,45 +398,38 @@ export function letztesUpdate(): Vermerk | null {
 }
 
 /**
- * macOS: Abbild einhängen, die App daraus an ihren Platz kopieren, wieder
- * aushängen. Das Ersetzen läuft in einem eigenen Skript, denn die laufende
- * App kann sich nicht selbst überschreiben, während sie noch läuft.
+ * Schreibt das Austauschskript und startet es abgekoppelt — gemeinsamer
+ * Schlussteil für beide macOS-Formen (Abbild oder entpacktes .zip).
+ *
+ * `neueApp` zeigt auf die bereits vollständige neue App (eingehängt oder
+ * entpackt, das ist dem Skript gleich). `quelleWegraeumen` ist der Bash-Befehl,
+ * der hinterher die Herkunft entsorgt — aushängen beim Abbild, löschen beim
+ * Entpackordner.
  */
-async function installiereMac(datei: string): Promise<void> {
-  const einhaengepunkt = `/Volumes/stellium-update-${Date.now()}`;
-  await ausfuehren('hdiutil', ['attach', datei, '-nobrowse', '-quiet', '-mountpoint', einhaengepunkt]);
-
-  const eintraege = fs.readdirSync(einhaengepunkt).filter((n) => n.endsWith('.app'));
-  if (!eintraege.length) {
-    await ausfuehren('hdiutil', ['detach', einhaengepunkt, '-force']).catch(() => {});
-    throw new Error('Im Abbild ist keine App enthalten.');
-  }
-
-  const neu = path.join(einhaengepunkt, eintraege[0]);
+function macAustauschStarten(neueApp: string, quelleWegraeumen: string): void {
   const ziel = path.resolve(app.getPath('exe'), '../../..');
 
-  // Nach dem Beenden: austauschen, aushängen, neu starten. Das Skript läuft
-  // ohne Elternprozess weiter, deshalb überlebt es unser Ende.
+  // Nach dem Beenden: austauschen, Herkunft wegräumen, neu starten. Das
+  // Skript läuft ohne Elternprozess weiter, deshalb überlebt es unser Ende.
   const skript = path.join(app.getPath('userData'), `update-${Date.now()}.sh`);
 
   /* Erst kopieren, dann tauschen — nicht andersherum.
      Vorher wurde die alte App gelöscht und danach die neue kopiert. Ging beim
-     Kopieren etwas schief (Platte voll, Abbild ausgehängt, Rechte), war
-     überhaupt keine App mehr da: aus einem fehlgeschlagenen Update wurde eine
+     Kopieren etwas schief (Platte voll, Herkunft weg, Rechte), war überhaupt
+     keine App mehr da: aus einem fehlgeschlagenen Update wurde eine
      verschwundene Anwendung. Jetzt liegt die neue vollständig daneben, bevor
      die alte weicht — und wenn etwas klemmt, kommt die alte zurück. */
   fs.writeFileSync(skript, `#!/bin/bash
 # Von Stellium erzeugt. Tauscht die App aus, während sie beendet ist.
 set -u
 ZIEL=${JSON.stringify(ziel)}
-NEU=${JSON.stringify(neu)}
-ABBILD=${JSON.stringify(einhaengepunkt)}
+NEU=${JSON.stringify(neueApp)}
 FRISCH="$ZIEL.neu"
 ALT="$ZIEL.alt"
 
 aufraeumen() {
   rm -rf "$FRISCH"
-  hdiutil detach "$ABBILD" -force >/dev/null 2>&1
+  ${quelleWegraeumen}
   rm -f "$0"
 }
 
@@ -452,12 +463,81 @@ if ! mv "$FRISCH" "$ZIEL"; then
 fi
 
 rm -rf "$ALT"
-hdiutil detach "$ABBILD" -force >/dev/null 2>&1
+${quelleWegraeumen}
 open "$ZIEL"
 rm -f "$0"
 `, { mode: 0o700 });
 
   spawn('/bin/bash', [skript], { detached: true, stdio: 'ignore' }).unref();
+}
+
+/**
+ * macOS, wenn ein Abbild vorliegt: einhängen, die App daraus an ihren Platz
+ * kopieren, wieder aushängen. Das Ersetzen läuft in einem eigenen Skript,
+ * denn die laufende App kann sich nicht selbst überschreiben, während sie
+ * noch läuft.
+ */
+async function installiereMacAusAbbild(datei: string): Promise<void> {
+  const einhaengepunkt = `/Volumes/stellium-update-${Date.now()}`;
+  await ausfuehren('hdiutil', ['attach', datei, '-nobrowse', '-quiet', '-mountpoint', einhaengepunkt]);
+
+  const eintraege = fs.readdirSync(einhaengepunkt).filter((n) => n.endsWith('.app'));
+  if (!eintraege.length) {
+    await ausfuehren('hdiutil', ['detach', einhaengepunkt, '-force']).catch(() => {});
+    throw new Error('Im Abbild ist keine App enthalten.');
+  }
+
+  const neu = path.join(einhaengepunkt, eintraege[0]);
+  macAustauschStarten(neu, `hdiutil detach ${JSON.stringify(einhaengepunkt)} -force >/dev/null 2>&1`);
+}
+
+/**
+ * macOS, wenn ein .zip vorliegt: entpacken statt einhängen, dann derselbe
+ * Austausch wie beim Abbild.
+ *
+ * `ditto` statt `unzip` — das ist der Weg, den auch Finder beim Doppelklick
+ * nimmt, und der einzige, der Ressourcengabeln, erweiterte Attribute und
+ * Symlinks in einem App-Bündel zuverlässig erhält. Mit `unzip` allein sind
+ * manche .app-Bündel danach beschädigt.
+ *
+ * Wieso überhaupt zwei Formen: das Bauwerkzeug erzeugt für macOS sowohl ein
+ * .dmg als auch ein .zip (siehe packages/desktop/package.json, "mac.target").
+ * Der eigene Weg zum Server lädt gezielt das .dmg hoch (siehe
+ * scripts/veroeffentlichen.mjs). Liegt stattdessen ein .zip auf dem Server —
+ * etwa weil jemand es über die Verwaltung von Hand aus packages/desktop/release
+ * hochgeladen hat, wo beide Dateien nebeneinanderliegen —, scheiterte
+ * `hdiutil attach` an einem .zip bisher IMMER und sofort ("Image nicht
+ * erkannt"), und zwar bei jedem einzelnen Versuch: die App fiel augenblicklich
+ * auf den Rückfall zurück (Ordner öffnen, Person entscheiden lassen), ohne
+ * dass das je als Fehler zu erkennen war — der Ordner ging ja auf, wie
+ * vorgesehen. Jetzt erkennt die App das Format und kommt mit beiden zurecht.
+ */
+async function installiereMacAusZip(datei: string): Promise<void> {
+  const basis = path.join(app.getPath('userData'), 'updates');
+  fs.mkdirSync(basis, { recursive: true, mode: 0o700 });
+  const zielOrdner = fs.mkdtempSync(path.join(basis, 'entpackt-'));
+
+  try {
+    await ausfuehren('ditto', ['-x', '-k', datei, zielOrdner]);
+  } catch (err) {
+    fs.rmSync(zielOrdner, { recursive: true, force: true });
+    throw new Error(`Entpacken fehlgeschlagen (${(err as Error).message}).`);
+  }
+
+  const eintraege = fs.readdirSync(zielOrdner).filter((n) => n.endsWith('.app'));
+  if (!eintraege.length) {
+    fs.rmSync(zielOrdner, { recursive: true, force: true });
+    throw new Error('Im geladenen Paket ist keine App enthalten.');
+  }
+
+  const neu = path.join(zielOrdner, eintraege[0]);
+  macAustauschStarten(neu, `rm -rf ${JSON.stringify(zielOrdner)}`);
+}
+
+/** macOS: je nach geladenem Format den passenden Weg nehmen. */
+async function installiereMac(datei: string): Promise<void> {
+  if (/\.zip$/i.test(datei)) await installiereMacAusZip(datei);
+  else await installiereMacAusAbbild(datei);
 }
 
 /**
@@ -537,8 +617,17 @@ export async function installieren(): Promise<boolean> {
     return true;
   } catch (err) {
     installiertGerade = false;
+    /* Merken, dass GENAU DIESE Fassung gerade gescheitert ist — nicht erst
+       beim nächsten Start (siehe updaterInit). Ohne das flackerte die
+       Anzeige alle 15 Minuten von „fehlgeschlagen" zurück auf „bereit", weil
+       die nächste automatische Prüfung nichts von diesem Versuch wusste und
+       einfach erneut „update:ready" meldete — ein Klick auf Installieren
+       hätte denselben Fehlschlag nur wiederholt. */
+    gescheitert = bereit?.version ?? gescheitert;
+    gescheitertSeit = Date.now();
     melden('update:error', {
-      message: `Der Austausch ist fehlgeschlagen (${(err as Error).message}). Die Datei wird geöffnet.`,
+      key: 'update.installFailed',
+      params: { grund: (err as Error).message },
     });
     // Nur der Prüfsummen-Zweig oben setzt `bereit` auf null, und der kehrt
     // sofort zurück — hier ist die Datei also da. Die Abfrage steht für den

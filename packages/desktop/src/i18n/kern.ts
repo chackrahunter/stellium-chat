@@ -48,13 +48,83 @@ const WOERTERBUECHER: Record<string, Partial<Dictionary>> = { de, en, ar, cs, da
  */
 export const UI_LANGUAGES = LANGUAGES.filter((l) => l.code in WOERTERBUECHER);
 
+/**
+ * Mehrzahlform je Sprache — von Intl.PluralRules gebaut, nicht von Hand.
+ * Deutsch und Englisch kommen mit "eins" und "alles andere" aus; Russisch,
+ * Polnisch, Ukrainisch und Tschechisch brauchen drei bis vier Formen, Arabisch
+ * sechs (zero/one/two/few/many/other) — Regeln von Hand nachzubauen wäre für
+ * 22 Sprachen fehleranfällig und viel Code. Gecacht, weil translate() bei
+ * jeder Zähl-Zeile im Rendern läuft und ein neues Intl.PluralRules je Aufruf
+ * unnötige Arbeit wäre.
+ */
+const mehrzahlRegeln = new Map<string, Intl.PluralRules>();
+function mehrzahlKategorie(sprache: string, n: number): Intl.LDMLPluralRule {
+  let regel = mehrzahlRegeln.get(sprache);
+  if (!regel) {
+    try {
+      regel = new Intl.PluralRules(sprache);
+    } catch {
+      // Unbekanntes Gebietsschema: die Zweiteilung "one"/"other" von Englisch
+      // passt für die meisten Sprachen eher als ein Absturz.
+      regel = new Intl.PluralRules('en');
+    }
+    mehrzahlRegeln.set(sprache, regel);
+  }
+  return regel.select(n);
+}
+
 export function translate(sprache: string, key: TranslationKey, werte?: Record<string, string | number>): string {
   const kurz = sprache.toLowerCase().split(/[-_]/)[0];
   const wb = WOERTERBUECHER[kurz];
-  const roh = (wb?.[key] as string | undefined) ?? de[key] ?? key;
+
+  /*
+   * Mehrzahl, ohne die ~1400 Schlüssel je Wörterbuch anzufassen: Ein
+   * Schlüssel bekommt nur dann eine Mehrzahlform, wenn im Wörterbuch
+   * tatsächlich "schluessel_one", "schluessel_other" (usw., nach den
+   * Kategorien von Intl.PluralRules) danebensteht — jeder andere Schlüssel
+   * läuft exakt denselben Pfad wie bisher.
+   *
+   * Die Zählgröße wird nicht an einem festen Platzhalternamen festgemacht
+   * (im Haus heißt sie mal {n}, mal {count}, mal {dauer}), sondern daran, ob
+   * GENAU EIN Wert im Aufruf eine Zahl ist. Bei zwei Zahlen (z. B. {ein, aus}
+   * bei Marken-Angaben) ist nicht zu erraten, welche zählt — dann bleibt es
+   * wie bisher. Eine mit toLocaleString() bereits ausgeschriebene Zahl ist an
+   * dieser Stelle schon Text, kein number, und löst absichtlich nichts aus.
+   */
+  let nachschlag: TranslationKey = key;
+  if (werte) {
+    const zahlen = Object.values(werte).filter((w): w is number => typeof w === 'number' && Number.isFinite(w));
+    if (zahlen.length === 1) {
+      const kategorie = mehrzahlKategorie(sprache, zahlen[0]);
+      const eigeneForm = `${key}_${kategorie}` as TranslationKey;
+      const allgemeineForm = `${key}_other` as TranslationKey;
+      if (wb?.[eigeneForm] !== undefined || de[eigeneForm] !== undefined) {
+        nachschlag = eigeneForm;
+      } else if (kategorie !== 'other' && (wb?.[allgemeineForm] !== undefined || de[allgemeineForm] !== undefined)) {
+        // "few"/"many"/"zero"/"two" evtl. (noch) nicht angelegt — "other" ist
+        // die Auffangform jeder Mehrzahlregel und näher an richtig als der
+        // unveränderte Grundschlüssel.
+        nachschlag = allgemeineForm;
+      }
+    }
+  }
+
+  /* Reihenfolge: erst die Mehrzahlform DERSELBEN Sprache, dann deren
+     unveränderter Grundschlüssel (die bisherige Übersetzung bleibt exakt
+     erhalten, solange niemand für sie eigene Formen angelegt hat — heute der
+     Fall für 20 der 22 Wörterbücher), erst danach Deutsch als letzter
+     Ausweg. Genau die Reihenfolge, die schon vor der Mehrzahl galt, nur um
+     die Mehrzahlform vorgeschaltet. */
+  const roh = (wb?.[nachschlag] as string | undefined) ?? (wb?.[key] as string | undefined)
+    ?? de[nachschlag] ?? de[key] ?? key;
   if (!werte) return roh;
-  // Platzhalter der Form {name} einsetzen.
-  return roh.replace(/\{(\w+)\}/g, (ganz, name) => String(werte[name] ?? ganz));
+  /* Platzhalter der Form {name} einsetzen — verzeihend auch {{name}}.
+     Ein einziger Schlüssel (msg.notTranslated, in allen 22 Wörterbüchern)
+     trug die doppelten Klammern anderer i18n-Bibliotheken statt der hier
+     sonst durchgängig einfachen. Die strikte Fassung ersetzte darin nur den
+     inneren Kern und ließ je eine Klammer außen stehen; fehlte der Wert
+     dazu, blieb ein nacktes "{}" mitten im Satz zurück. */
+  return roh.replace(/\{\{?(\w+)\}?\}/g, (ganz, name) => String(werte[name] ?? ganz));
 }
 
 /**
@@ -125,7 +195,11 @@ export function sprachName(code: string, inSprache?: string): string {
   // Großschreibung: manche Sprachen liefern Kleinbuchstaben, im Fließtext
   // sieht das nach einem Fehler aus.
   if (name) name = name.charAt(0).toLocaleUpperCase(ziel) + name.slice(1);
-  const fertig = name || info?.native || code;
+  /* Ohne erkannte Sprache (code === "") blieben alle drei Rückfälle leer,
+     und wer diese Funktion aufrief, setzte die leere Zeichenkette ungeprüft
+     in einen Satz wie "Original in {language}" ein — sichtbar als Lücke
+     bzw., zusammen mit obigem Regex-Fehler, als nacktes "{}". */
+  const fertig = name || info?.native || code || translate(ziel, 'common.unknown');
   namenSpeicher.set(schluessel, fertig);
   return fertig;
 }

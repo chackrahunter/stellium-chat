@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url';
 import statisch from '@fastify/static';
 import { registerRoutes } from './http/routes.js';
 import { registerKonsole } from './http/konsole.js';
+import { registerRechtstexte } from './http/rechtstexte.js';
 import { handleConnection, startBackgroundJobs, anwesenheitZuruecksetzen, verbindungen } from './ws/gateway.js';
 import {
   aiCapabilities, anbieterAusEinstellungen, dropForeignTranslations, warmUpModels,
@@ -79,6 +80,12 @@ async function main(): Promise<void> {
   const oberflaeche = findeOberflaeche();
   if (oberflaeche) {
     await app.register(statisch, { root: oberflaeche, wildcard: false, index: ['index.html'] });
+
+    // Feste Adressen für Datenschutzerklärung und Nutzungsordnung — vor dem
+    // Notfundhandler, damit die Datei beim Lesen "speziell vor allgemein"
+    // zeigt (siehe rechtstexte.ts für die Begründung, warum die Reihenfolge
+    // dem Router selbst egal ist, aber trotzdem hierhin gehört).
+    await registerRechtstexte(app);
 
     // Alles, was keine Datei und kein Schnittstellenaufruf ist, bekommt die
     // Startseite — die Oberfläche verwaltet ihre Adressen selbst.

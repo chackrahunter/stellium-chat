@@ -101,6 +101,32 @@ let letzterFehler = '';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const DEV_URL = process.env.VITE_DEV_SERVER_URL ?? 'http://localhost:5173';
 
+/**
+ * Anfänglicher Fenstertitel des Betrachters — sichtbar, sobald das Fenster
+ * entsteht (Titelleiste, Fenstermenü, Mission Control zeigen ihn schon vor
+ * dem ersten Zeichnen der Seite).
+ *
+ * Nur Deutsch/Englisch von Hand, nicht alle 22 Sprachen: der Hauptprozess
+ * kann `src/i18n` nicht importieren (siehe Kommentar bei `anschlussFrist`
+ * oben), von Hand in 22 Sprachen mitgepflegt zu werden liefe genau der Idee
+ * eines einzigen Wörterbuchs zuwider. `app.getLocale()` ist die Systemsprache
+ * des Macs, nicht die eingestellte Oberflächensprache — hier unvermeidlich,
+ * weil zu diesem Zeitpunkt noch kein Chat-Konto geladen ist.
+ *
+ * Das ist ausdrücklich nur der ERSTE Augenblick: Sobald die Seite geladen hat
+ * und `Fernsteuerung.tsx` seinerseits `document.title = t('fern.titel')`
+ * setzt, übernimmt Electron das automatisch als echten Fenstertitel (Electron
+ * synchronisiert den Fenstertitel standardmäßig mit `document.title`, sofern
+ * niemand `page-title-updated` abfängt — das tut hier niemand). Ab da zählt
+ * die eingestellte Oberflächensprache, nicht mehr die Systemsprache.
+ */
+function fensterTitel(): string {
+  const kurz = app.getLocale().split(/[-_]/)[0].toLowerCase();
+  // Werte identisch zu i18n/de.ts bzw. i18n/en.ts, Schlüssel `fern.titel` —
+  // von Hand synchron halten, falls sich der Wortlaut dort ändert.
+  return kurz === 'de' ? 'Pi fernsteuern' : 'Control Pi remotely';
+}
+
 let fenster: (() => BrowserWindow | null) | null = null;
 
 /*
@@ -168,7 +194,13 @@ function senden(art: number, inhalt: Buffer): void {
 
 /* ── Verbinden ───────────────────────────────────────────────── */
 
-function verbinden(adresse: string, pw: string): void {
+/**
+ * `konto`: der Anzeigename des angemeldeten Chat-Kontos. Er geht NICHT in den
+ * Handschlag — der ist zu diesem Zeitpunkt noch Klartext (siehe unten, kurz
+ * vor `phase = 'offen'`) — sondern erst über die verschlüsselte Leitung,
+ * sobald sie steht. Leer lassen ist in Ordnung: der Pi zeigt dann „unbekannt".
+ */
+function verbinden(adresse: string, pw: string, konto: string): void {
   schliessen('');
   passwort = pw;
   lage = 'verbindet'; letzterFehler = ''; melden();
@@ -184,9 +216,16 @@ function verbinden(adresse: string, pw: string): void {
   ws = buchse;
 
   /* Wer sich nicht binnen zehn Sekunden meldet, ist nicht da. Das eingebaute
-     WebSocket kennt keine eigene Frist dafür. */
+     WebSocket kennt keine eigene Frist dafür.
+     `schliessen()`/`letzterFehler` tragen ab hier eine WÖRTERBUCH-KENNUNG,
+     keinen fertigen Satz mehr: Der Hauptprozess hat kein `i18n/` zur
+     Verfügung (tsconfig.electron.json bindet nur "electron" ein, ein Import
+     aus src/ liefe gegen `rootDir`). Übersetzt wird erst in der Ansicht, die
+     `fehler` aus `fern:zustand` bekommt — genau wie es net/socket.ts mit
+     `ABBRUCH_KENNUNGEN` vormacht. Die Schlüssel stehen in i18n/de.ts und
+     en.ts unter `fern.fehler.*`. */
   const anschlussFrist = setTimeout(() => {
-    if (lage === 'verbindet') schliessen('Keine Antwort — ist die Adresse richtig?');
+    if (lage === 'verbindet') schliessen('fern.fehler.keineAntwort');
   }, 10_000);
 
   buchse.addEventListener('open', () => {
@@ -202,7 +241,7 @@ function verbinden(adresse: string, pw: string): void {
     try {
       if (phase === 'gruss') {
         const gruss = JSON.parse(typeof roh === 'string' ? roh : Buffer.from(roh).toString('utf8'));
-        if (gruss.art !== 'gruss') throw new Error('unerwartete Antwort');
+        if (gruss.art !== 'gruss') throw new Error('fern.fehler.unerwarteteAntwort');
 
         const salz = Buffer.from(gruss.salz, 'base64');
         const nonce = Buffer.from(gruss.nonce, 'base64');
@@ -217,7 +256,7 @@ function verbinden(adresse: string, pw: string): void {
         const erwartet = crypto.createHmac('sha256', schluessel).update(nonce).update('pi').digest();
         const geliefert = Buffer.from(gruss.beweis ?? '', 'base64');
         if (geliefert.length !== erwartet.length || !crypto.timingSafeEqual(geliefert, erwartet)) {
-          throw new Error('Falsches Passwort — oder am anderen Ende ist nicht dein Pi');
+          throw new Error('fern.fehler.passwort');
         }
 
         hinaus = new Schatulle(schluessel, 'mac');
@@ -226,6 +265,13 @@ function verbinden(adresse: string, pw: string): void {
           art: 'antwort',
           beweis: crypto.createHmac('sha256', schluessel).update(nonce).update('mac').digest('base64'),
         }));
+        /* Erst ab hier, nie im „hallo" oben: der Sitzungsschlüssel steht seit
+           den beiden Zeilen darüber, und nur über ihn geht der Kontoname
+           hinaus — im Klartext-Handschlag wäre er für jeden Mitleser auf der
+           Leitung sichtbar gewesen. Alte Pi-Dienste kennen `art: 'konto'`
+           nicht und ignorieren die Nachricht stillschweigend; der Handschlag
+           selbst hängt an keinem Feld darin. */
+        if (konto) senden(N_STEUER, Buffer.from(JSON.stringify({ art: 'konto', name: konto }), 'utf8'));
         phase = 'offen';
         return;
       }
@@ -277,12 +323,16 @@ function verbinden(adresse: string, pw: string): void {
     const code = ereignis.code;
     if (lage === 'offen' || lage === 'meldet an' || lage === 'verbindet') {
       const gruende: Record<number, string> = {
-        4003: 'Falsches Passwort',
-        4009: 'Es ist schon jemand verbunden',
-        4029: 'Zu viele Fehlversuche — kurz warten',
-        4008: 'Zeitüberschreitung bei der Anmeldung',
+        /* 4003 ist derselbe Fall wie oben (falsches Passwort) — nur auf einer
+           anderen Ebene erkannt: dort die Antwort auf den Handschlag, hier
+           ein Schließen-Code vom Pi-Dienst selbst. Dieselbe Kennung, damit
+           in der Ansicht nicht zwei Sätze für dieselbe Sache stehen. */
+        4003: 'fern.fehler.passwort',
+        4009: 'fern.fehler.besetzt',
+        4029: 'fern.fehler.zuVieleVersuche',
+        4008: 'fern.fehler.zeitUeberschritten',
       };
-      schliessen(gruende[code] ?? (lage === 'offen' ? '' : 'Verbindung nicht zustande gekommen'));
+      schliessen(gruende[code] ?? (lage === 'offen' ? '' : 'fern.fehler.allgemein'));
     }
   });
 }
@@ -292,8 +342,8 @@ function verbinden(adresse: string, pw: string): void {
 export function fernsteuerungEinrichten(holeFenster: () => BrowserWindow | null): void {
   fenster = holeFenster;
 
-  ipcMain.handle('fern:verbinden', (_e, adresse: string, pw: string) => {
-    verbinden(adresse, pw);
+  ipcMain.handle('fern:verbinden', (_e, adresse: string, pw: string, konto: string) => {
+    verbinden(adresse, pw, konto);
     return true;
   });
   ipcMain.handle('fern:trennen', () => { schliessen(''); return true; });
@@ -323,7 +373,7 @@ export function fernsteuerungEinrichten(holeFenster: () => BrowserWindow | null)
       minHeight: 400,
       show: false,
       backgroundColor: '#080b16',
-      title: 'Pi fernsteuern',
+      title: fensterTitel(),
       webPreferences: {
         preload: path.join(here, 'preload.mjs'),
         additionalArguments: [`--stellium-locale=${app.getLocale()}`],

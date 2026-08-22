@@ -8,11 +8,13 @@ import {
   type VoiceNote, type Task, type TaskEvent, type TaskStatus, type CalendarEvent, type Projekt,
   type StoredFile, type StorageUsage, type MeetingProtocol,
   type Idea, type IdeaComment, type IdeaStatus, type ReleaseInfo,
-  type Freigabe,
+  type Freigabe, type PushSubscriptionJSON, type ReadReceipt, type Notiz,
 } from '@stellium/shared';
 import { api, serverUrl, setToken, token } from '../net/api.js';
 import { socket, type ConnectionState } from '../net/socket.js';
-import { titelZaehler, zeigen } from '../lib/benachrichtigung.js';
+import {
+  erlaubnisStand, pushAbonnieren, titelZaehler, vapidSchluesselSetzen, zeigen,
+} from '../lib/benachrichtigung.js';
 /* Die Schlüsselarbeit hängt sich beim Laden selbst an den Draht. Hier wird sie
    zusätzlich benutzt: verschlüsselt wird auf dem Weg nach draußen, und zwar an
    dieser einen Stelle. Jeder Weg, auf dem Text den Rechner verlässt, führt
@@ -22,6 +24,10 @@ import {
   dateiVerschluesseln, istE2EChiffrat, kanalSchluesselWechseln,
   kontoHuelle, nachrichtVerschluesseln,
 } from '../lib/vertraulich.js';
+/* Nur der Typ — die Selbstanbindung an den Draht (dieselbe Bauart wie bei
+   lib/vertraulich.ts oben) übernimmt App.tsx, damit sie unabhängig davon
+   aktiv ist, ob die Notizen-Tafel in dieser Sitzung je geöffnet wurde. */
+import type { NotizKlartext } from '../lib/notizen.js';
 
 export interface Toast {
   id: string;
@@ -34,10 +40,34 @@ export type Overlay =
   | null | 'quick' | 'search' | 'settings' | 'newChannel' | 'glossary'
   | 'catchup' | 'schedule' | 'people' | 'poll' | 'reminders' | 'models' | 'team'
   | 'channelSettings' | 'tour' | 'tasks' | 'calendar' | 'files' | 'taskExtract' | 'protocol' | 'ideas' | 'download'
-  | 'fern' | 'system' | 'post'
-  | 'vorfall' | 'freigaben';
+  | 'fern' | 'system' | 'post' | 'notizen'
+  | 'vorfall' | 'freigaben'
+  /* Dieselbe Tafel wie 'search' (SearchOverlay), nur gleich auf dem Reiter
+     „Gemerkt" statt auf dem Such-Reiter gestartet — siehe App.tsx, wo beide
+     Werte dieselbe Komponente rendern, nur mit anderem `initialTab`. */
+  | 'saved';
 
 interface PendingRequest<T> { resolve: (value: T) => void; reject: (err: Error) => void; timer: number }
+
+/**
+ * Ein Ablage-Upload, wie ihn die Oberfläche verfolgt.
+ *
+ * Lebt im Zustand und nicht im lokalen Zustand von FilesPanel: schließt man
+ * die Ablage, während eine Datei noch hochlädt, darf das den Upload nicht
+ * berühren — er läuft in `uploadLibraryFiles()` weiter, unabhängig davon, ob
+ * gerade jemand zusieht. Öffnet man die Ablage später wieder, steht der
+ * Fortschritt hier immer noch, statt dass die Datei scheinbar nie hochkam.
+ */
+export interface LibraryUpload {
+  id: string;
+  name: string;
+  size: number;
+  anteil: number;
+  tempo?: number;
+  rest?: number;
+  status: 'laeuft' | 'fertig' | 'fehler';
+  fehler?: string;
+}
 
 interface StoreState {
   /* Verbindung & Identität */
@@ -74,6 +104,8 @@ interface StoreState {
   events: Record<string, CalendarEvent>;
   files: StoredFile[];
   storageUsage: StorageUsage | null;
+  /** Laufende und zuletzt gescheiterte Ablage-Uploads — siehe LibraryUpload. */
+  libraryUploads: LibraryUpload[];
   taskHistory: Record<string, TaskEvent[]>;
   /** Ergebnis der Aufgabenerkennung — sie legt die Aufgaben selbst an. */
   /**
@@ -112,6 +144,19 @@ interface StoreState {
   protocol: MeetingProtocol | null;
   protocolLoading: boolean;
   /**
+   * Notizen — Metadaten und Chiffrat, wie der Server sie kennt. Geöffnet und
+   * verändert wird über lib/notizen.ts (dieselbe Aufteilung wie bei
+   * vertraulichen Kanälen: Metadaten hier, Schlüsselarbeit dort), deshalb
+   * keine eigenen Aktionen dafür in diesem Objekt.
+   */
+  notizen: Record<string, Notiz>;
+  /** War notiz:list schon einmal da? Für die Ladeanzeige der Tafel. */
+  notizenGeladen: boolean;
+  /** Entschlüsselt, sobald der passende Schlüssel da ist — sonst null. */
+  notizenKlartext: Record<string, NotizKlartext | null>;
+  /** Ein Speichern wurde abgelehnt, weil zwischenzeitlich woanders gespeichert wurde. */
+  notizKonflikte: Record<string, Notiz>;
+  /**
    * Warum das Protokoll nicht zustande kam.
    *
    * Ohne dieses Feld drehte sich der Kreisel weiter, während die Meldung des
@@ -132,6 +177,15 @@ interface StoreState {
   sidebarCollapsed: boolean;
   typing: Record<string, Record<string, number>>;   // channelId -> userId -> ts
   readMarkers: Record<string, string | null>;       // channelId -> Grenze beim Öffnen
+  /**
+   * Wer eine Nachricht gelesen hat, und wann — messageId -> Liste.
+   *
+   * Fehlt eine Kennung hier, wurde sie noch nie angefragt (siehe
+   * requestReadReceipts); ein leeres Feld heißt „angefragt, noch niemand
+   * gelesen". Wird laufend durch eingehende `read`-Meldungen anderer
+   * Mitglieder aufgefrischt, ohne dafür erneut nachzufragen.
+   */
+  readReceipts: Record<string, ReadReceipt[]>;
   /** Zuletzt geöffnete Kanäle, neuester zuerst — für das Aufräumen. */
   zuletztOffen: string[];
   toasts: Toast[];
@@ -170,13 +224,32 @@ interface StoreState {
   boot: () => Promise<void>;
   login: (login: string, password: string) => Promise<void>;
   logout: () => void;
+  /**
+   * Zeitzone einmalig vom Browser übernehmen, solange `self.timezoneAuto`
+   * steht (siehe SelfUser in @stellium/shared). Ohne Wirkung, wenn schon
+   * jemand die Zeitzone bestätigt hat — von Hand in Settings.tsx oder durch
+   * einen früheren Aufruf dieser Funktion selbst.
+   */
+  zeitzoneNachtragen: () => void;
 
   openChannel: (channelId: string) => void;
   loadOlder: (channelId: string) => void;
   openThread: (parentId: string | null) => void;
   openDm: (userId: string) => void;
 
-  sendMessage: (input: { channelId: string; text: string; parentId?: string | null; attachmentIds?: string[] }) => void;
+  /**
+   * Gibt die `clientId` der gesendeten Nachricht zurück — damit ein Anhang,
+   * der beim Senden noch nicht fertig war, sie später wiederfindet (siehe
+   * `waitForMessageId` weiter unten in dieser Datei).
+   */
+  sendMessage: (input: {
+    channelId: string; text: string; parentId?: string | null; attachmentIds?: string[];
+    pendingAttachments?: { tempId: string; name: string; mime: string }[];
+  }) => string;
+  /** Ein nach dem Senden fertig gewordener Anhang holt seine Nachricht ein. */
+  attachUploadToMessage: (messageId: string, tempId: string, attachmentId: string) => void;
+  /** Der Upload ist gescheitert oder wurde aufgegeben — nur der Platzhalter fällt weg. */
+  giveUpAttachment: (messageId: string, tempId: string) => void;
   editMessage: (messageId: string, text: string) => void;
   deleteMessage: (messageId: string, scope?: 'all' | 'me') => void;
   react: (messageId: string, emoji: string) => void;
@@ -185,6 +258,8 @@ interface StoreState {
   schedule: (input: { channelId: string; text: string; sendAt: number; parentId?: string | null }) => void;
   unschedule: (id: string) => void;
   sendTyping: (channelId: string, parentId?: string | null) => void;
+  /** Lesebestätigungen für eigene Nachrichten anfragen — gebündelt, siehe Implementierung. */
+  requestReadReceipts: (messageIds: string[]) => void;
 
   toggleOriginal: (messageId: string) => void;
   requestTranslation: (messageId: string, targetLang?: string) => void;
@@ -297,11 +372,20 @@ interface StoreState {
   deleteEvent: (eventId: string) => void;
 
   loadFiles: (filter?: { channelId?: string; folder?: string }) => Promise<void>;
-  uploadFile: (
-    file: File,
+  /**
+   * Eine oder mehrere Dateien in die Ablage hochladen.
+   *
+   * Läuft als Store-Aktion und nicht als Funktion in FilesPanel: der
+   * Fortschritt landet in `libraryUploads`, nicht in einem lokalen useState —
+   * schließt jemand die Ablage mitten im Hochladen, läuft der Upload hier
+   * unbeeindruckt weiter, denn der Zustand hängt an keiner Komponente.
+   */
+  uploadLibraryFiles: (
+    files: FileList | File[],
     meta?: { folder?: string; channelId?: string | null; description?: string; privat?: boolean },
-    onProgress?: (anteil: number, bytes: number) => void,
   ) => Promise<void>;
+  /** Eine fertige oder gescheiterte Zeile aus der Fortschrittsliste nehmen. */
+  dismissLibraryUpload: (id: string) => void;
   updateFile: (fileId: string, patch: { name?: string; folder?: string; description?: string | null }) => void;
   deleteFile: (fileId: string) => void;
   openAiTeamChannel: () => void;
@@ -366,6 +450,20 @@ function settle(requestId: string, value: unknown, error?: Error): void {
  */
 function frageHinaus(requestId: string, ev: ClientEvent): void {
   if (!socket.send(ev)) settle(requestId, null, new Error(ts('fehler.keineVerbindung')));
+}
+
+/**
+ * Auf die endgültige Kennung einer gerade gesendeten Nachricht warten.
+ *
+ * Ein Anhang, der beim Senden noch hochlud, kennt zunächst nur ihre
+ * `clientId` — die echte, vom Server vergebene Kennung kommt erst mit
+ * `message:new` zurück, und das kann länger dauern als der Upload selbst.
+ * Dasselbe Bild wie bei `awaitReply` oben, nur unter einem eigenen
+ * Namensraum: eine Nachricht und eine KI-Anfrage sollen sich nicht dieselbe
+ * Kennung teilen können, nur weil der Zufall es so wollte.
+ */
+export function waitForMessageId(clientId: string): Promise<string> {
+  return awaitReply<string>(`msg:${clientId}`, 60_000);
 }
 
 /**
@@ -506,6 +604,21 @@ import {
 } from '../i18n/kern.js';
 
 /**
+ * Die Ablage-Liste noch einmal gegenprüfen, bevor sie in den Zustand geht.
+ *
+ * Der Server filtert längst richtig (siehe services/files.ts) — das hier ist
+ * die zweite Sicherung, nicht die erste. Sie kostet fast nichts und fängt
+ * genau die Art von Fehler ab, die am schwersten wieder auffällt: eine
+ * private Datei, die aus irgendeinem Grund — ein alter Zustand, der beim
+ * Kontowechsel nicht geleert wurde, ein künftiger Fehler an anderer Stelle —
+ * doch im Antwort- oder Ereignisstrom landet, zeigt sich trotzdem nie in der
+ * Liste einer Person, der sie nicht gehört.
+ */
+function nurSichtbareDateien(files: StoredFile[], selfId: string | undefined): StoredFile[] {
+  return files.filter((f) => !f.privat || f.uploadedBy === selfId);
+}
+
+/**
  * Meldungen aus dem Zustand in der Sprache der angemeldeten Person.
  *
  * Bewusst über den Kern statt über i18n/index: der lädt den Zustand, und ein
@@ -620,6 +733,7 @@ export const useStore = create<StoreState>((set, get) => ({
   events: {},
   files: [],
   storageUsage: null,
+  libraryUploads: [],
   taskHistory: {},
   extractErgebnis: null,
   extractingTasks: false,
@@ -633,6 +747,10 @@ export const useStore = create<StoreState>((set, get) => ({
   protocolLoading: false,
   protocolFehler: null,
   extractFehler: null,
+  notizen: {},
+  notizenGeladen: false,
+  notizenKlartext: {},
+  notizKonflikte: {},
   schubladeOffen: false,
   activeChannelId: null,
   lastHumanChannelId: null,
@@ -641,6 +759,7 @@ export const useStore = create<StoreState>((set, get) => ({
   sidebarCollapsed: false,
   typing: {},
   readMarkers: {},
+  readReceipts: {},
   zuletztOffen: [],
   toasts: [],
   smartReplies: [],
@@ -668,6 +787,10 @@ export const useStore = create<StoreState>((set, get) => ({
       set({ self: user, ai });
       applyTheme(user.theme, user.density);
       socket.connect();
+      // Jeder App-Start ist auch ein "Anmelden" im Sinne der Zeitzone: gerade
+      // bestehende Konten öffnen die App meist über ein gültiges Token, ohne
+      // je login() zu durchlaufen — siehe zeitzoneNachtragen() weiter unten.
+      get().zeitzoneNachtragen();
       const t = token();
       if (t) void window.stellium?.updateSignIn?.(serverUrl(), t);
     } catch (fehler) {
@@ -690,8 +813,39 @@ export const useStore = create<StoreState>((set, get) => ({
     set({ self: user });
     applyTheme(user.theme, user.density);
     socket.connect();
+    get().zeitzoneNachtragen();
     // Ab jetzt darf der Hauptprozess nach neuen Versionen sehen.
     void window.stellium?.updateSignIn?.(serverUrl(), t);
+  },
+
+  /**
+   * Zeitzone einmalig vom Browser übernehmen — siehe ausführliche Begründung
+   * bei timezoneAuto in @stellium/shared (types.ts) und bei der Spalte
+   * timezone_auto in migrate.ts/schema.sql.
+   *
+   * `createAccount()` in services/users.ts setzt beim Anlegen durch die
+   * Leitung immer 'Europe/Berlin' — die Leitung kann von dort aus nicht
+   * wissen, wo die angelegte Person sitzt, und Setup.tsx fragte bisher nur
+   * die Sprache ab. Der Browser kennt die echte Zeitzone über
+   * Intl.DateTimeFormat().resolvedOptions().timeZone; diese Funktion holt sie
+   * nach, aber NUR, solange `timezoneAuto` steht. Danach schreibt updatePrefs()
+   * unten denselben Weg, den auch die Zeitzonenliste in Settings.tsx nutzt —
+   * der Server (ws/gateway.ts, prefs:update) setzt timezoneAuto bei jedem
+   * Schreibzugriff auf false, ganz gleich ob durch diese Funktion oder von
+   * Hand. Ab dann läuft dieser Aufruf hier für immer wirkungslos: eine
+   * bestätigte Zeitzone soll nicht bei jeder Dienstreise wieder springen.
+   */
+  zeitzoneNachtragen: () => {
+    const self = get().self;
+    if (!self || !self.timezoneAuto) return;
+    let erkannt = '';
+    try {
+      erkannt = Intl.DateTimeFormat().resolvedOptions().timeZone || '';
+    } catch {
+      return; // kein verlässlicher Wert vom Browser -> lieber nichts eintragen
+    }
+    if (!erkannt || erkannt === self.timezone) return;
+    get().updatePrefs({ timezone: erkannt });
   },
 
   logout: () => {
@@ -701,7 +855,16 @@ export const useStore = create<StoreState>((set, get) => ({
     set({
       self: null, users: {}, channels: {}, states: {}, messages: {}, threads: {},
       activeChannelId: null, lastHumanChannelId: null, threadParentId: null, overlay: null, scheduled: [],
-      catchup: null, smartReplies: [], searchHits: [],
+      catchup: null, smartReplies: [], searchHits: [], readReceipts: {},
+      /* Bis hierher fehlten die beiden: die Ablage blieb im Speicher stehen,
+         mitsamt den privaten Dateien des Kontos, das sich gerade abmeldet.
+         Meldet sich auf demselben Fenster gleich darauf ein anderes Konto an,
+         zeigte die Dateiablage — bis der nächste loadFiles() durch war — die
+         Liste der vorigen Person weiter, private Dateien eingeschlossen. Das
+         ist die Zwischenspeicherung, die in der Ablage-Ansicht unter
+         "Öffentlich" auftauchte, obwohl sie nie einer fremden Person gehören
+         sollte. */
+      files: [], storageUsage: null, libraryUploads: [],
     });
   },
 
@@ -755,9 +918,9 @@ export const useStore = create<StoreState>((set, get) => ({
 
   /* ── Nachrichten ────────────────────────────────────────── */
 
-  sendMessage: ({ channelId, text, parentId, attachmentIds }) => {
+  sendMessage: ({ channelId, text, parentId, attachmentIds, pendingAttachments }) => {
     const self = get().self;
-    if (!self) return;
+    if (!self) return '';
     const clientId = uid();
 
     // Optimistisch anzeigen — fühlt sich sofort an, auch bei langsamer Leitung.
@@ -768,6 +931,7 @@ export const useStore = create<StoreState>((set, get) => ({
       threadParticipantIds: [], mentionUserIds: [], pinned: false, translation: null,
       kind: 'text', forwardedFrom: null, poll: null, voice: null, links: [],
       pending: true, clientId,
+      ...(pendingAttachments?.length ? { pendingAttachments } : {}),
     };
 
     set((s) => {
@@ -799,14 +963,32 @@ export const useStore = create<StoreState>((set, get) => ({
         }));
         return;
       }
+      /* Ein vertraulicher Kanal bekommt keine Platzhalter-Namen zu sehen: die
+         echten stehen erst im Umschlag der fertigen Datei, und ein Klartext-
+         Name für "kommt noch" wäre genau die Zusage, die dieser Kanal nicht
+         geben soll. Wer dort mitschreibt, sieht die Nachricht deshalb erst
+         vollständig, wenn message:attach sie nachträgt — die sendende Person
+         hat ihren eigenen, lokalen Platzhalter trotzdem (siehe optimistic
+         oben, das geht nirgendwohin). */
+      const kanal = get().channels[channelId];
       const delivered = socket.send({
         t: 'message:send', clientId, channelId, text: hinaus,
         parentId: parentId ?? null, attachmentIds,
+        pendingAttachments: kanal?.vertraulich ? undefined : pendingAttachments,
       });
       if (!delivered) {
         get().toast({ kind: 'info', title: ts('toast.offline'), body: ts('toast.offlineBody') });
       }
     })();
+
+    return clientId;
+  },
+
+  attachUploadToMessage: (messageId, tempId, attachmentId) => {
+    socket.send({ t: 'message:attach', messageId, tempId, attachmentId });
+  },
+  giveUpAttachment: (messageId, tempId) => {
+    socket.send({ t: 'message:attachGiveUp', messageId, tempId });
   },
 
   editMessage: (messageId, text) => {
@@ -857,6 +1039,40 @@ export const useStore = create<StoreState>((set, get) => ({
       if (now - last < 2500) return;      // nicht bei jedem Tastendruck funken
       last = now;
       socket.send({ t: 'typing', channelId, parentId: parentId ?? null });
+    };
+  })(),
+
+  /**
+   * Lesebestätigungen anfragen — gebündelt, damit ein Kanal mit vielen
+   * eigenen Nachrichten nicht eine Anfrage pro Nachricht auslöst (dieselbe
+   * Überlegung wie bei sendTyping, nur als Sammler statt als Sperrfrist).
+   *
+   * Einmal angefragt, wird nicht erneut angefragt: der Stand bleibt danach
+   * über eingehende `read`-Meldungen frisch (siehe case 'read' oben), ohne
+   * weitere Anfragen. Kennungen, die nicht dem Server-Muster "m_…" folgen
+   * (z.B. eine gerade erst optimistisch angezeigte eigene Nachricht), gehen
+   * gar nicht erst hinaus — für sie gibt es serverseitig ohnehin nichts zu
+   * finden.
+   */
+  requestReadReceipts: (() => {
+    const angefragt = new Set<string>();
+    let sammlung: string[] = [];
+    let timer: number | null = null;
+    const senden = () => {
+      timer = null;
+      if (!sammlung.length) return;
+      const messageIds = sammlung;
+      sammlung = [];
+      socket.send({ t: 'message:read-receipts', messageIds });
+    };
+    return (messageIds: string[]) => {
+      const cache = get().readReceipts;
+      for (const id of messageIds) {
+        if (!id.startsWith('m_') || cache[id] !== undefined || angefragt.has(id)) continue;
+        angefragt.add(id);
+        sammlung.push(id);
+      }
+      if (sammlung.length && timer == null) timer = window.setTimeout(senden, 200);
     };
   })(),
 
@@ -1186,51 +1402,89 @@ export const useStore = create<StoreState>((set, get) => ({
   loadFiles: async (filter) => {
     try {
       const { files, usage } = await api.libraryFiles(filter);
-      set({ files, storageUsage: usage });
+      set({ files: nurSichtbareDateien(files, get().self?.id), storageUsage: usage });
     } catch (err) {
       get().toast({ kind: 'error', title: ts('toast.filesFailed'), body: (err as Error).message });
     }
   },
 
-  uploadFile: async (file, meta, onProgress) => {
-    const form = new FormData();
-    /* Privat heißt: die Datei wird hier verschlüsselt und verlässt den Rechner
-       nur als Chiffrat. Der Schlüssel dafür entsteht aus dem eigenen
-       Schlüsselpaar und geht nirgends hin — auch nicht zum Server.
+  /**
+   * Eine oder mehrere Dateien in die Ablage hochladen — als Store-Aktion.
+   *
+   * Vorher steckte dieselbe Arbeit in FilesPanel.tsx, mit dem Fortschritt in
+   * einem lokalen useState. Das sah im Normalfall gut aus und brach doch: wer
+   * die Ablage schloss, während eine Datei noch hochlud, riss der Komponente
+   * den Boden unter den Füßen weg. Nicht der Upload selbst — der lief über
+   * `api.uploadToLibrary()` und damit XMLHttpRequest weiter, unabhängig von
+   * jeder Komponente —, sondern alles, was danach kam: der Fortschritt
+   * schrieb an ein `setState`, das niemand mehr sah, und mit ihm endete
+   * beim genaueren Hinsehen jede Spur, dass da noch etwas offen war. Jetzt
+   * lebt der Fortschritt in `libraryUploads`, einem Teil des Zustands, der
+   * kein Fenster braucht, um zu bestehen — die Ablage schließen und wieder
+   * öffnen zeigt denselben Balken, an derselben Stelle.
+   */
+  uploadLibraryFiles: async (fileList, meta) => {
+    const liste = Array.from(fileList);
+    // Nacheinander, damit das Kontingent sauber geprüft wird und zwei
+    // Ladevorgänge sich beim abschließenden loadFiles() nicht überholen.
+    for (const file of liste) {
+      const taskId = uid();
+      set((s) => ({
+        libraryUploads: [
+          ...s.libraryUploads,
+          { id: taskId, name: file.name, size: file.size, anteil: 0, status: 'laeuft' as const },
+        ],
+      }));
+      const aktualisieren = (patch: Partial<LibraryUpload>) => set((s) => ({
+        libraryUploads: s.libraryUploads.map((u) => (u.id === taskId ? { ...u, ...patch } : u)),
+      }));
 
-       Verschlüsselt wird vor allem anderen: schlägt es fehl, geht gar nichts
-       hinaus. Andersherum wäre die Datei schon oben, bevor jemand merkt, dass
-       sie offen liegt. */
-    let hinauf = file;
-    if (meta?.privat) {
-      const roh = await dateiVerschluesseln(file, kontoHuelle());
-      /* Der Typ wird neutral, der Name bleibt stehen — und das ist eine
-         bewusste Grenze, keine Nachlässigkeit.
+      try {
+        const form = new FormData();
+        /* Privat heißt: die Datei wird hier verschlüsselt und verlässt den
+           Rechner nur als Chiffrat. Der Schlüssel dafür entsteht aus dem
+           eigenen Schlüsselpaar und geht nirgends hin — auch nicht zum
+           Server. Verschlüsselt wird vor allem anderen: schlägt es fehl,
+           geht gar nichts hinaus. */
+        let hinauf: File = file;
+        if (meta?.privat) {
+          const roh = await dateiVerschluesseln(file, kontoHuelle());
+          // Der Typ wird neutral, der Name bleibt stehen — eine bewusste
+          // Grenze, keine Nachlässigkeit (siehe kontoHuelle in lib/vertraulich.ts).
+          hinauf = new File([roh], file.name, { type: 'application/octet-stream' });
+          form.append('privat', '1');
+        }
+        form.append('file', hinauf);
+        if (meta?.folder) form.append('folder', meta.folder);
+        if (meta?.channelId) form.append('channelId', meta.channelId);
+        if (meta?.description) form.append('description', meta.description);
 
-         Der Inhalt ist zu, auch für den Host: das ist die Zusage. Der Name
-         steht weiter in der Liste, weil ein Verzeichnis, dessen Einträge
-         niemand benennen kann, kein Verzeichnis mehr ist, sondern ein Haufen —
-         man fände seine eigenen Dateien nicht wieder. Wer auch den Namen
-         verschließen will, legt die Datei in einen vertraulichen Kanal: dort
-         geht der ganze Umschlag zu, Name und Typ eingeschlossen.
+        const proben: { zeit: number; bytes: number }[] = [{ zeit: performance.now(), bytes: 0 }];
+        await api.uploadToLibrary(form, (anteil) => {
+          const bytes = Math.round(anteil * hinauf.size);
+          const jetzt = performance.now();
+          proben.push({ zeit: jetzt, bytes });
+          while (proben.length > 2 && jetzt - proben[0].zeit > 3000) proben.shift();
+          const sekunden = (jetzt - proben[0].zeit) / 1000;
+          const tempo = sekunden > 0.25 ? (bytes - proben[0].bytes) / sekunden : undefined;
+          aktualisieren({ anteil, tempo, rest: tempo && tempo > 0 ? (hinauf.size - bytes) / tempo : undefined });
+        });
 
-         Im Umschlag der Datei liegt der echte Name ohnehin verschlossen mit.
-         Eine Oberfläche, die die Liste später ganz blind führen will, findet
-         ihn dort — dafür muss hier nichts geändert werden. */
-      hinauf = new File([roh], file.name, { type: 'application/octet-stream' });
-      form.append('privat', '1');
-    }
-    form.append('file', hinauf);
-    if (meta?.folder) form.append('folder', meta.folder);
-    if (meta?.channelId) form.append('channelId', meta.channelId);
-    if (meta?.description) form.append('description', meta.description);
-    try {
-      await api.uploadToLibrary(form, (anteil) => onProgress?.(anteil, Math.round(anteil * hinauf.size)));
-      void get().loadFiles(meta?.channelId ? { channelId: meta.channelId } : undefined);
-    } catch (err) {
-      get().toast({ kind: 'error', title: ts('toast.uploadFailed'), body: (err as Error).message });
+        aktualisieren({ anteil: 1, status: 'fertig' });
+        await get().loadFiles(meta?.channelId ? { channelId: meta.channelId } : undefined);
+        // Fertig heißt: die Datei steht jetzt in `files`. Die Fortschrittszeile
+        // hat damit ausgedient und räumt sich selbst weg.
+        set((s) => ({ libraryUploads: s.libraryUploads.filter((u) => u.id !== taskId) }));
+      } catch (err) {
+        // Gescheiterte Zeilen bleiben stehen, bis jemand sie wegklickt — sonst
+        // stünde nirgends mehr, dass diese Datei nie ankam.
+        aktualisieren({ status: 'fehler', fehler: (err as Error).message });
+        get().toast({ kind: 'error', title: ts('toast.uploadFailed'), body: (err as Error).message });
+      }
     }
   },
+  dismissLibraryUpload: (id) => set((s) => ({ libraryUploads: s.libraryUploads.filter((u) => u.id !== id) })),
+
   updateFile: (fileId, patch) => socket.send({ t: 'file:update', fileId, ...patch }) as unknown as void,
   deleteFile: (fileId) => socket.send({ t: 'file:delete', fileId }) as unknown as void,
 
@@ -1360,6 +1614,15 @@ socket.onEvent((ev: ServerEvent) => {
   switch (ev.t) {
     case 'ready': {
       applyTheme(ev.self.theme, ev.self.density);
+      // Der Schlüssel steht erst ab jetzt bereit — pushAbonnieren() (Datei
+      // lib/benachrichtigung.ts) kann vorher noch kein Abonnement anlegen.
+      vapidSchluesselSetzen(ev.vapidPublicKey);
+      // 'ready' kommt bei JEDEM Verbindungsaufbau, nicht nur beim ersten —
+      // genau deshalb der richtige Ort, um bei Gelegenheit nachzusehen, ob
+      // der Server noch dasselbe Abonnement kennt wie der Browser. Läuft
+      // nebenher: eine fehlgeschlagene Anmeldung soll die Anzeige nicht
+      // aufhalten.
+      pushSynchronisieren();
       useStore.setState({
         self: ev.self,
         ai: ev.ai,
@@ -1436,6 +1699,10 @@ socket.onEvent((ev: ServerEvent) => {
 
     case 'message:new': {
       const msg: Message = ev.clientId ? { ...ev.message, clientId: ev.clientId } : ev.message;
+      /* Ab jetzt hat die eigene Nachricht eine echte Kennung — wer noch auf
+         sie wartet, um ihr einen fertig gewordenen Anhang nachzureichen
+         (siehe waitForMessageId oben), erfährt es genau hier. */
+      if (ev.clientId) settle(`msg:${ev.clientId}`, msg.id);
       useStore.setState((s) => {
         const next: Partial<StoreState> = {};
         if (imKanalverlauf(msg)) {
@@ -1485,7 +1752,13 @@ socket.onEvent((ev: ServerEvent) => {
       /* Der offene Thread zeigt dieselbe Nachricht aus einer zweiten Liste.
          Ohne diesen Zweig stünde der zurückgenommene Text dort weiter, bis
          jemand den Thread schließt und neu öffnet. */
-      const geloescht: Partial<Message> = { deletedAt: Date.now(), text: '', attachments: [], translation: null };
+      const geloescht: Partial<Message> = {
+        deletedAt: Date.now(), text: '', attachments: [], translation: null,
+        // Ein Anhang, der noch unterwegs war, findet gleich keine Nachricht
+        // mehr vor (siehe attachUploadToMessage) — der Platzhalter soll das
+        // hier schon vorwegnehmen, statt bis zur Serverantwort zu warten.
+        pendingAttachments: [],
+      };
       useStore.setState((s) => ({
         messages: {
           ...s.messages,
@@ -1555,6 +1828,45 @@ socket.onEvent((ev: ServerEvent) => {
     case 'channel:state':
       useStore.setState((s) => ({ states: { ...s.states, [ev.state.channelId]: ev.state } }));
       updateBadge();
+      break;
+
+    /* ── Lesebestätigungen ────────────────────────────────────
+       Dieselbe Lesemarke wie der Ungelesen-Zähler (channel_members in der
+       Datenbank, readMarkers/states hier) — es gibt keine zweite Ablage
+       darüber, was gelesen ist. Diese beiden Fälle beantworten nur, WER
+       gelesen hat und WANN, abgeleitet aus derselben Marke. */
+
+    case 'read': {
+      // Die eigene Marke kommt über channel:state, nicht hierüber. `at` fehlt
+      // (null), wenn sich die Marke der anderen Person in Wahrheit gar nicht
+      // bewegt hat (z.B. eine doppelte Meldung) — dann gibt es nichts
+      // aufzufrischen.
+      if (ev.at == null || ev.userId === store.self?.id) break;
+      useStore.setState((s) => {
+        /* Nur Nachrichten IM SELBEN KANAL berücksichtigen: Kennungen sind
+           zeitlich sortierbar, aber nicht kanalübergreifend vergleichbar —
+           ein lexikalischer Vergleich über Kanalgrenzen hinweg verglich zwei
+           Uhren, die nichts miteinander zu tun haben. */
+        const bekannt = new Set<string>();
+        for (const m of s.messages[ev.channelId] ?? []) bekannt.add(m.id);
+        for (const liste of Object.values(s.threads)) {
+          for (const m of liste) if (m.channelId === ev.channelId) bekannt.add(m.id);
+        }
+        let geaendert = false;
+        const readReceipts = { ...s.readReceipts };
+        for (const [messageId, liste] of Object.entries(readReceipts)) {
+          if (!bekannt.has(messageId) || messageId > ev.lastMessageId) continue;
+          if (liste.some((r) => r.userId === ev.userId)) continue;
+          readReceipts[messageId] = [...liste, { userId: ev.userId, at: ev.at! }];
+          geaendert = true;
+        }
+        return geaendert ? { readReceipts } : {};
+      });
+      break;
+    }
+
+    case 'message:read-receipts':
+      useStore.setState((s) => ({ readReceipts: { ...s.readReceipts, ...ev.receipts } }));
       break;
 
     case 'typing':
@@ -1663,10 +1975,16 @@ socket.onEvent((ev: ServerEvent) => {
         title: ev.reminder.note || ts('reminder.one'),
         body: preview ? preview.slice(0, 140) : ts('toast.reminderIn', { ort: channel?.name ? `#${channel.name}` : ts('toast.aChannel') }),
       });
-      void window.stellium?.notify({
-        title: ev.reminder.note || ts('toast.reminderTitle'),
-        body: preview.slice(0, 160) || ts('toast.reminderLook'),
-        channelId: ev.reminder.channelId,
+      /* War früher ein direkter window.stellium?.notify()-Aufruf — der geht
+         nur in der App, weil `window.stellium` im Browser gar nicht existiert
+         und der optionale Aufruf dort lautlos ins Leere lief. Eine fällige
+         Erinnerung zeigte sich auf dem Telefon deshalb nie, nicht einmal bei
+         offener App. zeigen() wählt selbst den richtigen Weg. */
+      zeigen({
+        titel: ev.reminder.note || ts('toast.reminderTitle'),
+        text: preview.slice(0, 160) || ts('toast.reminderLook'),
+        kanalId: ev.reminder.channelId,
+        gruppe: `reminder:${ev.reminder.id}`,
       });
       break;
     }
@@ -1696,9 +2014,21 @@ socket.onEvent((ev: ServerEvent) => {
       useStore.setState({ tasks: Object.fromEntries(ev.tasks.map((t) => [t.id, t])) });
       break;
 
-    case 'task:upsert':
+    case 'task:upsert': {
+      // Vorher festhalten, sonst lässt sich nach dem setState() nicht mehr
+      // unterscheiden "war schon meine Aufgabe" von "wurde mir gerade erst
+      // gegeben" — beides sieht danach gleich aus.
+      const vorherigerEmpfaenger = useStore.getState().tasks[ev.task.id]?.assigneeId;
       useStore.setState((s) => ({ tasks: { ...s.tasks, [ev.task.id]: ev.task } }));
+      const self = useStore.getState().self;
+      if (self && ev.task.assigneeId === self.id && vorherigerEmpfaenger !== self.id) {
+        // TODO(i18n): fester deutscher Text, weil packages/desktop/src/i18n/
+        // in dieser Änderung nicht angefasst werden durfte. Vorschlag für
+        // einen Schlüssel: toast.taskAssigned = "Dir zugeteilt".
+        zeigen({ titel: 'Dir zugeteilt', text: ev.task.title, gruppe: `task:${ev.task.id}` });
+      }
       break;
+    }
 
     case 'task:removed':
       useStore.setState((s) => {
@@ -1803,21 +2133,20 @@ socket.onEvent((ev: ServerEvent) => {
     /* ── Dateiablage ──────────────────────────────────────── */
 
     case 'file:list':
-      useStore.setState({ files: ev.files, storageUsage: ev.usage });
+      useStore.setState((s) => ({
+        files: nurSichtbareDateien(ev.files, s.self?.id), storageUsage: ev.usage,
+      }));
       break;
 
     case 'file:upsert':
       useStore.setState((s) => {
         /* Eine fremde private Datei gehört nicht in diese Liste. Der Server
-           schickt sie beim Hochladen gar nicht erst herum; bei einer Umbenennung
-           tut er es noch, weil dieser Weg über die Ereignisleitung alle Mitglieder
-           erreicht. Öffnen könnte sie hier ohnehin niemand — anzeigen soll die
-           Ablage sie deshalb auch nicht. */
-        if (ev.file.privat && ev.file.uploadedBy !== s.self?.id) {
-          return { storageUsage: ev.usage ?? s.storageUsage };
-        }
+           schickt sie beim Hochladen gar nicht erst herum; bei einer
+           Umbenennung geht sie inzwischen (siehe ws/gateway.ts, Fall
+           file:update) nur noch an ihren Besitzer. nurSichtbareDateien()
+           bleibt trotzdem stehen — die zweite Sicherung, nicht die erste. */
         return {
-          files: [ev.file, ...s.files.filter((f) => f.id !== ev.file.id)]
+          files: nurSichtbareDateien([ev.file, ...s.files.filter((f) => f.id !== ev.file.id)], s.self?.id)
             .sort((a, b) => b.createdAt - a.createdAt),
           storageUsage: ev.usage ?? s.storageUsage,
         };
@@ -1966,6 +2295,32 @@ function updateBadge(): void {
   // Im Browser gibt es kein Dock-Symbol — dort trägt der Reitertitel die Zahl.
   titelZaehler(total);
 }
+
+/**
+ * Nachsehen, ob der Server noch dasselbe Push-Abonnement kennt wie der
+ * Browser — und es melden, wenn nicht.
+ *
+ * Läuft bei jedem 'ready' weiter unten, also bei jedem Verbindungsaufbau,
+ * nicht nur beim ersten. Das ist bewusst so: die Erlaubnis kann zwischen zwei
+ * Verbindungen erteilt worden sein (Knopf in den Einstellungen, während die
+ * Leitung kurz stand), und ohne diese Wiederholung bliebe das erst beim
+ * nächsten Neuladen der Seite nachgezogen.
+ */
+export function pushSynchronisieren(): void {
+  if (erlaubnisStand() !== 'erlaubt') return;
+  void pushAbonnieren().then((abo) => {
+    if (abo) socket.send({ t: 'push:subscribe', subscription: abo });
+  });
+}
+
+/* Der Browser erneuert ein Abonnement gelegentlich von sich aus (sw.js,
+   'pushsubscriptionchange') — dann kommt es über den Service Worker als
+   Nachricht herein (lib/benachrichtigung.ts reicht es als Ereignis weiter)
+   und muss dem Server nachgereicht werden, sonst zeigt der noch auf einen
+   `endpoint`, den es nicht mehr gibt. */
+window.addEventListener('stellium:push-erneuert', ((e: CustomEvent<PushSubscriptionJSON>) => {
+  socket.send({ t: 'push:subscribe', subscription: e.detail });
+}) as EventListener);
 
 /* Alte Tipp-Indikatoren regelmäßig aufräumen. */
 window.setInterval(() => {

@@ -1,0 +1,88 @@
+/**
+ * Emoji-Namen und Suchbegriffe — PT.
+ *
+ * ERZEUGT von scripts/emoji-katalog-erzeugen.mjs aus emojibase-data
+ * (MIT-Lizenz, © Miles Johnson — github.com/milesj/emojibase, CLDR-Grundlage).
+ * Nicht von Hand ändern — neu erzeugen: node scripts/emoji-katalog-erzeugen.mjs
+ *
+ * Nur die im EmojiPicker tatsächlich gezeigten Emoji, nicht der volle
+ * Unicode-Bestand — siehe Kopfkommentar des Erzeuger-Skripts fürs Warum.
+ */
+import type { EmojiKatalog } from '../typen.js';
+
+const daten: EmojiKatalog = {
+  "👍": {"name":"polegar para cima","keywords":["polegar para cima","beleza","cima","concordo","dedão","joia","mão","ok","polegar","sim","sinal","valeu"]},
+  "🎉": {"name":"cone de festa","keywords":["cone de festa","alegria","aniversário","celebrar","comemoração","cone","eba","festa","oba","parabéns"]},
+  "❤️": {"name":"coração vermelho","keywords":["coração vermelho","amor","coração","s2"]},
+  "😂": {"name":"rosto chorando de rir","keywords":["rosto chorando de rir","alegria","chorando de rir","engraçada","engraçado","gargalhada","hahaha","kkk","lágrimas","lágrimas de alegria","rosto","rosto com lágrimas de alegria"]},
+  "👀": {"name":"olhos","keywords":["olhos","olhando","olho","rosto","tô de olho"]},
+  "🚀": {"name":"foguete","keywords":["foguete","espaço","veículo"]},
+  "✅": {"name":"marca de seleção branca","keywords":["marca de seleção branca","botão","check","completo","feito","marca","marca de verificação","marca de verificação grande","verificado","verificação","✓"]},
+  "🔥": {"name":"fogo","keywords":["fogo","chama"]},
+  "🙏": {"name":"mãos juntas","keywords":["mãos juntas","gesto","mão","reza","rezando","rezar"]},
+  "💡": {"name":"lâmpada","keywords":["lâmpada","elétrica","ideia","luz","quadrinhos","tenho uma ideia"]},
+  "👏": {"name":"mãos aplaudindo","keywords":["mãos aplaudindo","aplauso","bom trabalho","mãos","palmas","parabéns","sinal"]},
+  "🤝": {"name":"aperto de mãos","keywords":["aperto de mãos","aperto","combinado","cumprimento","mãos"]},
+  "😀": {"name":"rosto risonho","keywords":["rosto risonho","engraçado","feliz","lol","rindo","risada","riso","rosto","sorridente"]},
+  "😄": {"name":"rosto risonho com olhos sorridentes","keywords":["rosto risonho com olhos sorridentes","aberta","boca","engraçado","feliz","haha","lol","risada","riso","risonho","sorridente","sorriso"]},
+  "😊": {"name":"rosto sorridente com olhos sorridentes","keywords":["rosto sorridente com olhos sorridentes","alegre","encabulada","envergonhada","feliz","fofo","ruborizar","satisfeita","sim","sorriso","vergonha"]},
+  "🙂": {"name":"rosto levemente sorridente","keywords":["rosto levemente sorridente","feliz","rosto","rosto sorrindo","sorriso","sorriso leve"]},
+  "😉": {"name":"rosto com olho piscando","keywords":["rosto com olho piscando","flerte","piscada","rosto","rosto piscando"]},
+  "😍": {"name":"rosto sorridente com olhos de coração","keywords":["rosto sorridente com olhos de coração","amor","apaixonado","coração","olhar apaixonado","olhos","olhos de coração","paixão","romance","rosto"]},
+  "🤔": {"name":"rosto pensativo","keywords":["rosto pensativo","curiosa","curioso","dúvida","hmm","ideia","ideias","mão no queixo","pensando","pensativa","pensativo","rosto"]},
+  "😅": {"name":"rosto risonho com gota de suor","keywords":["rosto risonho com gota de suor","estressada","estressado","nervoso","rindo","rosto","sorriso com suor frio","sorriso mas com suor frio","suando frio","suor frio"]},
+  "😬": {"name":"rosto expressando desagrado","keywords":["rosto expressando desagrado","careta","fazendo careta","rosto","rosto fazendo careta","sem graça"]},
+  "😴": {"name":"rosto dormindo","keywords":["rosto dormindo","boa noite","cama","cansada","cansado","cochilo","dormindo","dormir","rosto","soneca","sono","zzz"]},
+  "🥳": {"name":"rosto festivo","keywords":["rosto festivo","animação","aniversário","apito","chapéu","comemorar","comemoração","feliz aniversário","festa","língua de sogra","parabéns","rosto","viva"]},
+  "😎": {"name":"rosto sorridente com óculos escuros","keywords":["rosto sorridente com óculos escuros","muito sol","na boa","rosto","sol","sorrindo","sorrindo de óculos escuros","sorriso de óculos","to legal","óculos escuros"]},
+  "🤯": {"name":"cabeça explodindo","keywords":["cabeça explodindo","cabeça","chocada","chocado","chocante","choque","explodindo","incrível","perplexo","surpreendente","surpresa","surpreso"]},
+  "😭": {"name":"rosto chorando aos berros","keywords":["rosto chorando aos berros","chorando","chorando alto","chorar","infeliz","lágrimas","rosto","triste"]},
+  "😤": {"name":"rosto soltando vapor pelo nariz","keywords":["rosto soltando vapor pelo nariz","brava","bravo","furiosa","furioso","irritada","irritado","rosto","soltando fumaça","triunfo","vitória"]},
+  "🤗": {"name":"rosto abraçando","keywords":["rosto abraçando","abraço","carinho","feliz","mãos abraçando","rosto","rosto sorrindo"]},
+  "🙃": {"name":"rosto de cabeça para baixo","keywords":["rosto de cabeça para baixo","de cabeça para baixo","rosto invertido"]},
+  "😇": {"name":"rosto sorridente com auréola","keywords":["rosto sorridente com auréola","anjinho","anjo","auréola","inocente","rosto","sorriso","sorriso com auréola"]},
+  "👎": {"name":"polegar para baixo","keywords":["polegar para baixo","dedão","dedão para baixo","desaprovado","desaprovação","mão","não","não gostei","para baixo","ruim","sinal"]},
+  "👌": {"name":"sinal de ok","keywords":["sinal de ok","beliscar","certo","concordo","mão","ok","rude","sinal","sinalizando","ótimo"]},
+  "✌️": {"name":"mão em V de vitória","keywords":["mão em V de vitória","beleza","mão","paz","sim","v de vitória","vitória"]},
+  "🤞": {"name":"dedos cruzados","keywords":["dedos cruzados","boa sorte","cruzados","dedos","mão","sorte","torcendo"]},
+  "🙌": {"name":"mãos para cima","keywords":["mãos para cima","ambas as mãos","comemoração","levantando ambas as mãos para comemorar","viva"]},
+  "👋": {"name":"mão acenando","keywords":["mão acenando","acenando","aceno","até mais","está aí?","flw","mão","oi","olá","taí?","tchau"]},
+  "🤙": {"name":"sinal \"me liga\"","keywords":["sinal \"me liga\"","legal","ligar","me liga","mão"]},
+  "💪": {"name":"bíceps","keywords":["bíceps","academia","contraído","engraçado","forte","musculação","músculo"]},
+  "🫶": {"name":"mãos de coração","keywords":["mãos de coração","<3","amei","amo você","amor","coração","mão","mãos","te amo"]},
+  "🤌": {"name":"dedos comprimidos","keywords":["dedos comprimidos","beliscado","coxinha","dedos","gesto de mão","hã","interrogação","italiana","itália","maravilha","mão","o quê","sarcástico"]},
+  "✍️": {"name":"escrevendo à mão","keywords":["escrevendo à mão","caneta","escrevendo","mão"]},
+  "💻": {"name":"laptop","keywords":["laptop","computador","notebook","pc","pessoal","trabalho"]},
+  "📱": {"name":"telefone celular","keywords":["telefone celular","celular","telefone","telefone móvel"]},
+  "📊": {"name":"gráfico de barras","keywords":["gráfico de barras","barra","diagrama","gráfico"]},
+  "📈": {"name":"gráfico subindo","keywords":["gráfico subindo","crescimento","diagrama","gráfico","gráfico de tendência de crescimento","tendência de crescimento"]},
+  "📉": {"name":"gráfico caindo","keywords":["gráfico caindo","diagrama","gráfico","gráfico de tendência negativa","negativa","tendência negativa"]},
+  "🗓️": {"name":"calendário espiral","keywords":["calendário espiral","bloco","calendário","data","espiral"]},
+  "📌": {"name":"tacha","keywords":["tacha","alfinete"]},
+  "📎": {"name":"clipe de papel","keywords":["clipe de papel","clipe"]},
+  "✏️": {"name":"lápis","keywords":["lápis"]},
+  "🔧": {"name":"chave inglesa","keywords":["chave inglesa","chave","ferramenta","inglesa","obra","reforma"]},
+  "⚙️": {"name":"engrenagem","keywords":["engrenagem","ferramenta"]},
+  "🧪": {"name":"tubo de ensaio","keywords":["tubo de ensaio","ciência","ensaio","experimento","experiência","laboratório","química","químico","tubo"]},
+  "🐛": {"name":"inseto","keywords":["inseto","animal","centopeia","lagarta"]},
+  "🚧": {"name":"em construção","keywords":["em construção","construção","símbolo","símbolo para “em construção”"]},
+  "📦": {"name":"pacote","keywords":["pacote","caixa","embrulho"]},
+  "🔍": {"name":"lupa para a esquerda","keywords":["lupa para a esquerda","aumento","busca","esquerda","ferramenta","lente","lupa","pesquisa","procura"]},
+  "⭐": {"name":"estrela branca média","keywords":["estrela branca média","amarela","astronomia","estrela"]},
+  "✨": {"name":"brilhos","keywords":["brilhos","*","brilhantes","estrelas","faíscas","mágica"]},
+  "💫": {"name":"zonzo","keywords":["zonzo","brilhante","emoção","engraçado","estrelas","olhando para as estrelas"]},
+  "🌟": {"name":"estrela brilhante","keywords":["estrela brilhante","brilhante","brilho","cintilante","estrela","luminosa","reluzente"]},
+  "⚡": {"name":"alta tensão","keywords":["alta tensão","alta","eletricidade","natureza","perigo","relâmpago","sinal","tensão"]},
+  "💧": {"name":"gota","keywords":["gota","com suor","engraçado","gota de suor","suor"]},
+  "🌈": {"name":"arco-íris","keywords":["arco-íris","chuva","clima","gay","lgbt","lgbtqia+","lésbica","natureza","orgulho","queer","transgênero"]},
+  "🎯": {"name":"no alvo","keywords":["no alvo","alvo","certeiro","dardos","jogo","mira","mosca","tiro"]},
+  "🏆": {"name":"troféu","keywords":["troféu","campeã","campeão","prêmio"]},
+  "🥇": {"name":"medalha de ouro","keywords":["medalha de ouro","1o. lugar","1º. lugar","medalha","ouro","vitória"]},
+  "💯": {"name":"cem pontos","keywords":["cem pontos","100","cem","certamente","certeza","conte comigo","pontos","sem dúvida","top","total"]},
+  "❗": {"name":"ponto de exclamação vermelho","keywords":["ponto de exclamação vermelho","!","exclamação","ponto de exclamação","pontuação"]},
+  "❓": {"name":"ponto de interrogação vermelho","keywords":["ponto de interrogação vermelho","?","interrogação","pergunta","ponto","ponto de interrogação","pontuação","sinal"]},
+  "✔️": {"name":"marca de seleção","keywords":["marca de seleção","check","feito","marca","marca de verificação simples","marcar","selecionar","verificação","✓"]},
+  "❌": {"name":"xis","keywords":["xis","cancelar","multiplicar","multiplicação","vermelho","x","×"]},
+};
+
+export default daten;

@@ -6,10 +6,10 @@ import {
 } from 'lucide-react';
 import type { Channel } from '@stellium/shared';
 import { useStore } from '../state/store.js';
-import { useT } from '../i18n/index.js';
+import { currentUiLanguage, useT } from '../i18n/index.js';
 import { Avatar } from './Avatar.jsx';
 import { ContextMenu, useContextMenu, type MenuEintrag } from './ContextMenu.jsx';
-import { clsx, kanalName, languageInfo, localTimeFor } from '../lib/format.js';
+import { clsx, counterLabel, kanalName, languageInfo, localTimeFor } from '../lib/format.js';
 import { useKiKanaele } from '../lib/ai-channels.js';
 
 export function Sidebar() {
@@ -34,7 +34,7 @@ export function Sidebar() {
     const sortieren = (a: Channel, b: Channel) => {
       const aFest = states[a.id]?.starred ? 0 : 1;
       const bFest = states[b.id]?.starred ? 0 : 1;
-      return aFest - bFest || kanalName(a).localeCompare(kanalName(b));
+      return aFest - bFest || kanalName(a).localeCompare(kanalName(b), currentUiLanguage());
     };
     return {
       publicChannels: list.filter((c) => c.kind === 'public' && c.id !== kiTeamId).sort(sortieren),
@@ -88,7 +88,7 @@ export function Sidebar() {
         {state?.muted && <BellOff size={11} className="chan__lang" />}
         {mentions > 0
           ? <span className="chan__badge">@{mentions}</span>
-          : unread > 0 && !state?.muted ? <span className="chan__badge">{unread > 99 ? '99+' : unread}</span> : null}
+          : unread > 0 && !state?.muted ? <span className="chan__badge"><bdi>{counterLabel(unread)}</bdi></span> : null}
       </button>
     );
   };

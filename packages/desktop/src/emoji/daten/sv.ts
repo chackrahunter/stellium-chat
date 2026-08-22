@@ -1,0 +1,88 @@
+/**
+ * Emoji-Namen und Suchbegriffe — SV.
+ *
+ * ERZEUGT von scripts/emoji-katalog-erzeugen.mjs aus emojibase-data
+ * (MIT-Lizenz, © Miles Johnson — github.com/milesj/emojibase, CLDR-Grundlage).
+ * Nicht von Hand ändern — neu erzeugen: node scripts/emoji-katalog-erzeugen.mjs
+ *
+ * Nur die im EmojiPicker tatsächlich gezeigten Emoji, nicht der volle
+ * Unicode-Bestand — siehe Kopfkommentar des Erzeuger-Skripts fürs Warum.
+ */
+import type { EmojiKatalog } from '../typen.js';
+
+const daten: EmojiKatalog = {
+  "👍": {"name":"tummen upp","keywords":["tummen upp","bra","gillar","ok","okej","tumme","upp"]},
+  "🎉": {"name":"konfettismällare","keywords":["konfettismällare","fest","partypopper","serpentiner"]},
+  "❤️": {"name":"rött hjärta","keywords":["rött hjärta","hjärta","känslor","kärlek","rött"]},
+  "😂": {"name":"ansikte med glädjetårar","keywords":["ansikte med glädjetårar","ansikte","gapskratt","glädjetårar","gråt","jätteroligt","skratt","tårar"]},
+  "👀": {"name":"ögon","keywords":["ögon","öga"]},
+  "🚀": {"name":"raket","keywords":["raket","fordon","rymdraket"]},
+  "✅": {"name":"vit bockmarkering","keywords":["vit bockmarkering","bock","vit fet bockmarkering"]},
+  "🔥": {"name":"eld","keywords":["eld","brinner","flamma"]},
+  "🙏": {"name":"beende händer","keywords":["beende händer","be","ber","händer","knäppta händer"]},
+  "💡": {"name":"glödlampa","keywords":["glödlampa","elektrisk","fått en idé","lampa"]},
+  "👏": {"name":"klappande händer","keywords":["klappande händer","klappa","klappa händer"]},
+  "🤝": {"name":"handskakning","keywords":["handskakning","avtal","hand","möte"]},
+  "😀": {"name":"ansikte med stort leende","keywords":["ansikte med stort leende","ansikte","glad","kul","leende","roligt","skratt"]},
+  "😄": {"name":"flinande ansikte med leende ögon","keywords":["flinande ansikte med leende ögon","ansikte","blundar","flina","glad","kul","leende","lol","roligt","skratt","ögon"]},
+  "😊": {"name":"leende ansikte och ögon","keywords":["leende ansikte och ögon","ansikte","glad","kinder","leende","ler","nöjd","rosiga","ögon"]},
+  "🙂": {"name":"småleende ansikte","keywords":["småleende ansikte","ansikte","glad","leende","ler","litet","nöjd"]},
+  "😉": {"name":"ansikte som blinkar med ett öga","keywords":["ansikte som blinkar med ett öga","ansikte","blinkar","flört","skämt","öga"]},
+  "😍": {"name":"leende ansikte med hjärtformade ögon","keywords":["leende ansikte med hjärtformade ögon","ansikte","gullig","hjärta","kärlek","leende","söt","älskar","ögon"]},
+  "🤔": {"name":"ansikte som tänker","keywords":["ansikte som tänker","ansikte","funderar","fundersamt","tänker","undrar"]},
+  "😅": {"name":"flinande ansikte med svettdroppe","keywords":["flinande ansikte med svettdroppe","ansikte","droppe","glad","jobbigt","leende","nervös","stress","svett","trött"]},
+  "😬": {"name":"grimaserande ansikte","keywords":["grimaserande ansikte","ansikte","biter ihop","grimaserar","tänder"]},
+  "😴": {"name":"sovande ansikte","keywords":["sovande ansikte","ansikte","gäsp","snarkar","sover","sängdags","sömnig","trött","zzz"]},
+  "🥳": {"name":"festande ansikte","keywords":["festande ansikte","ansikte","fest","födelsedag","hatt","kalas","partyhatt","tuta"]},
+  "😎": {"name":"leende ansikte med solglasögon","keywords":["leende ansikte med solglasögon","ansikte","chillar","cool","koppla av","leende","solglasögon"]},
+  "🤯": {"name":"exploderande huvud","keywords":["exploderande huvud","chockad","exploderande","huvud"]},
+  "😭": {"name":"storgråtande ansikte","keywords":["storgråtande ansikte","ansikte","bölar","gråter","ledsen","olycklig","rinner","storgråtande","tårar"]},
+  "😤": {"name":"ansikte med ånga ur näsan","keywords":["ansikte med ånga ur näsan","ansikte","arg","näsan","rasande","seger","triumf","vansinnig","ånga"]},
+  "🤗": {"name":"ansikte som kramas","keywords":["ansikte som kramas","ansikte","glad","hej","kram","leende","vinkar"]},
+  "🙃": {"name":"upp-och-nervänt ansikte","keywords":["upp-och-nervänt ansikte","ansikte","leende","upp-och-ner"]},
+  "😇": {"name":"leende ansikte med gloria","keywords":["leende ansikte med gloria","ansikte","gloria","leende"]},
+  "👎": {"name":"tummen ned","keywords":["tummen ned","ner","ogilla","tumme"]},
+  "👌": {"name":"OK-tecken","keywords":["OK-tecken","hand","instämmer","javisst","ok","tecken"]},
+  "✌️": {"name":"v-tecken","keywords":["v-tecken","seger"]},
+  "🤞": {"name":"korsade fingrar","keywords":["korsade fingrar","finger","hand","korsa","lycka"]},
+  "🙌": {"name":"båda händerna i luften","keywords":["båda händerna i luften","hurra","räcker upp händerna"]},
+  "👋": {"name":"vinkande hand","keywords":["vinkande hand","hallå","hand","hej","vinka","vinkning","är du där?"]},
+  "🤙": {"name":"ring mig-hand","keywords":["ring mig-hand","hand","ring"]},
+  "💪": {"name":"spänd biceps","keywords":["spänd biceps","muskler","stark"]},
+  "🫶": {"name":"handhjärta","keywords":["handhjärta","kärlek","älskar"]},
+  "🤌": {"name":"fingerportmonnä","keywords":["fingerportmonnä","fingrar","förhör","handgest","nypa","sarkastisk"]},
+  "✍️": {"name":"hand som skriver","keywords":["hand som skriver","hand","skriver"]},
+  "💻": {"name":"bärbar dator","keywords":["bärbar dator","bärbar","dator","kontor","laptop","pc"]},
+  "📱": {"name":"mobiltelefon","keywords":["mobiltelefon","mobil","telefon"]},
+  "📊": {"name":"stapeldiagram","keywords":["stapeldiagram","diagram","staplar"]},
+  "📈": {"name":"uppåtgående trend","keywords":["uppåtgående trend","diagram","graf"]},
+  "📉": {"name":"nedåtgående trend","keywords":["nedåtgående trend","diagram","graf"]},
+  "🗓️": {"name":"spiralbunden kalender","keywords":["spiralbunden kalender","kalender","månadskalender"]},
+  "📌": {"name":"kartnål","keywords":["kartnål","stift"]},
+  "📎": {"name":"gem","keywords":["gem"]},
+  "✏️": {"name":"blyertspenna","keywords":["blyertspenna"]},
+  "🔧": {"name":"skiftnyckel","keywords":["skiftnyckel","verktyg"]},
+  "⚙️": {"name":"kugghjul","keywords":["kugghjul","kugge"]},
+  "🧪": {"name":"provrör","keywords":["provrör","experiment","kemi","kemist","labb","vetenskap"]},
+  "🐛": {"name":"tusenfoting","keywords":["tusenfoting","djur","kryp","larv"]},
+  "🚧": {"name":"skylt för byggområde","keywords":["skylt för byggområde","bygge"]},
+  "📦": {"name":"paket","keywords":["paket","låda"]},
+  "🔍": {"name":"förstoringsglas som lutar åt vänster","keywords":["förstoringsglas som lutar åt vänster","förstoringsglas","förstoringsglas vänster","vänsterpekande"]},
+  "⭐": {"name":"stjärna","keywords":["stjärna","vit medelstor stjärna"]},
+  "✨": {"name":"gnistrande stjärnor","keywords":["gnistrande stjärnor","gnistrar","stjärnor"]},
+  "💫": {"name":"omtumlad","keywords":["omtumlad","serietidning","stjärna","stjärnfall","yr"]},
+  "🌟": {"name":"blänkande stjärna","keywords":["blänkande stjärna","blänkande","glittrande","glänsande","gnistrande","natt","seger","stjärna"]},
+  "⚡": {"name":"högspänning","keywords":["högspänning","fara","hög spänning","spänning","varningssymbol"]},
+  "💧": {"name":"droppe","keywords":["droppe","kallsvettig","svettdroppe","svettig","vattendroppe"]},
+  "🌈": {"name":"regnbåge","keywords":["regnbåge","regn","väder"]},
+  "🎯": {"name":"mitt i prick","keywords":["mitt i prick","bullseye","fullträff","pilkastning","piltavla med pil mitt i prick","rakt på mål"]},
+  "🏆": {"name":"pokal","keywords":["pokal","pris"]},
+  "🥇": {"name":"guldmedalj","keywords":["guldmedalj","guld","medalj","segrare"]},
+  "💯": {"name":"100 poäng","keywords":["100 poäng","full pott"]},
+  "❗": {"name":"rött utropstecken","keywords":["rött utropstecken","kommatering","rött","utropstecken"]},
+  "❓": {"name":"rött frågetecken","keywords":["rött frågetecken","?","fråga","frågetecken","interpunktion","tecken"]},
+  "✔️": {"name":"bockmarkering","keywords":["bockmarkering","avbockad","bock"]},
+  "❌": {"name":"rött kryss","keywords":["rött kryss","kryss","x"]},
+};
+
+export default daten;

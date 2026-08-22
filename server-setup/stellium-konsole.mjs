@@ -375,6 +375,7 @@ function zertifikat() {
       const ende = ruf('openssl', ['x509', '-enddate', '-noout', '-in', `/etc/letsencrypt/live/${name.name}/fullchain.pem`]);
       if (!ende) continue;
       return {
+        art: 'lokal',
         name: name.name,
         tage: Math.round((new Date(ende.split('=')[1]) - Date.now()) / 86400000),
       };
@@ -408,12 +409,49 @@ function zertifikat() {
       if (!ende) continue;
       const cn = (roh.match(/CN\s*=\s*([^,\n]+)/) ?? [])[1];
       return {
+        art: 'lokal',
         name: (cn ?? name ?? 'Zertifikat').trim(),
         tage: Math.round((new Date(ende) - Date.now()) / 86400000),
       };
     }
-    return null;
-  } catch { /* keines vorhanden */ }
+  } catch { /* keine Datei, kein Zugriff — unten weiter */ }
+
+  /* Kein lokales Zertifikat gefunden — das heißt noch nicht "offen". Seit dem
+     Umzug auf den Cloudflare-Tunnel (server-setup/FREMDE-DIENSTE.md) läuft
+     chat.stellium.club direkt auf den Node-Dienst dieses Rechners, an nginx
+     vorbei; dort nachzusehen findet folgerichtig nichts mehr. TLS endet
+     stattdessen bei Cloudflare selbst — /etc/cloudflared/config.yml sagt das
+     wörtlich: "kein Zertifikat zum Erneuern. Cloudflare beendet TLS." Am
+     22.08. nachgemessen: chat.stellium.club zeigt ein gültiges
+     Cloudflare-Zertifikat (Google Trust Services, SAN *.stellium.club),
+     während dieser Pi weder Port 80 noch 443 belegt — dort ist niemand, der
+     eine offene Verbindung anbieten könnte. Nur mitgelesen, nichts verändert:
+     /etc/cloudflared/** gehört zum Teil auch dem Kollegen, siehe
+     FREMDE-DIENSTE.md. */
+  return tunnelZertifikat();
+}
+
+/** Läuft unser eigener Dienst durch den Cloudflare-Tunnel — und übernimmt
+ *  Cloudflare damit die TLS-Beendigung, statt dass hier ein Zertifikat fehlt?
+ *
+ *  Geprüft wird die eingerichtete ingress-Regel in /etc/cloudflared/config.yml
+ *  (weltweit lesbar, 644 — kein sudo nötig, die Konsole bleibt ohne Root):
+ *  ein Tunnelname, dessen Ziel auf unseren eigenen Port zeigt (denselben, den
+ *  auch `gesundheit()` weiter oben abfragt), zählt. Alles, was auf Port 8080
+ *  zeigt — die Seite des Kollegen, siehe FREMDE-DIENSTE.md — ausdrücklich
+ *  nicht: dessen Zertifikatsfrage ist nicht unsere. */
+function tunnelZertifikat() {
+  if (!dienstAktiv('cloudflared')) return null;
+  try {
+    const conf = fs.readFileSync('/etc/cloudflared/config.yml', 'utf8');
+    for (const block of conf.split(/\n(?=\s*-\s*hostname:)/)) {
+      const hostname = (block.match(/hostname:\s*(\S+)/) ?? [])[1];
+      const port = (block.match(/service:\s*https?:\/\/127\.0\.0\.1:(\d+)/) ?? [])[1];
+      if (hostname && port && Number(port) === PORT) {
+        return { art: 'tunnel', anbieter: 'Cloudflare', name: hostname };
+      }
+    }
+  } catch { /* kein Zugriff oder kein Tunnel eingerichtet — dann wirklich keines */ }
   return null;
 }
 
@@ -1801,6 +1839,11 @@ function ueberschrift(text, farbe = F.violett) {
  * dafür eine winzige Datei ab und schreibt sie atomar um, damit hier nie eine
  * halb geschriebene gelesen wird.
  *
+ * Seit Kurzem steht dort auch **wer** — als Behauptung der Gegenstelle, nicht
+ * als geprüfte Identität (siehe `fernsteuerung/dienst/fern-dienst.mjs`).
+ * Ältere Gegenstellen kennen dieses Feld nicht; dann bleibt `konto` null, und
+ * die Oberfläche zeigt „unbekannt" statt eines Namens.
+ *
  * Liegt keine Datei vor, läuft die Fernsteuerung schlicht nicht. Das ist kein
  * Fehler und soll auch nicht wie einer aussehen.
  */
@@ -1811,10 +1854,11 @@ function fernsteuerung() {
       da: true,
       verbunden: Boolean(z.verbunden),
       seit: z.seit ?? null,
+      konto: z.konto ?? null,
       id: z.id ?? null,
     };
   } catch {
-    return { da: false, verbunden: false, seit: null, id: null };
+    return { da: false, verbunden: false, seit: null, konto: null, id: null };
   }
 }
 
@@ -1979,7 +2023,11 @@ async function zeichnen() {
   /* ── Weg nach außen ──────────────────────────────────────── */
   ueberschrift('Weg nach außen', F.blau);
   feld('nginx', web ? (dienstAn('nginx') ? 'läuft · startet automatisch' : 'läuft') : 'AUS', web ? F.gruen : F.rot);
-  if (zert) {
+  if (zert?.art === 'tunnel') {
+    // TLS endet bei Cloudflare, nicht auf diesem Pi — siehe zertifikat()
+    // weiter oben. "Verbindung offen" wäre hier schlicht falsch.
+    feld('Zertifikat', `${zert.name} · TLS endet bei ${zert.anbieter}`, F.gruen);
+  } else if (zert) {
     const farbe = zert.tage < 10 ? F.rot : zert.tage < 25 ? F.gelb : F.gruen;
     feld('Zertifikat', `${zert.name} · noch ${zert.tage} Tage`, farbe);
   } else if (sicher.length) {

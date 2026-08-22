@@ -7,17 +7,28 @@ import {
 } from '@stellium/shared';
 import { socket } from '../net/socket.js';
 import { dateiUrl } from '../net/api.js';
+import { useStore } from '../state/store.js';
 import { spracheDesSystems, translate, type TranslationKey } from '../i18n/kern.js';
 
 /**
- * Meldungen dieser Ebene in der Sprache des Rechners.
+ * Meldungen dieser Ebene in der eingestellten Oberflächensprache.
  *
- * Derselbe Weg wie in net/api.ts und aus demselben Grund: der Zustand lädt
- * diese Datei, ihn von hier aus zu laden ergäbe einen Ringschluss. Für
- * Meldungen über fehlende Schlüssel ist die Systemsprache nah genug dran.
+ * Derselbe Weg wie in net/api.ts, jetzt richtig: über den Kern (i18n/kern.js)
+ * geladen, nicht über i18n/index.js — DAS lädt seinerseits den Zustand, und
+ * erst dabei entstünde (über diese Datei, die der Zustand ihrerseits
+ * einbindet) ein Ringschluss. Der Zustand selbst lässt sich unabhängig davon
+ * gefahrlos direkt anfassen, wie state/store.ts es in seiner eigenen
+ * ts()-Funktion vormacht: useStore.getState() liest nur beim tatsächlichen
+ * Aufruf, nicht beim Laden des Moduls — beide Module sind zu dem Zeitpunkt
+ * längst fertig geladen.
+ *
+ * Vorher stand hier spracheDesSystems() für alle 17 Meldungen dieser Datei —
+ * die Sprache des Rechners statt der eingestellten Oberflächensprache. Vor
+ * der Anmeldung ist self noch null, dann greift der Rückfall auf
+ * spracheDesSystems() ohnehin von selbst.
  */
 function txt(key: TranslationKey, werte?: Record<string, string | number>): string {
-  return translate(spracheDesSystems(), key, werte);
+  return translate(useStore.getState().self?.uiLanguage || spracheDesSystems(), key, werte);
 }
 
 /**
@@ -65,7 +76,7 @@ function holen(schluessel: string): string | null {
 const enc = new TextEncoder();
 const dec = new TextDecoder();
 
-function b64u(daten: ArrayBuffer | Uint8Array): string {
+export function b64u(daten: ArrayBuffer | Uint8Array): string {
   const bytes = daten instanceof Uint8Array ? daten : new Uint8Array(daten);
   let s = '';
   for (const b of bytes) s += String.fromCharCode(b);
@@ -82,7 +93,7 @@ function b64u(daten: ArrayBuffer | Uint8Array): string {
    Aufrufstelle hätte dasselbe erreicht — aber als Zusicherung, die niemand
    mehr nachprüft. So steht die Wahrheit einmal an der Quelle statt siebenmal
    als Beteuerung weiter unten. */
-function unb64u(text: string): Uint8Array<ArrayBuffer> {
+export function unb64u(text: string): Uint8Array<ArrayBuffer> {
   const s = atob(text.replace(/-/g, '+').replace(/_/g, '/'));
   const out = new Uint8Array(s.length);
   for (let i = 0; i < s.length; i++) out[i] = s.charCodeAt(i);
@@ -116,6 +127,18 @@ let oeffentlichJwk: string | null = null;
 
 /** Öffentliche Teile der anderen — kommen vom Server, wenn wir fragen. */
 const fremdeSchluessel = new Map<string, string>();
+
+/**
+ * Ein einzelner öffentlicher Teil, sofern schon angefordert.
+ *
+ * Für lib/notizen.ts: nach schluesselAnfordern() liegt der Teil hier, und
+ * paketPacken() braucht ihn als eigenes Argument statt ihn sich selbst aus
+ * der Karte zu holen — dieselbe Karte bleibt trotzdem die einzige, die es
+ * davon gibt.
+ */
+export function fremderOeffentlicherSchluessel(userId: string): string | null {
+  return fremdeSchluessel.get(userId) ?? null;
+}
 
 /** Kanalschlüssel, entpackt. Nur im Speicher; auf der Platte bleiben Pakete. */
 const kanalSchluessel = new Map<string, CryptoKey>();      // "<channelId>:<fassung>"
@@ -198,6 +221,20 @@ export function meinAbdruck(): Promise<string> {
   return oeffentlichJwk ? abdruckVon(oeffentlichJwk) : Promise.resolve('');
 }
 
+/**
+ * Der eigene öffentliche Teil, roh — für lib/notizen.ts.
+ *
+ * Notizen brauchen dieselbe „ECDH mit sich selbst"-Verpackung wie private
+ * Dateien (siehe kontoHuelle unten), aber als echtes, ablegbares Paket statt
+ * einer deterministischen Ableitung: der Notizschlüssel muss sich rotieren
+ * lassen, ein aus dem Kontoschlüssel abgeleiteter könnte das nicht. Dafür
+ * braucht die aufrufende Stelle den eigenen öffentlichen Teil, so wie sie
+ * ihn für jedes andere Mitglied auch aus fremdeSchluessel bekäme.
+ */
+export function eigenerOeffentlicherSchluessel(): string | null {
+  return oeffentlichJwk;
+}
+
 /* ── Verpacken und Auspacken ──────────────────────────────────── */
 
 /**
@@ -212,7 +249,11 @@ export function meinAbdruck(): Promise<string> {
  * für Verschiedenes benutzt wird: für jede Fassung jedes Kanals und jede
  * Richtung entsteht ein eigener.
  */
-async function gemeinsamerSchluessel(fremdJwk: string, kontext: string): Promise<CryptoKey> {
+/* Exportiert (nicht nur für diese Datei): lib/notizen.ts braucht exakt
+   dieselbe Ableitung, Verpackung und Auspackung — mit einem eigenen
+   Kontext-Präfix (siehe dort), aber ohne eine zweite Fassung dieses Codes.
+   Siehe Kommentar am Kopf von lib/notizen.ts. */
+export async function gemeinsamerSchluessel(fremdJwk: string, kontext: string): Promise<CryptoKey> {
   if (!privatSchluessel) throw new Error(txt('fehler.keinSchluesselpaar'));
   const fremd = await oeffentlichEinlesen(fremdJwk);
   const bits = await crypto.subtle.deriveBits({ name: 'ECDH', public: fremd }, privatSchluessel, 256);
@@ -228,7 +269,7 @@ function paketKontext(channelId: string, fassung: number, von: string, fuer: str
   return `stellium/kanal/${channelId}/${fassung}/${von}>${fuer}`;
 }
 
-async function paketPacken(
+export async function paketPacken(
   kanalKey: CryptoKey, fremdJwk: string, kontext: string,
 ): Promise<SchluesselPaket> {
   const roh = await crypto.subtle.exportKey('raw', kanalKey);
@@ -238,7 +279,7 @@ async function paketPacken(
   return { alg: PAKET_ALG, von: meineId ?? '', iv: b64u(iv), daten: b64u(daten) };
 }
 
-async function paketAuspacken(paket: SchluesselPaket, kontext: string): Promise<CryptoKey> {
+export async function paketAuspacken(paket: SchluesselPaket, kontext: string): Promise<CryptoKey> {
   const fremdJwk = fremdeSchluessel.get(paket.von);
   if (!fremdJwk) throw new Error(txt('fehler.absenderSchluesselFehlt'));
   const huelle = await gemeinsamerSchluessel(fremdJwk, kontext);
@@ -249,7 +290,7 @@ async function paketAuspacken(paket: SchluesselPaket, kontext: string): Promise<
 }
 
 /** Öffentliche Teile anfordern und warten, bis sie da sind. */
-function schluesselAnfordern(userIds: string[]): Promise<void> {
+export function schluesselAnfordern(userIds: string[]): Promise<void> {
   const fehlend = userIds.filter((id) => !fremdeSchluessel.has(id));
   if (!fehlend.length) return Promise.resolve();
   return new Promise((fertig) => {

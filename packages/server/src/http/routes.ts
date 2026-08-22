@@ -28,10 +28,13 @@ import * as fernzugang from '../services/fernzugang.js';
 import * as mailzugang from '../services/mailzugang.js';
 import * as verkaufzugang from '../services/verkaufzugang.js';
 import * as post from '../services/post.js';
+import * as postSichtung from '../services/post-sichtung.js';
+import { registerPostEingang } from './posteingang.js';
 import { downloadSeite, systemErkennen } from './download/seite.js';
 
 import { broadcastAll, sitzungenBeenden, verbindungen } from '../ws/gateway.js';
 import * as ablage from '../services/ablage.js';
+import * as avatare from '../services/avatare.js';
 import { huelleSchreiben, umschlagVonDatei } from '../crypto/dateien.js';
 
 function bearer(req: FastifyRequest): string | null {
@@ -604,6 +607,108 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const self = store.getSelf(userId);
     if (!self) return fehler(reply, 401, 'fehler.kontoWeg', 'Konto existiert nicht mehr');
     return { user: self, ai: aiCapabilities() };
+  });
+
+  /* ── Profilbild ────────────────────────────────────────────────
+     Ohne :id, gebunden an den Absender des Tokens — jeder darf so nur sein
+     eigenes ändern, es gibt keine Kennung, die auf ein fremdes Konto
+     zeigen könnte. Größe, Bildart und Neuaufbau prüft ausschließlich
+     services/avatare.ts; hier steht nur das Entgegennehmen, das Umbiegen
+     der Datenbankzeile und das Nachrichten an alle (siehe user:upsert). */
+
+  app.post('/api/me/avatar', async (req, reply) => {
+    const userId = requireUser(req);
+    const file = await req.file({ limits: { fileSize: avatare.AVATAR_MAX_BYTES } });
+    if (!file) return fehler(reply, 400, 'fehler.keineDatei', 'Keine Datei im Request');
+
+    // Klein genug für den ganzen Rutsch im Speicher — die Obergrenze oben
+    // greift schon beim Empfangen, nicht erst hier.
+    const roh = await file.toBuffer();
+    if (file.file.truncated) {
+      return fehler(reply, 413, 'fehler.dateiZuGross',
+        `Datei überschreitet ${avatare.AVATAR_MAX_BYTES / 1024 / 1024} MB`,
+        { mb: String(avatare.AVATAR_MAX_BYTES / 1024 / 1024) });
+    }
+
+    try {
+      const bisherige = db.get<{ avatar_url: string | null }>(
+        'SELECT avatar_url FROM users WHERE id = ?', userId,
+      )?.avatar_url ?? null;
+
+      const bild = await avatare.verarbeiten(roh);
+      const neueUrl = await avatare.ablegen(userId, bild);
+      db.run('UPDATE users SET avatar_url = ? WHERE id = ?', neueUrl, userId);
+      /* Erst jetzt die alte Datei weg — die Datenbank zeigt schon auf die
+         neue, ein Fehlschlag beim Löschen kann also nichts mehr zerreißen. */
+      await avatare.entfernen(bisherige);
+
+      const user = store.getUser(userId);
+      // Ohne diese Meldung sähen die anderen das neue Bild erst nach einem
+      // Neustart der App — derselbe Weg wie bei jeder anderen Profiländerung.
+      if (user) broadcastAll({ t: 'user:upsert', user });
+      return { user };
+    } catch (err) {
+      return weiterreichen(reply, 400, err);
+    }
+  });
+
+  app.delete('/api/me/avatar', async (req) => {
+    const userId = requireUser(req);
+    const bisherige = db.get<{ avatar_url: string | null }>(
+      'SELECT avatar_url FROM users WHERE id = ?', userId,
+    )?.avatar_url ?? null;
+    db.run('UPDATE users SET avatar_url = NULL WHERE id = ?', userId);
+    await avatare.entfernen(bisherige);
+
+    const user = store.getUser(userId);
+    if (user) broadcastAll({ t: 'user:upsert', user });
+    return { user };
+  });
+
+  /**
+   * Ein unpassendes Bild entfernen — dasselbe Recht wie beim Sperren eines
+   * Kontos: wer Konten verwaltet (user.manage), darf auch ihr Bild
+   * entfernen. Ein eigenes Recht dafür gäbe es zu wenig zu verwalten, um
+   * eine eigene Zeile in der Rechteliste zu rechtfertigen.
+   */
+  app.delete('/api/admin/users/:id/avatar', async (req, reply) => {
+    const userId = requireUser(req);
+    requirePermission(userId, 'user.manage');
+    const { id } = req.params as { id: string };
+    const bisherige = db.get<{ avatar_url: string | null }>(
+      'SELECT avatar_url FROM users WHERE id = ?', id,
+    )?.avatar_url;
+    if (bisherige === undefined) return fehler(reply, 404, 'fehler.kontoNichtGefunden', 'Konto nicht gefunden');
+    db.run('UPDATE users SET avatar_url = NULL WHERE id = ?', id);
+    await avatare.entfernen(bisherige);
+
+    const user = store.getUser(id);
+    if (user) broadcastAll({ t: 'user:upsert', user });
+    return { users: store.listManagedUsers() };
+  });
+
+  /**
+   * Profilbilder ausliefern. Dieselbe Anmeldung wie bei /files/:id
+   * (bearerOderAdresse): ein <img src> schickt keine Kopfzeilen, der
+   * Nachweis muss also in der Adresse stehen.
+   *
+   * Der Dateiname TRÄGT die Änderung — jede neue Version bekommt einen
+   * neuen Namen (siehe avatare.ablegen) —, deshalb darf hier so lange und
+   * unveränderlich gecacht werden, wie man will: dieselbe Adresse zeigt nie
+   * auf einen anderen Inhalt. Bleibt die Adresse dagegen gleich, zeigt jeder
+   * Zwischenspeicher tagelang das alte Bild — das ist der Grund, warum die
+   * Adresse sich überhaupt bei jeder Änderung ändert.
+   */
+  app.get('/avatare/:datei', async (req, reply) => {
+    if (!bearerOderAdresse(req)) return fehler(reply, 401, 'fehler.nichtAngemeldet', 'Nicht angemeldet');
+    const { datei } = req.params as { datei: string };
+    const strom = avatare.oeffnen(datei);
+    if (!strom) return fehler(reply, 404, 'fehler.dateiNichtGefunden', 'Datei nicht gefunden');
+    // Der Typ steht fest, nie aus einer hochgeladenen Datei — siehe avatare.ts.
+    reply.header('content-type', 'image/webp');
+    reply.header('content-disposition', 'inline');
+    reply.header('cache-control', 'public, max-age=31536000, immutable');
+    return reply.send(strom);
   });
 
   /* ── Suche ─────────────────────────────────────────────────── */
@@ -1295,6 +1400,120 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     }
   });
 
+  /* ── Postfach: KI-Entwürfe freigeben ─────────────────────────
+     Was post-sichtung.ts an Entwürfen anlegt, muss ein Mensch freigeben — die
+     KI sendet dort bewusst nie selbst (siehe Dateikopf dort: `post.senden`
+     ist in diese Datei absichtlich gar nicht erst eingebunden). `an`,
+     `betreff`, `text` und `begruendung` liegen verschlüsselt in
+     `mail_entwuerfe`; hier wird nichts roh aus der Tabelle gelesen, nur über
+     `offeneEntwuerfe()` und `entwurfLesen()`. In `begruendung` steht bei
+     abweichender Reply-To-Domäne ein Warnsatz (siehe `abweichungsHinweis()`
+     dort) — er hängt am normalen Feld und kommt hier ungekürzt mit. */
+
+  app.get('/api/post/entwuerfe', async (req) => {
+    requirePermission(requireUser(req), 'mail.lesen');
+    const q = req.query as { anzahl?: string };
+    return { entwuerfe: postSichtung.offeneEntwuerfe(Number(q.anzahl) || 50) };
+  });
+
+  app.get('/api/post/entwuerfe/:id', async (req, reply) => {
+    requirePermission(requireUser(req), 'mail.lesen');
+    const entwurf = postSichtung.entwurfLesen((req.params as { id: string }).id);
+    if (!entwurf) return fehler(reply, 404, 'fehler.nichtGefunden', 'Diesen Entwurf gibt es nicht.');
+    return { entwurf };
+  });
+
+  /**
+   * Einen Entwurf freigeben und wirklich senden.
+   *
+   * Reihenfolge absichtlich: erst `requirePermission`, DANN `post.senden()`,
+   * erst danach `entwurfAbschliessen()` als Buchführung. `entwurfAbschliessen`
+   * prüft `mail.senden` zwar selbst noch einmal (siehe dort — das schützt
+   * jeden künftigen zweiten Aufrufer, der nicht über diese Route läuft), aber
+   * das reicht hier nicht: säße die einzige Prüfung dort, würde die Mail
+   * schon verschickt, BEVOR die fehlende Berechtigung überhaupt auffiele.
+   */
+  app.post('/api/post/entwuerfe/:id/senden', async (req, reply) => {
+    const userId = requireUser(req);
+    requirePermission(userId, 'mail.senden');
+    const { id } = req.params as { id: string };
+
+    const entwurf = postSichtung.entwurfLesen(id);
+    if (!entwurf) return fehler(reply, 404, 'fehler.nichtGefunden', 'Diesen Entwurf gibt es nicht.');
+    if (entwurf.zustand !== 'offen') {
+      return fehler(reply, 409, 'fehler.entwurfEntschieden', 'Über diesen Entwurf ist schon entschieden.');
+    }
+    // Woher geschrieben wird (`fach`) kommt aus der URSPRUNGSMAIL — also aus
+    // dem Fach, an das der Kunde geschrieben hat, nicht aus dem Entwurf: der
+    // kennt gar kein eigenes Fach (siehe entwurfAnlegen() in post-sichtung.ts).
+    const mail = post.nachricht(entwurf.mailId);
+    if (!mail) return fehler(reply, 404, 'fehler.nichtGefunden', 'Die Ursprungsmail gibt es nicht mehr.');
+
+    let versandt: { id: string };
+    try {
+      versandt = await post.senden({
+        fach: mail.an,
+        an: entwurf.an,
+        betreff: entwurf.betreff,
+        text: entwurf.text,
+        antwortAuf: { messageId: mail.messageId, referenzen: mail.referenzen, threadId: entwurf.threadId },
+      });
+    } catch (f) {
+      const e = f as { code?: string; status?: number; message?: string };
+      return fehler(reply, e.status ?? 502, e.code ?? 'fehler.post',
+        e.message ?? 'Senden fehlgeschlagen.');
+    }
+
+    /* Die Mail ist jetzt hinaus — alles Weitere ist nur noch Buchführung. Ein
+       'nichtOffen' oder 'keinRecht' an dieser Stelle wäre eine seltene
+       Verwicklung (ein zweiter, fast gleichzeitiger Klick; ein Rechteentzug
+       im selben Sekundenbruchteil) und ändert nichts mehr am Versand — der
+       ist bereits geschehen. Nur protokolliert, nicht dem Menschen als Fehler
+       gezeigt: der hat gerade erfolgreich gesendet. */
+    const ergebnis = postSichtung.entwurfAbschliessen({
+      entwurfId: id, userId, ergebnis: 'gesendet', gesendetId: versandt.id,
+    });
+    if (ergebnis !== 'ok') {
+      console.error(`[post/entwuerfe] gesendet, aber Buchführung meldet "${ergebnis}":`, id);
+    }
+    return { ok: true, gesendetId: versandt.id };
+  });
+
+  /**
+   * Einen Entwurf ablehnen — nichts geht hinaus, nur der Zustand ändert sich.
+   *
+   * Kein eigener `requirePermission`-Aufruf vorab: anders als beim Senden gibt
+   * es hier keine Außenwirkung, die vor der Prüfung passieren könnte.
+   * `entwurfAbschliessen()` prüft `mail.lesen` selbst (siehe dort) und gibt
+   * eine Kennung zurück, die diese Route in ihre eigene Meldung übersetzt.
+   */
+  app.post('/api/post/entwuerfe/:id/ablehnen', async (req, reply) => {
+    const userId = requireUser(req);
+    const { id } = req.params as { id: string };
+    const ergebnis = postSichtung.entwurfAbschliessen({ entwurfId: id, userId, ergebnis: 'abgelehnt' });
+    if (ergebnis === 'unbekannt') return fehler(reply, 404, 'fehler.nichtGefunden', 'Diesen Entwurf gibt es nicht.');
+    if (ergebnis === 'nichtOffen') {
+      return fehler(reply, 409, 'fehler.entwurfEntschieden', 'Über diesen Entwurf ist schon entschieden.');
+    }
+    // Wirft mit derselben Meldung wie jede andere fehlende Berechtigung im
+    // Haus — die Kennung 'keinRecht' vom Dienst und dieser Wurf meinen
+    // dasselbe Recht, hier wird nur eins davon tatsächlich gebraucht.
+    if (ergebnis === 'keinRecht') requirePermission(userId, 'mail.lesen');
+    return { ok: true };
+  });
+
+  /**
+   * Eingehende Post vom Cloudflare Email Worker.
+   *
+   * Anders als die Postfach-Routen oben: kein `requireUser`. Diese Route
+   * hängt öffentlich am Tunnel und weist sich stattdessen über das mit dem
+   * Worker geteilte Geheimnis aus (`x-stellium-eingang`) — die ganze
+   * Prüfkette (Geheimnis, Ratenbremse, zeitunabhängiger Vergleich,
+   * Feldgrößen, Typen) steht gesammelt in posteingang.ts, mit der
+   * Begründung aus dem Bedrohungsmodell im Dateikopf dort.
+   */
+  registerPostEingang(app);
+
   /* ── Verkauf: der Gumroad-Schlüssel ──────────────────────────
      Ohne ihn kennt die Konsole nur die öffentlichen Zahlen. Hinterlegen darf
      ihn der Inhaber; ansehen kann ihn niemand, auch er nicht. */
@@ -1310,6 +1529,27 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const körper = req.body as { token?: string };
     verkaufzugang.tokenSetzen(körper?.token ?? '', userId);
     return verkaufzugang.tokenStand();
+  });
+
+  /* ── Verkauf: Patreon ─────────────────────────────────────────
+     Vier Werte statt einem (siehe verkaufzugang.ts), aber dieselbe
+     Rechteprüfung wie beim Gumroad-Schlüssel. Die Client-ID kommt in der
+     Antwort mit, weil sie kein Geheimnis ist; Secret, Access- und
+     Refresh-Token nie. */
+  app.get('/api/verkauf/patreon', async (req) => {
+    const userId = requireUser(req);
+    requirePermission(userId, 'verkauf.verwalten');
+    return verkaufzugang.patreonStand();
+  });
+
+  app.post('/api/verkauf/patreon', async (req) => {
+    const userId = requireUser(req);
+    requirePermission(userId, 'verkauf.verwalten');
+    const körper = req.body as {
+      clientId?: string; clientSecret?: string; accessToken?: string; refreshToken?: string;
+    };
+    verkaufzugang.patreonSetzen(körper ?? {}, userId);
+    return verkaufzugang.patreonStand();
   });
 
   /* ── Postfach: Zugangsdaten ──────────────────────────────────

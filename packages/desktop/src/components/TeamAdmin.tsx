@@ -359,14 +359,17 @@ export function TeamAdmin({ onClose }: { onClose: () => void }) {
                           : p.ownerOnly && self?.role !== 'owner'
                             ? t('team.ownerOnly')
                             : undefined;
+                        // Texte kommen aus dem Wörterbuch, nicht mehr aus permissions.ts:
+                        // labelDe/hintDe dort sind nur noch für Serverfehlermeldungen da.
+                        const hinweis = t(`perm.${p.key}.hint` as never);
                         return (
                           <div className="row" key={p.key}>
                             <div className="row__main">
                               <div className="row__title">
-                                {p.labelDe}
+                                {t(`perm.${p.key}.label` as never)}
                                 {abweichend && <span className="msg__tag" style={{ marginLeft: 7 }}>{t('admin.overridden')}</span>}
                               </div>
-                              {p.hintDe && <div className="row__sub">{p.hintDe}</div>}
+                              {hinweis && <div className="row__sub">{hinweis}</div>}
                             </div>
                             {abweichend && (
                               <button className="btn btn--ghost" style={{ height: 28, fontSize: 12 }} disabled={gesperrt}

@@ -66,7 +66,7 @@ function nochJemandBraucht(pfad: string, art: Art, id: string): boolean {
  * sagen kann, wem die Datei gehörte. Zeilen im Blockspeicher zählen auch hier
  * nicht mit: die brauchen die ganze Datei nicht mehr.
  */
-function nochGebraucht(pfad: string): boolean {
+export function nochGebraucht(pfad: string): boolean {
   for (const tabelle of ['files', 'attachments'] as const) {
     const n = db.get<{ n: number }>(
       `SELECT COUNT(*) n FROM ${tabelle}

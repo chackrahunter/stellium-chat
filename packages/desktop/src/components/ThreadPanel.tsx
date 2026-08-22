@@ -21,7 +21,7 @@ export function ThreadPanel({ parentId }: { parentId: string }) {
       <div className="thread__head">
         <h2>{t('thread.title')}</h2>
         <span className="muted" style={{ fontSize: 12.5 }}>
-          {Math.max(0, messages.length - 1)} {messages.length === 2 ? t('msg.reply') : t('msg.replies')}
+          {t('msg.replyCount', { n: Math.max(0, messages.length - 1) })}
         </span>
         <button className="icon-btn" style={{ marginLeft: 'auto' }} onClick={() => openThread(null)} title={t('common.close')}>
           <X size={17} />
@@ -33,7 +33,7 @@ export function ThreadPanel({ parentId }: { parentId: string }) {
           <div key={msg.id}>
             <MessageItem message={msg} grouped={false} inThread />
             {i === 0 && messages.length > 1 && (
-              <div className="daybar"><span>{messages.length - 1} {t('msg.replies')}</span></div>
+              <div className="daybar"><span>{t('msg.replyCount', { n: messages.length - 1 })}</span></div>
             )}
           </div>
         ))}

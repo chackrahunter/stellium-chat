@@ -808,6 +808,46 @@ a:hover { text-decoration: underline; }
 .thread-link__faces { display: flex; }
 .thread-link__faces > * { margin-inline-end: -6px; box-shadow: 0 0 0 2px var(--bg-deep); }
 
+/* ── Lesebestätigung ────────────────────────────────────────── */
+/* Unauffällig und klein, wie an anderer Stelle verlangt — deshalb dieselbe
+   Zurückhaltung wie .translated__meta, nicht die Kontur von .thread-link. */
+
+.msg__read-receipt {
+  display: inline-flex; align-items: center; gap: 4px;
+  margin-top: 5px;
+  font-size: 11px; color: var(--tx-lo);
+  border-radius: 99px;
+  font-variant-numeric: tabular-nums;
+}
+button.msg__read-receipt:hover { color: var(--tx-mid); }
+.msg__read-receipt--dm { cursor: default; }
+
+.read-receipt-popover {
+  min-width: 170px; max-width: 260px;
+  padding: 6px;
+  border-radius: var(--r-md);
+  background: var(--bg-elevated);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow-md);
+  z-index: 80;
+}
+.read-receipt-popover__header {
+  padding: 3px 7px 5px;
+  font-size: 10.5px; font-weight: 700;
+  letter-spacing: 0.03em; text-transform: uppercase;
+}
+.read-receipt-popover__row {
+  display: flex; align-items: center; gap: 8px;
+  padding: 5px 7px;
+  border-radius: var(--r-xs);
+  font-size: 12.5px;
+}
+.read-receipt-popover__name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.read-receipt-popover__time {
+  color: var(--tx-lo); font-size: 11px;
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+
 /* Knöpfe, die nur mit dem Finger Sinn ergeben. Wer eine Maus hat, braucht
    keinen Knopf zum Einfahren der Tastatur — dort ist ohnehin keine. */
 .nur-beruehrung { display: none; }

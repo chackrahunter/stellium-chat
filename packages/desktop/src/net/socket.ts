@@ -1,5 +1,11 @@
 import { WS_PROTOCOL_VERSION, type ClientEvent, type ServerEvent } from '@stellium/shared';
 import { token, wsUrl } from './api.js';
+/* i18n/kern.js und nicht i18n/index.js: index.js hängt am Zustand
+   (`useStore`), der Zustand bindet diesen Socket ein (state/store.ts:14) —
+   ein Import von index.js liefe hier im Kreis. kern.js kennt den Zustand
+   nicht und übersetzt trotzdem, nur ohne Anbindung an die eingestellte
+   Oberflächensprache; siehe Kommentar bei `scheduleReconnect`. */
+import { spracheDesSystems, translate } from '../i18n/kern.js';
 
 export type ConnectionState = 'idle' | 'connecting' | 'open' | 'reconnecting' | 'failed';
 
@@ -115,7 +121,14 @@ class Socket {
     this.attempt++;
     // 0.8s, 1.6s, 3.2s … maximal 20s, plus Jitter gegen Thundering Herd
     const wait = Math.min(20_000, 800 * 2 ** Math.min(this.attempt - 1, 5)) + Math.random() * 400;
-    this.setState('reconnecting', `Neuer Versuch in ${Math.round(wait / 1000)}s`);
+    // Übersetzt statt Rohtext: sonst stand hier "Neuer Versuch in 3s" auch in
+    // englischer, japanischer, arabischer … Oberfläche — App.tsx:190 hängt
+    // dieses Stück nur unverändert hinter t('conn.connecting') an. Sprache
+    // kommt aus spracheDesSystems() statt der eingestellten Oberflächensprache
+    // (siehe Importkommentar oben); das teilt sich diese Stelle mit
+    // net/api.ts und lib/vertraulich.ts.
+    const sekunden = Math.round(wait / 1000);
+    this.setState('reconnecting', translate(spracheDesSystems(), 'conn.retryIn', { sekunden }));
     this.reconnectTimer = window.setTimeout(() => {
       this.reconnectTimer = null;
       this.connect();
@@ -146,7 +159,15 @@ class Socket {
       return true;
     }
     // Nur Dinge puffern, die später noch Sinn ergeben.
-    const queueable = new Set(['message:send', 'message:edit', 'message:delete', 'message:react', 'read', 'prefs:update']);
+    const queueable = new Set([
+      'message:send', 'message:edit', 'message:delete', 'message:react', 'read', 'prefs:update',
+      /* Beide hängen an einer schon verschickten Nachricht: bricht die Leitung
+         genau in dem Moment ab, in dem ein fertiger (oder gescheiterter)
+         Bildupload das melden will, ist die Nachricht trotzdem längst da —
+         nur der Nachtrag fehlt noch. Ohne die Warteschlange bliebe der Anhang
+         für immer unangehängt, oder der Platzhalter für immer stehen. */
+      'message:attach', 'message:attachGiveUp',
+    ]);
     if (queueable.has(ev.t)) {
       this.outbox.push(ev);
       if (this.outbox.length > 200) this.outbox.shift();

@@ -10,7 +10,7 @@ import { useVorschlaege } from '../state/vorschlaege.js';
 import { useT } from '../i18n/index.js';
 import { Avatar } from './Avatar.jsx';
 import { Shell } from './Panels.jsx';
-import { clsx, relativeTime } from '../lib/format.js';
+import { clsx, kanalName, relativeTime } from '../lib/format.js';
 
 /**
  * Der Eingang: was StelliumAI vorschlägt, bevor es etwas wird.
@@ -146,6 +146,7 @@ export function VorschlagPosteingang({ onClose, startFilter = 'alle' }: {
 function Karte({ vorschlag, onClose }: { vorschlag: Vorschlag; onClose: () => void }) {
   const t = useT();
   const users = useStore((s) => s.users);
+  const channels = useStore((s) => s.channels);
   const laeuft = useVorschlaege((s) => s.laeuft === vorschlag.id);
   const { annehmen, ablehnen } = useVorschlaege.getState();
 
@@ -185,7 +186,10 @@ function Karte({ vorschlag, onClose }: { vorschlag: Vorschlag; onClose: () => vo
       </div>
 
       <div className="vorschlag__meta">
-        <span className="vorschlag__chan"><Hash size={11} />{vorschlag.channelName}</span>
+        <span className="vorschlag__chan">
+          <Hash size={11} />
+          {kanalName(channels[vorschlag.channelId] ?? { name: vorschlag.channelName })}
+        </span>
         {genannt && (
           <span className="vorschlag__wer"><Avatar user={genannt} size={15} /> {genannt.displayName}</span>
         )}

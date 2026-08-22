@@ -227,7 +227,13 @@ eintragen, verbinden. „Steuerung an" gibt Tastatur und Maus weiter; ohne sie
 sieht man nur zu. Die Zwischenablage läuft in beide Richtungen mit.
 
 Im Dashboard des Pi steht unten in der Fernzugriffs-Karte eine Zeile
-`Bildschirm · verbunden seit HH:MM` — **nur dass**, nie was.
+`Bildschirm · <Konto> · verbunden seit HH:MM` — **dass** und **wer**, nie
+**was**. Der Name ist eine Behauptung der Gegenstelle, keine geprüfte
+Identität: angemeldet wird sich allein über das gemeinsame Passwort, wer es
+kennt, kann jeden Namen eintragen. Er kommt erst über die verschlüsselte
+Leitung, nie im Klartext-Handschlag davor. Ältere App-Fassungen kennen das
+Feld nicht — dann steht dort „unbekannt" statt eines Namens, und der
+Handschlag selbst bleibt unverändert möglich.
 
 ## Wie es hinausgeht
 

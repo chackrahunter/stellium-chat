@@ -4,16 +4,30 @@ import type {
   ReleaseInfo, ReleasePlatform, SearchHit, SelfUser, StoredFile, StorageUsage,
 } from '@stellium/shared';
 
+import { useStore } from '../state/store.js';
 import { spracheDesSystems, translate, type TranslationKey } from '../i18n/kern.js';
 
 /**
- * Meldungen dieser Ebene in der Sprache des Rechners.
+ * Meldungen dieser Ebene in der eingestellten Oberflächensprache.
  *
- * Bewusst ohne den Zustand: der lädt diese Datei, und ein Ringschluss wäre
- * die Folge. Für Verbindungsfehler ist die Systemsprache nah genug dran.
+ * Über den Kern (i18n/kern.js), nicht über i18n/index.js: DAS lädt seinerseits
+ * den Zustand, und weil der Zustand umgekehrt diese Datei einbindet, wäre ein
+ * Ringschluss über zwei Module die Folge. Der Zustand selbst lässt sich davon
+ * unabhängig gefahrlos direkt anfassen — genau wie state/store.ts es in
+ * seiner eigenen ts()-Funktion vormacht: useStore.getState() liest nur beim
+ * tatsächlichen Aufruf, nie beim Laden des Moduls, und entsteht dieser
+ * Aufruf immer erst lange nach dem Start (bei einer fehlgeschlagenen
+ * Anfrage), sind beide Module längst fertig geladen.
+ *
+ * Vorher stand hier spracheDesSystems() — die Sprache des RECHNERS, nicht die
+ * eingestellte Oberflächensprache. Wer die Oberfläche bewusst auf Englisch
+ * gestellt hat, aber an einem deutschen Rechner sitzt, bekam Verbindungs- und
+ * Anmeldefehler mitten in der englischen Oberfläche auf Deutsch zu lesen. Vor
+ * der Anmeldung ist self noch null, und der Rückfall auf spracheDesSystems()
+ * greift dann von selbst — wie überall sonst im Haus auch.
  */
 function txt(key: TranslationKey, werte?: Record<string, string | number>): string {
-  return translate(spracheDesSystems(), key, werte);
+  return translate(useStore.getState().self?.uiLanguage || spracheDesSystems(), key, werte);
 }
 
 const STORAGE_SERVER = 'stellium.serverUrl';
@@ -432,6 +446,20 @@ export const api = {
   verkaufZugang: () => request<{ hinterlegt: boolean; verschluesselt: boolean }>('/api/verkauf/zugang'),
   verkaufZugangSetzen: (token: string) => request<{ hinterlegt: boolean }>(
     '/api/verkauf/zugang', { method: 'POST', body: JSON.stringify({ token }) }),
+
+  /* Patreon: vier Werte statt einem, siehe verkaufzugang.ts auf dem Server.
+     Nur die Client-ID kommt als echter Wert zurück — die anderen drei nur
+     als "hinterlegt oder nicht". */
+  patreonZugang: () => request<{
+    hinterlegt: boolean; clientId: string | null; clientSecretHinterlegt: boolean;
+    refreshTokenHinterlegt: boolean; ablaufAm: number | null; verschluesselt: boolean;
+  }>('/api/verkauf/patreon'),
+  patreonZugangSetzen: (werte: {
+    clientId?: string; clientSecret?: string; accessToken?: string; refreshToken?: string;
+  }) => request<{
+    hinterlegt: boolean; clientId: string | null; clientSecretHinterlegt: boolean;
+    refreshTokenHinterlegt: boolean; ablaufAm: number | null; verschluesselt: boolean;
+  }>('/api/verkauf/patreon', { method: 'POST', body: JSON.stringify(werte) }),
 
   /* Postfach: dieselbe Trennung wie beim Fernzugang. Zurück kommt nur, DASS
      etwas hinterlegt ist — die Schlüssel selbst gibt der Server nie heraus,

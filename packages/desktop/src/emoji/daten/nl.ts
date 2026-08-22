@@ -1,0 +1,88 @@
+/**
+ * Emoji-Namen und Suchbegriffe — NL.
+ *
+ * ERZEUGT von scripts/emoji-katalog-erzeugen.mjs aus emojibase-data
+ * (MIT-Lizenz, © Miles Johnson — github.com/milesj/emojibase, CLDR-Grundlage).
+ * Nicht von Hand ändern — neu erzeugen: node scripts/emoji-katalog-erzeugen.mjs
+ *
+ * Nur die im EmojiPicker tatsächlich gezeigten Emoji, nicht der volle
+ * Unicode-Bestand — siehe Kopfkommentar des Erzeuger-Skripts fürs Warum.
+ */
+import type { EmojiKatalog } from '../typen.js';
+
+const daten: EmojiKatalog = {
+  "👍": {"name":"duim omhoog","keywords":["duim omhoog","+1","duim","goed","hand","ja","leuk","omhoog"]},
+  "🎉": {"name":"feestknaller","keywords":["feestknaller","confetti","feest","hoera","jarig","knaller","partypopper","verjaardag","viering"]},
+  "❤️": {"name":"rood hart","keywords":["rood hart","emotie","hart","liefde"]},
+  "😂": {"name":"gezicht met tranen van vreugde","keywords":["gezicht met tranen van vreugde","blij","gevoelens","gezicht","grappig","haha","hehe","hilarisch","huilen","lachen","lmao","lol","rofl","roflmao","traan","vreugde"]},
+  "👀": {"name":"ogen","keywords":["ogen","gezicht","kijken","omg","ondeugend","oog","staren"]},
+  "🚀": {"name":"raket","keywords":["raket","lancering","ruimte","ruimtereis","vervoermiddel","voertuig"]},
+  "✅": {"name":"knop voor vinkje","keywords":["knop voor vinkje","afgevinkt","check","gedaan","klaar","knop","markeren","vink","vinkje","voltooid","✓"]},
+  "🔥": {"name":"vuur","keywords":["vuur","brand","heet","hulpmiddel","vlam"]},
+  "🙏": {"name":"gevouwen handen","keywords":["gevouwen handen","alsjeblieft","bedankt","bidden","buigen","dank","gebaar","gebed","geef me de vijf","gevouwen","gezegend","hand","handen tegen elkaar","high five","smeken","vragen"]},
+  "💡": {"name":"gloeilamp","keywords":["gloeilamp","elektrisch","idee","lamp","licht","peertje","strip"]},
+  "👏": {"name":"klappende handen","keywords":["klappende handen","applaudiseren","applaus","bidden","dankjewel","gefeliciteerd","goed gedaan","goedkeuring","hand","hoera","klappen"]},
+  "🤝": {"name":"handdruk","keywords":["handdruk","deal","hand","overeenkomst","schudden","vergadering"]},
+  "😀": {"name":"grijnzend gezicht","keywords":["grijnzend gezicht","blij","fijn","gezicht","glimlachen","grijns","grijnzend","lach","lachen","leuk","tanden","vrolijk"]},
+  "😄": {"name":"grijnzend gezicht met lachende ogen","keywords":["grijnzend gezicht met lachende ogen","blij","gezicht","glimlachen","grijns","grijnzend","lach","lachen","lol","mond","ogen","oog","open"]},
+  "😊": {"name":"lachend gezicht met lachende ogen","keywords":["lachend gezicht met lachende ogen","blozen","gelukkig","gezicht","glimlach","glimlachen","ogen","oog","tevreden"]},
+  "🙂": {"name":"enigszins lachend gezicht","keywords":["enigszins lachend gezicht","blij","enigszins","gezicht","glimlachen","lach"]},
+  "😉": {"name":"knipogend gezicht","keywords":["knipogend gezicht","flirten","gezicht","hartenbreker","knipogen","knipoog","knipoogt","plagerij","sexy","zwoel"]},
+  "😍": {"name":"lachend gezicht met hartvormige ogen","keywords":["lachend gezicht met hartvormige ogen","gevoelens","gezicht","hartjes","hartjesogen","kussen","lach","liefde","oog","romantiek","schatje"]},
+  "🤔": {"name":"nadenkend gezicht","keywords":["nadenkend gezicht","afvragen","denken","gezicht","hmm","kin","nadenken","nadenkend","overwegen"]},
+  "😅": {"name":"grijnzend gezicht met zweetdruppels","keywords":["grijnzend gezicht met zweetdruppels","gestrest","gezicht","glimlachen","grijnzend","koud","lach","mond","neerslachtig","nerveus","open","opgewonden","stress","zweet"]},
+  "😬": {"name":"gezicht met grimas","keywords":["gezicht met grimas","gezicht","grimas","grimasgezicht","grinniken","niks","oeps","ongemakkelijk","smiley","tanden op elkaar"]},
+  "😴": {"name":"slapend gezicht","keywords":["slapend gezicht","bedtijd","dutje","gapen","gezicht","moe","slaap","slaap lekker","slapen","smiley","vermoeid","welterusten","zzz"]},
+  "🥳": {"name":"feestend gezicht","keywords":["feestend gezicht","feest","feesten","fuif","gelukkig","gezicht","hoed","hoera","opgewonden","roltong","verjaardag","vieren","viering"]},
+  "😎": {"name":"lachend gezicht met zonnebril","keywords":["lachend gezicht met zonnebril","bril","chillen","cool","gaaf","geweldig","gezicht","glimlach","ontspannen","stijl","stoer","strand","zonnebril"]},
+  "🤯": {"name":"ontploffend hoofd","keywords":["ontploffend hoofd","exploderen","geschokt","ondersteboven","onmogelijk","smiley","verbaasd","verbijsterd","verrast","wow"]},
+  "😭": {"name":"hard huilend gezicht","keywords":["hard huilend gezicht","bedroefd","gezicht","hard huilen","huilen","ontroostbaar","smiley","snikken","traan","tranen","tranen met tuiten"]},
+  "😤": {"name":"gezicht blazend van woede","keywords":["gezicht blazend van woede","boos","gewonnen","gezicht","gezicht met stoom uit neus","kokend van woede","ontevreden","triomf","witheet","woedend","ziedend"]},
+  "🤗": {"name":"blij gezicht met uitgestoken handen","keywords":["blij gezicht met uitgestoken handen","blij","gezicht","handen","knuffel","knuffelen","uitgestoken"]},
+  "🙃": {"name":"omgekeerd gezicht","keywords":["omgekeerd gezicht","gezicht","glimlach","hehe","omgekeerd"]},
+  "😇": {"name":"lachend gezicht met halo","keywords":["lachend gezicht met halo","blij","elfje","engel","engelachtig","engelen","fantasie","geest","gezegend","gezicht","glimlach","glimlachen","onschuldig","sprookje","stralenkrans","verhaal","vredig"]},
+  "👎": {"name":"duim omlaag","keywords":["duim omlaag","-1","duim","fout","hand","lichaam","niet goed","niet leuk","omlaag","slecht","stom"]},
+  "👌": {"name":"OK-handgebaar","keywords":["OK-handgebaar","fantastisch","geweldig","goed","hand","oké","prima","top","vingers"]},
+  "✌️": {"name":"winnende hand","keywords":["winnende hand","hand","peace","twee vingers","v","vredesteken"]},
+  "🤞": {"name":"gekruiste vingers","keywords":["gekruiste vingers","gekruist","geluk","hand","kruisen","vinger","vingers"]},
+  "🙌": {"name":"juichend omhooggestoken handen","keywords":["juichend omhooggestoken handen","feest","gebaar","hand","handen","hoera","lof","omhoog","omhooggestoken"]},
+  "👋": {"name":"zwaaiende hand","keywords":["zwaaiende hand","ben je er","doei","groet","groeten","hallo","hand","is daar iemand","moet gaan","spreek je later","tot later","tot ziens","ttyl","zwaai","zwaaien"]},
+  "🤙": {"name":"bel me-gebaar","keywords":["bel me-gebaar","bel mij-gebaar","bellen","hand","handgebaar voor bellen"]},
+  "💪": {"name":"spierballen","keywords":["spierballen","aanspannen","arm","biceps","bodybuilder","flex","gewichtheffen","spannen","spier","spierbal","sportschool","sterk","strip"]},
+  "🫶": {"name":"handen in de vorm van een hart","keywords":["handen in de vorm van een hart","<3","handen","hart","hou","jou"]},
+  "🤌": {"name":"samengeknepen vingers","keywords":["samengeknepen vingers","gebaar","hand","handgebaar","italiaans","maffia","ondervraging","samengeknepen","sarcastisch","vingers"]},
+  "✍️": {"name":"schrijvende hand","keywords":["schrijvende hand","hand","schrijf","schrijven"]},
+  "💻": {"name":"laptop","keywords":["laptop","computer","notebook","pc","personal computer"]},
+  "📱": {"name":"mobiele telefoon","keywords":["mobiele telefoon","bellen","communicatie","mobiel","smartphone","telefoon"]},
+  "📊": {"name":"staafdiagram","keywords":["staafdiagram","diagram","grafiek","staaf","staafgrafiek"]},
+  "📈": {"name":"stijgende trend","keywords":["stijgende trend","diagram","grafiek","grafiek met stijgende trend","groei","positief","stijgend"]},
+  "📉": {"name":"dalende trend","keywords":["dalende trend","dalend","daling","diagram","grafiek","grafiek met dalende trend","negatief"]},
+  "🗓️": {"name":"kalender met spiraal","keywords":["kalender met spiraal","blok","jaarkalender","kalender","omlegkalender","spiraal"]},
+  "📌": {"name":"punaise","keywords":["punaise","speld"]},
+  "📎": {"name":"paperclip","keywords":["paperclip","clip"]},
+  "✏️": {"name":"potlood","keywords":["potlood"]},
+  "🔧": {"name":"moersleutel","keywords":["moersleutel","engelse sleutel","gereedschap","schroefsleutel"]},
+  "⚙️": {"name":"tandwiel","keywords":["tandwiel","gereedschap","instellingen","radertje","tandrad"]},
+  "🧪": {"name":"reageerbuis","keywords":["reageerbuis","chemicus","experiment","lab","laboratorium","scheikunde","scheikundige","wetenschap"]},
+  "🐛": {"name":"insect","keywords":["insect","beestje","dier","tuin"]},
+  "🚧": {"name":"bouwwerkzaamheden","keywords":["bouwwerkzaamheden","barricade","werkzaamheden"]},
+  "📦": {"name":"pakket","keywords":["pakket","bezorging","dichtgeplakte doos","doos","pakketje"]},
+  "🔍": {"name":"vergrootglas naar links gericht","keywords":["vergrootglas naar links gericht","gereedschap","glas","vergrootglas","vergroten","zoeken"]},
+  "⭐": {"name":"witte middelgrote ster","keywords":["witte middelgrote ster","ster"]},
+  "✨": {"name":"sterretjes","keywords":["sterretjes","*","glinsteren","glinsterende sterren","ster"]},
+  "💫": {"name":"duizelig","keywords":["duizelig","cartoonesk","ster","strip","vallende ster"]},
+  "🌟": {"name":"stralende ster","keywords":["stralende ster","fonkelen","fonkelend","schitteren","schitterend","schittering","ster","stralen"]},
+  "⚡": {"name":"hoog voltage","keywords":["hoog voltage","bliksem","donderslag","elektriciteit","elektrisch","gevaar","schok","spanning","voltage"]},
+  "💧": {"name":"druppel","keywords":["druppel","bedroefd","koud","strip","water","weer","zweet"]},
+  "🌈": {"name":"regenboog","keywords":["regenboog","genderqueer","glbt","homoseksueel","lesbisch","lgbt","lgbtq","lgtbqia","lhbt","natuur","pride","queer","regen","transgender","weer"]},
+  "🎯": {"name":"directe treffer","keywords":["directe treffer","bullseye","bull’s eye","darts","doelwit","in de roos","spel","sport","treffer","voltreffer"]},
+  "🏆": {"name":"trofee","keywords":["trofee","beker","gewonnen","kampioen","overwinning","prijs","winnaar"]},
+  "🥇": {"name":"medaille 1e plaats","keywords":["medaille 1e plaats","eerste","gewonnen","goud","gouden","medaille","winnaar"]},
+  "💯": {"name":"maximumscore","keywords":["maximumscore","100","100 punten","beste","cijfer","fantastisch","foutloos","getal","geweldig","score","top","zeker"]},
+  "❗": {"name":"rood uitroepteken","keywords":["rood uitroepteken","!","interpunctie","rood","teken","uitroep"]},
+  "❓": {"name":"rood vraagteken","keywords":["rood vraagteken","?","interpunctie","rood","teken","vraag"]},
+  "✔️": {"name":"vinkje","keywords":["vinkje","afgevinkt","check","dikgedrukt","klaar","teken","✓"]},
+  "❌": {"name":"kruisteken","keywords":["kruisteken","annuleren","kruis","teken","vermenigvuldigen","vermenigvuldiging","x","×"]},
+};
+
+export default daten;

@@ -1,0 +1,88 @@
+/**
+ * Emoji-Namen und Suchbegriffe — ES.
+ *
+ * ERZEUGT von scripts/emoji-katalog-erzeugen.mjs aus emojibase-data
+ * (MIT-Lizenz, © Miles Johnson — github.com/milesj/emojibase, CLDR-Grundlage).
+ * Nicht von Hand ändern — neu erzeugen: node scripts/emoji-katalog-erzeugen.mjs
+ *
+ * Nur die im EmojiPicker tatsächlich gezeigten Emoji, nicht der volle
+ * Unicode-Bestand — siehe Kopfkommentar des Erzeuger-Skripts fürs Warum.
+ */
+import type { EmojiKatalog } from '../typen.js';
+
+const daten: EmojiKatalog = {
+  "👍": {"name":"pulgar hacia arriba","keywords":["pulgar hacia arriba","arriba","mano","pulgar","señal"]},
+  "🎉": {"name":"cañón de confeti","keywords":["cañón de confeti","celebración","confeti","fiesta"]},
+  "❤️": {"name":"corazón rojo","keywords":["corazón rojo","corazón","emoción","rojo"]},
+  "😂": {"name":"cara llorando de risa","keywords":["cara llorando de risa","cara","felicidad","lágrima","risa"]},
+  "👀": {"name":"ojos","keywords":["ojos","cara"]},
+  "🚀": {"name":"cohete","keywords":["cohete","espacio","vehículo"]},
+  "✅": {"name":"botón de marca de verificación","keywords":["botón de marca de verificación","botón","marca","selección","verificación","✓"]},
+  "🔥": {"name":"fuego","keywords":["fuego","llama"]},
+  "🙏": {"name":"manos en oración","keywords":["manos en oración","gracias","mano","oración","orar","por favor","rezar"]},
+  "💡": {"name":"bombilla","keywords":["bombilla","cómic","electricidad","idea","luz"]},
+  "👏": {"name":"manos aplaudiendo","keywords":["manos aplaudiendo","aplaudir","manos","palmas","señal"]},
+  "🤝": {"name":"apretón de manos","keywords":["apretón de manos","acuerdo","apretón","manos"]},
+  "😀": {"name":"cara sonriendo","keywords":["cara sonriendo","cara","divertido","feliz","sonrisa"]},
+  "😄": {"name":"cara sonriendo con ojos sonrientes","keywords":["cara sonriendo con ojos sonrientes","abierta","cara","ojo","sonrisa"]},
+  "😊": {"name":"cara feliz con ojos sonrientes","keywords":["cara feliz con ojos sonrientes","cara","ojo","rubor","sonrisa"]},
+  "🙂": {"name":"cara sonriendo ligeramente","keywords":["cara sonriendo ligeramente","cara","sonrisa"]},
+  "😉": {"name":"cara guiñando el ojo","keywords":["cara guiñando el ojo","cara","guiño"]},
+  "😍": {"name":"cara sonriendo con ojos de corazón","keywords":["cara sonriendo con ojos de corazón","amor","cara","corazón","sonrisa"]},
+  "🤔": {"name":"cara pensativa","keywords":["cara pensativa","cara","duda","pensando"]},
+  "😅": {"name":"cara sonriendo con sudor frío","keywords":["cara sonriendo con sudor frío","cara","frío","risa","sudor"]},
+  "😬": {"name":"cara haciendo una mueca","keywords":["cara haciendo una mueca","cara","mueca"]},
+  "😴": {"name":"cara durmiendo","keywords":["cara durmiendo","cara","dormido","sueño","zzz"]},
+  "🥳": {"name":"cara de fiesta","keywords":["cara de fiesta","capirote","celebración","fiesta","gorro","matasuegras"]},
+  "😎": {"name":"cara sonriendo con gafas de sol","keywords":["cara sonriendo con gafas de sol","cara","gafas","guay","sol"]},
+  "🤯": {"name":"cabeza explotando","keywords":["cabeza explotando","cabeza","explosión"]},
+  "😭": {"name":"cara llorando fuerte","keywords":["cara llorando fuerte","cara","llorar","lágrima","triste"]},
+  "😤": {"name":"cara resoplando","keywords":["cara resoplando","cabreo","cara","enfado"]},
+  "🤗": {"name":"cara con manos abrazando","keywords":["cara con manos abrazando","abrazo","cara","sonrisa"]},
+  "🙃": {"name":"cara al revés","keywords":["cara al revés","cara","revés"]},
+  "😇": {"name":"cara sonriendo con aureola","keywords":["cara sonriendo con aureola","cara","halo","sonrisa","ángel"]},
+  "👎": {"name":"pulgar hacia abajo","keywords":["pulgar hacia abajo","abajo","mano","pulgar","señal"]},
+  "👌": {"name":"señal de aprobación con la mano","keywords":["señal de aprobación con la mano","aprobación","mano","ok"]},
+  "✌️": {"name":"mano con señal de victoria","keywords":["mano con señal de victoria","mano","señal de victoria","victoria"]},
+  "🤞": {"name":"dedos cruzados","keywords":["dedos cruzados","cruzar","dedos","mano","suerte"]},
+  "🙌": {"name":"manos levantadas celebrando","keywords":["manos levantadas celebrando","celebración","gesto","hurra","mano"]},
+  "👋": {"name":"mano saludando","keywords":["mano saludando","agitar","mano","saludar","saludo"]},
+  "🤙": {"name":"mano haciendo el gesto de llamar","keywords":["mano haciendo el gesto de llamar","llamar","mano","meñique","pulgar"]},
+  "💪": {"name":"bíceps flexionado","keywords":["bíceps flexionado","bíceps","cómic","flexionado","fuerte","músculo"]},
+  "🫶": {"name":"manos formando un corazón","keywords":["manos formando un corazón","amor"]},
+  "🤌": {"name":"dedos juntos apuntando hacia arriba","keywords":["dedos juntos apuntando hacia arriba","dedos","gesto","italia","italiano","mano","sarcasmo"]},
+  "✍️": {"name":"mano escribiendo","keywords":["mano escribiendo","escribir","lápiz","mano"]},
+  "💻": {"name":"ordenador portátil","keywords":["ordenador portátil","ordenador","pc","personal"]},
+  "📱": {"name":"teléfono móvil","keywords":["teléfono móvil","celular","móvil","teléfono"]},
+  "📊": {"name":"gráfico de barras","keywords":["gráfico de barras","barras","gráfico"]},
+  "📈": {"name":"gráfica de evolución ascendente","keywords":["gráfica de evolución ascendente","ascendente","gráfica","gráfico","tendencia ascendente"]},
+  "📉": {"name":"gráfica de evolución descendente","keywords":["gráfica de evolución descendente","descendente","gráfica","gráfico","tendencia descendente"]},
+  "🗓️": {"name":"calendario de espiral","keywords":["calendario de espiral","calendario","espiral"]},
+  "📌": {"name":"chincheta","keywords":["chincheta","tachuela"]},
+  "📎": {"name":"clip","keywords":["clip"]},
+  "✏️": {"name":"lápiz","keywords":["lápiz","escolar","escribir","lapicero"]},
+  "🔧": {"name":"llave inglesa","keywords":["llave inglesa","herramienta"]},
+  "⚙️": {"name":"engranaje","keywords":["engranaje","herramienta"]},
+  "🧪": {"name":"tubo de ensayo","keywords":["tubo de ensayo","ciencia","experimento","laboratorio","química","químico"]},
+  "🐛": {"name":"bicho","keywords":["bicho","gusano","insecto"]},
+  "🚧": {"name":"obras","keywords":["obras","construcción","señal","señal de obras"]},
+  "📦": {"name":"paquete","keywords":["paquete","caja"]},
+  "🔍": {"name":"lupa orientada hacia la izquierda","keywords":["lupa orientada hacia la izquierda","buscar","lupa"]},
+  "⭐": {"name":"estrella","keywords":["estrella","estelar"]},
+  "✨": {"name":"chispas","keywords":["chispas","*","bengala","estrellas"]},
+  "💫": {"name":"símbolo de mareo","keywords":["símbolo de mareo","cómic","emoción","estrella","mareo"]},
+  "🌟": {"name":"estrella brillante","keywords":["estrella brillante","brillante","estrella","resplandeciente"]},
+  "⚡": {"name":"alto voltaje","keywords":["alto voltaje","electricidad","peligro","peligro de alto voltaje","señal de alto voltaje","voltaje"]},
+  "💧": {"name":"gota","keywords":["gota","agua","cómic","sudor"]},
+  "🌈": {"name":"arcoíris","keywords":["arcoíris","colores","lluvia"]},
+  "🎯": {"name":"diana","keywords":["diana","blanco","en el blanco","juego"]},
+  "🏆": {"name":"trofeo","keywords":["trofeo","premio"]},
+  "🥇": {"name":"medalla de oro","keywords":["medalla de oro","medalla","oro","primero"]},
+  "💯": {"name":"cien puntos","keywords":["cien puntos","100","pleno","puntos"]},
+  "❗": {"name":"exclamación roja","keywords":["exclamación roja","!","exclamación","puntuación","signo de exclamación"]},
+  "❓": {"name":"interrogación roja","keywords":["interrogación roja","?","interrogación","pregunta","puntuación","signo de interrogación"]},
+  "✔️": {"name":"marca de verificación","keywords":["marca de verificación","marca","selección","verificación","✓"]},
+  "❌": {"name":"marca de cruz","keywords":["marca de cruz","cancelar","cruz","marca de tachado","tachar","x","×"]},
+};
+
+export default daten;

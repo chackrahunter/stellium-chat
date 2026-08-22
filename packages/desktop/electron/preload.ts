@@ -28,9 +28,16 @@ const api = {
   /* Ob das System überhaupt Benachrichtigungen annimmt — auf macOS hängt
      das an der Signatur, nicht am Können von Electron. */
   notifyMoeglich: () => ipcRenderer.invoke('notify:moeglich'),
+  /* Selbstgezeichnete macOS-Benachrichtigung — die eine Eintrittsstelle vom
+     App-Renderer aus. Tut auf jeder anderen Plattform nichts Sichtbares
+     (siehe electron/mac-notify.ts), darum hier ohne Plattform-Weiche. */
+  macNotify: (payload: { titel: string; text: string; sprache: string; kanalId?: string; gruppe?: string }) =>
+    ipcRenderer.invoke('mac-notify:show', payload) as Promise<boolean>,
   fern: {
-    verbinden: (adresse: string, passwort: string) =>
-      ipcRenderer.invoke('fern:verbinden', adresse, passwort),
+    /* `konto`: Anzeigename des angemeldeten Chat-Kontos — geht fürs Protokoll
+       auf dem Pi mit, siehe electron/fernsteuerung.ts. */
+    verbinden: (adresse: string, passwort: string, konto: string) =>
+      ipcRenderer.invoke('fern:verbinden', adresse, passwort, konto),
     trennen: () => ipcRenderer.invoke('fern:trennen'),
     lage: () => ipcRenderer.invoke('fern:lage'),
     fenster: () => ipcRenderer.invoke('fern:fenster'),

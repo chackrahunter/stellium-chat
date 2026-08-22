@@ -341,9 +341,20 @@ export function deleteFile(id: string): void {
   // Zuerst die Blöcke freigeben, solange die Verweise noch stehen.
   ablage.loeschen(id, 'file');
   db.run('DELETE FROM files WHERE id = ?', id);
-  // Erst der Eintrag, dann die Datei: bricht das Löschen ab, ist höchstens
-  // eine verwaiste Datei übrig — nie ein Eintrag ohne Inhalt.
-  fs.promises.rm(datei.path, { force: true }).catch(() => {});
+  /* Erst der Eintrag, dann die Datei: bricht das Löschen ab, ist höchstens
+     eine verwaiste Datei übrig — nie ein Eintrag ohne Inhalt.
+
+     Und erst die Gegenprobe, dann das Löschen von der Platte: dieselbe Frage,
+     die ablage.ts an jeder anderen Stelle stellt, bevor sie eine Datei
+     anfasst, fehlte ausgerechnet hier. Zeigt außer der gerade gelöschten
+     Zeile noch eine zweite — in `files` oder `attachments` — auf denselben
+     Pfad, darf die Datei nicht weg; sonst verlöre diese zweite Zeile ihren
+     Inhalt, ohne dass irgendwo ein Fehler entstünde. Kein heute bekannter Weg
+     legt zwei Zeilen auf denselben Pfad, aber ein Speicherort, der sich nicht
+     überall an seine eigene Regel hält, ist keine verlässliche Zusage. */
+  if (!ablage.nochGebraucht(datei.path)) {
+    fs.promises.rm(datei.path, { force: true }).catch(() => {});
+  }
 }
 
 /**

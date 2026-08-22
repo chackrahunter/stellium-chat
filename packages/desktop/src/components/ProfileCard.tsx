@@ -4,7 +4,7 @@ import { motion } from 'framer-motion';
 import { AtSign, Clock, Languages, MessageSquare, X } from 'lucide-react';
 import { useStore } from '../state/store.js';
 import { useFokusfalle } from './Fokusfalle.jsx';
-import { t } from '../i18n/index.js';
+import { useT, spracheName } from '../i18n/index.js';
 import { Avatar } from './Avatar.jsx';
 import { languageInfo, localTimeFor, relativeTime } from '../lib/format.js';
 
@@ -12,6 +12,10 @@ import { languageInfo, localTimeFor, relativeTime } from '../lib/format.js';
 export function ProfileCard({ userId, onClose }: { userId: string; onClose: () => void }) {
   const kasten = useRef<HTMLDivElement>(null);
   useFokusfalle(kasten, true, onClose);
+  /* Reaktiv statt des Modul-t aus i18n/index.js: das lief bisher nur beim
+     Laden des Moduls an den Zustand an. Alle Hooks vor dem frühen "return
+     null" unten, wie es die Regeln für Hooks verlangen. */
+  const t = useT();
   const user = useStore((s) => s.users[userId]);
   const self = useStore((s) => s.self);
   const { openDm } = useStore.getState();
@@ -59,7 +63,11 @@ export function ProfileCard({ userId, onClose }: { userId: string; onClose: () =
             </div>
             <div className="profile__fact">
               <Languages size={13} />
-              <span>{languageInfo(user.language).flag} {languageInfo(user.language).native}</span>
+              {/* spracheName() statt languageInfo(...).native für den Namen:
+                  der Eigenname ("Deutsch") gehört in eine Auswahlliste, nicht
+                  in einen Fließtext über eine andere Person. Die Flagge bleibt
+                  wie sie ist, sie ist kein übersetzbarer Text. */}
+              <span>{languageInfo(user.language).flag} {spracheName(user.language)}</span>
             </div>
             {time && (
               <div className="profile__fact">

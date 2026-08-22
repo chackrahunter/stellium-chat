@@ -32,8 +32,8 @@ export function createPoll(input: {
 }
 
 export function vote(pollId: string, userId: string, optionIds: string[]): void {
-  const poll = db.get<{ multiple: number; closed: number; closes_at: number | null }>(
-    'SELECT multiple, closed, closes_at FROM polls WHERE id = ?', pollId,
+  const poll = db.get<{ multiple: number; anonymous: number; closed: number; closes_at: number | null }>(
+    'SELECT multiple, anonymous, closed, closes_at FROM polls WHERE id = ?', pollId,
   );
   if (!poll) throw new Error('Umfrage nicht gefunden');
   if (poll.closed || (poll.closes_at && poll.closes_at < Date.now())) throw new Error('Diese Umfrage ist beendet');
@@ -41,8 +41,18 @@ export function vote(pollId: string, userId: string, optionIds: string[]): void 
   const valid = new Set(
     db.all<{ id: string }>('SELECT id FROM poll_options WHERE poll_id = ?', pollId).map((r) => r.id),
   );
-  const chosen = optionIds.filter((id) => valid.has(id));
+  // new Set(): eine doppelt genannte Option darf nicht doppelt zählen —
+  // weder als zweite Zeile in poll_votes (dort verhindert das ohnehin der
+  // Primärschlüssel, aber mit einem Wurf statt einer sauberen Abweisung) noch
+  // als doppelter Zähler in poll_options.votes bei anonymen Umfragen, wo es
+  // keine solche Bremse gibt.
+  const chosen = [...new Set(optionIds.filter((id) => valid.has(id)))];
   if (!poll.multiple && chosen.length > 1) throw new Error('Hier ist nur eine Antwort erlaubt');
+
+  if (poll.anonymous) {
+    voteAnonym(pollId, userId, chosen);
+    return;
+  }
 
   db.transaction(() => {
     // Immer neu setzen — so ist ein Klick auf dieselbe Option ein Widerruf.
@@ -50,6 +60,42 @@ export function vote(pollId: string, userId: string, optionIds: string[]): void 
     for (const optionId of chosen) {
       db.run('INSERT INTO poll_votes (poll_id, option_id, user_id, created_at) VALUES (?,?,?,?)',
         pollId, optionId, userId, Date.now());
+    }
+  });
+}
+
+/**
+ * Abstimmen in einer ANONYMEN Umfrage.
+ *
+ * Bei offenen Umfragen trägt poll_votes zwei Dinge auf einmal: WER
+ * abgestimmt hat und WAS. Für eine anonyme Umfrage darf das nicht in einer
+ * Zeile stehen — sonst wüsste die Datenbank genau das, was die Oberfläche
+ * verspricht zu verbergen. Deshalb hier zwei getrennte Schreibvorgänge:
+ * poll_participants hält fest, DASS diese Person teilgenommen hat (nötig
+ * gegen doppeltes Abstimmen), poll_options.votes zählt WAS gewählt wurde —
+ * ohne dass irgendeine Zeile beides zugleich trägt.
+ *
+ * Genau das macht "Stimme ändern" unmöglich, sobald einmal abgestimmt wurde:
+ * ohne die Verknüpfung weiß auch der Server nicht mehr, welche Zähler er bei
+ * einer Änderung wieder herunterzählen müsste. Eine Änderung zuzulassen hieße
+ * entweder, die Verknüpfung doch zu speichern (und damit die Zusage zu
+ * brechen), oder blind zu raten, welcher Zähler sinkt (und damit die Zählung
+ * zu verfälschen). Die einzig ehrliche Lösung ist, die erste Stimme gelten zu
+ * lassen und jede weitere abzuweisen — bei einer geheimen Wahl im
+ * Vereinssaal ist das nicht anders.
+ */
+function voteAnonym(pollId: string, userId: string, chosen: string[]): void {
+  if (!chosen.length) return;   // nichts ausgewählt — keine Teilnahme einzutragen
+
+  const schonDabei = db.get('SELECT 1 AS x FROM poll_participants WHERE poll_id = ? AND user_id = ?', pollId, userId);
+  if (schonDabei) {
+    throw new Error('Du hast bei dieser anonymen Umfrage schon abgestimmt — das lässt sich danach nicht mehr ändern.');
+  }
+
+  db.transaction(() => {
+    db.run('INSERT INTO poll_participants (poll_id, user_id, created_at) VALUES (?,?,?)', pollId, userId, Date.now());
+    for (const optionId of chosen) {
+      db.run('UPDATE poll_options SET votes = votes + 1 WHERE id = ?', optionId);
     }
   });
 }
@@ -73,38 +119,57 @@ export function getPoll(pollId: string, viewerId: string): Poll | null {
 
 function hydrate(row: any, viewerId: string): Poll {
   const anonymous = Boolean(row.anonymous);
-  const optionRows = db.all<{ id: string; text: string }>(
-    'SELECT id, text FROM poll_options WHERE poll_id = ? ORDER BY position', row.id,
-  );
-  const voteRows = db.all<{ option_id: string; user_id: string }>(
-    'SELECT option_id, user_id FROM poll_votes WHERE poll_id = ?', row.id,
-  );
-
-  const byOption = new Map<string, string[]>();
-  for (const v of voteRows) byOption.set(v.option_id, [...(byOption.get(v.option_id) ?? []), v.user_id]);
-
-  const options: PollOption[] = optionRows.map((o) => {
-    const voters = byOption.get(o.id) ?? [];
-    return {
-      id: o.id,
-      text: entschluesseln(o.text),
-      // Bei anonymen Umfragen bleibt verborgen, wer gestimmt hat — nur die Zahl zählt.
-      voterIds: anonymous ? [] : voters,
-      votes: voters.length,
-    };
-  });
-
-  return {
-    id: row.id,
-    messageId: row.message_id,
+  const basis = {
+    id: row.id as string,
+    messageId: row.message_id as string,
     question: entschluesseln(row.question),
-    options,
     multiple: Boolean(row.multiple),
     anonymous,
     closed: Boolean(row.closed) || (row.closes_at != null && row.closes_at < Date.now()),
-    closesAt: row.closes_at ?? null,
-    createdBy: row.created_by,
+    closesAt: (row.closes_at ?? null) as number | null,
+    createdBy: row.created_by as string,
+  };
+
+  // votes steht bei offenen Umfragen zwar mit in der Zeile, bleibt dort aber
+  // auf 0 und ungenutzt — für sie zählt weiter poll_votes (siehe schema.sql).
+  const optionRows = db.all<{ id: string; text: string; votes: number }>(
+    'SELECT id, text, votes FROM poll_options WHERE poll_id = ? ORDER BY position', row.id,
+  );
+
+  if (anonymous) {
+    /* Weder hier noch sonst irgendwo lässt sich ablesen, WAS diese Person
+       gewählt hat — das steht nirgends in der Datenbank (siehe voteAnonym).
+       hasVoted ist die einzige Auskunft, die es dazu gibt: DASS abgestimmt
+       wurde. Die Oberfläche sperrt die Auswahl dann, ohne eine bestimmte
+       Antwort hervorzuheben — sie kennt die eigene Wahl selbst nicht mehr,
+       sobald die Antwort dieses Aufrufs verarbeitet ist. */
+    const hatTeilgenommen = Boolean(
+      db.get('SELECT 1 AS x FROM poll_participants WHERE poll_id = ? AND user_id = ?', row.id, viewerId),
+    );
+    const gesamt = db.get<{ n: number }>(
+      'SELECT COUNT(*) AS n FROM poll_participants WHERE poll_id = ?', row.id,
+    )?.n ?? 0;
+    const options: PollOption[] = optionRows.map((o) => ({
+      id: o.id, text: entschluesseln(o.text), voterIds: [], votes: o.votes,
+    }));
+    return { ...basis, options, totalVoters: gesamt, myVotes: [], hasVoted: hatTeilgenommen };
+  }
+
+  const voteRows = db.all<{ option_id: string; user_id: string }>(
+    'SELECT option_id, user_id FROM poll_votes WHERE poll_id = ?', row.id,
+  );
+  const byOption = new Map<string, string[]>();
+  for (const v of voteRows) byOption.set(v.option_id, [...(byOption.get(v.option_id) ?? []), v.user_id]);
+  const options: PollOption[] = optionRows.map((o) => {
+    const voters = byOption.get(o.id) ?? [];
+    return { id: o.id, text: entschluesseln(o.text), voterIds: voters, votes: voters.length };
+  });
+  const myVotes = voteRows.filter((v) => v.user_id === viewerId).map((v) => v.option_id);
+
+  return {
+    ...basis, options,
     totalVoters: new Set(voteRows.map((v) => v.user_id)).size,
-    myVotes: voteRows.filter((v) => v.user_id === viewerId).map((v) => v.option_id),
+    myVotes,
+    hasVoted: myVotes.length > 0,
   };
 }

@@ -15,8 +15,24 @@ export function uebersetzungsRegeln(req: TranslateRequest): string[] {
 
   const regeln = [
     `Übersetze den Text ins ${target.name} (${target.native}).`,
+    /* Steht bewusst schon im ersten Anlauf und nicht erst im Nachdruck-Block:
+       gemessen (scripts/uebersetzung-messen.mjs) echot ein kleines Modell
+       lange, unpunktierte Sätze beim ersten Versuch sonst zuverlässig statt
+       sie zu übersetzen — der Nachdruck-Versuch rettet das nur in der Hälfte
+       der Fälle. Vorbeugen schlägt Nachbessern. */
+    'Übersetzen heißt: der gesamte Text steht danach in der Zielsprache — auch bei langen Sätzen ohne klare Satzzeichen. Nur Rechtschreibung auszubessern oder umzuformulieren zählt nicht als Übersetzung.',
     source ? `Ausgangssprache ist ${source.name}.` : 'Erkenne die Ausgangssprache selbst.',
-    'Es handelt sich um Nachrichten aus einem Firmen-Chat. Behalte den Tonfall bei: locker bleibt locker, förmlich bleibt förmlich.',
+    /* "nicht lockerer, nicht förmlicher" ergänzt die binäre Zuordnung
+       locker/förmlich um die Richtung: gemessener Fehlerfall (22.08.2026) —
+       normales Deutsch ("ich lade die App gerade runter") kam als schwerer
+       Netzjargon zurück ("ima", "rn"). Kein Wort war falsch, trotzdem falsch.
+       Bewusst nur angehängt statt als eigener Satz ("soll klingen wie
+       dieselbe Person..."): eine längere Fassung hat in einem unabhängigen
+       Fall (Rückübersetzung des lang-Korpus, "So in short, the following
+       happened: ...") die Fehlerrate im Nachdruck-Versuch von 0/8 auf 3/5
+       hochgezogen — gemessen mit scripts/uebersetzung-messen.mjs außerhalb
+       des Korpus. Länge war hier der Risikofaktor, nicht die Idee. */
+    'Es handelt sich um Nachrichten aus einem Firmen-Chat. Behalte den Tonfall bei: locker bleibt locker, förmlich bleibt förmlich — nicht lockerer, nicht förmlicher.',
     'Platzhalter der Form {{0}}, {{1}} usw. sind Code, Links, @Erwähnungen oder Produktnamen. Gib sie unverändert und vollzählig zurück.',
     'Übersetze keine Emojis und erfinde keine zusätzlichen Sätze.',
     'Behalte Zeilenumbrüche und Markdown-Struktur bei.',
@@ -29,7 +45,12 @@ export function uebersetzungsRegeln(req: TranslateRequest): string[] {
   if (req.nachdruck) {
     regeln.push(
       `WICHTIG: Der vorige Versuch hat den Eingabetext unverändert zurückgegeben. Der Eingabetext ist NICHT ${target.name}.`,
-      `Gib ihn niemals unverändert zurück. Jedes Wort in "translation" muss ${target.name} (${target.native}) sein.`,
+      /* "und jedes Zeichen" ergänzt: gemessen (scripts/uebersetzung-messen.mjs,
+         lang-Kategorie) mischte das Modell im Nachdruck-Versuch (temperature
+         0.4) vereinzelt ein einzelnes fremdes Schriftzeichen mitten ins Wort
+         ("zurückge滚" statt "zurückgerollt") — der Rest des Satzes stand
+         korrekt in der Zielsprache. */
+      `Gib ihn niemals unverändert zurück und mische keine andere Sprache ein. Jedes Wort und jedes Zeichen in "translation" muss ${target.name} (${target.native}) sein.`,
       'Korrigiere weder Rechtschreibung noch Zeichensetzung — übertrage den Sinn in die Zielsprache.',
       `Umgangssprache, Abkürzungen und Tippfehler werden sinngemäß ins ${target.name} übertragen, nicht stehen gelassen.`,
     );

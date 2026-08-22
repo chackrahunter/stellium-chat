@@ -35,14 +35,18 @@ import { SystemPanel } from './components/SystemPanel.jsx';
 import { PostPanel } from './components/PostPanel.jsx';
 import { UpdateBanner, UpdateWillkommen, ServerWartung } from './components/UpdateBanner.jsx';
 import { MeldungBitte } from './components/MeldungBitte.jsx';
+import { DownloadHinweis } from './components/DownloadHinweis.jsx';
 import { Toasts } from './components/Toasts.jsx';
 import { Fangkorb } from './components/Fangkorb.jsx';
 import { FreigabenDialog, VorfallDialog, WiederherstellungHinweis } from './components/Vertraulich.jsx';
+import { NotizenPanel } from './components/NotizenPanel.jsx';
 import { clsx } from './lib/format.js';
-/* Die Schlüsselarbeit für vertrauliche Kanäle hängt sich beim Laden selbst an
-   den Draht zum Server. Sie steht hier ausdrücklich, obwohl der Zustand sie
-   ohnehin lädt: wer diese Zeile streicht, soll merken, dass etwas fehlt. */
+/* Die Schlüsselarbeit für vertrauliche Kanäle bzw. für Notizen hängt sich
+   beim Laden jeweils selbst an den Draht zum Server. Beide Zeilen stehen
+   hier ausdrücklich, obwohl der Zustand sie ohnehin lädt: wer eine streicht,
+   soll merken, dass etwas fehlt. */
 import './lib/vertraulich.js';
+import './lib/notizen.js';
 
 export function App() {
   const booted = useStore((s) => s.booted);
@@ -171,6 +175,7 @@ export function App() {
         <ServerWartung />
         <UpdateBanner />
         <MeldungBitte />
+        <DownloadHinweis />
         <div className={clsx('app', threadParentId && 'app--thread', schubladeOffen && 'app--schublade')}>
         <Rail />
         <Sidebar />
@@ -222,7 +227,14 @@ export function App() {
       <Fangkorb eingebettet zuruecksetzenBei={overlay}>
       <AnimatePresence>
         {overlay === 'quick' && <QuickSwitcher key="quick" onClose={closeOverlay} />}
-        {overlay === 'search' && <SearchOverlay key="search" onClose={closeOverlay} />}
+        {(overlay === 'search' || overlay === 'saved') && (
+          /* Dieselbe Tafel für beide Werte, nur mit unterschiedlichem
+             Startreiter -- siehe Overlay-Typ in state/store.ts. Ein `key`
+             für beide zusammen, nicht je einer: sonst würde AnimatePresence
+             einen Wechsel zwischen den beiden als Aus- und Wiedereinbau
+             behandeln statt als denselben, weiter offenen Dialog. */
+          <SearchOverlay key="search" onClose={closeOverlay} initialTab={overlay === 'saved' ? 'saved' : 'search'} />
+        )}
         {overlay === 'settings' && <Settings key="settings" onClose={closeOverlay} />}
         {overlay === 'newChannel' && <NewChannelDialog key="new" onClose={closeOverlay} />}
         {overlay === 'glossary' && <GlossaryPanel key="glossary" onClose={closeOverlay} />}
@@ -240,6 +252,7 @@ export function App() {
         {overlay === 'fern' && <Fernsteuerung key="fern" onClose={closeOverlay} />}
         {overlay === 'system' && <SystemPanel key="system" onClose={closeOverlay} />}
         {overlay === 'post' && <PostPanel key="post" onClose={closeOverlay} />}
+        {overlay === 'notizen' && <NotizenPanel key="notizen" onClose={closeOverlay} />}
         {vorschlagFilter && (
           <VorschlagPosteingang
             key="vorschlaege"

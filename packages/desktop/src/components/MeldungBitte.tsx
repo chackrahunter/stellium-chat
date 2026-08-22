@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Bell, X } from 'lucide-react';
 import { useT } from '../i18n';
 import { erlaubnisHolen, erlaubnisStand } from '../lib/benachrichtigung.js';
+import { pushSynchronisieren } from '../state/store.js';
 
 /**
  * Der Streifen, der einmal nach der Erlaubnis für Benachrichtigungen fragt.
@@ -60,7 +61,13 @@ export function MeldungBitte() {
           <button
             type="button"
             className="btn btn--primary btn--sm"
-            onClick={() => { void erlaubnisHolen().then(merken); }}
+            onClick={() => {
+              // Direkt aus derselben Bedienhandlung heraus anmelden — sonst
+              // greift erst wieder das nächste 'ready' beim übernächsten
+              // Verbindungsaufbau, und bis dahin bekäme dieses Gerät noch
+              // keinen Push, obwohl die Erlaubnis längst erteilt ist.
+              void erlaubnisHolen().then((stand) => { merken(); if (stand === 'erlaubt') pushSynchronisieren(); });
+            }}
           >
             {t('meldung.erlauben')}
           </button>

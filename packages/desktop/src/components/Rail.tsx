@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { Bell, Bookmark, Bot, CalendarDays, Download, FolderOpen, Gauge, Inbox, Lightbulb, ListChecks, Mail, MessageSquare, Monitor, Settings, ShieldCheck, Sparkles, Star } from 'lucide-react';
+import { Bell, Bookmark, Bot, CalendarDays, Download, FolderOpen, Gauge, Inbox, Lightbulb, ListChecks, Mail, MessageSquare, Monitor, NotebookPen, Settings, ShieldCheck, Sparkles, Star } from 'lucide-react';
 import { useStore } from '../state/store.js';
 import { useT } from '../i18n/index.js';
 import { imBrowser } from './DownloadPanel.jsx';
 import { StatusMenu } from './StatusMenu.jsx';
 import { useKiKanaele } from '../lib/ai-channels.js';
 import { useVorschlaege } from '../state/vorschlaege.js';
+import { counterLabel } from '../lib/format.js';
 
 /**
  * Was hinter dem Stern liegt.
@@ -124,10 +125,32 @@ function SternMenue({ eintraege }: {
     };
   }, [offen]);
 
+  /* Schließt ein offenes Menü, wenn die Liste währenddessen leer wird (etwa
+     weil eine Berechtigung per Live-Update verschwindet). Ohne das bliebe
+     `offen` auf `true` stehen, obwohl unten gleich der Knopf samt Menü durch
+     das bloße Sternzeichen ersetzt wird — die beiden Effekte oben blieben
+     dann mit ihren globalen keydown-/pointerdown-Zuhörern angemeldet, ohne
+     dass es noch etwas zu schließen gäbe. */
+  useEffect(() => {
+    if (!eintraege.length) setOffen(false);
+  }, [eintraege.length]);
+
   if (!eintraege.length) {
-    /* Ohne Einträge bleibt der Stern, was er war: ein Zeichen, kein Knopf. */
+    /* Heute unerreichbar: `Rail()` liefert weiter unten zwei Einträge
+       (`catchup`, `saved`) bedingungslos mit, `eintraege.length` ist also nie
+       0. Trotzdem absichtlich BEHALTEN und nicht entfernt — `SternMenue` ist
+       eine allgemeine Komponente, keine an genau diese zwei Zeilen gebundene,
+       und der Kommentar direkt am Aufruf unten hält fest, dass ohne Einträge
+       ausdrücklich ein bloßes Zeichen gewollt ist, kein leerer Knopf mit
+       leerem Menü darunter. Kommt später ein drittes, bedingtes Kriterium für
+       `catchup` oder `saved` hinzu, wird dieser Zweig wieder erreichbar — dann
+       soll er korrekt sein und nicht erst dann repariert werden müssen:
+       `data-tour="stern"` bleibt darum erhalten (sonst verschwände der
+       Tour-Schritt lautlos, weil sein Ziel-Selektor ins Leere liefe), und der
+       Effekt oben räumt die globalen Zuhörer auf, falls das Menü gerade offen
+       stand, als die Liste leer wurde. */
     return (
-      <div className="rail__logo no-drag" title="Stellium">
+      <div className="rail__logo no-drag" title="Stellium" data-tour="stern">
         <Star size={21} color="#fff" fill="#fff" />
       </div>
     );
@@ -209,7 +232,12 @@ export function Rail() {
           { id: 'catchup', symbol: <Sparkles size={17} />, text: t('nav.catchup'),
             tun: () => setOverlay('catchup') },
           { id: 'saved', symbol: <Bookmark size={17} />, text: t('nav.saved'),
-            tun: () => setOverlay('search') },
+            /* Nicht 'search': SearchOverlay startet dort immer auf dem
+               Such-Reiter, „Gemerkte Nachrichten" bräuchte dann einen
+               zweiten Klick auf den Reiter „Gemerkt" im Fenster selbst.
+               'saved' öffnet dieselbe Tafel, aber gleich auf dem richtigen
+               Reiter (siehe SearchOverlay.tsx, initialTab). */
+            tun: () => setOverlay('saved') },
           /* Nur in der installierten App: der Handschlag braucht scrypt aus
              dem Hauptprozess, den es im Browser nicht gibt. */
           ...(!imBrowser() ? [{ id: 'fern', symbol: <Monitor size={17} />, text: t('fern.titel'),
@@ -234,7 +262,7 @@ export function Rail() {
       >
         <MessageSquare size={20} />
         {(totalMentions || totalUnread) > 0 && (
-          <span className="rail-btn__dot">{totalMentions || (totalUnread > 99 ? '99+' : totalUnread)}</span>
+          <span className="rail-btn__dot"><bdi>{counterLabel(totalMentions || totalUnread)}</bdi></span>
         )}
       </button>
 
@@ -261,14 +289,14 @@ export function Rail() {
         >
           <Inbox size={20} />
           {offeneVorschlaege > 0 && (
-            <span className="rail-btn__dot">{offeneVorschlaege > 99 ? '99+' : offeneVorschlaege}</span>
+            <span className="rail-btn__dot"><bdi>{counterLabel(offeneVorschlaege)}</bdi></span>
           )}
         </button>
       )}
 
       <button className="rail-btn no-drag" data-tour="tasks" onClick={() => setOverlay('tasks')} title={t('nav.tasks')}>
         <ListChecks size={20} />
-        {offeneAufgaben > 0 && <span className="rail-btn__dot">{offeneAufgaben > 99 ? '99+' : offeneAufgaben}</span>}
+        {offeneAufgaben > 0 && <span className="rail-btn__dot"><bdi>{counterLabel(offeneAufgaben)}</bdi></span>}
       </button>
 
       {/* Die Unternehmenspost. Steht bei den Aufgaben und nicht hinter dem
@@ -296,6 +324,10 @@ export function Rail() {
       <button className="rail-btn no-drag" data-tour="reminders" onClick={() => setOverlay('reminders')} title={t('nav.reminders')}>
         <Bell size={20} />
         {reminders.length > 0 && <span className="rail-btn__dot">{reminders.length}</span>}
+      </button>
+
+      <button className="rail-btn no-drag" data-tour="notizen" onClick={() => setOverlay('notizen')} title={t('nav.notizen')}>
+        <NotebookPen size={20} />
       </button>
 
       <span className="rail__spacer" />

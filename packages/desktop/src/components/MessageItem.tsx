@@ -1,8 +1,8 @@
-import { memo, useState, useEffect, useCallback, useLayoutEffect, useRef } from 'react';
+import { memo, useState, useEffect, useCallback, useLayoutEffect, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
-  AlertTriangle, Bell, Bookmark, Check, Copy, EyeOff, Forward, Languages, Lock,
+  AlertTriangle, Bell, Bookmark, Check, CheckCheck, Copy, EyeOff, Forward, Languages, Loader2, Lock,
   MessageSquare, MoreHorizontal, Pencil, Pin, RefreshCw, Smile, Sparkles, Trash2,
   Unlock,
 } from 'lucide-react';
@@ -19,9 +19,11 @@ import { EmojiPicker } from './EmojiPicker.jsx';
 import { PollCard } from './PollCard.jsx';
 import { VoiceMessage } from './VoiceMessage.jsx';
 import { LinkPreviewCard } from './LinkPreviewCard.jsx';
-import { clsx, fileSize, languageInfo, timeOfDay } from '../lib/format.js';
+import { clsx, fileSize, languageInfo, timeOfDay, zeitAusSicht } from '../lib/format.js';
 import { sichereRaender } from '../lib/klemmen.js';
 import { useKlartext, useVerschlosseneDatei } from './Vertraulich.jsx';
+import { emojiVorschlaege, useEmojiKatalog } from '../emoji/katalog.js';
+import { kiVorschlaegeAnfordern, useKiVorschlag } from '../state/emoji-vorschlaege.js';
 import type { TranslationKey } from '../i18n/index.js';
 
 interface Props {
@@ -118,6 +120,48 @@ export const MessageItem = memo(function MessageItem({ message, grouped, inThrea
   const unuebersetzt = Boolean(translation?.unuebersetzt);
   const hasTranslation = Boolean(translation && translation.text !== message.text) && !unuebersetzt;
   const bodyText = hasTranslation && !showOriginal ? translation!.text : klartext;
+  /*
+   * hasTranslation wird auch dann true, wenn der Server gar nichts
+   * übersetzt hat, sondern nur eine Maßangabe umgerechnet wurde — zwei
+   * Konten derselben Sprache, unterschiedliche Zeitzone (siehe
+   * messwerteFuerEmpfaenger(), translation/index.ts): translation.lang
+   * entspricht dann message.sourceLang, der Text unterscheidet sich aber
+   * trotzdem ("25 °C" -> "77 °F (25 °C)"). Ohne diese Unterscheidung
+   * behauptete die Pille darunter fälschlich "Translated from English".
+   */
+  const nurMasseinheiten = hasTranslation && message.sourceLang === translation?.lang;
+
+  /*
+   * Emoji-Reaktionsvorschläge — örtlich, aus dem Namensbestand.
+   *
+   * Sprache: dieselbe, in der bodyText oben gewählt wurde (nicht zwingend die
+   * Ausgangssprache der Nachricht). Wer auf den Originaltext umschaltt, soll
+   * auch dazu passende Vorschläge sehen, nicht welche für die Übersetzung.
+   * Ohne Übersetzung (Text und Anzeigesprache stimmen mutmaßlich überein)
+   * zählt die erkannte Ausgangssprache, sonst die eigene Übersetzungssprache
+   * als letzter Rückfall — katalog.ts fällt darüber hinaus selbst auf
+   * Englisch zurück, falls auch dafür kein Bestand erzeugt wurde.
+   */
+  const textSprache = hasTranslation && !showOriginal
+    ? translation!.lang
+    : (message.sourceLang ?? self?.language ?? self?.uiLanguage ?? 'en');
+  const emojiKatalog = useEmojiKatalog(textSprache);
+
+  /* Kein Netz, kein Modell, keine Kosten — reiner Abgleich auf dem Gerät.
+     Trotzdem nichts in vertraulichen Kanälen: siehe VERTRAULICH_ABGESCHALTET
+     ('reaktionsvorschlaege') in shared/src/vertraulich.ts für die Begründung,
+     warum das auch für den rein örtlichen Weg gilt. */
+  const lokaleVorschlaege = useMemo(() => {
+    if (vertraulich || unlesbar || !emojiKatalog || !bodyText.trim()) return [];
+    return emojiVorschlaege(bodyText, emojiKatalog, 3).map((v) => v.char);
+  }, [vertraulich, unlesbar, emojiKatalog, bodyText]);
+
+  /* Der seltene KI-Rückfall (state/emoji-vorschlaege.ts) — nur ANGEBOTEN, wenn
+     das Recht 'ai.assistant' da ist und der Kanal nicht vertraulich ist.
+     Angefordert wird er dadurch noch nicht: das passiert erst durch einen
+     Klick in EmojiPicker.tsx, nie von hier aus automatisch. */
+  const kiVorschlag = useKiVorschlag(message.id);
+  const kiDarfGefragtWerden = !vertraulich && Boolean(self?.permissions['ai.assistant']);
 
   // Für mich ausgeblendet: nur ein dezenter Hinweis, kein Inhalt.
   if (message.hiddenForMe) {
@@ -307,11 +351,13 @@ export const MessageItem = memo(function MessageItem({ message, grouped, inThrea
                   <Languages size={11} className="spark" />
                   {showOriginal
                     ? t('msg.original')
-                    : t('msg.translatedFrom', {
-                      // Der Name der Sprache gehört in die Sprache der
-                      // Oberfläche: "Translated from German", nicht "Deutsch".
-                      language: spracheName(message.sourceLang ?? ''),
-                    })}
+                    : nurMasseinheiten
+                      ? t('msg.unitsConverted')
+                      : t('msg.translatedFrom', {
+                        // Der Name der Sprache gehört in die Sprache der
+                        // Oberfläche: "Translated from German", nicht "Deutsch".
+                        language: spracheName(message.sourceLang ?? ''),
+                      })}
                 </button>
 
                 {showOriginal && (
@@ -360,11 +406,25 @@ export const MessageItem = memo(function MessageItem({ message, grouped, inThrea
           </div>
         )}
 
-        {message.attachments.filter((a) => message.kind !== 'voice' || !a.mime.startsWith('audio/')).length > 0 && (
+        {(message.attachments.filter((a) => message.kind !== 'voice' || !a.mime.startsWith('audio/')).length > 0
+          || (message.pendingAttachments?.length ?? 0) > 0) && (
           <div className="attachments">
             {message.attachments
               .filter((a) => message.kind !== 'voice' || !a.mime.startsWith('audio/'))
               .map((att) => <AnhangKachel key={att.id} anhang={att} imKanal={message.channelId} />)}
+            {/* Ein Anhang, der beim Senden noch nicht fertig war (siehe
+                Composer.tsx, submit()). Nichts davon steht in der Datenbank —
+                verschwindet die Nachricht aus dem Verlauf, verschwindet auch
+                das hier, ohne dass je eine falsche Zusage stand. */}
+            {message.pendingAttachments?.map((p) => (
+              <div key={p.tempId} className="att-file att-file--laeuft">
+                <Loader2 size={13} className="spin" />
+                <div className="stack">
+                  <span className="att-file__name truncate">{p.name}</span>
+                  <span className="att-file__size">{t('files.uploading')}</span>
+                </div>
+              </div>
+            ))}
           </div>
         )}
 
@@ -398,11 +458,17 @@ export const MessageItem = memo(function MessageItem({ message, grouped, inThrea
             {message.replyCount} {message.replyCount === 1 ? t('msg.reply') : t('msg.replies')}
           </button>
         )}
+
+        {isMine && <Lesebestaetigung message={message} />}
       </div>
 
-      {/* Aktionsleiste beim Überfahren */}
+      {/* Aktionsleiste beim Überfahren — die drei Schnellreaktionen sind
+          Vorschläge zu GENAU DIESER Nachricht, wenn der örtliche Abgleich
+          etwas gefunden hat (siehe lokaleVorschlaege oben), sonst die feste
+          Grundauswahl von früher. Kein neuer Knopf, keine neue Fläche — nur
+          derselbe, seit je vorhandene Platz, jetzt mit klügerem Inhalt. */}
       <div className="msg__actions">
-        {QUICK_EMOJI.slice(0, 3).map((emoji) => (
+        {(lokaleVorschlaege.length > 0 ? lokaleVorschlaege : QUICK_EMOJI.slice(0, 3)).map((emoji) => (
           <button key={emoji} className="icon-btn icon-btn--sm" onClick={() => react(message.id, emoji)} title={t('msg.reactWith', { emoji })}>
             <span style={{ fontSize: 15 }}>{emoji}</span>
           </button>
@@ -485,12 +551,175 @@ export const MessageItem = memo(function MessageItem({ message, grouped, inThrea
           <EmojiPicker
             onPick={(emoji) => { react(message.id, emoji); setPickerOpen(false); }}
             onClose={() => setPickerOpen(false)}
+            vorschlaege={lokaleVorschlaege}
+            kiNachfrage={kiDarfGefragtWerden ? {
+              emojis: kiVorschlag.emojis,
+              laeuft: kiVorschlag.laeuft,
+              anfordern: () => kiVorschlaegeAnfordern(message.id),
+            } : undefined}
           />
         )}
       </AnimatePresence>
     </motion.div>
   );
 });
+
+/* ── Lesebestätigung ──────────────────────────────────────────── */
+
+/**
+ * Wer eine eigene Nachricht gelesen hat, und wann.
+ *
+ * Nur an eigenen Nachrichten (siehe Aufrufstelle), und nur wenn schon
+ * mindestens eine Person gelesen hat — für eine frische Nachricht, die noch
+ * niemand gesehen hat, gäbe es nichts zu zeigen, was nicht ohnehin der
+ * Normalzustand jeder eben gesendeten Nachricht wäre.
+ *
+ * Die Zahlen und Namen kommen aus derselben Lesemarke wie der
+ * Ungelesen-Zähler in der Seitenleiste (channel_members in der Datenbank) —
+ * es gibt keine zweite, konkurrierende Ablage darüber, was gelesen ist.
+ * requestReadReceipts() fragt einmal an; danach hält store.ts den Stand über
+ * eingehende `read`-Meldungen anderer Mitglieder von selbst frisch.
+ */
+function Lesebestaetigung({ message }: { message: Message }) {
+  const t = useT();
+  const channel = useStore((s) => s.channels[message.channelId]);
+  const receipts = useStore((s) => s.readReceipts[message.id]);
+  const users = useStore((s) => s.users);
+  const requestReadReceipts = useStore((s) => s.requestReadReceipts);
+
+  useEffect(() => {
+    if (receipts === undefined) requestReadReceipts([message.id]);
+  }, [message.id, receipts, requestReadReceipts]);
+
+  const [offen, setOffen] = useState(false);
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const boxRef = useRef<HTMLDivElement>(null);
+  const [ort, setOrt] = useState<{ left: number; top: number } | null>(null);
+  const schliessTimer = useRef<number | null>(null);
+
+  const positionieren = useCallback(() => {
+    const knopf = btnRef.current;
+    const kasten = boxRef.current;
+    if (!knopf || !kasten) return;
+    const k = knopf.getBoundingClientRect();
+    const rand = sichereRaender();
+    const breite = kasten.offsetWidth;
+    const hoehe = kasten.offsetHeight;
+    const left = Math.max(
+      8 + rand.links,
+      Math.min(k.right - breite, window.innerWidth - breite - 8 - rand.rechts),
+    );
+    let top = k.bottom + 4;
+    if (top + hoehe > window.innerHeight - 8 - rand.unten) top = k.top - hoehe - 4;
+    setOrt({ left, top: Math.max(8 + rand.oben, top) });
+  }, []);
+
+  useLayoutEffect(() => { if (offen) positionieren(); }, [offen, positionieren]);
+
+  // Öffnen — beim Überfahren mit der Maus wie beim Antippen. Ein bereits
+  // laufendes Schließen (siehe unten) wird dabei zurückgenommen, sonst
+  // schlösse ein Wechsel vom Knopf auf das Fenster kurz danach wieder zu.
+  const oeffnen = () => {
+    if (schliessTimer.current != null) { window.clearTimeout(schliessTimer.current); schliessTimer.current = null; }
+    setOffen(true);
+  };
+  // Kleine Verzögerung, damit der Weg von Knopf zu Fenster nicht selbst als
+  // Verlassen zählt — beide Seiten rufen dasselbe Timeout auf.
+  const verzoegertSchliessen = () => {
+    schliessTimer.current = window.setTimeout(() => setOffen(false), 150);
+  };
+
+  useEffect(() => {
+    if (!offen) return;
+    // Auf Touch gibt es kein „daneben vorbei gehovert" — ein Tipp irgendwo
+    // sonst muss schließen. window.addEventListener('resize') hält die
+    // Position auch bei einer Größenänderung des Fensters richtig, wie beim
+    // „…"-Menü weiter oben.
+    const beiAussen = (e: PointerEvent) => {
+      const ziel = e.target as Node;
+      if (btnRef.current?.contains(ziel) || boxRef.current?.contains(ziel)) return;
+      setOffen(false);
+    };
+    document.addEventListener('pointerdown', beiAussen);
+    window.addEventListener('resize', positionieren);
+    return () => {
+      document.removeEventListener('pointerdown', beiAussen);
+      window.removeEventListener('resize', positionieren);
+    };
+  }, [offen, positionieren]);
+
+  useEffect(() => () => {
+    if (schliessTimer.current != null) window.clearTimeout(schliessTimer.current);
+  }, []);
+
+  if (!receipts?.length) return null;
+
+  // Direktnachricht: nur eine lesende Person — die schlichte Form reicht,
+  // eine Liste mit einem einzigen Namen wäre nur eine umständlichere
+  // Wiederholung derselben Auskunft.
+  if (channel?.kind === 'dm') {
+    const [erste] = receipts;
+    const leser = users[erste.userId];
+    const zeit = erste.at != null
+      ? zeitAusSicht(erste.at, leser?.language ?? 'en', leser?.timezone ?? '')
+      : null;
+    return (
+      <div className="msg__read-receipt msg__read-receipt--dm muted">
+        {zeit ? t('msg.readAt', { time: zeit }) : t('msg.read')}
+      </div>
+    );
+  }
+
+  return (
+    <>
+      <button
+        ref={btnRef}
+        className="msg__read-receipt"
+        onMouseEnter={oeffnen}
+        onMouseLeave={verzoegertSchliessen}
+        onFocus={oeffnen}
+        onClick={oeffnen}
+        title={t('msg.readByCount', { n: receipts.length })}
+      >
+        <CheckCheck size={12} />
+        <span>{receipts.length}</span>
+      </button>
+
+      {createPortal(
+        <AnimatePresence>
+          {offen && (
+            <motion.div
+              ref={boxRef}
+              initial={{ opacity: 0, y: -4 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -4 }}
+              className="read-receipt-popover"
+              style={{ position: 'fixed', left: ort?.left ?? -9999, top: ort?.top ?? -9999 }}
+              onMouseEnter={oeffnen}
+              onMouseLeave={verzoegertSchliessen}
+            >
+              <div className="read-receipt-popover__header muted">{t('msg.readByHeader')}</div>
+              {receipts.map((r) => {
+                const leser = users[r.userId];
+                const zeit = r.at != null
+                  ? zeitAusSicht(r.at, leser?.language ?? 'en', leser?.timezone ?? '')
+                  : null;
+                return (
+                  <div key={r.userId} className="read-receipt-popover__row">
+                    <Avatar user={leser} size={18} />
+                    <span className="read-receipt-popover__name">{leser?.displayName ?? t('common.unknown')}</span>
+                    {zeit && <span className="read-receipt-popover__time">{zeit}</span>}
+                  </div>
+                );
+              })}
+            </motion.div>
+          )}
+        </AnimatePresence>,
+        document.body,
+      )}
+    </>
+  );
+}
 
 function MenuItem({ icon, label, onClick, danger, disabled }: {
   icon: React.ReactNode; label: string; onClick: () => void; danger?: boolean; disabled?: boolean;

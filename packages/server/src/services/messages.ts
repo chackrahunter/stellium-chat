@@ -1,13 +1,15 @@
+import fs from 'node:fs';
 import {
   detectLanguage, extractMentions, istE2EChiffrat, mentionsEveryone, normalizeLang,
-  withinDeleteWindow, withinEditWindow, type DeleteScope, type Message,
+  withinDeleteWindow, withinEditWindow, type DeleteScope, type Message, type ReadReceipt,
 } from '@stellium/shared';
-import { db, reindexMessage, removeFromIndex } from '../db/index.js';
+import { db, placeholders, reindexMessage, removeFromIndex } from '../db/index.js';
 import { newId } from '../util/id.js';
 import { dropMessageTranslations } from '../translation/index.js';
 import { getMessage, getUserByHandle, hydrateMessages } from './store.js';
 import { entschluesseln, verschluesseln } from '../crypto/nachrichten.js';
 import { huelleLesen } from '../crypto/dateien.js';
+import * as ablage from './ablage.js';
 
 export interface CreateMessageInput {
   channelId: string;
@@ -15,6 +17,13 @@ export interface CreateMessageInput {
   text: string;
   parentId?: string | null;
   attachmentIds?: string[];
+  /**
+   * Anhänge, die beim Senden noch nicht fertig waren — zählen mit, damit eine
+   * Nachricht mit einem einzelnen, noch hochladenden Bild und ohne Text nicht
+   * als "leer" abgewiesen wird. Gespeichert wird davon nichts; das Merken der
+   * Platzhalter bis zum Eintreffen (oder Aufgeben) übernimmt ws/gateway.ts.
+   */
+  pendingAttachments?: { tempId: string; name: string; mime: string }[];
   sourceLang?: string | null;
   systemKind?: string | null;
   /** "text" | "voice" | "poll" */
@@ -87,7 +96,9 @@ function anhaengePruefen(channelId: string, attachmentIds: string[] | undefined)
 
 export function createMessage(input: CreateMessageInput): Message {
   const text = input.text.trim();
-  if (!text && !(input.attachmentIds?.length)) throw new Error('Leere Nachricht');
+  if (!text && !(input.attachmentIds?.length) && !(input.pendingAttachments?.length)) {
+    throw new Error('Leere Nachricht');
+  }
 
   /* Ende-zu-Ende verschlüsselte Nachrichten sind länger als ihr Klartext:
      Base64 kostet ein Drittel, dazu Zähler und Prüfsumme. Dieselbe Grenze für
@@ -175,6 +186,63 @@ export function createMessage(input: CreateMessageInput): Message {
   return getMessage(id, input.userId)!;
 }
 
+/**
+ * Einen Anhang, der erst nach dem Senden fertig hochgeladen ist, an die schon
+ * verschickte Nachricht hängen.
+ *
+ * Nur die sendende Person darf das, und nur für eine Nachricht, die es aus
+ * ihrer Sicht noch gibt — sonst hinge ein Anhang plötzlich an einer fremden
+ * Nachricht oder an einer, die gerade gelöscht wurde. Dieselbe Prüfung wie
+ * beim Senden selbst (`anhaengePruefen`) gilt auch hier: ein vertraulicher
+ * Kanal nimmt einen offenen Anhang so wenig nachträglich an wie beim ersten
+ * Mal.
+ *
+ * Gibt `null` zurück, wenn nichts zu tun war — der Aufrufer (ws/gateway.ts)
+ * entscheidet dann, ob der Anhang als verwaist weggeworfen gehört.
+ */
+export function attachUpload(messageId: string, userId: string, attachmentId: string): Message | null {
+  const nachricht = db.get<{ user_id: string; channel_id: string; deleted_at: number | null }>(
+    'SELECT user_id, channel_id, deleted_at FROM messages WHERE id = ?', messageId,
+  );
+  if (!nachricht || nachricht.deleted_at || nachricht.user_id !== userId) return null;
+
+  const zeile = db.get<{ uploader_id: string; message_id: string | null }>(
+    'SELECT uploader_id, message_id FROM attachments WHERE id = ?', attachmentId,
+  );
+  if (!zeile || zeile.uploader_id !== userId || zeile.message_id !== null) return null;
+
+  anhaengePruefen(nachricht.channel_id, [attachmentId]);
+
+  const geaendert = db.run(
+    'UPDATE attachments SET message_id = ? WHERE id = ? AND message_id IS NULL', messageId, attachmentId,
+  );
+  if (!geaendert.changes) return null;
+  return getMessage(messageId, userId);
+}
+
+/**
+ * Einen Anhang wegwerfen, der zu keiner Nachricht mehr passt.
+ *
+ * Zwei Wege führen hierher: die Nachricht wurde gelöscht, während der Upload
+ * noch lief, oder der Aufruf gehört gar nicht der Person, die ihn hochgeladen
+ * hat. Ohne dieses Aufräumen bliebe die Datei für immer als Zeile ohne
+ * Nachricht liegen — `deleteMessage()` sieht sie nicht, denn sie hängt an
+ * keiner Nachricht, an der sie über ON DELETE CASCADE mitgehen könnte.
+ *
+ * Still, wenn nichts zu tun ist: ein doppelter Aufruf (zum Beispiel nach
+ * einer Wiederholung über die Warteschlange in net/socket.ts) soll nicht
+ * scheitern, nur weil die erste Ausführung schon aufgeräumt hat.
+ */
+export function discardOrphanAttachment(attachmentId: string, userId: string): void {
+  const zeile = db.get<{ path: string; uploader_id: string; message_id: string | null }>(
+    'SELECT path, uploader_id, message_id FROM attachments WHERE id = ?', attachmentId,
+  );
+  if (!zeile || zeile.uploader_id !== userId || zeile.message_id !== null) return;
+  ablage.loeschen(attachmentId, 'attachment');
+  db.run('DELETE FROM attachments WHERE id = ?', attachmentId);
+  fs.promises.rm(zeile.path, { force: true }).catch(() => {});
+}
+
 export function editMessage(messageId: string, userId: string, text: string, mayMention = true): Message {
   const row = db.get<{ user_id: string; deleted_at: number | null; created_at: number; kind: string }>(
     'SELECT user_id, deleted_at, created_at, kind FROM messages WHERE id = ?', messageId,
@@ -249,10 +317,13 @@ export function deleteMessage(
   /* Auch hier alles auf einmal: eine Nachricht, deren Text weg ist, die aber
      noch im Index steht, wäre über die Suche weiter auffindbar — und ihre
      gespeicherte Übersetzung gäbe den Inhalt wieder, den das Löschen gerade
-     entfernt hat. */
+     entfernt hat. dropMessageTranslations() nimmt dabei auch den
+     Übersetzungsspeicher mit (translation_memory) — sonst überlebte Quelle
+     und Übersetzung dort weiter, unter einem Schlüssel statt unter dem Namen
+     der Nachricht, aber genauso lesbar. */
   db.transaction(() => {
     db.run("UPDATE messages SET deleted_at = ?, text = '', pinned = 0 WHERE id = ?", Date.now(), messageId);
-    db.run('DELETE FROM message_translations WHERE message_id = ?', messageId);
+    dropMessageTranslations(messageId);
     removeFromIndex(messageId);
   });
   return { channelId: row.channel_id, scope: 'all' };
@@ -317,12 +388,94 @@ export function setSaved(messageId: string, userId: string, saved: boolean): voi
   }
 }
 
-export function markRead(channelId: string, userId: string, lastMessageId: string): void {
-  db.run(
-    `UPDATE channel_members SET last_read_message_id = ?
+/**
+ * Die Lesemarke einer Person in einem Kanal vorwärts schieben.
+ *
+ * Bewusst nur vorwärts (siehe WHERE-Klausel) und mit genau einem Zeitpunkt für
+ * den ganzen Sprung: rückt die Marke von Nachricht 10 auf Nachricht 40, tragen
+ * 11 bis 40 fortan denselben Zeitpunkt — den dieses Sprungs. Feinere Zeiten
+ * gibt es nicht, und erfunden werden sie hier auch nicht; wer wissen will, ob
+ * eine bestimmte Nachricht gelesen ist, vergleicht ihre Kennung mit
+ * last_read_message_id (siehe readReceiptsBatch weiter unten).
+ *
+ * Gibt den neuen Zeitpunkt zurück, wenn die Marke wirklich weiterrückte, sonst
+ * null — daran erkennt die Ereignisleitung, ob eine Rundmeldung an die
+ * anderen Mitglieder überhaupt etwas Neues zu sagen hätte.
+ */
+export function markRead(channelId: string, userId: string, lastMessageId: string): number | null {
+  const at = Date.now();
+  const { changes } = db.run(
+    `UPDATE channel_members SET last_read_message_id = ?, last_read_at = ?
      WHERE channel_id = ? AND user_id = ? AND (last_read_message_id IS NULL OR last_read_message_id < ?)`,
-    lastMessageId, channelId, userId, lastMessageId,
+    lastMessageId, at, channelId, userId, lastMessageId,
   );
+  return changes > 0 ? at : null;
+}
+
+/**
+ * Wer eine Nachricht gelesen hat, und wann — für mehrere Nachrichten auf
+ * einmal, damit ein offener Kanal mit vielen eigenen Beiträgen nicht eine
+ * Anfrage pro Nachricht auslöst.
+ *
+ * „Gelesen" heißt: die Lesemarke der Person in channel_members hat die
+ * Nachricht erreicht oder überschritten (lexikalischer Vergleich — Kennungen
+ * sind zeitlich sortierbar, siehe util/id.ts). Der Zeitpunkt ist der, zu dem
+ * die Marke zuletzt weiterrückte; steht dort NULL, wurde die Marke vor dieser
+ * Fassung gesetzt, und der genaue Moment ist nicht mehr bekannt. Die Nachricht
+ * gilt trotzdem als gelesen, nur ohne Uhrzeit dazu.
+ *
+ * Wer eine Nachricht selbst geschrieben hat, taucht nicht in deren eigener
+ * Leserliste auf — dass man die eigene Nachricht „gelesen" hat, sagt niemandem
+ * etwas Neues.
+ *
+ * Wer Lesebestätigungen abgeschaltet hat (users.lesebestaetigung_aus), taucht
+ * in KEINER Leserliste auf, ganz gleich, welchen Kanal die Nachricht betrifft.
+ * Die Lesemarke selbst (channel_members.last_read_message_id/last_read_at)
+ * ist davon unberührt — sie rückt in messages.markRead() weiter vor wie
+ * immer, denn genau daran hängt der eigene Ungelesen-Zähler dieser Person
+ * (siehe store.unreadCounts). Abgeschaltet wird hier nur die Ausgabe: wer
+ * gelesen hat, wird weiter vermerkt, nur niemandem mehr verraten.
+ *
+ * Prüft NICHT, ob die anfragende Person die Nachrichten überhaupt sehen darf —
+ * das übernimmt die Ereignisleitung vorher, mit derselben Prüfung wie beim
+ * Öffnen eines Threads (darfNachrichtSehen). Wer keinen Zugang zu einer
+ * Nachricht hat, bekommt ihre Kennung hier gar nicht erst zur Anfrage gereicht.
+ */
+export function readReceiptsBatch(messageIds: string[]): Record<string, ReadReceipt[]> {
+  const out: Record<string, ReadReceipt[]> = {};
+  if (!messageIds.length) return out;
+
+  const rows = db.all<{ id: string; channel_id: string; user_id: string }>(
+    `SELECT id, channel_id, user_id FROM messages WHERE id IN (${placeholders(messageIds.length)})`,
+    ...messageIds,
+  );
+  const byChannel = new Map<string, { id: string; userId: string }[]>();
+  for (const r of rows) {
+    const list = byChannel.get(r.channel_id) ?? [];
+    list.push({ id: r.id, userId: r.user_id });
+    byChannel.set(r.channel_id, list);
+  }
+
+  for (const [channelId, msgs] of byChannel) {
+    const members = db.all<{
+      user_id: string; last_read_message_id: string | null; last_read_at: number | null;
+      lesebestaetigung_aus: number;
+    }>(
+      `SELECT cm.user_id, cm.last_read_message_id, cm.last_read_at, u.lesebestaetigung_aus
+       FROM channel_members cm JOIN users u ON u.id = cm.user_id
+       WHERE cm.channel_id = ?`,
+      channelId,
+    );
+    for (const m of msgs) {
+      out[m.id] = members
+        .filter((mem) => mem.user_id !== m.userId
+          && mem.last_read_message_id != null && mem.last_read_message_id >= m.id
+          && !mem.lesebestaetigung_aus)
+        .map((mem) => ({ userId: mem.user_id, at: mem.last_read_at }))
+        .sort((a, b) => (b.at ?? 0) - (a.at ?? 0));
+    }
+  }
+  return out;
 }
 
 /* ── Geplante Nachrichten ─────────────────────────────────────── */

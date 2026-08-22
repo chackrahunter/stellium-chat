@@ -5,7 +5,7 @@ import type {
 } from './vertraulich.js';
 import type {
   AiSummary, CalendarEvent, Channel, ChannelState, Draft, LinkPreview, Message,
-  Idea, IdeaComment, IdeaStatus, MeetingProtocol, Poll, Projekt, Reaction, ReleaseInfo, Reminder, ScheduledMessage, SelfUser, SmartReply, StoredFile, StorageUsage,
+  Idea, IdeaComment, IdeaStatus, MeetingProtocol, Notiz, Poll, Projekt, PushSubscriptionJSON, ReadReceipt, Reaction, ReleaseInfo, Reminder, ScheduledMessage, SelfUser, SmartReply, StoredFile, StorageUsage,
   Task, TaskEvent, TaskPriority, TaskStatus, TranslationView, User,
   UserStatus, VoiceNote,
   Vorschlag, VorschlagAenderung,
@@ -29,7 +29,22 @@ export type ClientEvent =
   | { t: 'channel:mute'; channelId: string; muted: boolean }
   | { t: 'channel:star'; channelId: string; starred: boolean }
   | { t: 'dm:open'; userId: string }
-  | { t: 'message:send'; clientId: string; channelId: string; text: string; parentId?: string | null; attachmentIds?: string[]; sourceLang?: string | null }
+  | { t: 'message:send'; clientId: string; channelId: string; text: string; parentId?: string | null; attachmentIds?: string[]; sourceLang?: string | null;
+      /** Anhänge, die beim Senden noch hochladen — siehe Message.pendingAttachments. */
+      pendingAttachments?: { tempId: string; name: string; mime: string }[] }
+  /**
+   * Ein Anhang, der erst nach der Nachricht fertig geworden ist, wird ihr
+   * nachträglich angehängt. Nur die sendende Person darf das für ihre eigene,
+   * noch nicht gelöschte Nachricht — siehe messages.attachUpload().
+   */
+  | { t: 'message:attach'; messageId: string; tempId: string; attachmentId: string }
+  /**
+   * Der Upload ist gescheitert, nachdem die Nachricht schon stand. Räumt nur
+   * den Platzhalter weg (siehe Message.pendingAttachments) — die Datei selbst
+   * gibt es in diesem Fall gar nicht erst, denn `message:attach` ist der
+   * einzige Weg, wie eine fertige Datei je bei ihrer Nachricht ankommt.
+   */
+  | { t: 'message:attachGiveUp'; messageId: string; tempId: string }
   | { t: 'message:edit'; messageId: string; text: string }
   | { t: 'message:delete'; messageId: string; scope?: 'all' | 'me' }
   | { t: 'message:react'; messageId: string; emoji: string }
@@ -40,18 +55,34 @@ export type ClientEvent =
   | { t: 'thread:open'; messageId: string }
   | { t: 'typing'; channelId: string; parentId?: string | null }
   | { t: 'read'; channelId: string; lastMessageId: string }
+  /**
+   * Wer eigene Nachrichten gelesen hat, und wann — für mehrere auf einmal.
+   *
+   * Gebündelt, nicht pro Nachricht: ein offener Kanal mit vielen eigenen
+   * Beiträgen soll eine Anfrage auslösen, nicht ein Dutzend. Der Server
+   * antwortet nur für Nachrichten, die die anfragende Person selbst sehen
+   * darf — für den Rest kommt stillschweigend nichts zurück.
+   */
+  | { t: 'message:read-receipts'; messageIds: string[] }
   | { t: 'presence:set'; status: UserStatus; statusEmoji?: string | null; statusText?: string | null; statusExpiresAt?: number | null }
   | { t: 'prefs:update'; patch: Partial<Pick<SelfUser,
       'language' | 'autoTranslate' | 'notifyOn' | 'theme' | 'density' |
       'composeTargetPreview' | 'quietHoursStart' | 'quietHoursEnd' |
       'displayName' | 'title' | 'timezone' | 'notificationSound' | 'translationSpeed'
-      | 'uiLanguage'>> }
+      | 'uiLanguage' | 'lesebestaetigungAus'>> }
   | { t: 'translate:request'; messageId: string; targetLang: string; force?: boolean }
   | { t: 'translate:roundtrip'; messageId: string; targetLang: string }
   | { t: 'compose:preview'; requestId: string; text: string; targetLang: string; channelId: string }
   | { t: 'ai:catchup'; requestId: string; channelId: string; sinceMessageId?: string | null }
   | { t: 'ai:thread-summary'; requestId: string; messageId: string }
   | { t: 'ai:smart-replies'; requestId: string; channelId: string; parentId?: string | null }
+  /**
+   * Emoji-Reaktionen für eine einzelne Nachricht vorschlagen — der seltene
+   * Rückfall, wenn der örtliche Abgleich (packages/desktop/src/emoji/
+   * katalog.ts) nichts Brauchbares findet. Kein channelId nötig: der Server
+   * schlägt die Nachricht selbst nach und prüft daran, ob ihr Kanal
+   * vertraulich ist (siehe klartextNoetigFuerNachricht in ws/gateway.ts). */
+  | { t: 'ai:reaction-suggest'; requestId: string; messageId: string }
   /* channelId ist kein Beiwerk: ohne sie kann der Server nicht erkennen, ob
      der Entwurf aus einem vertraulichen Kanal stammt — und schickte ihn dann
      ahnungslos an die KI. Die Oberfläche blendet den Knopf dort zwar aus,
@@ -177,7 +208,64 @@ export type ClientEvent =
   /** Mit dem Code an den freigegebenen Schlüssel kommen. */
   | { t: 'vertraulich:freigabe-oeffnen'; freigabeId: string; codeAbdruck: string }
   /** Eine Freigabe vorzeitig beenden. */
-  | { t: 'vertraulich:freigabe-zuruecknehmen'; freigabeId: string };
+  | { t: 'vertraulich:freigabe-zuruecknehmen'; freigabeId: string }
+
+  /* ── Notizen ──────────────────────────────────────────────
+     Dieselbe Bauart wie bei vertraulichen Kanälen: was hier hin- und
+     hergeht, ist entweder öffentlich oder schon verschlossen. Anders als
+     dort gibt es keinen Nachrichtenstrom, sondern genau ein Schriftstück je
+     Notiz — deshalb `version` in notiz:speichern statt einer Fassung je
+     Nachricht. */
+
+  /** Die eigenen Notizen — eigene und die, zu denen man hinzugefügt wurde. */
+  | { t: 'notiz:list' }
+  /**
+   * Neu anlegen. `requestId`, weil die Oberfläche gleich danach hineinspringt.
+   * Die Kennung kommt ausnahmsweise von der App, nicht vom Server: der
+   * Notizschlüssel wird für die eigene Person selbst verpackt (siehe
+   * lib/notizen.ts), und die Verpackung braucht die Kennung schon in der
+   * Ableitung, bevor der Server je eine vergeben könnte. Kollisionsfrei genug
+   * (128 Bit Zufall) — und selbst eine Kollision schlüge nur als gewöhnlicher
+   * INSERT-Fehler fehl, nie als stille Überschreibung einer fremden Notiz.
+   */
+  | { t: 'notiz:anlegen'; requestId: string; id: string; chiffrat: string; paket: SchluesselPaket }
+  /**
+   * Speichern — mit dem Stand, von dem aus die App losgeschrieben hat.
+   * Weicht er vom aktuellen ab, lehnt der Server ab (notiz:konflikt) statt
+   * stillschweigend zu überschreiben. `force` überschreibt trotzdem —
+   * bewusste Entscheidung einer Person, keine Voreinstellung. `requestId`
+   * verbindet die Antwort (notiz:upsert oder notiz:konflikt) mit genau
+   * diesem Versuch — dieselbe Machart wie bei vorschlag:accept.
+   */
+  | { t: 'notiz:speichern'; requestId: string; notizId: string; chiffrat: string; version: number; force?: boolean }
+  | { t: 'notiz:loeschen'; notizId: string }
+  /** Für ein Konto verpacken, das schon einen Schlüssel hinterlegt hat. */
+  | { t: 'notiz:mitglied-hinzufuegen'; notizId: string; userId: string; paket: SchluesselPaket }
+  /**
+   * Entfernen UND den Notizschlüssel wechseln — in einem Schritt, weil nur
+   * die besitzende Person das darf und sie den Schlüssel deshalb immer
+   * schon in der Hand hat (siehe services/notizen.ts, mitgliedEntfernen).
+   * `requestId`, weil die App bei einem Wettlauf (siehe dort) automatisch
+   * und ohne Rückfrage neu versucht — dafür muss sie wissen, ob genau dieser
+   * Versuch geklappt hat.
+   */
+  | { t: 'notiz:mitglied-entfernen'; requestId: string; notizId: string; userId: string;
+      neueFassung: number; chiffrat: string; version: number;
+      pakete: { userId: string; paket: SchluesselPaket }[] }
+  /** Antwort auf notiz:pakete-fehlen: der Schlüssel ist jetzt für diese Person verpackt. */
+  | { t: 'notiz:pakete-nachreichen'; notizId: string; userId: string; paket: SchluesselPaket }
+
+  /* ── Web Push ─────────────────────────────────────────────── */
+
+  /**
+   * Dieses Gerät möchte auch dann benachrichtigt werden, wenn die App nicht
+   * offen ist. Geht auch dann noch einmal hinaus, wenn der Browser das
+   * Abonnement von sich aus erneuert (`pushsubscriptionchange`) — der Server
+   * kennt kein Update, nur ein Ersetzen über denselben `endpoint`.
+   */
+  | { t: 'push:subscribe'; subscription: PushSubscriptionJSON }
+  /** Dieses eine Gerät wieder abmelden — beim Abschalten in den Einstellungen. */
+  | { t: 'push:unsubscribe'; endpoint: string };
 
 export type RewriteTone =
   | 'polish' | 'formal' | 'friendly' | 'concise' | 'expand' | 'bullets' | 'apologize';
@@ -187,7 +275,14 @@ export type RewriteTone =
 export type ServerEvent =
   | { t: 'ready'; self: SelfUser; users: User[]; channels: Channel[]; states: ChannelState[]; scheduled: ScheduledMessage[]; reminders: Reminder[]; drafts: Draft[]; serverTime: number; /** Stand, der auf dem Server läuft. */ serverVersion: string;
       /** Fassung, die für den Server bereitliegt und noch nicht eingespielt ist. */
-      serverUpdate: string | null; ai: AiCapabilities }
+      serverUpdate: string | null; ai: AiCapabilities;
+      /**
+       * Der öffentliche VAPID-Schlüssel, mit dem der Client sich fürs
+       * Web-Push-Abonnement anmeldet. `null` heißt: dem Server fehlt der
+       * private Gegenpart (siehe Server-Log) — dann bleibt es beim alten Weg,
+       * der nur läuft, während die App offen ist.
+       */
+      vapidPublicKey: string | null }
   | { t: 'pong'; ts: number }
   /**
    * Eine Meldung an den Client. `code` ist eine Kennung aus dem Wörterbuch
@@ -208,7 +303,18 @@ export type ServerEvent =
   | { t: 'thread:history'; parentId: string; channelId: string; messages: Message[] }
   | { t: 'typing'; channelId: string; userId: string; parentId: string | null }
   | { t: 'presence'; userId: string; status: UserStatus; statusEmoji: string | null; statusText: string | null; statusExpiresAt: number | null; lastSeenAt: number | null }
-  | { t: 'read'; channelId: string; userId: string; lastMessageId: string }
+  /**
+   * Die Lesemarke eines anderen Mitglieds ist vorgerückt.
+   *
+   * `at` ist der Zeitpunkt dieses Sprungs — derselbe für jede Nachricht
+   * zwischen der alten und der neuen Marke, siehe messages.markRead(). `null`
+   * heißt: die Marke rückte in Wahrheit gar nicht vor (z.B. eine doppelte oder
+   * veraltete Meldung) — dann bleibt eine schon bekannte Lesebestätigung
+   * unverändert.
+   */
+  | { t: 'read'; channelId: string; userId: string; lastMessageId: string; at: number | null }
+  /** Antwort auf message:read-receipts — nur für Nachrichten, die die Person sehen darf. */
+  | { t: 'message:read-receipts'; receipts: Record<string, ReadReceipt[]> }
   | { t: 'user:upsert'; user: User }
   | { t: 'self:updated'; self: SelfUser }
   | { t: 'translation'; messageId: string; translation: TranslationView }
@@ -219,6 +325,11 @@ export type ServerEvent =
   | { t: 'ai:catchup'; requestId: string; summary: AiSummary }
   | { t: 'ai:thread-summary'; requestId: string; messageId: string; summary: AiSummary }
   | { t: 'ai:smart-replies'; requestId: string; replies: SmartReply[] }
+  /** Antwort auf ai:reaction-suggest — messageId mit, weil requestId in der
+   *  Oberfläche pro Nachricht verwaltet wird (siehe state/emoji-vorschlaege.ts),
+   *  nicht global wie bei den übrigen KI-Aufträgen. Leeres Array ist eine
+   *  gültige, gemerkte Antwort: "die KI hat auch nichts Passendes gefunden". */
+  | { t: 'ai:reaction-suggest'; requestId: string; messageId: string; emojis: string[] }
   | { t: 'ai:rewrite'; requestId: string; text: string }
   | { t: 'ai:ask'; requestId: string; answer: string; citedMessageIds: string[] }
 
@@ -329,7 +440,33 @@ export type ServerEvent =
   | { t: 'vertraulich:wechsel-noetig'; channelId: string; grund: string }
   | { t: 'vertraulich:freigaben'; channelId: string | null; freigaben: Freigabe[] }
   | { t: 'vertraulich:freigabe'; freigabe: Freigabe }
-  | { t: 'vertraulich:freigabe-schluessel'; schluessel: FreigabeSchluessel };
+  | { t: 'vertraulich:freigabe-schluessel'; schluessel: FreigabeSchluessel }
+
+  /* ── Notizen ────────────────────────────────────────────── */
+
+  | { t: 'notiz:list'; notizen: Notiz[] }
+  /** Antwort auf notiz:anlegen — trägt die requestId zur Zuordnung. */
+  | { t: 'notiz:erstellt'; requestId: string; notiz: Notiz }
+  /**
+   * Geht an jedes Mitglied inklusive der besitzenden Person. `requestId` ist
+   * nur gesetzt, wenn dies die Antwort auf einen eigenen notiz:speichern-Ruf
+   * ist — für alle anderen Empfänger bleibt sie leer, dieselbe Machart wie
+   * bei vorschlag:upsert.
+   */
+  | { t: 'notiz:upsert'; requestId?: string; notiz: Notiz }
+  /** Gelöscht, oder der eigene Zugriff ist weg (entfernt worden). */
+  | { t: 'notiz:entfernt'; notizId: string }
+  /** Das eigene Schlüsselpaket dieser Notiz — nach Aufnahme oder Wechsel. */
+  | { t: 'notiz:schluessel'; notizId: string; fassung: number; paket: SchluesselPaket }
+  /**
+   * Speichern abgelehnt: der mitgeschickte Stand ist nicht mehr aktuell.
+   * `aktuell` trägt die Notiz, wie sie gerade auf dem Server steht — die App
+   * entscheidet daran, ob sie verwirft oder ausdrücklich überschreibt
+   * (notiz:speichern mit force).
+   */
+  | { t: 'notiz:konflikt'; requestId: string; notizId: string; aktuell: Notiz }
+  /** Für dieses Konto fehlt noch ein Paket — es hat gerade erst einen Schlüssel hinterlegt. */
+  | { t: 'notiz:pakete-fehlen'; notizId: string; userId: string };
 
 export interface AiCapabilities {
   provider: string;

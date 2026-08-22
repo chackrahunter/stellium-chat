@@ -38,13 +38,24 @@ export function Setup() {
         displayName: displayName.trim(),
         newPassword: passwort,
       });
-      if (sprache !== user.language) {
-        // Nur die Lesesprache festlegen. Die Oberfläche folgt weiter dem
-        // Rechner — wer das ändern will, tut es in den Einstellungen, und
-        // erst dann steht dort etwas Festes.
-        useStore.getState().updatePrefs({ language: sprache });
-      }
+      /* Dieser Bildschirm fragt nur EIN Sprachfeld ab, nicht zwei — die
+         Wahl hier legt deshalb sowohl die Lesesprache (in welche Sprache
+         Nachrichten übersetzt werden) als auch die Oberflächensprache fest.
+         Vorher ging nur `language` mit, uiLanguage blieb leer — nicht mehr
+         "der Rechnersprache folgen" (das stimmte nur, solange niemand diesen
+         Bildschirm gesehen hatte), sondern schlicht vergessen: wer hier
+         bewusst eine andere Sprache als die des Rechners wählte, sah seine
+         Oberfläche trotzdem für immer in der Rechnersprache stehen, bis
+         jemand von selbst in die Einstellungen fand. */
+      useStore.getState().updatePrefs({ language: sprache, uiLanguage: sprache });
       useStore.setState({ self: user });
+      /* Dieselbe Vorbelegung wie bei der Sprache zwei Zeilen darüber, nur für
+         die Zeitzone: sie kommt nicht von hier (dieser Bildschirm fragt sie
+         nicht ab), sondern aus dem Browser — siehe zeitzoneNachtragen() in
+         state/store.ts für die ausführliche Begründung. Erst NACH dem
+         setState oben, weil die Funktion self.timezoneAuto aus dem Zustand
+         liest. */
+      useStore.getState().zeitzoneNachtragen();
     } catch (err) {
       setFehler((err as Error).message);
     } finally {

@@ -1,0 +1,88 @@
+/**
+ * Emoji-Namen und Suchbegriffe — DE.
+ *
+ * ERZEUGT von scripts/emoji-katalog-erzeugen.mjs aus emojibase-data
+ * (MIT-Lizenz, © Miles Johnson — github.com/milesj/emojibase, CLDR-Grundlage).
+ * Nicht von Hand ändern — neu erzeugen: node scripts/emoji-katalog-erzeugen.mjs
+ *
+ * Nur die im EmojiPicker tatsächlich gezeigten Emoji, nicht der volle
+ * Unicode-Bestand — siehe Kopfkommentar des Erzeuger-Skripts fürs Warum.
+ */
+import type { EmojiKatalog } from '../typen.js';
+
+const daten: EmojiKatalog = {
+  "👍": {"name":"Daumen hoch","keywords":["Daumen hoch","daumen","einverstanden","finger","gut","hand","in ordnung","jawohl","klar","klasse","like","nach oben","ok","super","top"]},
+  "🎉": {"name":"Konfettibombe","keywords":["Konfettibombe","böller","feier","juhu","knaller","konfetti","party","super","yay"]},
+  "❤️": {"name":"rotes Herz","keywords":["rotes Herz","herz"]},
+  "😂": {"name":"Gesicht mit Freudentränen","keywords":["Gesicht mit Freudentränen","freude","freudentränen","fröhlich","gesicht","haha","happy","hehe","hihi","lachen","lol","lustig","muahaha","rofl","smiley","tränen","witzig"]},
+  "👀": {"name":"Augen","keywords":["Augen","auge","gesicht","gucken","schauen","sehen"]},
+  "🚀": {"name":"Rakete","keywords":["Rakete","all","weltraum"]},
+  "✅": {"name":"weißes Häkchen","keywords":["weißes Häkchen","abgehakt","erledigt"]},
+  "🔥": {"name":"Feuer","keywords":["Feuer","brennen","flamme","heiß"]},
+  "🙏": {"name":"zusammengelegte Handflächen","keywords":["zusammengelegte Handflächen","beten","betend","bitten","danke","danken","gebet","gefaltet","grüßen","handflächen","zusammengelegt"]},
+  "💡": {"name":"Glühbirne","keywords":["Glühbirne","hell","idee","lampe","licht"]},
+  "👏": {"name":"klatschende Hände","keywords":["klatschende Hände","applaudieren","applaus","beifall","gratulation","großartig","gut","hand","hände","klatschen","klatschend","toll"]},
+  "🤝": {"name":"Handschlag","keywords":["Handschlag","hände","händeschütteln","vereinbarung"]},
+  "😀": {"name":"grinsendes Gesicht","keywords":["grinsendes Gesicht","froh","fröhlich","gesicht","grinsen","haha","lachen","lol","lustig","smiley"]},
+  "😄": {"name":"grinsendes Gesicht mit lachenden Augen","keywords":["grinsendes Gesicht mit lachenden Augen","augen","fröhlich","geschlossen","gesicht","glücklich","grinsen","lachen","lol","lustig","lächeln","mund","offen","smiley","witzig"]},
+  "😊": {"name":"lächelndes Gesicht mit lachenden Augen","keywords":["lächelndes Gesicht mit lachenden Augen","augen","erröten","freude","freundlich","gesicht","glücklich","lachen","lächeln","rot","wangen"]},
+  "🙂": {"name":"leicht lächelndes Gesicht","keywords":["leicht lächelndes Gesicht","gesicht","leicht","lächeln","smiley"]},
+  "😉": {"name":"zwinkerndes Gesicht","keywords":["zwinkerndes Gesicht","auge","flirten","gesicht","sexy","smiley","zudrücken","zugedrückt","zukneifen","zuzwinkern","zwinkern"]},
+  "😍": {"name":"lächelndes Gesicht mit herzförmigen Augen","keywords":["lächelndes Gesicht mit herzförmigen Augen","augen","gesicht","glücklich","herzen","herzförmig","liebe","lächeln","smiley","verliebt"]},
+  "🤔": {"name":"nachdenkendes Gesicht","keywords":["nachdenkendes Gesicht","fragen","gesicht","grübeln","hm","komisch","nachdenken","nachdenklich","smiley","wundern"]},
+  "😅": {"name":"grinsendes Gesicht mit Schweißtropfen","keywords":["grinsendes Gesicht mit Schweißtropfen","gesicht","grinsen","lachen","lustig","lächeln","mund","nervös","offen","schweiß","schweißtropfen","schwitzen","smiley"]},
+  "😬": {"name":"Grimassen schneidendes Gesicht","keywords":["Grimassen schneidendes Gesicht","gesicht","grimasse","peinlich","schneiden","smiley","verziehen","zähne"]},
+  "😴": {"name":"schlafendes Gesicht","keywords":["schlafendes Gesicht","dösen","einschlafen","gesicht","gute nacht","gähnen","langweilig","mittagsschlaf","müde","nickerchen","schlaf","schlafen","smiley","zzz"]},
+  "🥳": {"name":"Partygesicht","keywords":["Partygesicht","aufgeregt","feier","fest","fröhlich","geburtstag","gesicht","glückwunsch","hurra","hut","party","smiley","überraschung"]},
+  "😎": {"name":"lächelndes Gesicht mit Sonnenbrille","keywords":["lächelndes Gesicht mit Sonnenbrille","cool","gesicht","lächeln","smiley","sonnenbrille"]},
+  "🤯": {"name":"explodierender Kopf","keywords":["explodierender Kopf","entsetzt","explodieren","geschockt","gesicht","kopf","schock","schockiert","smiley","unglaublich","überwältigt"]},
+  "😭": {"name":"heulendes Gesicht","keywords":["heulendes Gesicht","flennen","gesicht","heulen","schluchzen","smiley","traurig","tränen","tränenfluss","weinen"]},
+  "😤": {"name":"schnaubendes Gesicht","keywords":["schnaubendes Gesicht","erleichtert","gesicht","gewonnen"]},
+  "🤗": {"name":"Gesicht mit umarmenden Händen","keywords":["Gesicht mit umarmenden Händen","drücken","gesicht","hände","smiley","umarmen","umarmung"]},
+  "🙃": {"name":"umgekehrtes Gesicht","keywords":["umgekehrtes Gesicht","auf dem kopf","gesicht","lächeln","smiley","stehen","umgekehrt"]},
+  "😇": {"name":"lächelndes Gesicht mit Heiligenschein","keywords":["lächelndes Gesicht mit Heiligenschein","brav","engel","gesicht","glücklich","heiligenschein","lieb","lächeln","seelig","smiley"]},
+  "👎": {"name":"Daumen runter","keywords":["Daumen runter","daumen","hand","nach unten","schlecht"]},
+  "👌": {"name":"OK-Zeichen","keywords":["OK-Zeichen","exzellent","finger","genial","hand","in ordnung","natürlich","ok","perfekt","super"]},
+  "✌️": {"name":"Victory-Geste","keywords":["Victory-Geste","sieg","v","victory"]},
+  "🤞": {"name":"Hand mit gekreuzten Fingern","keywords":["Hand mit gekreuzten Fingern","finger","gekreuzt","hand"]},
+  "🙌": {"name":"zwei erhobene Handflächen","keywords":["zwei erhobene Handflächen","erhoben","feiern","geste","handflächen","hurra","hände","zwei"]},
+  "👋": {"name":"winkende Hand","keywords":["winkende Hand","auf wiedersehen","bis später","ciao","guten tag","hallo","hand","hey","hi","tschüs","tschüss","winken"]},
+  "🤙": {"name":"Ruf-mich-an-Handzeichen","keywords":["Ruf-mich-an-Handzeichen","anruf","anrufen","hand","ruf","shaka"]},
+  "💪": {"name":"angespannter Bizeps","keywords":["angespannter Bizeps","arm","bizeps","bodybuilder","bro","fitnessstudio","gewichtheben","muckies","muskeln","stark","training"]},
+  "🫶": {"name":"Hände, die Herz bilden","keywords":["Hände, die Herz bilden","<3","finger","geste","handgeste","handherz","hdl","herz","hände","händeherz","liebe"]},
+  "🤌": {"name":"zusammengedrückte Finger","keywords":["zusammengedrückte Finger","bündelhand","finger","fingerspitzen","gehts noch","geste","hand","handgeste","italienisch","was","zusammengedrückt","zusammengelegt"]},
+  "✍️": {"name":"schreibende Hand","keywords":["schreibende Hand","hand","schreiben","schreibend","stift"]},
+  "💻": {"name":"Laptop","keywords":["Laptop","bildschirm","computer","computermonitor","monitor","notebook","pc"]},
+  "📱": {"name":"Mobiltelefon","keywords":["Mobiltelefon","handy","iphone","smartphone","telefonieren"]},
+  "📊": {"name":"Balkendiagramm","keywords":["Balkendiagramm","balken","diagramm"]},
+  "📈": {"name":"Aufwärtstrend","keywords":["Aufwärtstrend","diagramm","kurve","steigend"]},
+  "📉": {"name":"Abwärtstrend","keywords":["Abwärtstrend","diagramm","fallend","kurve"]},
+  "🗓️": {"name":"Spiralkalender","keywords":["Spiralkalender","kalender"]},
+  "📌": {"name":"Reißzwecke","keywords":["Reißzwecke","anpinnen"]},
+  "📎": {"name":"Büroklammer","keywords":["Büroklammer"]},
+  "✏️": {"name":"Bleistift","keywords":["Bleistift","stift"]},
+  "🔧": {"name":"Schraubenschlüssel","keywords":["Schraubenschlüssel","werkzeug"]},
+  "⚙️": {"name":"Zahnrad","keywords":["Zahnrad","werkzeug"]},
+  "🧪": {"name":"Reagenzglas","keywords":["Reagenzglas","chemie","chemikalie","chemiker","experiment","labor","substanz","versuche","wissenschaft"]},
+  "🐛": {"name":"Raupe","keywords":["Raupe","gefräßig","insekt","tier"]},
+  "🚧": {"name":"Baustellenabsperrung","keywords":["Baustellenabsperrung","baustelle","baustellenschild","schild"]},
+  "📦": {"name":"Paket","keywords":["Paket","päckchen"]},
+  "🔍": {"name":"Lupe nach links","keywords":["Lupe nach links","suche","vergrößerungsglas"]},
+  "⭐": {"name":"weißer mittelgroßer Stern","keywords":["weißer mittelgroßer Stern","astronomie","gelber stern","himmel","stern"]},
+  "✨": {"name":"funkelnde Sterne","keywords":["funkelnde Sterne","*","funkel","funkeln","sterne"]},
+  "💫": {"name":"schwindlig","keywords":["schwindlig","benommen","benommenheit","comic","komet","stern","sterne","sternschnuppe"]},
+  "🌟": {"name":"funkelnder Stern","keywords":["funkelnder Stern","funkeln","glitzern","stern"]},
+  "⚡": {"name":"Hochspannung","keywords":["Hochspannung","blitz","elektrizität","gefahr","gewitter","hochspannungszeichen","strom"]},
+  "💧": {"name":"Tropfen","keywords":["Tropfen","schweiß","träne","wasser","wassertropfen"]},
+  "🌈": {"name":"Regenbogen","keywords":["Regenbogen","wetter"]},
+  "🎯": {"name":"Darts","keywords":["Darts","dart","pfeil","spiel","volltreffer","zielscheibe"]},
+  "🏆": {"name":"Pokal","keywords":["Pokal","bundesliga","champion","gewinnen","preis","sieger","sport","trophäe"]},
+  "🥇": {"name":"Goldmedaille","keywords":["Goldmedaille","erster","gewinn","medaille 1. platz"]},
+  "💯": {"name":"100 Punkte","keywords":["100 Punkte","100","punktestand","volle punktzahl"]},
+  "❗": {"name":"rotes Ausrufezeichen","keywords":["rotes Ausrufezeichen","!","ausrufezeichen","rot","satzzeichen"]},
+  "❓": {"name":"rotes Fragezeichen","keywords":["rotes Fragezeichen","frage","fragezeichen","rot","satzzeichen","warum","wieso"]},
+  "✔️": {"name":"kräftiges Häkchen","keywords":["kräftiges Häkchen","abhaken","erledigt","fertig","haken","häkchen"]},
+  "❌": {"name":"Kreuzzeichen","keywords":["Kreuzzeichen","abbrechen","durchgestrichen","mal","multiplikation","multiplizieren","rotes kreuz","x"]},
+};
+
+export default daten;

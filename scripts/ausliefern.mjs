@@ -419,6 +419,36 @@ if (!ohneGit && !probe) {
       }
     }
     lauf('git', ['push', '-q', 'origin', 'HEAD']);
+
+    /*
+     * Die Marke SELBST setzen, nicht auf GitHub warten.
+     *
+     * Die nächste Fassungsnummer leitet dieses Skript aus der jüngsten Marke
+     * ab (siehe oben). Angelegt wurde sie bisher aber ausschließlich vom
+     * GitHub-Release — und wenn dieser Schritt ausfällt, übersprungen wird
+     * oder der Lauf vorher abbricht, fehlt sie. Beim nächsten Mal hält das
+     * Skript die längst ausgelieferte Fassung dann für unveröffentlicht und
+     * vergibt DIESELBE Nummer ein zweites Mal, mit anderem Inhalt. Genau das
+     * ist am 22.08.2026 mit 1.0.28 passiert: die Apps hatten sie schon, und
+     * der zweite Lauf hätte sie unbemerkt überschrieben.
+     *
+     * Ein `git tag` kostet nichts und macht die Ableitung unabhängig davon,
+     * ob GitHub erreichbar war.
+     */
+    try {
+      lauf('git', ['tag', '-a', `v${naechste}`, '-m', `Fassung ${naechste}`]);
+      lauf('git', ['push', '-q', 'origin', `v${naechste}`]);
+      ok(`Marke v${naechste} gesetzt`);
+    } catch (err) {
+      /* Schon vorhanden ist kein Fehler — dann hat sie jemand von Hand
+         nachgetragen, und genau das war ja die Absicht. */
+      const text = (err.stdout || err.stderr || err.message);
+      if (/already exists|existiert bereits/i.test(text)) {
+        sag(`  ${F.grau}Marke v${naechste} gab es schon${F.aus}`);
+      } else {
+        warn(`Marke v${naechste} ließ sich nicht setzen: ${text.slice(0, 160)}`);
+      }
+    }
     /* Nachsehen statt hoffen: bleibt hier etwas offen, ist die Fassung
        draußen, aber niemand kann sie nachvollziehen. */
     const offen = lauf('git', ['rev-list', '--count', '@{u}..HEAD']).trim();

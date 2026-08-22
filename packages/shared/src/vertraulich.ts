@@ -306,5 +306,15 @@ export const VERTRAULICH_ABGESCHALTET = [
   'uebersetzung', 'zusammenfassung', 'antwortvorschlaege',
   'serversuche', 'aufgabenerkennung', 'assistent', 'linkvorschau', 'transkript',
   'vorschlaege',
+  /**
+   * Emoji-Reaktionsvorschläge — deckt hier den KI-Rückfall ab (ai:reaction-
+   * suggest, siehe ws/gateway.ts: klartextNoetigFuerNachricht weist ihn ab).
+   * Der eigentliche, örtliche Abgleich (packages/desktop/src/emoji/katalog.ts)
+   * verlässt das Gerät nie und bräuchte diese Sperre technisch nicht — er wird
+   * in vertraulichen Kanälen trotzdem mit abgeschaltet (siehe MessageItem.tsx),
+   * damit die Reaktionsleiste dort durchgehend so aussieht, wie sie sich
+   * anfühlen soll: nichts Automatisches rührt den Text an, ausnahmslos.
+   */
+  'reaktionsvorschlaege',
 ] as const;
 export type VertraulichAbgeschaltet = (typeof VERTRAULICH_ABGESCHALTET)[number];

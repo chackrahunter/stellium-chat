@@ -14,7 +14,7 @@ import { Avatar } from './Avatar.jsx';
 import { Shell } from './Panels.jsx';
 import { PruefListe } from './PruefListe.jsx';
 import { ProjektDialog } from './ProjektDialog.jsx';
-import { clsx, relativeTime } from '../lib/format.js';
+import { clsx, dateTime, dayLabel, relativeTime } from '../lib/format.js';
 
 const SPALTEN_FARBE: Record<TaskStatus, string> = {
   pending: 'var(--text-dim)',
@@ -170,7 +170,7 @@ export function TasksBoard({ onClose }: { onClose: () => void }) {
             neben: [
               a.assigneeId ? users[a.assigneeId]?.displayName : null,
               a.channelId ? `#${channels[a.channelId]?.name ?? ''}` : null,
-              a.dueAt ? new Date(a.dueAt).toLocaleDateString() : null,
+              a.dueAt ? dayLabel(a.dueAt) : null,
             ].filter(Boolean).join(' · ') || null,
           }))}
           onOeffnen={(id) => setOffeneAufgabe(id)}
@@ -301,7 +301,7 @@ export function TasksBoard({ onClose }: { onClose: () => void }) {
           {frist && (
             <span
               className={clsx('task-card__due', frist.ueberfaellig && 'task-card__due--late')}
-              title={new Date(task.dueAt!).toLocaleString()}
+              title={dateTime(task.dueAt!)}
             >
               <AlarmClock size={10} />
               {frist.ueberfaellig ? t('tasks.overdue') : frist.heute ? t('tasks.dueToday') : relativeTime(task.dueAt!)}
@@ -394,7 +394,7 @@ function TaskDialog({ onClose, vorgabe }: {
         <div className="field">
           <label className="field__label">{t('tasks.channel')}</label>
           <select className="select" value={channelId} onChange={(e) => setChannelId(e.target.value)}>
-            <option value="">—</option>
+            <option value="">{t('tasks.noChannel')}</option>
             {Object.values(channels).filter((c) => c.kind !== 'dm' && !c.archived).map((c) => (
               <option key={c.id} value={c.id}>#{c.name}</option>
             ))}
@@ -468,7 +468,7 @@ function TaskDetail({ task, onClose, onDelete }: { task: Task; onClose: () => vo
     >
       <div className="grid-2">
         <div className="field">
-          <label className="field__label">{t('tasks.status.pending')}</label>
+          <label className="field__label">{t('tasks.statusLabel')}</label>
           <select
             className="select" value={task.status}
             onChange={(e) => updateTask(task.id, { status: e.target.value as TaskStatus })}
@@ -537,7 +537,7 @@ function TaskDetail({ task, onClose, onDelete }: { task: Task; onClose: () => vo
               <div key={e.id} className="task-log__row">
                 <Avatar user={wer} size={18} />
                 <span className="task-log__text">
-                  <strong>{wer?.displayName ?? '—'}</strong>{' '}
+                  <strong>{wer?.displayName ?? t('common.unknown')}</strong>{' '}
                   {t(`tasks.event.${e.kind}` as never)}
                   {e.kind === 'comment' && e.text && <em> — {e.text}</em>}
                   {e.kind === 'status' && e.nach && <em> → {t(`tasks.status.${e.nach}` as never)}</em>}
@@ -546,7 +546,7 @@ function TaskDetail({ task, onClose, onDelete }: { task: Task; onClose: () => vo
               </div>
             );
           })}
-          {!verlauf?.length && <p className="muted" style={{ fontSize: 12 }}>—</p>}
+          {!verlauf?.length && <p className="muted" style={{ fontSize: 12 }}>{t('tasks.historyEmpty')}</p>}
         </div>
       </div>
 

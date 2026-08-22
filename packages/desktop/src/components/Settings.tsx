@@ -2,10 +2,11 @@ import { useEffect, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import { Bell, Cpu, Globe, KeyRound, Loader2, Lock, LogOut, Mail, Palette, RefreshCw, Server, Sparkles, User, Volume2, Wallet, X } from 'lucide-react';
 import { LANGUAGES, type AiCapabilities, type AiModelInfo } from '@stellium/shared';
-import { useStore } from '../state/store.js';
+import { pushSynchronisieren, useStore } from '../state/store.js';
 import { useFokusfalle } from './Fokusfalle.jsx';
 import { api, serverUrl, setServerUrl } from '../net/api.js';
 import { Avatar } from './Avatar.jsx';
+import { Profilbild } from './Profilbild.jsx';
 import { languageInfo } from '../lib/format.js';
 import { coverage, spracheName, UI_LANGUAGES, useT, t, type TranslationKey } from '../i18n/index.js';
 import { useReiterleiste } from '../lib/reiterleiste.js';
@@ -219,6 +220,7 @@ export function Settings({ onClose }: { onClose: () => void }) {
 
           {tab === 'profil' && (
             <>
+              <Profilbild />
               <div className="field">
                 <label className="field__label">{t('settings.displayName')}</label>
                 <input
@@ -239,7 +241,19 @@ export function Settings({ onClose }: { onClose: () => void }) {
               <div className="field">
                 <label className="field__label">{t('settings.timezone')}</label>
                 <select className="select" value={self.timezone} onChange={(e) => updatePrefs({ timezone: e.target.value })}>
-                  {TIMEZONES.map((tz) => <option key={tz} value={tz}>{tz}</option>)}
+                  {/* TIMEZONES ist eine von Hand kuratierte Auswahl, keine
+                      vollständige IANA-Liste — America/Anchorage fehlt dort
+                      zum Beispiel. Steht in self.timezone (sei es durch
+                      zeitzoneNachtragen() automatisch erkannt oder von einer
+                      früheren Fassung dieser Liste her) ein Wert, der hier
+                      unten nicht auftaucht, würde ein <select> ihn sonst
+                      still gegen die erste Option vertauschen — dieselbe Art
+                      Fehler wie die stille Rechnerzeit in localTimeFor(),
+                      nur in der eigenen Einstellung statt im fremden Profil.
+                      Deshalb wird der tatsächliche Wert notfalls vorangestellt,
+                      statt ihn unsichtbar zu ersetzen. */}
+                  {(TIMEZONES.includes(self.timezone) ? TIMEZONES : [self.timezone, ...TIMEZONES])
+                    .map((tz) => <option key={tz} value={tz}>{tz}</option>)}
                 </select>
                 <p className="field__hint">{t('settings.timezoneHint')}</p>
               </div>
@@ -283,7 +297,13 @@ export function Settings({ onClose }: { onClose: () => void }) {
                     {erlaubnis === 'gefragt-werden' && (
                       <button
                         className="btn btn--primary"
-                        onClick={async () => setErlaubnis(await erlaubnisHolen())}
+                        onClick={async () => {
+                          const stand = await erlaubnisHolen();
+                          setErlaubnis(stand);
+                          // Direkt aus derselben Bedienhandlung heraus anmelden — sonst
+                          // greift erst das nächste 'ready' beim übernächsten Verbindungsaufbau.
+                          if (stand === 'erlaubt') pushSynchronisieren();
+                        }}
                       >
                         <Bell size={14} /> {t('settings.browserNotifyAsk')}
                       </button>
@@ -347,6 +367,18 @@ export function Settings({ onClose }: { onClose: () => void }) {
                 </div>
                 <p className="field__hint">{t('settings.quietHint')}</p>
               </div>
+
+              {/* Serverseitig durchgesetzt (readReceiptsBatch in
+                  services/messages.ts): wer das abschaltet, taucht in keiner
+                  Leserliste mehr auf, ganz gleich, wer fragt. Die eigene
+                  Lesemarke läuft unverändert weiter — daran hängt der eigene
+                  Ungelesen-Zähler, nicht die Ausgabe an andere. */}
+              <Row
+                title={t('settings.lesebestaetigungAus')}
+                sub={t('settings.lesebestaetigungAusHint')}
+                checked={self.lesebestaetigungAus}
+                onChange={(v) => updatePrefs({ lesebestaetigungAus: v })}
+              />
             </>
           )}
 
@@ -522,11 +554,25 @@ function SchluesselEinstellungen() {
   const t = useT();
   const [postStand, setPostStand] = useState<{ versandBereit: boolean; eingangBereit: boolean } | null>(null);
   const [verkaufStand, setVerkaufStand] = useState<{ hinterlegt: boolean } | null>(null);
+  /* Vier Werte statt einem, siehe verkaufzugang.ts auf dem Server: Patreons
+     OAuth-Modell trennt App (Client-ID/-Secret) von Kontozugriff
+     (Access-/Refresh-Token). `ablaufAm` bleibt vorerst leer, bis die
+     Erneuerung steht — siehe patreonAblauf weiter unten. */
+  const [patreonStand, setPatreonStand] = useState<{
+    hinterlegt: boolean; clientId: string | null; clientSecretHinterlegt: boolean;
+    refreshTokenHinterlegt: boolean; ablaufAm: number | null;
+  } | null>(null);
   const [fernStand, setFernStand] = useState<{ hinterlegt: boolean } | null>(null);
 
   const [versand, setVersand] = useState('');
   const [eingang, setEingang] = useState('');
   const [gumroad, setGumroad] = useState('');
+  /* Die Client-ID ist kein Geheimnis (siehe GeheimFeld-Vergleich unten) und
+     startet darum mit dem hinterlegten Wert statt leer. */
+  const [patreonClientId, setPatreonClientId] = useState('');
+  const [patreonClientSecret, setPatreonClientSecret] = useState('');
+  const [patreonAccessToken, setPatreonAccessToken] = useState('');
+  const [patreonRefreshToken, setPatreonRefreshToken] = useState('');
   const [fernAdresse, setFernAdresse] = useState('');
   const [fernPasswort, setFernPasswort] = useState('');
   const [laeuft, setLaeuft] = useState(false);
@@ -534,6 +580,10 @@ function SchluesselEinstellungen() {
   useEffect(() => {
     void api.postZugang().then(setPostStand).catch(() => {});
     void api.verkaufZugang().then(setVerkaufStand).catch(() => {});
+    void api.patreonZugang().then((stand) => {
+      setPatreonStand(stand);
+      setPatreonClientId(stand.clientId ?? '');
+    }).catch(() => {});
     void api.fernStand().then(setFernStand).catch(() => {});
   }, []);
 
@@ -562,6 +612,25 @@ function SchluesselEinstellungen() {
         setVerkaufStand(await api.verkaufZugangSetzen(gumroad.trim()));
         setGumroad('');
       }
+      /* Die Client-ID ist kein Geheimnis und steht darum, anders als die
+         drei echten Geheimnisse, dauerhaft im Feld. Mitgeschickt wird sie
+         deshalb nur, wenn sie sich wirklich geändert hat — sonst schriebe
+         jedes Speichern in diesem Reiter, auch für ein ganz anderes Feld,
+         sie stumm erneut fest. */
+      const patreonClientIdBisher = patreonStand?.clientId ?? '';
+      const patreonClientIdWert = patreonClientId.trim();
+      if (patreonClientIdWert !== patreonClientIdBisher || patreonClientSecret.trim()
+          || patreonAccessToken.trim() || patreonRefreshToken.trim()) {
+        const neuerPatreonStand = await api.patreonZugangSetzen({
+          clientId: patreonClientIdWert !== patreonClientIdBisher ? patreonClientIdWert : undefined,
+          clientSecret: patreonClientSecret.trim() || undefined,
+          accessToken: patreonAccessToken.trim() || undefined,
+          refreshToken: patreonRefreshToken.trim() || undefined,
+        });
+        setPatreonStand(neuerPatreonStand);
+        setPatreonClientId(neuerPatreonStand.clientId ?? '');
+        setPatreonClientSecret(''); setPatreonAccessToken(''); setPatreonRefreshToken('');
+      }
       if (fernAdresse.trim() || fernPasswort.trim()) {
         await api.fernZugangSetzen({
           adresse: fernAdresse.trim() || undefined,
@@ -574,6 +643,21 @@ function SchluesselEinstellungen() {
       setLaeuft(false);
     }
   };
+
+  /* Ein abgelaufener oder bald ablaufender Patreon-Token soll auffallen,
+     nicht erst dann, wenn die Verkaufszahlen ohne Erklärung verschwinden.
+     Ohne Ablaufdatum — heute immer, solange niemand die Erneuerung gebaut
+     hat — bleibt das ausdrücklich als Lücke sichtbar statt verschwiegen. */
+  const patreonAblauf = (() => {
+    const bis = patreonStand?.ablaufAm;
+    if (bis == null) return { text: t('verkauf.patreonAblaufUnbekannt'), warnung: true };
+    const datum = new Date(bis).toLocaleDateString();
+    if (bis < Date.now()) return { text: t('verkauf.patreonAbgelaufen', { datum }), warnung: true };
+    if (bis - Date.now() < 7 * 24 * 60 * 60 * 1000) {
+      return { text: t('verkauf.patreonLaeuftBald', { datum }), warnung: true };
+    }
+    return { text: t('verkauf.patreonGueltigBis', { datum }), warnung: false };
+  })();
 
   return (
     <>
@@ -598,6 +682,26 @@ function SchluesselEinstellungen() {
       <GeheimFeld label={t('verkauf.token')} stand={verkaufStand?.hinterlegt}
                   wert={gumroad} setWert={setGumroad} />
       <p className="field__hint">{t('verkauf.tokenHint')}</p>
+
+      <h3 className="ai-section__title">{t('verkauf.patreonUeberschrift')}</h3>
+      <div className="field">
+        <label className="field__label">{t('verkauf.patreonClientId')}</label>
+        <input className="input" autoComplete="off" value={patreonClientId}
+               onChange={(e) => setPatreonClientId(e.target.value)} />
+        <p className="field__hint">{t('verkauf.patreonClientIdHint')}</p>
+      </div>
+      <GeheimFeld label={t('verkauf.patreonClientSecret')} stand={patreonStand?.clientSecretHinterlegt}
+                  wert={patreonClientSecret} setWert={setPatreonClientSecret} />
+      <GeheimFeld label={t('verkauf.patreonAccessToken')} stand={patreonStand?.hinterlegt}
+                  wert={patreonAccessToken} setWert={setPatreonAccessToken} />
+      <GeheimFeld label={t('verkauf.patreonRefreshToken')} stand={patreonStand?.refreshTokenHinterlegt}
+                  wert={patreonRefreshToken} setWert={setPatreonRefreshToken} />
+      <p className="field__hint">{t('verkauf.patreonHint')}</p>
+      {patreonStand?.hinterlegt && (
+        <p className="field__hint" style={patreonAblauf.warnung ? { color: 'var(--amber)' } : undefined}>
+          {patreonAblauf.text}
+        </p>
+      )}
 
       <h3 className="ai-section__title">{t('schluessel.fern')}</h3>
       <div className="field">

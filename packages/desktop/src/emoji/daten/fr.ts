@@ -1,0 +1,88 @@
+/**
+ * Emoji-Namen und Suchbegriffe — FR.
+ *
+ * ERZEUGT von scripts/emoji-katalog-erzeugen.mjs aus emojibase-data
+ * (MIT-Lizenz, © Miles Johnson — github.com/milesj/emojibase, CLDR-Grundlage).
+ * Nicht von Hand ändern — neu erzeugen: node scripts/emoji-katalog-erzeugen.mjs
+ *
+ * Nur die im EmojiPicker tatsächlich gezeigten Emoji, nicht der volle
+ * Unicode-Bestand — siehe Kopfkommentar des Erzeuger-Skripts fürs Warum.
+ */
+import type { EmojiKatalog } from '../typen.js';
+
+const daten: EmojiKatalog = {
+  "👍": {"name":"pouce vers le haut","keywords":["pouce vers le haut","bien","compris","d’accord","génial","haut","main","moi aussi","ok","oui","pouce levé","super","top"]},
+  "🎉": {"name":"cotillons","keywords":["cotillons","anniversaire","fête","super"]},
+  "❤️": {"name":"cœur rouge","keywords":["cœur rouge","amour","cœur","sentiment"]},
+  "😂": {"name":"visage riant aux larmes","keywords":["visage riant aux larmes","content","heureux","joie","larmes","lol","mdr","pleurer de joie","pleurer de rire","rire aux larmes","sourire","émoticône"]},
+  "👀": {"name":"yeux","keywords":["yeux","chercher","corps","coup d’œil","regarder","visage","voir","œil"]},
+  "🚀": {"name":"fusée","keywords":["fusée","décollage","espace","moyen de transport","voyage"]},
+  "✅": {"name":"bouton coché","keywords":["bouton coché","carré","coche","coche blanche","marque","ok","oui","sélection","terminé","voilà","✓"]},
+  "🔥": {"name":"feu","keywords":["feu","allumer","brûler","chaud","flamme","fournaise","incendie"]},
+  "🙏": {"name":"mains en prière","keywords":["mains en prière","demander","félicitations","mains","mains l’une contre l’autre","merci","prier","prière","salut","se taper dans la main","s’il te plaît","s’il vous plaît","tope là"]},
+  "💡": {"name":"ampoule","keywords":["ampoule","allumer","bande dessinée","bd","dessin","idée","lampe","lumière"]},
+  "👏": {"name":"applaudissements","keywords":["applaudissements","bien joué","bon travail","bravo","formidable","félicitations","geste","mains","mains qui applaudissent","super"]},
+  "🤝": {"name":"poignée de main","keywords":["poignée de main","d’accord","main","mains","marché conclu","poignée","présentation","rencontre","serrer la main"]},
+  "😀": {"name":"visage rieur","keywords":["visage rieur","content","dents","grand sourire","heureux","joyeux","rire","sourire","super","visage","visage très souriant","émoticône"]},
+  "😄": {"name":"visage très souriant aux yeux rieurs","keywords":["visage très souriant aux yeux rieurs","content","grand sourire","heureux","joyeux","lol","mdr","rire","sourire","sourire mignon","visage avec la bouche ouverte et les yeux souriants","émoticône"]},
+  "😊": {"name":"visage souriant avec yeux rieurs","keywords":["visage souriant avec yeux rieurs","content","heureux","rougir","satisfait","sourire","visage","visage qui rougit","visage souriant avec yeux souriants","yeux","émoticône","œil"]},
+  "🙂": {"name":"visage avec un léger sourire","keywords":["visage avec un léger sourire","content","heureux","léger sourire","sourire","visage souriant","émoticône"]},
+  "😉": {"name":"visage faisant un clin d’œil","keywords":["visage faisant un clin d’œil","blague","clin d’œil","flirter","plaisanter","sexy","visage","émoticône"]},
+  "😍": {"name":"visage souriant avec yeux en forme de cœur","keywords":["visage souriant avec yeux en forme de cœur","amour","amoureux","cœur","romantique","sourire","visage","yeux","émoticône","œil"]},
+  "🤔": {"name":"visage en pleine réflexion","keywords":["visage en pleine réflexion","hum","méditer","penser","réflexion","réfléchir","visage","émoticône"]},
+  "😅": {"name":"visage souriant avec une goutte de sueur","keywords":["visage souriant avec une goutte de sueur","excité","froid","goutte","sourire","sourire nerveux","stressé","sueur","sueurs froides","émoticône"]},
+  "😬": {"name":"visage grimaçant","keywords":["visage grimaçant","dents","grimace","gêné","rien","sourire","visage","émoticône"]},
+  "😴": {"name":"visage somnolent","keywords":["visage somnolent","bonne nuit","coucher","dormir","endormi","fatigué","sieste","sommeil","visage","zzz","émoticône"]},
+  "🥳": {"name":"visage festif","keywords":["visage festif","anniversaire","chapeau pointu","célébration","fête","heureux","hourra","joyeux anniversaire","sifflet","visage de fête","youpi","émoticône"]},
+  "😎": {"name":"visage avec lunettes de soleil","keywords":["visage avec lunettes de soleil","cool","lunettes de soleil","posé","tranquille"]},
+  "🤯": {"name":"tête qui explose","keywords":["tête qui explose","choc","choqué","surpris","surprise","tête choquée"]},
+  "😭": {"name":"visage qui pleure à chaudes larmes","keywords":["visage qui pleure à chaudes larmes","larme","larmes","malheureux","pleurer","pleurs","sangloter","triste","visage","émoticône"]},
+  "😤": {"name":"visage avec fumée sortant des narines","keywords":["visage avec fumée sortant des narines","colère","fâché","mécontent","triomphe","victoire","visage","émoticône","énervé"]},
+  "🤗": {"name":"visage qui fait un câlin","keywords":["visage qui fait un câlin","câlin","gentil","mains","visage","émoticône"]},
+  "🙃": {"name":"tête à l’envers","keywords":["tête à l’envers","incroyable","renversée","tête","visage","émoticône"]},
+  "😇": {"name":"visage souriant avec auréole","keywords":["visage souriant avec auréole","ange","angélique","auréole","bible","béni","heureux","innocent","paix","sourire","spirituel","émoticône"]},
+  "👎": {"name":"pouce vers le bas","keywords":["pouce vers le bas","bas","main","mauvais","non","nul","pouce","pouce baissé"]},
+  "👌": {"name":"ok","keywords":["ok","compris","d’accord","geste","main","nickel","parfait","super","tout va bien"]},
+  "✌️": {"name":"V de la victoire","keywords":["V de la victoire","ciseaux","doigts","main","paix et amour","peace and love","victoire"]},
+  "🤞": {"name":"doigts croisés","keywords":["doigts croisés","bonne chance","chance","croisés","doigts","main"]},
+  "🙌": {"name":"mains levées","keywords":["mains levées","air","geste","hourra","mains","mains en l’air","youpi"]},
+  "👋": {"name":"signe de la main","keywords":["signe de la main","au revoir","bonjour","bye","coucou","hello","il y a quelqu’un ?","main","main qui salue","salut","signe","à bientôt","à plus tard"]},
+  "🤙": {"name":"signe appel téléphonique avec les doigts","keywords":["signe appel téléphonique avec les doigts","appel","main","signe","téléphone"]},
+  "💪": {"name":"biceps contracté","keywords":["biceps contracté","bande dessinée","bd","biceps","bodybuilding","contracté","corps","culturisme","entraînement","exercice","force","haltérophilie","muscle","muscles","soulever"]},
+  "🫶": {"name":"mains qui forment un cœur","keywords":["mains qui forment un cœur","amour","cœur"]},
+  "🤌": {"name":"bout des doigts joints","keywords":["bout des doigts joints","agacement","argumentation","doigts","geste","interrogation","main","parler avec les mains","patience","silence !"]},
+  "✍️": {"name":"main qui écrit","keywords":["main qui écrit","main","écrire"]},
+  "💻": {"name":"ordinateur portable","keywords":["ordinateur portable","bureau","ordinateur","travail"]},
+  "📱": {"name":"téléphone portable","keywords":["téléphone portable","communication","smartphone","téléphone"]},
+  "📊": {"name":"graphiques à barres","keywords":["graphiques à barres","données","graphique"]},
+  "📈": {"name":"graphique en hausse","keywords":["graphique en hausse","croissance","données","graphique","hausse","haut","tendance"]},
+  "📉": {"name":"graphique en baisse","keywords":["graphique en baisse","baisse","bas","chute","données","graphique","négatif","tendance"]},
+  "🗓️": {"name":"calendrier à spirale","keywords":["calendrier à spirale","bloc-notes","calendrier","calendrier à spirales"]},
+  "📌": {"name":"punaise","keywords":["punaise","fournitures"]},
+  "📎": {"name":"trombone","keywords":["trombone","fournitures"]},
+  "✏️": {"name":"crayon","keywords":["crayon","crayon à papier","gomme","mine"]},
+  "🔧": {"name":"clé à molette","keywords":["clé à molette","clé","outil","travaux"]},
+  "⚙️": {"name":"roue dentée","keywords":["roue dentée","engrenage","outil"]},
+  "🧪": {"name":"tube à essai","keywords":["tube à essai","chimie","chimiste","expérience","expérimentation","labo","laboratoire","réaction","science","sciences"]},
+  "🐛": {"name":"chenille","keywords":["chenille","animal","insecte","jardin"]},
+  "🚧": {"name":"travaux","keywords":["travaux","barrière"]},
+  "📦": {"name":"colis","keywords":["colis","boîte","livraison","paquet"]},
+  "🔍": {"name":"loupe orientée à gauche","keywords":["loupe orientée à gauche","agrandir","chercher","détective","loupe","loupe gauche","recherche"]},
+  "⭐": {"name":"étoile","keywords":["étoile","astronomie","nuit"]},
+  "✨": {"name":"étincelles","keywords":["étincelles","*","magie","nuit","nuit étoilée","scintiller","étoile","étoiles"]},
+  "💫": {"name":"étourdissement","keywords":["étourdissement","bande dessinée","bd","tournis","voir des étoiles","étincelles","étoile","étoile filante"]},
+  "🌟": {"name":"étoile brillante","keywords":["étoile brillante","nuit","nuit étoilée","succès","éclat","étincelant","étincelle","étoile"]},
+  "⚡": {"name":"haute tension","keywords":["haute tension","courant","danger","nature","orage","symbole haute tension","tension","vitesse","éclair","électricité"]},
+  "💧": {"name":"goutte d’eau","keywords":["goutte d’eau","bd","eau","froid","goutte","larme","météo","nature","pluie","sueurs froides","tristesse"]},
+  "🌈": {"name":"arc-en-ciel","keywords":["arc-en-ciel","bisexuelle","gay pride","homosexuelle","lesbienne","lgbtqia","météo","nature","pluie","transgenre"]},
+  "🎯": {"name":"dans le mille","keywords":["dans le mille","cible","fléchettes","jeu"]},
+  "🏆": {"name":"trophée","keywords":["trophée","champion","championne","coupe","gagner","prix","victoire"]},
+  "🥇": {"name":"médaille d’or","keywords":["médaille d’or","1er","médaille","or","premier"]},
+  "💯": {"name":"cent points","keywords":["cent points","100","cent","score"]},
+  "❗": {"name":"point d’exclamation rouge","keywords":["point d’exclamation rouge","!","exclamation","point d’exclamation","ponctuation"]},
+  "❓": {"name":"point d’interrogation rouge","keywords":["point d’interrogation rouge","?","interrogation","point d’interrogation","ponctuation","question"]},
+  "✔️": {"name":"coche","keywords":["coche","coche noire","ok","oui","sélection","terminé","voilà","✓"]},
+  "❌": {"name":"croix","keywords":["croix","annuler","croix rouge","multiplication","multiplier","x","×"]},
+};
+
+export default daten;

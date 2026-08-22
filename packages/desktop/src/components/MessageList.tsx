@@ -4,9 +4,9 @@ import { AnimatePresence, motion } from 'framer-motion';
 import type { Message } from '@stellium/shared';
 import { useStore } from '../state/store.js';
 import { useT, t } from '../i18n/index.js';
-import { socket } from '../net/socket.js';
 import { MessageItem } from './MessageItem.jsx';
-import { dayLabel, kanalThema, sameDay } from '../lib/format.js';
+import { dayLabel, kanalName, kanalThema, sameDay } from '../lib/format.js';
+import { useLesemarke } from '../lib/lesebestaetigung.js';
 
 interface Props {
   channelId: string;
@@ -135,15 +135,12 @@ export function MessageList({ channelId }: Props) {
        nachgeladen wurden, die niemand zu sehen bekam. */
   }, [channelId, hasMore, mehrImSpeicher]);
 
-  // Gelesen melden, sobald das Fenster den Fokus hat.
-  useEffect(() => {
-    const last = messages[messages.length - 1];
-    if (!last || !document.hasFocus()) return;
-    const timer = window.setTimeout(() => {
-      socket.send({ t: 'read', channelId, lastMessageId: last.id });
-    }, 400);
-    return () => clearTimeout(timer);
-  }, [messages, channelId]);
+  /* Gelesen melden — aber nur, was wirklich im Bild stand, nicht nur, was ins
+     geladene Fenster gerutscht ist. Siehe lib/lesebestaetigung.ts für die
+     Begründung; dieselbe Lesemarke trägt auch die Lesebestätigungen an den
+     eigenen Nachrichten (MessageItem.tsx), es gibt keine zweite Wahrheit
+     darüber, was gelesen ist. */
+  useLesemarke(scrollRef, channelId, messages);
 
   const jumpDown = () => {
     stickToBottom.current = true;
@@ -253,8 +250,8 @@ function ChannelIntro({ channelId }: { channelId: string }) {
   if (!channel) return null;
 
   const title = channel.kind === 'dm'
-    ? users[channel.dmPeerId ?? '']?.displayName ?? 'Direktnachricht'
-    : `#${channel.name}`;
+    ? users[channel.dmPeerId ?? '']?.displayName ?? t('chat.directMessage')
+    : `#${kanalName(channel)}`;
 
   return (
     <div style={{ padding: 'var(--sp-6) var(--sp-5) var(--sp-4)' }}>

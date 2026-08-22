@@ -6,6 +6,7 @@ import { useStore } from '../state/store.js';
 import { useFokusfalle } from './Fokusfalle.jsx';
 import { useT, t , currentUiLanguage } from '../i18n/index.js';
 import { Avatar } from './Avatar.jsx';
+import { kanalName } from '../lib/format.js';
 
 /* ── Weiterleiten ─────────────────────────────────────────────── */
 
@@ -49,7 +50,7 @@ export function ForwardDialog({ message, onClose }: { message: Message; onClose:
               {c.kind === 'dm' ? <Avatar user={peer} size={24} />
                 : c.kind === 'private' ? <Lock size={15} className="muted" /> : <Hash size={15} className="muted" />}
               <div className="result__main">
-                <div className="result__title">{c.kind === 'dm' ? peer?.displayName ?? t('chat.dmShort') : `#${c.name}`}</div>
+                <div className="result__title">{c.kind === 'dm' ? peer?.displayName ?? t('chat.dmShort') : `#${kanalName(c)}`}</div>
               </div>
             </button>
           );
@@ -185,7 +186,12 @@ export function PollDialog({ channelId, onClose }: { channelId: string; onClose:
       </div>
 
       <Toggle title={t('poll.multiple')} sub={t('poll.multipleHint')} value={multiple} onChange={setMultiple} />
-      <Toggle title={t('poll.anonymousTitle')} sub={t('poll.anonymousHint')} value={anonymous} onChange={setAnonymous} />
+      <Toggle
+        title={t('poll.anonymousTitle')}
+        sub={`${t('poll.anonymousHint')} ${t('poll.anonymousFinal')}`}
+        value={anonymous}
+        onChange={setAnonymous}
+      />
 
       <button
         className="btn btn--primary btn--block"
@@ -221,7 +227,7 @@ export function RemindersPanel({ onClose }: { onClose: () => void }) {
             <div className="row__title">{r.note || t('reminder.one')}</div>
             <div className="row__sub">
               {new Date(r.remindAt).toLocaleString(currentUiLanguage(), { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
-              {channels[r.channelId] && ` · #${channels[r.channelId].name}`}
+              {channels[r.channelId] && ` · #${kanalName(channels[r.channelId])}`}
             </div>
           </div>
           {r.messageId && (
@@ -261,7 +267,7 @@ function Frame({ title, icon, onClose, width, children }: {
         <div className="panel__head">
           {icon}
           <h2>{title}</h2>
-          <button className="icon-btn" style={{ marginLeft: 'auto' }} onClick={onClose}><X size={17} /></button>
+          <button className="icon-btn" style={{ marginLeft: 'auto' }} onClick={onClose} title={t('common.close')} aria-label={t('common.close')}><X size={17} /></button>
         </div>
         <div className="panel__body">{children}</div>
       </motion.div>

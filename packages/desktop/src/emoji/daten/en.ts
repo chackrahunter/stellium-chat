@@ -1,0 +1,88 @@
+/**
+ * Emoji-Namen und Suchbegriffe — EN.
+ *
+ * ERZEUGT von scripts/emoji-katalog-erzeugen.mjs aus emojibase-data
+ * (MIT-Lizenz, © Miles Johnson — github.com/milesj/emojibase, CLDR-Grundlage).
+ * Nicht von Hand ändern — neu erzeugen: node scripts/emoji-katalog-erzeugen.mjs
+ *
+ * Nur die im EmojiPicker tatsächlich gezeigten Emoji, nicht der volle
+ * Unicode-Bestand — siehe Kopfkommentar des Erzeuger-Skripts fürs Warum.
+ */
+import type { EmojiKatalog } from '../typen.js';
+
+const daten: EmojiKatalog = {
+  "👍": {"name":"thumbs up","keywords":["thumbs up","+1","good","hand","like","thumb","up","yes"]},
+  "🎉": {"name":"party popper","keywords":["party popper","awesome","birthday","celebrate","celebration","excited","hooray","party","popper","tada","woohoo"]},
+  "❤️": {"name":"red heart","keywords":["red heart","emotion","heart","love","red"]},
+  "😂": {"name":"face with tears of joy","keywords":["face with tears of joy","crying","face","feels","funny","haha","happy","hehe","hilarious","joy","laugh","lmao","lol","rofl","roflmao","tear"]},
+  "👀": {"name":"eyes","keywords":["eyes","body","eye","face","googly","look","looking","omg","peep","see","seeing"]},
+  "🚀": {"name":"rocket","keywords":["rocket","launch","rockets","space","travel"]},
+  "✅": {"name":"check mark button","keywords":["check mark button","button","check","checked","checkmark","complete","completed","done","fixed","mark","tick","✓"]},
+  "🔥": {"name":"fire","keywords":["fire","af","burn","flame","hot","lit","litaf","tool"]},
+  "🙏": {"name":"folded hands","keywords":["folded hands","appreciate","ask","beg","blessed","bow","cmon","five","folded","gesture","hand","high","please","pray","thanks","thx"]},
+  "💡": {"name":"light bulb","keywords":["light bulb","bulb","comic","electric","idea","light"]},
+  "👏": {"name":"clapping hands","keywords":["clapping hands","applause","approval","awesome","clap","congrats","congratulations","excited","good","great","hand","homie","job","nice","prayed","well","yay"]},
+  "🤝": {"name":"handshake","keywords":["handshake","agreement","deal","hand","meeting","shake"]},
+  "😀": {"name":"grinning face","keywords":["grinning face","cheerful","cheery","face","grin","grinning","happy","laugh","nice","smile","smiling","teeth"]},
+  "😄": {"name":"grinning face with smiling eyes","keywords":["grinning face with smiling eyes","eye","eyes","face","grin","grinning","happy","laugh","lol","mouth","open","smile","smiling"]},
+  "😊": {"name":"smiling face with smiling eyes","keywords":["smiling face with smiling eyes","blush","eye","eyes","face","glad","satisfied","smile","smiling"]},
+  "🙂": {"name":"slightly smiling face","keywords":["slightly smiling face","face","happy","slightly","smile","smiling"]},
+  "😉": {"name":"winking face","keywords":["winking face","face","flirt","heartbreaker","sexy","slide","tease","wink","winking","winks"]},
+  "😍": {"name":"smiling face with heart-eyes","keywords":["smiling face with heart-eyes","143","bae","eye","face","feels","heart-eyes","hearts","ily","kisses","love","romance","romantic","smile","xoxo"]},
+  "🤔": {"name":"thinking face","keywords":["thinking face","chin","consider","face","hmm","ponder","pondering","thinking","wondering"]},
+  "😅": {"name":"grinning face with sweat","keywords":["grinning face with sweat","cold","dejected","excited","face","grinning","mouth","nervous","open","smile","smiling","stress","stressed","sweat"]},
+  "😬": {"name":"grimacing face","keywords":["grimacing face","awk","awkward","dentist","face","grimace","grimacing","grinning","smile","smiling"]},
+  "😴": {"name":"sleeping face","keywords":["sleeping face","bed","bedtime","face","good","goodnight","nap","night","sleep","sleeping","tired","whatever","yawn","zzz"]},
+  "🥳": {"name":"partying face","keywords":["partying face","bday","birthday","celebrate","celebration","excited","face","happy","hat","hooray","horn","party","partying"]},
+  "😎": {"name":"smiling face with sunglasses","keywords":["smiling face with sunglasses","awesome","beach","bright","bro","chilling","cool","face","rad","relaxed","shades","slay","smile","style","sunglasses","swag","win"]},
+  "🤯": {"name":"exploding head","keywords":["exploding head","blown","explode","exploding","head","mind","mindblown","no","shocked","way"]},
+  "😭": {"name":"loudly crying face","keywords":["loudly crying face","bawling","cry","crying","face","loudly","sad","sob","tear","tears","unhappy"]},
+  "😤": {"name":"face with steam from nose","keywords":["face with steam from nose","anger","angry","face","feels","fume","fuming","furious","fury","mad","nose","steam","triumph","unhappy","won"]},
+  "🤗": {"name":"smiling face with open hands","keywords":["smiling face with open hands","face","hands","hug","hugging","open","smiling"]},
+  "🙃": {"name":"upside-down face","keywords":["upside-down face","face","hehe","smile","upside-down"]},
+  "😇": {"name":"smiling face with halo","keywords":["smiling face with halo","angel","angelic","angels","blessed","face","fairy","fairytale","fantasy","halo","happy","innocent","peaceful","smile","smiling","spirit","tale"]},
+  "👎": {"name":"thumbs down","keywords":["thumbs down","-1","bad","dislike","down","good","hand","no","nope","thumb","thumbs"]},
+  "👌": {"name":"OK hand","keywords":["OK hand","awesome","bet","dope","fleek","fosho","got","gotcha","hand","legit","ok","okay","pinch","rad","sure","sweet","three"]},
+  "✌️": {"name":"victory hand","keywords":["victory hand","hand","peace","v","victory"]},
+  "🤞": {"name":"crossed fingers","keywords":["crossed fingers","cross","crossed","finger","fingers","hand","luck"]},
+  "🙌": {"name":"raising hands","keywords":["raising hands","celebration","gesture","hand","hands","hooray","praise","raised","raising"]},
+  "👋": {"name":"waving hand","keywords":["waving hand","bye","cya","g2g","greetings","gtg","hand","hello","hey","hi","later","outtie","ttfn","ttyl","wave","yo","you"]},
+  "🤙": {"name":"call me hand","keywords":["call me hand","call","hand","hang","loose","me","shaka"]},
+  "💪": {"name":"flexed biceps","keywords":["flexed biceps","arm","beast","bench","biceps","bodybuilder","bro","curls","flex","gains","gym","jacked","muscle","press","ripped","strong","weightlift"]},
+  "🫶": {"name":"heart hands","keywords":["heart hands","<3","hands","heart","love","you"]},
+  "🤌": {"name":"pinched fingers","keywords":["pinched fingers","fingers","gesture","hand","hold","huh","interrogation","patience","pinched","relax","sarcastic","ugh","what","zip"]},
+  "✍️": {"name":"writing hand","keywords":["writing hand","hand","write","writing"]},
+  "💻": {"name":"laptop","keywords":["laptop","computer","office","pc","personal"]},
+  "📱": {"name":"mobile phone","keywords":["mobile phone","cell","communication","mobile","phone","telephone"]},
+  "📊": {"name":"bar chart","keywords":["bar chart","bar","chart","data","graph"]},
+  "📈": {"name":"chart increasing","keywords":["chart increasing","chart","data","graph","growth","increasing","right","trend","up","upward"]},
+  "📉": {"name":"chart decreasing","keywords":["chart decreasing","chart","data","decreasing","down","downward","graph","negative","trend"]},
+  "🗓️": {"name":"spiral calendar","keywords":["spiral calendar","calendar","pad","spiral"]},
+  "📌": {"name":"pushpin","keywords":["pushpin","collage","pin"]},
+  "📎": {"name":"paperclip","keywords":["paperclip"]},
+  "✏️": {"name":"pencil","keywords":["pencil"]},
+  "🔧": {"name":"wrench","keywords":["wrench","home","improvement","spanner","tool"]},
+  "⚙️": {"name":"gear","keywords":["gear","cog","cogwheel","tool"]},
+  "🧪": {"name":"test tube","keywords":["test tube","chemist","chemistry","experiment","lab","science","test","tube"]},
+  "🐛": {"name":"bug","keywords":["bug","animal","garden","insect"]},
+  "🚧": {"name":"construction","keywords":["construction","barrier"]},
+  "📦": {"name":"package","keywords":["package","box","communication","delivery","parcel","shipping"]},
+  "🔍": {"name":"magnifying glass tilted left","keywords":["magnifying glass tilted left","glass","lab","left","left-pointing","magnifying","science","search","tilted","tool"]},
+  "⭐": {"name":"star","keywords":["star","astronomy","medium","stars","white"]},
+  "✨": {"name":"sparkles","keywords":["sparkles","*","magic","sparkle","star"]},
+  "💫": {"name":"dizzy","keywords":["dizzy","comic","shining","shooting","star","stars"]},
+  "🌟": {"name":"glowing star","keywords":["glowing star","glittery","glow","glowing","night","shining","sparkle","star","win"]},
+  "⚡": {"name":"high voltage","keywords":["high voltage","danger","electric","electricity","high","lightning","nature","thunder","thunderbolt","voltage","zap"]},
+  "💧": {"name":"droplet","keywords":["droplet","cold","comic","drop","nature","sad","sweat","tear","water","weather"]},
+  "🌈": {"name":"rainbow","keywords":["rainbow","gay","genderqueer","glbt","glbtq","lesbian","lgbt","lgbtq","lgbtqia","nature","pride","queer","rain","trans","transgender","weather"]},
+  "🎯": {"name":"bullseye","keywords":["bullseye","bull","dart","direct","entertainment","game","hit","target"]},
+  "🏆": {"name":"trophy","keywords":["trophy","champion","champs","prize","slay","sport","victory","win","winning"]},
+  "🥇": {"name":"1st place medal","keywords":["1st place medal","1st","first","gold","medal","place"]},
+  "💯": {"name":"hundred points","keywords":["hundred points","100","a+","agree","clearly","definitely","faithful","fleek","full","hundred","keep","perfect","point","score","true","truth","yup"]},
+  "❗": {"name":"red exclamation mark","keywords":["red exclamation mark","!","exclamation","mark","punctuation","red"]},
+  "❓": {"name":"red question mark","keywords":["red question mark","?","mark","punctuation","question","red"]},
+  "✔️": {"name":"check mark","keywords":["check mark","check","checked","checkmark","done","heavy","mark","tick","✓"]},
+  "❌": {"name":"cross mark","keywords":["cross mark","cancel","cross","mark","multiplication","multiply","x","×"]},
+};
+
+export default daten;

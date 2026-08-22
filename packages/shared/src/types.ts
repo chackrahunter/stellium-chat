@@ -1,5 +1,6 @@
 /** Domänenmodelle — von Server und Desktop-Client geteilt. */
 
+import type { Messwert } from './einheiten.js';
 import type { MemberRoleName, PermissionKey } from './permissions.js';
 import type { DateiHuelle } from './vertraulich.js';
 
@@ -44,6 +45,31 @@ export interface SelfUser extends User {
   notifyOn: 'all' | 'mentions' | 'none';
   /** Status folgt dem Fenster: im Vordergrund online, sonst abwesend. */
   autoStatus: boolean;
+  /**
+   * Gilt `timezone` (siehe User oben) noch als unbestätigt?
+   *
+   * true: niemand hat die Zeitzone je bestätigt — weder von Hand in
+   * Settings.tsx noch durch den einmaligen Nachtrag vom Browser (siehe
+   * state/store.ts, zeitzoneNachtragen). Der Wert in `timezone` kann dann
+   * ein bloßer Platzhalter sein (createAccount() in services/users.ts setzt
+   * beim Anlegen durch die Leitung immer 'Europe/Berlin', ganz gleich, wo
+   * die Person sitzt). Der Client darf in diesem Zustand die vom Browser
+   * erkannte Zeitzone einmal automatisch eintragen.
+   *
+   * false: die Zeitzone ist bestätigt (Mensch oder Nachtrag hat sie
+   * geschrieben) — kein Client darf sie ab jetzt noch von selbst ändern,
+   * auch nicht nach einer Dienstreise. Nur andere über sich selbst sichtbar,
+   * deshalb auf SelfUser und nicht auf User.
+   */
+  timezoneAuto: boolean;
+  /**
+   * Andere sehen dann nicht mehr, OB und WANN diese Person eine Nachricht
+   * gelesen hat — weder in der gebündelten Anfrage (readReceiptsBatch) noch
+   * in der laufenden Meldung an offene Kanäle. Die eigene Lesemarke läuft
+   * serverseitig unverändert weiter, und mit ihr der eigene Ungelesen-Zähler:
+   * abgeschaltet wird nur die Ausgabe an andere, nicht das Mitschreiben.
+   */
+  lesebestaetigungAus: boolean;
   quietHoursStart: number | null;  // Minuten seit Mitternacht, lokal
   quietHoursEnd: number | null;
   composeTargetPreview: boolean;   // Übersetzungs-Vorschau vor dem Senden
@@ -163,6 +189,23 @@ export interface ChannelState {
   starred: boolean;
 }
 
+/**
+ * Wer eine Nachricht gelesen hat, und wann.
+ *
+ * Abgeleitet aus der Lesemarke des Kanals (channel_members.last_read_message_id
+ * / last_read_at), nicht aus einer eigenen Zeile pro Nachricht — sonst gäbe es
+ * zwei Wahrheiten darüber, was gelesen ist, und die Tabelle wüchse mit
+ * Nachrichten × Personen statt mit Personen × Kanälen.
+ *
+ * `at` ist null, wenn die Marke vor dieser Fassung gesetzt wurde: der genaue
+ * Zeitpunkt ist dann nicht mehr bekannt. Die Nachricht gilt trotzdem als
+ * gelesen, nur ohne Uhrzeit dazu — erfunden wird hier nichts.
+ */
+export interface ReadReceipt {
+  userId: string;
+  at: number | null;
+}
+
 export interface Attachment {
   id: string;
   messageId: string;
@@ -205,6 +248,16 @@ export interface TranslationView {
    * „Übersetzt aus …" an unübersetztem Text ist eine Falschauskunft.
    */
   unuebersetzt?: boolean;
+  /**
+   * Erkannte Maßangaben (25 °C, 10 kg, …), NUR serverseitig zwischen
+   * translateMessage() und messwerteFuerEmpfaenger() (siehe translation/
+   * index.ts) — an dieser Stelle steht in `text` an ihrer Position noch ein
+   * sprach- und regionsneutraler Sentinel, keine fertige Zahl. Ein Client
+   * bekommt dieses Feld nie zu Gesicht: messwerteFuerEmpfaenger() löst die
+   * Sentinels für die einzelne Empfängerin auf und entfernt das Feld wieder,
+   * bevor die Ansicht über die Leitung geht.
+   */
+  measurements?: Record<number, Messwert>;
 }
 
 export interface Message {
@@ -243,6 +296,19 @@ export interface Message {
   pending?: boolean;
   failed?: boolean;
   clientId?: string;
+  /**
+   * Anhänge, die beim Senden noch nicht fertig hochgeladen waren.
+   *
+   * Nichts davon steht in der Datenbank — die Nachricht selbst ging schon
+   * hinaus, damit niemand auf einen Bildupload warten muss. Der Server merkt
+   * sich diese Liste nur im Speicher (siehe ws/gateway.ts) und schickt sie mit
+   * `message:new`/`message:updated` mit, solange noch etwas aussteht; sobald
+   * ein Anhang ankommt oder aufgegeben wird, verschwindet sein Eintrag hier.
+   * Ein Neustart des Servers oder ein Nachladen des Verlaufs zeigt deshalb nie
+   * einen für immer "wird hochgeladen" hängenden Platzhalter — bestenfalls
+   * fehlt der Hinweis, nie eine falsche Zusage.
+   */
+  pendingAttachments?: { tempId: string; name: string; mime: string }[];
 }
 
 export interface SearchHit {
@@ -314,8 +380,19 @@ export interface Poll {
   closesAt: number | null;
   createdBy: string;
   totalVoters: number;
-  /** Optionen, die der Betrachter gewählt hat. */
+  /**
+   * Optionen, die der Betrachter gewählt hat.
+   * Bei anonymen Umfragen immer leer, auch für die eigene Stimme — welche
+   * Antwort es war, steht nach dem Abstimmen nirgends mehr, siehe hasVoted.
+   */
   myVotes: string[];
+  /**
+   * Hat der Betrachter überhaupt schon abgestimmt? Bei offenen Umfragen
+   * gleichbedeutend mit `myVotes.length > 0`. Bei anonymen Umfragen die
+   * EINZIGE Auskunft, die es zur eigenen Stimme noch gibt — welche Option es
+   * war, weiß danach niemand mehr, auch der Server nicht.
+   */
+  hasVoted: boolean;
   /** Frage und Antworten in der Lesesprache, falls übersetzt. */
   translation?: {
     lang: string;
@@ -358,6 +435,27 @@ export interface Reminder {
   remindAt: number;
   done: boolean;
   createdAt: number;
+}
+
+/* ── Web Push ─────────────────────────────────────────────────── */
+
+/**
+ * Genau die Form, die `PushSubscription.toJSON()` im Browser liefert.
+ *
+ * Absichtlich nicht das ganze `PushSubscription`-Objekt: das hat Methoden
+ * (`unsubscribe()`, `getKey()`) und lässt sich nicht über die Leitung
+ * schicken. Diese drei Felder sind alles, was der Server braucht, um später
+ * — ohne dass die App offen ist — eine verschlüsselte Nachricht an genau
+ * dieses Gerät zu schicken.
+ */
+export interface PushSubscriptionJSON {
+  endpoint: string;
+  keys: {
+    /** Öffentlicher ECDH-Schlüssel des Geräts, für die Verschlüsselung. */
+    p256dh: string;
+    /** Geheimnis des Geräts, geht als Salz in dieselbe Verschlüsselung ein. */
+    auth: string;
+  };
 }
 
 /* ── Entwürfe ─────────────────────────────────────────────────── */
@@ -674,3 +772,49 @@ export interface StorageUsage {
 
 /** Wie eine Nachricht gelöscht wird. */
 export type DeleteScope = 'all' | 'me';
+
+/* ── Notizen ──────────────────────────────────────────────────── */
+
+/**
+ * Eine persönliche Notiz — Ende-zu-Ende verschlüsselt wie ein vertraulicher
+ * Kanal, aber kein Kanal: eine Notiz ist ein einzelnes, sich veränderndes
+ * Schriftstück, kein Nachrichtenstrom. Titel und Text stecken zusammen in
+ * `chiffrat` (dieselbe Hülle wie eine Nachricht in einem vertraulichen Kanal,
+ * siehe `E2ENutzlast` in vertraulich.ts) — der Server sieht auch vom Titel
+ * nichts im Klartext.
+ */
+export interface Notiz {
+  id: string;
+  ownerId: string;
+  /** "e1:<fassung>:<iv>:<daten>" — enthält { titel, text } als JSON. */
+  chiffrat: string;
+  /**
+   * Inhaltsstand. Zählt bei jedem Speichern hoch — die Grundlage dafür, dass
+   * die App merkt, wenn zwischenzeitlich von anderswo gespeichert wurde
+   * (siehe notiz:speichern im Protokoll), statt es stillschweigend zu
+   * überschreiben.
+   */
+  version: number;
+  /**
+   * Welche Fassung des Notizschlüssels aktuell gilt. Wechselt, wenn die
+   * besitzende Person jemanden entfernt — dieselbe Idee wie
+   * `Channel.schluesselFassung`, nur ohne Vergangenheit: anders als bei einem
+   * Kanal gibt es keine alten Nachrichten, die unter einer älteren Fassung
+   * lesbar bleiben müssten. Nach einem Wechsel ist die alte Fassung deshalb
+   * einfach weg.
+   */
+  schluesselFassung: number;
+  /** Wer zusätzlich zur besitzenden Person lesen und bearbeiten darf. */
+  memberIds: string[];
+  /**
+   * Wer schon einmal Zugriff hatte und wieder entfernt wurde, mit Zeitpunkt.
+   *
+   * Nicht aus Sammelwut — aus Ehrlichkeit: die Oberfläche sagt beim Entfernen,
+   * dass Gelesenes damit nicht ungelesen wird. Diese Liste ist der Beleg
+   * dafür, dass genau das offen bleibt, statt es zu verschweigen.
+   */
+  ehemaligeMitglieder: { userId: string; entferntAm: number }[];
+  geaendertVon: string;
+  geaendertAm: number;
+  erstelltAm: number;
+}

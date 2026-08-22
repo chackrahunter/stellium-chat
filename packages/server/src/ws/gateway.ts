@@ -1,15 +1,18 @@
 import type { WebSocket } from 'ws';
 import { kennungVon } from '../util/abweisung.js';
 import {
-  decode, encode, isSupportedLang, normalizeLang, WS_PROTOCOL_VERSION,
-  type ClientEvent, type Message, type ServerEvent, type Task, type UserStatus,
+  decode, encode, isSupportedLang, normalizeLang, regionFuerZeitzone, WS_PROTOCOL_VERSION,
+  type ClientEvent, type Message, type ServerEvent, type Task, type TranslationView, type UserStatus,
   type Vorschlag,
 } from '@stellium/shared';
 import { verifyToken } from '../auth.js';
 import { db } from '../db/index.js';
-import { config } from '../config.js';
+import { config, pushConfigured } from '../config.js';
 import { newId } from '../util/id.js';
-import { aiCapabilities, assistant, roundTrip, translate, translateMessage, translatePoll, translateChannel } from '../translation/index.js';
+import {
+  aiCapabilities, assistant, messwerteFuerEmpfaenger, messwerteRecordFuer, roundTrip, translate,
+  translateMessage, translatePoll, translateChannel,
+} from '../translation/index.js';
 import * as ai from '../services/ai.js';
 import * as praesenz from '../services/praesenz.js';
 import * as channels from '../services/channels.js';
@@ -30,12 +33,16 @@ import * as settings from '../services/settings.js';
 import * as releases from '../services/releases.js';
 import { entschluesseln, verschluesseln } from '../crypto/nachrichten.js';
 import * as vertraulich from '../services/vertraulich.js';
+import * as notizen from '../services/notizen.js';
 import { istE2EChiffrat } from '@stellium/shared';
 import * as events from '../services/events.js';
 import * as files from '../services/files.js';
 import * as ideas from '../services/ideas.js';
 import * as vorschlaege from '../services/vorschlaege.js';
+import * as postSichtung from '../services/post-sichtung.js';
+import * as push from '../services/push.js';
 import * as wartung from '../services/wartung.js';
+import * as emojiVorschlaege from '../services/emoji-vorschlaege.js';
 import { db as database } from '../db/index.js';
 import { reindexMessage } from '../db/index.js';
 
@@ -390,9 +397,43 @@ function schluesselarbeitAnstossen(channelId: string): void {
 
 /* ── Übersetzung für Empfänger ────────────────────────────────── */
 
-/** Füllt Übersetzungen aus dem Cache und meldet, was noch fehlt. */
-function fillCachedTranslations(list: Message[], lang: string): Message[] {
+/**
+ * Maßangaben-Sentinel (⟦m0⟧, …) einer TranslationView für GENAU eine
+ * Empfängerin auflösen — muss vor jedem Versand einer TranslationView an
+ * eine bestimmte Person laufen (siehe messwerteFuerEmpfaenger(),
+ * translation/index.ts, für die ausführliche Begründung: zwei Personen mit
+ * derselben Zielsprache können in unterschiedlichen Zeitzonen sitzen und
+ * brauchen deshalb unterschiedliche Einheiten aus demselben, geteilten
+ * Übersetzungsspeicher).
+ *
+ * `Session` trägt nur die Sprache, keine Zeitzone — deshalb hier immer ein
+ * zusätzlicher store.getUser()-Griff. `sprache` ist absichtlich view.lang
+ * und nicht etwa self.language: view.lang ist dieselbe Zielsprache, in die
+ * gerade übersetzt wurde, und bleibt auch dann richtig, wenn sich die
+ * Spracheinstellung der Person zwischen Übersetzung und Versand geändert hat.
+ */
+function messwerteFuerNutzer(view: TranslationView, userId: string): TranslationView {
+  return messwerteFuerEmpfaenger(view, regionFuerZeitzone(store.getUser(userId)?.timezone), view.lang);
+}
+
+/**
+ * Füllt Übersetzungen aus dem Cache und meldet, was noch fehlt.
+ *
+ * Liest message_translations über eine EIGENE SQL-Abfrage statt über
+ * translateMessage() — und setzt darum `m.translation` von Hand, inklusive
+ * der Maßangaben-Sentinel, die dort sonst translateMessage() auflösen würde.
+ * messwerteRecordFuer() bildet dieselbe Sentinel-Nummerierung nach (siehe
+ * dort), und messwerteFuerNutzer() löst sie SOFORT für `userId` auf: diese
+ * Funktion hier ist der einzige Ort, der message_translations direkt liest,
+ * und `list` geht im Anschluss unverändert weiter (channel:history,
+ * thread:history, oder einzeln als {t:'translation'} bei prefs:update) — ein
+ * ungelöster Sentinel oder rohe Messwert-Daten dürften also gar nicht erst
+ * entstehen, statt an jeder der mehreren Versandstellen erneut aufgelöst
+ * werden zu müssen.
+ */
+function fillCachedTranslations(list: Message[], lang: string, userId: string): Message[] {
   const target = normalizeLang(lang);
+  const region = regionFuerZeitzone(store.getUser(userId)?.timezone);
   const need: Message[] = [];
   for (const m of list) {
     if (!m.text || m.deletedAt) continue;
@@ -404,7 +445,11 @@ function fillCachedTranslations(list: Message[], lang: string): Message[] {
       m.id, target,
     );
     if (row) {
-      m.translation = { lang: target, text: entschluesseln(row.text), provider: row.provider, model: row.model, confidence: row.confidence, cached: true };
+      const view: TranslationView = {
+        lang: target, text: entschluesseln(row.text), provider: row.provider, model: row.model,
+        confidence: row.confidence, cached: true, measurements: messwerteRecordFuer(m.text, target),
+      };
+      m.translation = messwerteFuerEmpfaenger(view, region, target);
     } else {
       need.push(m);
     }
@@ -425,7 +470,7 @@ function translateInBackground(list: Message[], lang: string, userId: string, co
         inflight.set(key, job);
       }
       const view = await job as Awaited<ReturnType<typeof translateMessage>>;
-      if (view) sendToUser(userId, { t: 'translation', messageId: m.id, translation: view });
+      if (view) sendToUser(userId, { t: 'translation', messageId: m.id, translation: messwerteFuerNutzer(view, userId) });
     }).catch((err) => console.error('[ws] Übersetzung fehlgeschlagen:', (err as Error).message));
   }
 }
@@ -438,6 +483,28 @@ function channelContext(channelId: string): string | null {
   if (!ch) return null;
   const parts = [ch.name && `Kanal #${ch.name}`, ch.topic, ch.purpose].filter(Boolean);
   return parts.length ? parts.join(' — ').slice(0, 300) : null;
+}
+
+/**
+ * Anhänge, die zu einer schon verschickten Nachricht noch unterwegs sind.
+ *
+ * Rein im Speicher — absichtlich, denn eine Spalte dafür bräuchte eine
+ * Nachrüstung der bestehenden Datenbank (siehe db/migrate.ts), und für einen
+ * Hinweis, der binnen Sekunden bis Minuten sowieso verschwindet, lohnt sich
+ * das nicht: geht der Server neu, ist der Platzhalter weg, aber die Datei
+ * bleibt für sich stehen (`attachments.message_id IS NULL`) und wartet
+ * geduldig auf `message:attach` — oder verwaist harmlos, bis jemand sie
+ * wegwirft (siehe messages.discardOrphanAttachment).
+ *
+ * Nachricht-Kennung -> temporäre Kennung -> was der Platzhalter zeigen soll.
+ */
+const ausstehendeAnhaenge = new Map<string, Map<string, { name: string; mime: string; uploaderId: string }>>();
+
+/** Was von einer Nachricht noch aussteht — für den nächsten `message:updated`-Rundruf. */
+function ausstehendListe(messageId: string): { tempId: string; name: string; mime: string }[] {
+  const eintrag = ausstehendeAnhaenge.get(messageId);
+  if (!eintrag?.size) return [];
+  return [...eintrag].map(([tempId, w]) => ({ tempId, name: w.name, mime: w.mime }));
 }
 
 /**
@@ -460,6 +527,32 @@ function deliverMessage(message: Message, senderClientId?: string): void {
     sendToUser(uid, payload);
     const state = store.channelState(message.channelId, uid);
     if (state) sendToUser(uid, { t: 'channel:state', state });
+  }
+
+  /* Web Push — läuft nebenher und blockiert die WS-Zustellung oben nicht.
+     Geht an ALLE Empfänger mit Abonnement, unabhängig davon, ob sie gerade
+     eine offene Verbindung haben: ein Gerät im Hintergrund bekommt den Push
+     genau dann, wenn ein anderes Gerät derselben Person längst per WS bedient
+     wurde. Das Doppelt-Anzeigen auf einem Gerät, das gerade aktiv zusieht,
+     verhindert der Service Worker selbst (sw.js, Ereignis 'push') — nicht
+     der Server, der die Sichtbarkeit eines Fensters nicht kennt. */
+  if (!message.systemKind) {
+    const kanal = store.getChannel(message.channelId);
+    const istDm = kanal?.kind === 'dm';
+    const autor = store.getUser(message.userId);
+    for (const uid of recipients) {
+      if (uid === message.userId) continue;
+      const dringend = istDm || message.mentionUserIds.includes(uid);
+      if (!push.sollBenachrichtigen(uid, { channelId: message.channelId, dringend })) continue;
+      const titel = istDm ? (autor?.displayName ?? 'Neue Nachricht') : `#${kanal?.name || 'Kanal'}`;
+      // Vertraulicher Kanal: der Server kann den Klartext gar nicht lesen (er
+      // hat ihn nie gesehen), also auch nichts Falsches verschicken — aber
+      // ohne diese Abfrage stünde hier das Chiffrat selbst als "Vorschau".
+      const text = istE2EChiffrat(message.text)
+        ? 'Neue vertrauliche Nachricht'
+        : istDm ? message.text : `${autor?.displayName ?? '…'}: ${message.text}`;
+      void push.sendenAn(uid, { titel, text, kanalId: message.channelId, gruppe: message.channelId });
+    }
   }
 
   /* Ende hier, wenn der Text verschlüsselt ist. Alles Folgende — Zielsprachen
@@ -510,7 +603,11 @@ function deliverMessage(message: Message, senderClientId?: string): void {
     void job
       .then((view) => {
         if (!view) return;
-        for (const uid of users) sendToUser(uid, { t: 'translation', messageId: message.id, translation: view as any });
+        // Gleiche Zielsprache, verschiedene Personen — jede braucht ihre
+        // eigene Auflösung der Maßangaben-Sentinel (siehe messwerteFuerNutzer).
+        for (const uid of users) {
+          sendToUser(uid, { t: 'translation', messageId: message.id, translation: messwerteFuerNutzer(view as TranslationView, uid) });
+        }
       })
       .catch((err) => console.error('[ws] Übersetzung fehlgeschlagen:', (err as Error).message));
   }
@@ -751,6 +848,10 @@ async function authenticate(session: Session, ev: Extract<ClientEvent, { t: 'aut
       return bereit && releases.istNeuer(bereit.version, config.version) ? bereit.version : null;
     })(),
     ai: aiCapabilities(),
+    // null heißt: dem Server fehlt ein brauchbares VAPID-Schlüsselpaar (siehe
+    // config.ts) — kommt praktisch nicht vor, da es sich beim ersten Start
+    // selbst erzeugt, aber sauberer als eine leere Zeichenkette zu schicken.
+    vapidPublicKey: pushConfigured() ? config.push.publicKey : null,
   });
 
   // Steht eine Auszeit an, soll auch wer gerade erst kommt sie sehen.
@@ -812,6 +913,7 @@ const EINSTELLUNGEN: Record<string, { spalte: string; pruefen: (w: unknown) => u
   autoTranslate: { spalte: 'auto_translate', pruefen: (w) => (typeof w === 'boolean' ? (w ? 1 : 0) : undefined) },
   composeTargetPreview: { spalte: 'compose_target_preview', pruefen: (w) => (typeof w === 'boolean' ? (w ? 1 : 0) : undefined) },
   autoStatus: { spalte: 'auto_status', pruefen: (w) => (typeof w === 'boolean' ? (w ? 1 : 0) : undefined) },
+  lesebestaetigungAus: { spalte: 'lesebestaetigung_aus', pruefen: (w) => (typeof w === 'boolean' ? (w ? 1 : 0) : undefined) },
   notifyOn: { spalte: 'notify_on', pruefen: (w) => ausListe(w, ['all', 'mentions', 'none']) },
   theme: { spalte: 'theme', pruefen: (w) => ausListe(w, ['system', 'dark', 'light']) },
   density: { spalte: 'density', pruefen: (w) => ausListe(w, ['comfortable', 'compact']) },
@@ -880,7 +982,7 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
          keine brauchbare Grenze ist, wird auf die Vorgabe zurückgesetzt. */
       const wieviele = grenze(ev.limit, 50, 100);
       const { messages: list, hasMore } = store.channelHistory(ch.id, ev.before ?? null, wieviele, userId);
-      const missing = session.autoTranslate ? fillCachedTranslations(list, session.language) : [];
+      const missing = session.autoTranslate ? fillCachedTranslations(list, session.language, userId) : [];
       send(session, { t: 'channel:history', channelId: ch.id, messages: list, hasMore });
       if (missing.length) translateInBackground(missing, session.language, userId, channelContext(ch.id));
       /* Beim Öffnen gleich mitschicken, was zum Entschlüsseln nötig ist —
@@ -1058,7 +1160,7 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
       }
       session.openChannelId = ch.id;
       const { messages: list, hasMore } = store.channelHistory(ch.id, null, 50, userId);
-      const missing = session.autoTranslate ? fillCachedTranslations(list, session.language) : [];
+      const missing = session.autoTranslate ? fillCachedTranslations(list, session.language, userId) : [];
       send(session, { t: 'channel:history', channelId: ch.id, messages: list, hasMore });
       /* channel:upsert geht an alle Mitglieder des Direktchats. Wer daraus
          navigiert, reißt auch den Gegenüber aus seinem Kanal — springen darf
@@ -1106,11 +1208,26 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
 
       const msg = messages.createMessage({
         channelId: ch.id, userId, text: ev.text, parentId: ev.parentId ?? null,
-        attachmentIds: ev.attachmentIds, sourceLang: ev.sourceLang ?? null,
+        attachmentIds: ev.attachmentIds, pendingAttachments: ev.pendingAttachments,
+        sourceLang: ev.sourceLang ?? null,
         mayMention: darfErwaehnen, mayMentionEveryone: darfAlle,
       });
       messages.markRead(ch.id, userId, msg.id);
-      deliverMessage(msg, ev.clientId);
+
+      /* Bilduploads sollen niemanden aufhalten: steht die Nachricht schon,
+         bevor ein Anhang fertig ist, geht sie trotzdem sofort hinaus — mit
+         einem Platzhalter für das, was noch fehlt. message:attach trägt die
+         fertige Datei nach, message:attachGiveUp räumt auf, wenn daraus
+         nichts wird. */
+      if (ev.pendingAttachments?.length) {
+        ausstehendeAnhaenge.set(msg.id, new Map(
+          ev.pendingAttachments.map((p) => [p.tempId, { name: p.name, mime: p.mime, uploaderId: userId }]),
+        ));
+      }
+      deliverMessage(
+        ev.pendingAttachments?.length ? { ...msg, pendingAttachments: ev.pendingAttachments } : msg,
+        ev.clientId,
+      );
       enrichLinks(msg.id, msg.text, ch.id);
       vielleichtAntworten(ch.id, msg.text, userId);
       return;
@@ -1143,7 +1260,12 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
             for (const uid of store.memberIds(msg.channelId)) {
               const u = store.getUser(uid);
               if (u && u.autoTranslate && normalizeLang(u.language) === lang) {
-                sendToUser(uid, { t: 'translation', messageId: msg.id, translation: view });
+                // u ist schon geholt — direkt die Region daraus statt eines
+                // zweiten store.getUser()-Griffs über messwerteFuerNutzer().
+                sendToUser(uid, {
+                  t: 'translation', messageId: msg.id,
+                  translation: messwerteFuerEmpfaenger(view, regionFuerZeitzone(u.timezone), lang),
+                });
               }
             }
           })
@@ -1168,9 +1290,75 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
         // Nur die eigene Ansicht ändert sich.
         send(session, { t: 'message:deleted', messageId: ev.messageId, channelId: ergebnis.channelId });
       } else {
+        /* Für alle zurückgenommen: ein Anhang, der noch unterwegs war, hat
+           jetzt nichts mehr, woran er hängen könnte. Der Platzhalter fällt
+           hier weg — message:attach findet die Nachricht dann als "nicht
+           mehr meine" und wirft den Anhang weg, statt ihn irgendwo
+           anzuheften (siehe messages.attachUpload). */
+        ausstehendeAnhaenge.delete(ev.messageId);
         broadcast({ t: 'message:deleted', messageId: ev.messageId, channelId: ergebnis.channelId },
           store.memberIds(ergebnis.channelId));
       }
+      return;
+    }
+
+    case 'message:attach': {
+      /* Erst nachsehen, ob die Nachricht überhaupt noch der aufrufenden
+         Person gehört — unabhängig davon, was im Speicher noch über einen
+         Platzhalter steht. Der Platzhalter ist nur eine Anzeige-Hilfe; die
+         Wahrheit steht in der Datenbank. */
+      const nachricht = store.getMessage(ev.messageId, userId);
+      const eigeneOffeneNachricht = Boolean(nachricht) && nachricht!.userId === userId && !nachricht!.deletedAt;
+
+      const eintrag = ausstehendeAnhaenge.get(ev.messageId);
+      eintrag?.delete(ev.tempId);
+      if (eintrag && !eintrag.size) ausstehendeAnhaenge.delete(ev.messageId);
+
+      if (!eigeneOffeneNachricht) {
+        // Nachricht weg, fremd oder schon gelöscht: der Anhang gehört jetzt
+        // nirgendwo mehr hin und bleibt nicht als Leiche liegen.
+        messages.discardOrphanAttachment(ev.attachmentId, userId);
+        return;
+      }
+
+      let aktualisiert: Message | null;
+      try {
+        aktualisiert = messages.attachUpload(ev.messageId, userId, ev.attachmentId);
+      } catch (fehler) {
+        // Zum Beispiel: der Kanal ist inzwischen vertraulich geworden und der
+        // Anhang wurde dafür nie verschlossen. Dieselbe Meldung wie beim
+        // Senden selbst, über den allgemeinen Fehlerfang in handleConnection().
+        messages.discardOrphanAttachment(ev.attachmentId, userId);
+        throw fehler;
+      }
+      if (!aktualisiert) {
+        messages.discardOrphanAttachment(ev.attachmentId, userId);
+        return;
+      }
+
+      broadcast(
+        { t: 'message:updated', message: { ...aktualisiert, pendingAttachments: ausstehendListe(ev.messageId) } },
+        store.memberIds(aktualisiert.channelId),
+      );
+      return;
+    }
+
+    case 'message:attachGiveUp': {
+      /* Der Upload ist gescheitert oder die Verbindung brach ab, während er
+         lief — was ankommt, ist hier immer nur "vergiss den Platzhalter",
+         nie eine Datei: die gibt es in diesem Fall gar nicht. */
+      const nachricht = store.getMessage(ev.messageId, userId);
+      if (!nachricht || nachricht.userId !== userId) return;
+
+      const eintrag = ausstehendeAnhaenge.get(ev.messageId);
+      if (!eintrag?.has(ev.tempId)) return;
+      eintrag.delete(ev.tempId);
+      if (!eintrag.size) ausstehendeAnhaenge.delete(ev.messageId);
+
+      broadcast(
+        { t: 'message:updated', message: { ...nachricht, pendingAttachments: ausstehendListe(ev.messageId) } },
+        store.memberIds(nachricht.channelId),
+      );
       return;
     }
 
@@ -1233,7 +1421,7 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
       }
       const list = store.threadHistory(ev.messageId, userId);
       if (!list.length) return fail(session, 'fehler.threadNichtGefunden', 'Thread nicht gefunden');
-      const missing = session.autoTranslate ? fillCachedTranslations(list, session.language) : [];
+      const missing = session.autoTranslate ? fillCachedTranslations(list, session.language, userId) : [];
       send(session, { t: 'thread:history', parentId: ev.messageId, channelId: list[0].channelId, messages: list });
       if (missing.length) translateInBackground(missing, session.language, userId, channelContext(list[0].channelId));
       return;
@@ -1255,11 +1443,26 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
       // Dasselbe wie bei 'typing': ohne Zugang zum Kanal geht die Meldung
       // nicht an dessen Mitglieder hinaus.
       if (!darfKanalSehen(userId, ev.channelId)) return;
-      messages.markRead(ev.channelId, userId, ev.lastMessageId);
+      const at = messages.markRead(ev.channelId, userId, ev.lastMessageId);
       const st = store.channelState(ev.channelId, userId);
       if (st) send(session, { t: 'channel:state', state: st });
-      broadcast({ t: 'read', channelId: ev.channelId, userId, lastMessageId: ev.lastMessageId },
-        store.memberIds(ev.channelId).filter((uid) => uid !== userId));
+      // null heißt: die Marke stand schon dort oder weiter — dann gibt es
+      // auch nichts Neues für die anderen Mitglieder zu erfahren.
+      // Wer Lesebestätigungen abgeschaltet hat: die eigene Marke rückt oben
+      // unverändert vor (channel:state kommt weiter an diese Session), nur
+      // dieser Ruf an die anderen Mitglieder unterbleibt.
+      if (at !== null && !store.lesebestaetigungAus(userId)) {
+        broadcast({ t: 'read', channelId: ev.channelId, userId, lastMessageId: ev.lastMessageId, at },
+          store.memberIds(ev.channelId).filter((uid) => uid !== userId));
+      }
+      return;
+    }
+
+    case 'message:read-receipts': {
+      // Nur für Nachrichten, die diese Person sehen darf -- dieselbe Prüfung
+      // wie beim Öffnen eines Threads. Der Rest fällt still heraus.
+      const erlaubt = ev.messageIds.slice(0, 300).filter((id) => darfNachrichtSehen(userId, id));
+      send(session, { t: 'message:read-receipts', receipts: messages.readReceiptsBatch(erlaubt) });
       return;
     }
 
@@ -1291,6 +1494,7 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
     case 'prefs:update': {
       const sets: string[] = [];
       const vals: any[] = [];
+      let zeitzoneGeschrieben = false;
       for (const [key, value] of Object.entries(ev.patch)) {
         const feld = EINSTELLUNGEN[key];
         if (!feld) continue;
@@ -1300,8 +1504,18 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
         if (wert === undefined) continue;
         sets.push(`${feld.spalte} = ?`);
         vals.push(wert);
+        if (key === 'timezone') zeitzoneGeschrieben = true;
       }
       if (!sets.length) return;
+      /* Jede Zeitzone, die hier ankommt, gilt ab sofort als bestätigt — ganz
+         gleich, ob ein Mensch sie in Settings.tsx gewählt hat oder der
+         einmalige Nachtrag vom Browser sie eingetragen hat (state/store.ts,
+         zeitzoneNachtragen): dieselbe Leitung liefert beides an, der Server
+         kann und muss die beiden Fälle nicht unterscheiden. Ab hier fasst
+         kein Client timezone_auto mehr automatisch an — siehe schema.sql
+         beim Feld timezone_auto für die ausführliche Begründung. Ein
+         Literal statt eines Platzhalters: es braucht keinen gebundenen Wert. */
+      if (zeitzoneGeschrieben) sets.push('timezone_auto = 0');
       db.run(`UPDATE users SET ${sets.join(', ')} WHERE id = ?`, ...vals, userId);
 
       const self = store.getSelf(userId)!;
@@ -1317,7 +1531,9 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
       // Sprache gewechselt -> offenen Kanal in der neuen Sprache nachliefern
       if (ev.patch.language && session.openChannelId) {
         const { messages: list } = store.channelHistory(session.openChannelId, null, 50);
-        const missing = fillCachedTranslations(list, session.language);
+        const missing = fillCachedTranslations(list, session.language, userId);
+        // m.translation kommt hier bereits aufgelöst aus fillCachedTranslations()
+        // (kein Sentinel, kein measurements-Feld mehr) — nichts weiter zu tun.
         for (const m of list) {
           if (m.translation) send(session, { t: 'translation', messageId: m.id, translation: m.translation });
         }
@@ -1341,6 +1557,18 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
       return;
     }
 
+    /* Kein Bestätigungsereignis nötig: der Client legt sein Abonnement lokal
+       an (siehe lib/benachrichtigung.ts) und meldet es hier nur zur
+       Aufbewahrung. Schlägt das Anlegen fehl, bleibt es beim alten Weg —
+       kein Grund, die ganze Verbindung daran scheitern zu lassen. */
+    case 'push:subscribe':
+      push.abonnieren(userId, ev.subscription);
+      return;
+
+    case 'push:unsubscribe':
+      push.abbestellen(ev.endpoint);
+      return;
+
     case 'translate:request': {
       if (!darf(session, 'ai.translate')) return;
       if (!darfNachrichtSehen(userId, ev.messageId)) {
@@ -1348,7 +1576,7 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
       }
       if (klartextNoetigFuerNachricht(session, ev.messageId)) return;
       const view = await translateMessage(ev.messageId, ev.targetLang, { force: ev.force });
-      if (view) send(session, { t: 'translation', messageId: ev.messageId, translation: view });
+      if (view) send(session, { t: 'translation', messageId: ev.messageId, translation: messwerteFuerNutzer(view, userId) });
       else fail(session, 'fehler.keineUebersetzungNoetig', 'Keine Übersetzung nötig oder möglich');
       return;
     }
@@ -1429,6 +1657,17 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
         language: session.language, selfName: self.displayName,
       });
       send(session, { t: 'ai:smart-replies', requestId: ev.requestId, replies });
+      return;
+    }
+
+    case 'ai:reaction-suggest': {
+      if (!darf(session, 'ai.assistant')) return;
+      if (!darfNachrichtSehen(userId, ev.messageId)) {
+        return fail(session, 'fehler.nachrichtNichtGefunden', 'Nachricht nicht gefunden', ev.requestId);
+      }
+      if (klartextNoetigFuerNachricht(session, ev.messageId)) return;
+      const emojis = await emojiVorschlaege.reactionSuggest(ev.messageId, session.language);
+      send(session, { t: 'ai:reaction-suggest', requestId: ev.requestId, messageId: ev.messageId, emojis });
       return;
     }
 
@@ -1725,6 +1964,7 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
       const task = tasks.createTask({ ...ev, createdBy: userId });
       // Alle Beteiligten sollen die Aufgabe sofort sehen.
       broadcastTask(task);
+      taskZuteilungMelden(task, null, userId);
       return;
     }
 
@@ -1741,7 +1981,9 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
          Aufgabe umhängt, muss beide Kanäle sehen dürfen. */
       const zielKanal = (ev.patch as { channelId?: string | null }).channelId;
       if (zielKanal && !kanalZugang(session, zielKanal)) return;
-      umzugMelden(vorher, tasks.updateTask(ev.taskId, ev.patch, userId));
+      const nachher = tasks.updateTask(ev.taskId, ev.patch, userId);
+      umzugMelden(vorher, nachher);
+      taskZuteilungMelden(nachher, vorher.assigneeId, userId);
       return;
     }
 
@@ -1982,6 +2224,7 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
       for (const v of bericht.angelegt) {
         if (darfElementSehen(v.fuerUserId, v.channelId)) {
           sendToUser(v.fuerUserId, { t: 'vorschlag:neu', vorschlag: v });
+          vorschlagPushMelden(v);
         }
       }
 
@@ -2256,6 +2499,12 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
         for (const kanal of store.visibleChannels(userId)) {
           if (kanal.vertraulich) schluesselarbeitAnstossen(kanal.id);
         }
+        /* Dieselbe Lage bei Notizen: jemand wurde zu einer Notiz hinzugefügt,
+           bevor die eigene App je einen Schlüssel hinterlegt hatte — jetzt
+           kann die besitzende Person nachverpacken (notiz:pakete-nachreichen). */
+        for (const eintrag of notizen.fehlendeMitgliedschaften(userId)) {
+          sendToUser(eintrag.ownerId, { t: 'notiz:pakete-fehlen', notizId: eintrag.notizId, userId });
+        }
       }
       return;
     }
@@ -2404,11 +2653,115 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
       }
       return;
     }
+
+    /* ── Notizen ──────────────────────────────────────────────
+       Dieselbe Zurückhaltung wie bei den vertraulichen Kanälen oben: der
+       Server nimmt nur entgegen, was schon verschlossen ist, und gibt nur
+       heraus, wofür die anfragende Person auch ein Paket hat. Kein eigenes
+       Recht dafür — jedes Konto darf eigene Notizen führen, genau wie
+       Entwürfe oder Erinnerungen; geschützt wird über die Mitgliedschaft
+       selbst (services/notizen.ts prüft das bei jedem Zugriff). */
+
+    case 'notiz:list': {
+      send(session, { t: 'notiz:list', notizen: notizen.listNotizen(userId) });
+      // Die eigenen Schlüsselpakete gleich hinterher — ein Rutsch für alle
+      // statt einer Anfrage je Notiz, siehe paketeFuerAlle().
+      for (const p of notizen.paketeFuerAlle(userId)) {
+        send(session, { t: 'notiz:schluessel', notizId: p.notizId, fassung: p.fassung, paket: p.paket });
+      }
+      return;
+    }
+
+    case 'notiz:anlegen': {
+      const notiz = notizen.anlegen({ id: ev.id, ownerId: userId, chiffrat: ev.chiffrat, paket: ev.paket });
+      send(session, { t: 'notiz:erstellt', requestId: ev.requestId, notiz });
+      return;
+    }
+
+    case 'notiz:speichern': {
+      const ergebnis = notizen.speichern({
+        notizId: ev.notizId, userId, chiffrat: ev.chiffrat, version: ev.version, force: ev.force,
+      });
+      if (ergebnis.ok) {
+        for (const uid of notizen.empfaengerIds(ev.notizId)) {
+          sendToUser(uid, { t: 'notiz:upsert', notiz: ergebnis.notiz, requestId: uid === userId ? ev.requestId : undefined });
+        }
+      } else {
+        // Nur an die anfragende Person — die anderen wissen von diesem
+        // Versuch nichts und sollen auch nichts davon zu sehen bekommen.
+        send(session, { t: 'notiz:konflikt', requestId: ev.requestId, notizId: ev.notizId, aktuell: ergebnis.notiz });
+      }
+      return;
+    }
+
+    case 'notiz:loeschen': {
+      const empfaenger = notizen.empfaengerIds(ev.notizId);
+      notizen.loeschen(ev.notizId, userId);
+      for (const uid of empfaenger) sendToUser(uid, { t: 'notiz:entfernt', notizId: ev.notizId });
+      return;
+    }
+
+    case 'notiz:mitglied-hinzufuegen': {
+      const notiz = notizen.mitgliedHinzufuegen({
+        notizId: ev.notizId, ownerId: userId, zielUserId: ev.userId, paket: ev.paket,
+      });
+      for (const uid of notizen.empfaengerIds(ev.notizId)) sendToUser(uid, { t: 'notiz:upsert', notiz });
+      // Ohne dieses Paket säße die neu hinzugefügte Person vor einer Notiz,
+      // die sie laut Mitgliederliste lesen darf, aber nicht aufschließen
+      // kann — dasselbe Versehen, das vertraulich:einschalten oben mit
+      // seinem Rundruf an alle kanal.memberIds gerade vermeidet.
+      const paket = notizen.paketFuer(ev.notizId, ev.userId);
+      if (paket) sendToUser(ev.userId, { t: 'notiz:schluessel', notizId: ev.notizId, ...paket });
+      return;
+    }
+
+    case 'notiz:mitglied-entfernen': {
+      // Vor dem Entfernen gemerkt: danach zählt die entfernte Person nicht
+      // mehr zu empfaengerIds(), bekäme die Nachricht „entfernt" also nie.
+      const bisherige = notizen.empfaengerIds(ev.notizId);
+      const notiz = notizen.mitgliedEntfernen({
+        notizId: ev.notizId, ownerId: userId, zielUserId: ev.userId,
+        neueFassung: ev.neueFassung, chiffrat: ev.chiffrat, version: ev.version, pakete: ev.pakete ?? [],
+      });
+      for (const uid of bisherige) {
+        if (uid === ev.userId) { sendToUser(uid, { t: 'notiz:entfernt', notizId: ev.notizId }); continue; }
+        sendToUser(uid, { t: 'notiz:upsert', notiz, requestId: uid === userId ? ev.requestId : undefined });
+        // Dieselbe Begründung wie oben bei mitglied-hinzufuegen: die neue
+        // Fassung nützt nichts, wenn niemand außer der besitzenden Person
+        // (die sie selbst gerade errechnet hat) ihr Paket dafür bekommt.
+        if (uid !== userId) {
+          const paket = notizen.paketFuer(ev.notizId, uid);
+          if (paket) sendToUser(uid, { t: 'notiz:schluessel', notizId: ev.notizId, ...paket });
+        }
+      }
+      return;
+    }
+
+    case 'notiz:pakete-nachreichen': {
+      notizen.paketeNachreichen({
+        notizId: ev.notizId, ownerId: userId, zielUserId: ev.userId, paket: ev.paket,
+      });
+      const paket = notizen.paketFuer(ev.notizId, ev.userId);
+      if (paket) sendToUser(ev.userId, { t: 'notiz:schluessel', notizId: ev.notizId, ...paket });
+      return;
+    }
   }
 }
 
 
 /* ── Helfer für die neuen Funktionen ──────────────────────────── */
+
+const VORSCHLAG_TITEL: Record<Vorschlag['art'], string> = {
+  aufgabe: 'Neue Aufgabe vorgeschlagen', termin: 'Neuer Termin vorgeschlagen', idee: 'Neue Idee vorgeschlagen',
+};
+
+/** Push für einen frischen KI-Vorschlag — sowohl vom Hintergrundlauf als auch von Hand angestoßene. */
+function vorschlagPushMelden(v: Vorschlag): void {
+  if (!push.sollBenachrichtigen(v.fuerUserId, { channelId: v.channelId, dringend: true })) return;
+  void push.sendenAn(v.fuerUserId, {
+    titel: VORSCHLAG_TITEL[v.art], text: v.titel, kanalId: v.channelId, gruppe: `vorschlag:${v.id}`,
+  });
+}
 
 /** Umfrage-Stand an alle im Kanal schicken — jede:r sieht die eigene Wahl. */
 function broadcastPoll(pollId: string): void {
@@ -2532,7 +2885,7 @@ async function runTranscription(messageId: string, attachmentId: string): Promis
       void translateMessage(messageId, target, { force: true, context })
         .then((view) => {
           if (!view) return;
-          for (const uid of users) sendToUser(uid, { t: 'translation', messageId, translation: view });
+          for (const uid of users) sendToUser(uid, { t: 'translation', messageId, translation: messwerteFuerNutzer(view, uid) });
         })
         .catch(() => { /* Original bleibt sichtbar */ });
     }
@@ -2727,6 +3080,22 @@ function broadcastTask(task: Awaited<ReturnType<typeof tasks.getTask>>): void {
   broadcast({ t: 'task:upsert', task }, empfaengerFuer(task.channelId));
 }
 
+/**
+ * Push, wenn eine Aufgabe gerade neu an jemanden ging.
+ *
+ * Nicht bei jedem `task:upsert` — nur wenn sich der Adressat wirklich
+ * geändert hat und es nicht die Person selbst war, die gerade zugeteilt hat
+ * (wer sich selbst eine Aufgabe gibt, muss sich das nicht auch noch
+ * zuschicken lassen).
+ */
+function taskZuteilungMelden(task: Task, vorherAssigneeId: string | null, vergebenVon: string): void {
+  if (!task.assigneeId || task.assigneeId === vorherAssigneeId || task.assigneeId === vergebenVon) return;
+  if (!push.sollBenachrichtigen(task.assigneeId, { channelId: task.channelId, dringend: true })) return;
+  void push.sendenAn(task.assigneeId, {
+    titel: 'Dir zugeteilt', text: task.title, kanalId: task.channelId, gruppe: `task:${task.id}`,
+  });
+}
+
 /* ── Hintergrundaufgaben ──────────────────────────────────────── */
 
 export function startBackgroundJobs(): () => void {
@@ -2770,17 +3139,29 @@ export function startBackgroundJobs(): () => void {
   // Fällige Erinnerungen zustellen
   const reminderTimer = setInterval(() => {
     try {
-      /* Nur für Leute holen, die gerade verbunden sind — und erst abhaken,
-         wenn sie wirklich draußen ist. Vorher wurde jede fällige Erinnerung
-         abgehakt und dann losgeschickt; war niemand da, war sie weg. Wer
-         abends „morgen um neun" setzt und um neun den Rechner noch zu hat,
-         bekam sie nie und fand sie auch nicht mehr in seiner Liste. */
-      for (const reminder of reminders.due(Date.now(), onlineUserIds())) {
+      /* Früher nur für Leute geholt, die gerade verbunden waren — und erst
+         abgehakt, wenn es wirklich ankam. Wer abends „morgen um neun" setzte
+         und um neun den Rechner noch zu hatte, bekam sie erst beim nächsten
+         Öffnen zu sehen, manchmal Tage später und ohne Bezug mehr zum
+         eigentlichen Anlass. Jetzt gehen ALLE fälligen Erinnerungen hier
+         hinein — Push erreicht auch ein gesperrtes Telefon, und `sendToUser`
+         ist von sich aus wirkungslos ohne offene Verbindung. Beides zusammen
+         zählt als Zustellung, egal ob gerade jemand am Draht hängt. */
+      for (const reminder of reminders.due(Date.now())) {
         try {
           const owner = ownerOfReminder(reminder.id);
-          if (!owner || !isOnline(owner)) continue;   // wartet auf die Rückkehr
+          if (!owner) continue;
           const message = reminder.messageId ? store.getMessage(reminder.messageId, owner) : null;
           sendToUser(owner, { t: 'reminder:fire', reminder, message });
+          if (push.sollBenachrichtigen(owner, { channelId: reminder.channelId, dringend: true })) {
+            const vorschau = message?.translation?.text ?? message?.text ?? '';
+            void push.sendenAn(owner, {
+              titel: reminder.note || 'Erinnerung',
+              text: vorschau || 'Schau mal nach.',
+              kanalId: reminder.channelId,
+              gruppe: `reminder:${reminder.id}`,
+            });
+          }
           database.run('UPDATE reminders SET done = 1 WHERE id = ?', reminder.id);
         } catch (err) {
           // Eine kaputte Erinnerung darf die anderen dieses Durchgangs nicht
@@ -2940,13 +3321,43 @@ export function startBackgroundJobs(): () => void {
     for (const v of neue) {
       if (!darfElementSehen(userId, v.channelId)) continue;
       sendToUser(userId, { t: 'vorschlag:neu', vorschlag: v });
+      // Genau der Fall, für den Push gedacht ist: die KI findet das im
+      // Hintergrund, ohne dass irgendwer gerade hinschaut.
+      vorschlagPushMelden(v);
     }
   });
   const stopVorschlaege = vorschlaege.startVorschlagJob();
 
+  /* Meldungen der Postfach-Sichtung — dieselbe Machart wie bei vorschlaege
+     oben: der Dienst kennt das Gateway nicht; die Zustellung wird
+     eingehängt, damit er sich in einem Prüflauf ohne WebSocket starten
+     lässt. Anders als bei Vorschlägen entscheidet post-sichtung.ts selbst,
+     WER die Meldung bekommt (Leitung/Administration mit `mail.lesen`, siehe
+     dort) — hier wird nur noch zugestellt, nicht mehr gefiltert. */
+  postSichtung.melderSetzen(deliverMessage);
+
+  /* Mails nachholen, deren Sichtung hängengeblieben oder fehlgeschlagen ist.
+     Ohne diesen Lauf bliebe für immer ungesichtet, was eine ausgefallene KI
+     beim ersten Versuch nicht geschafft hat — Menschen wurden zwar per
+     Meldung benachrichtigt, aber die Einordnung fehlt weiter.
+     `nachzusichten()` filtert selbst auf das Alter (dieselbe Frist, nach der
+     `sichten()` einen zweiten Anlauf überhaupt erst erlaubt) — ein Takt, der
+     öfter nachsieht, als etwas fällig wird, holt also einfach wiederholt
+     eine leere Liste, nichts Teureres als das. Derselbe Takt wie beim
+     Vorschläge-Lauf oben (TAKT_MS dort). */
+  const nachsichtungTimer = setInterval(() => {
+    try {
+      for (const mailId of postSichtung.nachzusichten()) postSichtung.sichtungAnstossen(mailId);
+    } catch (err) {
+      console.error('[post-sichtung]', (err as Error).message);
+    }
+  }, 5 * 60_000);
+
   return () => {
     vorschlaege.zustellerSetzen(null);
     stopVorschlaege();
+    postSichtung.melderSetzen(null);
+    clearInterval(nachsichtungTimer);
     clearInterval(scheduler);
     clearInterval(reminderTimer);
     clearInterval(statusTimer);

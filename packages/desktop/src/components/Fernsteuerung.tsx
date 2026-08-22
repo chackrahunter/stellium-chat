@@ -16,6 +16,7 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { AlertTriangle, ExternalLink, Keyboard, Loader2, Monitor, Power } from 'lucide-react';
 import { Shell } from './Panels.jsx';
 import { api } from '../net/api.js';
+import { useStore } from '../state/store.js';
 import { t } from '../i18n';
 import '../styles/fernsteuerung.css';
 
@@ -271,6 +272,17 @@ export function Fernsteuerung(
 
   /* ── Ansicht ───────────────────────────────────────────────── */
 
+  /* Der Hauptprozess setzt den Fenstertitel beim Öffnen anhand der
+     Systemsprache (siehe electron/fernsteuerung.ts, `fensterTitel()`) — das
+     ist nur der allererste Augenblick, bevor diese Seite geladen ist. Sobald
+     sie steht, soll die eingestellte Oberflächensprache gewinnen, nicht mehr
+     die des Systems. Nur im eigenen Fenster nötig: die Tafel im Hauptfenster
+     hat ohnehin keinen Fenstertitel, den man sähe. */
+  useEffect(() => {
+    if (!eigenstaendig) return;
+    document.title = t('fern.titel');
+  }, [eigenstaendig]);
+
   /* Holt die Zugangsdaten und reicht sie sofort weiter. Sie landen bewusst
      in keiner Zustandsvariablen: was nicht gespeichert wird, kann auch nicht
      angezeigt, protokolliert oder versehentlich weitergegeben werden. */
@@ -278,7 +290,10 @@ export function Fernsteuerung(
     setFehler('');
     try {
       const zugang = await api.fernZugang();
-      await fern?.verbinden(zugang.adresse, zugang.passwort);
+      /* Der Anzeigename geht fürs Protokoll auf dem Pi mit — nicht mehr und
+         nicht weniger als eine Behauptung, siehe electron/fernsteuerung.ts. */
+      const konto = useStore.getState().self?.displayName ?? '';
+      await fern?.verbinden(zugang.adresse, zugang.passwort, konto);
     } catch (f) {
       setFehler((f as Error).message);
     }
@@ -342,7 +357,7 @@ export function Fernsteuerung(
       <div className="fern" ref={feldRef}>
         {fehler && (
           <div className="fern__fehler">
-            <AlertTriangle size={14} /> {fehler}
+            <AlertTriangle size={14} /> {t(fehler as never)}
           </div>
         )}
         <div className="fern__buehne">

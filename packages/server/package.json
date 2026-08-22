@@ -19,7 +19,8 @@
     "@fastify/websocket": "^11.0.2",
     "@stellium/shared": "*",
     "dotenv": "^16.4.7",
-    "fastify": "^5.2.1"
+    "fastify": "^5.2.1",
+    "sharp": "^0.35.3"
   },
   "devDependencies": {
     "@types/node": "^22.10.7",

@@ -21,6 +21,47 @@ export function timeOfDay(ts: number, timezone?: string): string {
   }).format(ts);
 }
 
+/**
+ * Uhrzeit aus Sicht einer anderen Person — für Lesebestätigungen.
+ *
+ * Anders als timeOfDay() (das immer in der eigenen Oberflächensprache
+ * formatiert) gehören Sprache UND Zeitzone hier der Person, über die die
+ * Auskunft geht, nicht der Person, die gerade hinschaut. „Um 14:32 gelesen"
+ * ist eine Aussage über den Moment eines anderen Menschen — sie in der
+ * eigenen Zeitzone auszugeben wäre keine Übersetzung, sondern eine andere
+ * Behauptung.
+ *
+ * Genau das tat aber `timeZone: timezone || undefined` bei einer leeren
+ * Zeitzone: Intl.DateTimeFormat behandelt eine LEERE Zeichenkette als
+ * ungültig und wirft — `undefined` dagegen gilt ihm als "nicht angegeben"
+ * und wird kommentarlos durch die Zeitzone DIESES Rechners ersetzt. Der
+ * catch-Zweig hatte denselben Fehler: er ließ `timeZone` einfach weg, statt
+ * ehrlich zu sagen, dass die Zeitzone der anderen Person nicht bekannt ist.
+ * Beides zusammen führte genau zu dem Bild, das diese Funktion laut eigenem
+ * Kommentar verhindern soll — nur eine Ebene tiefer als bei localTimeFor()
+ * unten. Jetzt: eine leere/ungültige Zeitzone bekommt UTC, ausdrücklich als
+ * solche beschriftet (timeZoneName) — nie die Zeitzone des Betrachters unter
+ * fremdem Namen. UTC statt eines Rückfalls auf den Rechner, weil UTC
+ * niemandes private Ortszeit ist und deshalb nicht mit einer echten
+ * verwechselt werden kann; derselbe Gedanke steht schon in
+ * services/push.ts (`timeZone: timezone || 'UTC'`).
+ */
+export function zeitAusSicht(ts: number, language: string, timezone: string): string {
+  if (timezone) {
+    try {
+      return new Intl.DateTimeFormat(language || 'en', {
+        hour: '2-digit', minute: '2-digit', timeZone: timezone,
+      }).format(ts);
+    } catch {
+      // Ungültiger Zeitzonenname — weiter unten dieselbe ehrliche Notlösung
+      // wie beim leeren Fall.
+    }
+  }
+  return new Intl.DateTimeFormat(language || 'en', {
+    hour: '2-digit', minute: '2-digit', timeZone: 'UTC', timeZoneName: 'short',
+  }).format(ts);
+}
+
 export function dayLabel(ts: number): string {
   const date = new Date(ts);
   const today = new Date();
@@ -58,32 +99,88 @@ export function sameDay(a: number, b: number): boolean {
 /** Restzeit knapp: "12 s", "3:20". Über eine Stunde interessiert die Zahl nicht mehr. */
 export function restzeit(sekunden: number): string {
   if (!Number.isFinite(sekunden) || sekunden <= 0) return '';
-  if (sekunden > 3600) return '> 1 h';
-  if (sekunden < 60) return `${Math.round(sekunden)} s`;
+  /* "> 1 h" statt eines Satzes: die Einheit muss trotzdem durch Intl, sonst
+     steht "h" fest da, wo Russisch "ч" und Japanisch "時間" bräuchte. Das
+     ">" bleibt ein Zeichen — dafür gibt es keine Übersetzung, genau wie "%"
+     an anderer Stelle im Haus. */
+  if (sekunden > 3600) {
+    return `> ${new Intl.NumberFormat(sprache(), { style: 'unit', unit: 'hour', unitDisplay: 'narrow' }).format(1)}`;
+  }
+  if (sekunden < 60) {
+    return new Intl.NumberFormat(sprache(), { style: 'unit', unit: 'second', unitDisplay: 'narrow' }).format(Math.round(sekunden));
+  }
   const min = Math.floor(sekunden / 60);
   const sek = Math.round(sekunden % 60);
   return `${min}:${String(sek).padStart(2, '0')}`;
 }
 
+/* Bis Terabyte, nicht nur bis Gigabyte: SystemPanel zeigt Werte, die über die
+   Lebenszeit eines Servers durchaus dort ankommen (Datenbankgröße, insgesamt
+   übertragen). Eine Nachkommastelle nur unterhalb von 10 in der jeweiligen
+   Einheit — "42 GB" statt "42,0 GB", aber "9,2 GB" bleibt genau. */
+const GROESSEN_EINHEITEN = ['byte', 'kilobyte', 'megabyte', 'gigabyte', 'terabyte'] as const;
+
+/** Dateigröße lesbar: "512 Byte", "480 kB", "1,5 MB" — Einheit und
+ *  Dezimaltrennzeichen kommen aus Intl, nicht aus eigenen Tabellen. */
 export function fileSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 ** 2) return `${(bytes / 1024).toFixed(0)} KB`;
-  if (bytes < 1024 ** 3) return `${(bytes / 1024 ** 2).toFixed(1)} MB`;
-  return `${(bytes / 1024 ** 3).toFixed(1)} GB`;
+  let i = 0; let wert = bytes;
+  while (wert >= 1024 && i < GROESSEN_EINHEITEN.length - 1) { wert /= 1024; i++; }
+  return new Intl.NumberFormat(sprache(), {
+    style: 'unit', unit: GROESSEN_EINHEITEN[i], unitDisplay: 'short',
+    maximumFractionDigits: i > 0 && wert < 10 ? 1 : 0,
+  }).format(wert);
 }
 
 export function initials(name: string): string {
   const parts = name.trim().split(/\s+/).slice(0, 2);
-  return parts.map((p) => [...p][0] ?? '').join('').toUpperCase() || '?';
+  // toLocaleUpperCase statt toUpperCase: in der Türkei wird aus "i" sonst
+  // ein punktloses "I" statt des richtigen "İ".
+  return parts.map((p) => [...p][0] ?? '').join('').toLocaleUpperCase(sprache()) || '?';
 }
 
-/** Ortszeit eines Kollegen — hilft bei verteilten Teams. */
-export function localTimeFor(timezone: string): { time: string; offHours: boolean } {
+/**
+ * Zähler mit Deckel: "99+" — mit Ziffern der Oberflächensprache (arabisch-
+ * indische in ar, Devanagari in hi). Das Pluszeichen bleibt ein literales
+ * Zeichen; dafür gibt es keine Intl-Übersetzung, nur ein Zahlenformat. Die
+ * Seite, auf der es im Rechts-nach-links-Satz landet, klärt <bdi> an der
+ * Aufrufstelle — reine Zahlenformatierung kann die Umgebung nicht isolieren,
+ * genau dafür ist <bdi> gebaut.
+ */
+export function counterLabel(n: number, deckel = 99): string {
+  const formatiert = new Intl.NumberFormat(sprache()).format(Math.min(n, deckel));
+  return n > deckel ? `${formatiert}+` : formatiert;
+}
+
+/**
+ * Ortszeit eines Kollegen — hilft bei verteilten Teams.
+ *
+ * Fehlt `timezone` (undefined/null/'') oder ist der Wert kein gültiger
+ * IANA-Name, darf hier NIE die Zeitzone dieses Rechners einspringen: das
+ * wäre die Zeit des Betrachters unter dem Namen einer anderen Person — bei
+ * Kolleg:innen in einer anderen Zeitzone im schlimmsten Fall ein Anruf um
+ * vier Uhr morgens im Glauben, es sei bei ihnen Nachmittag. Deshalb die
+ * eigene Prüfung ganz oben: `timeZone: timezone` wirft bei einer LEEREN
+ * Zeichenkette zuverlässig (Intl.DateTimeFormat lässt '' als Zeitzone nicht
+ * gelten), aber bei `undefined` NICHT — Intl behandelt das als "keine
+ * Zeitzone angegeben" und nimmt still die des Rechners. Ohne diese
+ * Vorabprüfung hinge das beobachtbare Verhalten also vom Zufall ab, ob
+ * `user.timezone` bei einem kaputten Konto '' oder undefined ist. Ein
+ * ungültiger, aber nicht-leerer Name (Tippfehler, alte Kürzel) fällt weiter
+ * unten ins catch{} und landet auf demselben leeren Ergebnis.
+ *
+ * Ein leeres Ergebnis heißt für alle Aufrufer (ProfileCard, Sidebar,
+ * ChannelHeader, CalendarPanel, Panels): Feld ausblenden bzw. `time` bleibt
+ * leer — nie eine erfundene Uhrzeit anzeigen.
+ */
+export function localTimeFor(timezone: string | null | undefined): { time: string; offHours: boolean } {
+  if (!timezone) return { time: '', offHours: false };
   try {
     const time = new Intl.DateTimeFormat(sprache(), { hour: '2-digit', minute: '2-digit', timeZone: timezone }).format(Date.now());
     const hour = Number(new Intl.DateTimeFormat('en-GB', { hour: '2-digit', hour12: false, timeZone: timezone }).format(Date.now()));
     return { time, offHours: hour < 8 || hour >= 19 };
   } catch {
+    // Ungültiger Zeitzonenname — dieselbe Notlösung wie beim leeren Fall
+    // oben: lieber nichts zeigen als die Rechnerzeit unter fremdem Namen.
     return { time: '', offHours: false };
   }
 }

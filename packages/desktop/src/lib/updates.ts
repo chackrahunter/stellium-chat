@@ -20,6 +20,13 @@ export function updatesVerbinden(): () => void {
     const d = (daten ?? {}) as {
       version?: string; notes?: string | null; geladen?: number; gesamt?: number;
       message?: string; sekunden?: number; versuch?: number;
+      /* Neuere Fehlermeldungen kommen als Schlüssel + Werte statt als fertiger
+         Satz: der Hauptprozess kennt die Sprache der angemeldeten Person
+         nicht (das ist Sache des Renderers, siehe t() oben), konnte den Grund
+         bisher aber nur als bereits-deutschen Text mitschicken. Ältere
+         Aufrufstellen liefern weiterhin `message` direkt — beides wird unten
+         bedient. */
+      key?: TranslationKey; params?: Record<string, string | number>;
     };
     switch (art) {
       case 'found':
@@ -76,7 +83,7 @@ export function updatesVerbinden(): () => void {
         break;
       case 'error':
         if (uhr) { clearInterval(uhr); uhr = null; }
-        useStore.setState({ update: { zustand: 'fehler', fehler: d.message } });
+        useStore.setState({ update: { zustand: 'fehler', fehler: d.key ? t(d.key, d.params) : d.message } });
         break;
     }
   });

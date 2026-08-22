@@ -1,0 +1,88 @@
+/**
+ * Emoji-Namen und Suchbegriffe — FI.
+ *
+ * ERZEUGT von scripts/emoji-katalog-erzeugen.mjs aus emojibase-data
+ * (MIT-Lizenz, © Miles Johnson — github.com/milesj/emojibase, CLDR-Grundlage).
+ * Nicht von Hand ändern — neu erzeugen: node scripts/emoji-katalog-erzeugen.mjs
+ *
+ * Nur die im EmojiPicker tatsächlich gezeigten Emoji, nicht der volle
+ * Unicode-Bestand — siehe Kopfkommentar des Erzeuger-Skripts fürs Warum.
+ */
+import type { EmojiKatalog } from '../typen.js';
+
+const daten: EmojiKatalog = {
+  "👍": {"name":"peukalo ylös","keywords":["peukalo ylös","+1","käsi","peukalo","peukku","vartalo","ylös"]},
+  "🎉": {"name":"paukkuserpentiini","keywords":["paukkuserpentiini","hurraa","juhla","yllätys"]},
+  "❤️": {"name":"punainen sydän","keywords":["punainen sydän","punainen","rakkaus","sydän","tunne"]},
+  "😂": {"name":"kasvot naurunkyynelissä","keywords":["kasvot naurunkyynelissä","ilo","itkunauru","kasvot","naama","naurunkyyneleet"]},
+  "👀": {"name":"silmät","keywords":["silmät","naama","silmä","vartalo"]},
+  "🚀": {"name":"raketti","keywords":["raketti","ajoneuvo","avaruus"]},
+  "✅": {"name":"valkoinen valintamerkki","keywords":["valkoinen valintamerkki","merkki","oikein","rasti","tarkistusmerkki","v","valmis"]},
+  "🔥": {"name":"tuli","keywords":["tuli","liekki","lieska","nuotio"]},
+  "🙏": {"name":"kämmenet yhdessä","keywords":["kämmenet yhdessä","kiitos","kumarrus","kämmenet","pliis","pyyntö","rukous","yläfemma"]},
+  "💡": {"name":"hehkulamppu","keywords":["hehkulamppu","ajatus","lamppu","sähkö","valo"]},
+  "👏": {"name":"käsien taputus","keywords":["käsien taputus","käsi","taputtaa","vartalo"]},
+  "🤝": {"name":"kädenpuristus","keywords":["kädenpuristus","käsi","kätellä","sopimus","tapaaminen"]},
+  "😀": {"name":"leveä hymy","keywords":["leveä hymy","hymy","kasvot","naama","virnistys"]},
+  "😄": {"name":"hymyilevät silmät ja suu","keywords":["hymyilevät silmät ja suu","auki","hymy","kasvot","naama","silmä","suu"]},
+  "😊": {"name":"punastunut hymy","keywords":["punastunut hymy","hymy","naama","punastunut","silmä"]},
+  "🙂": {"name":"pieni hymy","keywords":["pieni hymy","hymy","naama"]},
+  "😉": {"name":"silmänisku","keywords":["silmänisku","flirtti","huumori","kasvot","naama","salaisuus","silmä"]},
+  "😍": {"name":"hymy ja sydänsilmät","keywords":["hymy ja sydänsilmät","hymy","naama","rakkaus","silmä","sydän"]},
+  "🤔": {"name":"mietteliäs","keywords":["mietteliäs","naama"]},
+  "😅": {"name":"hymy ja kylmänhiki","keywords":["hymy ja kylmänhiki","auki","hiki","hymy","kylmä","naama"]},
+  "😬": {"name":"irvistävä","keywords":["irvistävä","irvistys","naama"]},
+  "😴": {"name":"nukkuva","keywords":["nukkuva","naama","uni","väsynyt","yö","zzz"]},
+  "🥳": {"name":"juhliva","keywords":["juhliva","hattu","juhla","juhlia","kasvot","leikki","pilli","syntymäpäivä"]},
+  "😎": {"name":"aurinkolasihymy","keywords":["aurinkolasihymy","aurinko","aurinkolasit","cool","hymy","lasit"]},
+  "🤯": {"name":"räjähdys päässä","keywords":["räjähdys päässä","järkytys","naama","paukku","raju","räjähdys","sokki"]},
+  "😭": {"name":"ääneen itkevä","keywords":["ääneen itkevä","itku","kyynel","naama","nyyhky","surullinen"]},
+  "😤": {"name":"höyryä nenästä","keywords":["höyryä nenästä","höyry","naama","surullinen","vihainen","voittaja","voitto"]},
+  "🤗": {"name":"halaava naama","keywords":["halaava naama","halaus","hali","naama"]},
+  "🙃": {"name":"ylösalainen naama","keywords":["ylösalainen naama","naama","väärinpäin","ylösalainen"]},
+  "😇": {"name":"hymy ja sädekehä","keywords":["hymy ja sädekehä","enkeli","hymy","naama","satu","sädekehä","viaton"]},
+  "👎": {"name":"peukalo alas","keywords":["peukalo alas","-1","alas","käsi","peukalo","vartalo"]},
+  "👌": {"name":"ok-sormiele","keywords":["ok-sormiele","käsi","ok","vartalo"]},
+  "✌️": {"name":"voitonmerkki","keywords":["voitonmerkki","käsi","v","vartalo","voitto"]},
+  "🤞": {"name":"sormet ristissä","keywords":["sormet ristissä","käsi","narrata","onni","risti","sormi"]},
+  "🙌": {"name":"nousevat kädet","keywords":["nousevat kädet","ele","hurraa","juhla","käsi","nostettu","vartalo"]},
+  "👋": {"name":"käden heilautus","keywords":["käden heilautus","heilautus","käsi","vartalo","vilkuttaa","vilkutus"]},
+  "🤙": {"name":"soita minulle","keywords":["soita minulle","käsi","puhelu","soita"]},
+  "💪": {"name":"pullistettu hauis","keywords":["pullistettu hauis","hauis","lihas","pullistaa","sarjakuva","vartalo"]},
+  "🫶": {"name":"sydänkuvio käsillä","keywords":["sydänkuvio käsillä","rakas","rakastaa","rakastan sinua","rakkaus","sydän","sydänkädet"]},
+  "🤌": {"name":"sormet supussa","keywords":["sormet supussa","kuulustelu","käsi supussa","käsiele","mitä","sarkastinen","sormet","supussa"]},
+  "✍️": {"name":"kirjoittava käsi","keywords":["kirjoittava käsi","kirjoittaa","käsi","vartalo"]},
+  "💻": {"name":"kannettava tietokone","keywords":["kannettava tietokone","kannetava","kannettava","läppäri","pc","tietokone","toimisto"]},
+  "📱": {"name":"kännykkä","keywords":["kännykkä","matkapuhelin","mobiili","mobiililaite","puhelin"]},
+  "📊": {"name":"pylväskaavio","keywords":["pylväskaavio","kaavio","pylväs","tilasto"]},
+  "📈": {"name":"nouseva käyrä","keywords":["nouseva käyrä","kaavio","kasvu","käyrä","nousu","suuntaus","trendi"]},
+  "📉": {"name":"laskeva käyrä","keywords":["laskeva käyrä","kaavio","käyrä","lasku","suuntaus"]},
+  "🗓️": {"name":"kierrekalenteri","keywords":["kierrekalenteri","kalenteri","kierre","lehtiö"]},
+  "📌": {"name":"nuppineula","keywords":["nuppineula"]},
+  "📎": {"name":"paperiliitin","keywords":["paperiliitin","klemmari","liitin"]},
+  "✏️": {"name":"lyijykynä","keywords":["lyijykynä","kynä"]},
+  "🔧": {"name":"jakoavain","keywords":["jakoavain","työkalu"]},
+  "⚙️": {"name":"hammasratas","keywords":["hammasratas","työkalu"]},
+  "🧪": {"name":"koeputki","keywords":["koeputki","kemia","kemisti","koe","laboratorio","tiede"]},
+  "🐛": {"name":"ötökkä","keywords":["ötökkä","hyönteinen","puutarha"]},
+  "🚧": {"name":"rakennustyömaan merkki","keywords":["rakennustyömaan merkki","este","rakennustyömaa","tietyö","tietyömaa"]},
+  "📦": {"name":"paketti","keywords":["paketti","laatikko","lähetys","pakkaus"]},
+  "🔍": {"name":"suurennuslasi vasemmalle","keywords":["suurennuslasi vasemmalle","etsi","haku","lasi","suurennuslasi","työkalu"]},
+  "⭐": {"name":"valkoinen tähti","keywords":["valkoinen tähti","tähti","tähtitiede"]},
+  "✨": {"name":"säihke","keywords":["säihke","loiste","taika","tähti"]},
+  "💫": {"name":"pyörryttävä","keywords":["pyörryttävä","sarjakuva","tähti"]},
+  "🌟": {"name":"loistava tähti","keywords":["loistava tähti","loiste","säihke","tähti","valo"]},
+  "⚡": {"name":"korkeajännite","keywords":["korkeajännite","sähkö","sähköisku","vaara","virta"]},
+  "💧": {"name":"pisara","keywords":["pisara","hiki","sää","tippa","vesi"]},
+  "🌈": {"name":"sateenkaari","keywords":["sateenkaari","biseksuali","genderqueer","hlbt","hlbtq","hlbtqia","homo","lesbo","queer","sade","sää","trans"]},
+  "🎯": {"name":"napakymppi","keywords":["napakymppi","darts","häränsilmä","kymmenen","tikka","tikkataulu"]},
+  "🏆": {"name":"pokaali","keywords":["pokaali","kisat","palkinto","urheilu"]},
+  "🥇": {"name":"kultamitali","keywords":["kultamitali","ensimmäinen","kulta","mitali","voittaja"]},
+  "💯": {"name":"sata pistettä","keywords":["sata pistettä","100","pisteet","täydet"]},
+  "❗": {"name":"huutomerkki","keywords":["huutomerkki","merkki","välimerkki"]},
+  "❓": {"name":"kysymysmerkki","keywords":["kysymysmerkki","merkki","välimerkki"]},
+  "✔️": {"name":"paksu valintamerkki","keywords":["paksu valintamerkki","merkki","oikein","tarkistusmerkki","v","valintamerkki"]},
+  "❌": {"name":"punainen rastimerkki","keywords":["punainen rastimerkki","kertolasku","merkki","peruuta","x"]},
+};
+
+export default daten;

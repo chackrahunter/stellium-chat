@@ -12,7 +12,13 @@ import { dayLabel, timeOfDay } from '../lib/format.js';
 import { useKlartext } from './Vertraulich.jsx';
 import { nachrichtEntschluesseln } from '../lib/vertraulich.js';
 
-export function SearchOverlay({ onClose }: { onClose: () => void }) {
+export function SearchOverlay({ onClose, initialTab }: {
+  onClose: () => void;
+  /** Auf welchem Reiter das Fenster aufgeht -- Rail.tsx „Gemerkte
+      Nachrichten" öffnet gezielt 'saved', alle anderen Aufrufer weiterhin
+      unverändert den Such-Reiter. */
+  initialTab?: 'search' | 'saved';
+}) {
   const kasten = useRef<HTMLDivElement>(null);
   useFokusfalle(kasten, true, onClose);
   const t = useT();
@@ -24,7 +30,7 @@ export function SearchOverlay({ onClose }: { onClose: () => void }) {
 
   const [query, setQuery] = useState('');
   const [scopeChannel, setScopeChannel] = useState(false);
-  const [tab, setTab] = useState<'search' | 'saved'>('search');
+  const [tab, setTab] = useState<'search' | 'saved'>(initialTab ?? 'search');
   /* Rollen, Mausrad und der gewaehlte Reiter kommt ins Bild —
      siehe lib/reiterleiste.ts. */
   const reiter = useRef<HTMLDivElement>(null);

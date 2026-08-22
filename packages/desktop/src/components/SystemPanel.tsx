@@ -6,6 +6,7 @@ import {
 import { Shell } from './Panels.jsx';
 import { useT, currentUiLanguage } from '../i18n';
 import { api } from '../net/api.js';
+import { fileSize } from '../lib/format.js';
 
 /**
  * Die Werte des Servers — dieselben, die die Konsole auf dem Pi zeigt.
@@ -66,18 +67,31 @@ function Zeile({ name, wert, ton }: { name: string; wert: React.ReactNode; ton?:
   );
 }
 
-/* "9,2 GB" statt "9873154" */
-function groesse(bytes: number): string {
-  const e = ['B', 'KB', 'MB', 'GB', 'TB'];
-  let i = 0; let v = bytes;
-  while (v >= 1024 && i < e.length - 1) { v /= 1024; i++; }
-  return `${v.toFixed(v < 10 && i > 0 ? 1 : 0)} ${e[i]}`;
-}
+/* "9,2 GB" statt "9873154" — dieselbe Funktion wie überall sonst in der App,
+   nur einmal richtig gemacht (lib/format.ts) statt hier ein zweites Mal mit
+   festen Einheiten und Punkt als Dezimaltrennzeichen nachgebaut. */
 
 function laufzeit(sek: number): string {
+  // Dieselbe Bauart wie zeitspanne() unten (Intl mit style:'unit'), nur ohne
+  // deren Rückfall auf "—" bei 0 — eine Laufzeit von 45 Minuten ist "0 Std.
+  // 45 Min.", nicht "kein Wert".
+  const einheit = (anzahl: number, unit: 'day' | 'hour' | 'minute') =>
+    new Intl.NumberFormat(currentUiLanguage(), { style: 'unit', unit, unitDisplay: 'short' }).format(anzahl);
   const t = Math.floor(sek / 86400);
   const h = Math.floor((sek % 86400) / 3600);
-  return t > 0 ? `${t} d ${h} h` : `${h} h ${Math.floor((sek % 3600) / 60)} min`;
+  if (t > 0) return `${einheit(t, 'day')} ${einheit(h, 'hour')}`;
+  return `${einheit(h, 'hour')} ${einheit(Math.floor((sek % 3600) / 60), 'minute')}`;
+}
+
+/* "55 °C" statt nacktem "55°" — ohne Buchstaben ist die Zahl nicht einmal
+   eindeutig Celsius. Bleibt bewusst Celsius statt Fahrenheit für en-US: der
+   Wert ist eine Pi-Hardwaregrenze (85 °C ist die vom Hersteller dokumentierte
+   Drosselschwelle, siehe unten), keine Umgebungstemperatur, und Werkzeuge für
+   genau diese Zielgruppe — vcgencmd, htop, IPMI — zeigen CPU-Temperaturen
+   weltweit in Celsius, auch in den USA. Eine Umrechnung bräuchte außerdem den
+   Schwellenwert 85 mit, der als Hardwarekonstante in Celsius bleibt. */
+function grad(temp: number): string {
+  return new Intl.NumberFormat(currentUiLanguage(), { style: 'unit', unit: 'celsius', unitDisplay: 'short' }).format(Math.round(temp));
 }
 
 /* Beträge kommen in Cent und mit Währungskürzel — beides muss man dem
@@ -169,7 +183,7 @@ export function SystemPanel({ onClose }: { onClose: () => void }) {
           {temp !== null && (
             /* 85 Grad ist die Grenze, ab der ein Pi drosselt — deshalb ist
                das der Maßstab und nicht 100. */
-            <Tacho name={t('system.temperatur')} anteil={temp / 85} wert={`${Math.round(temp)}°`} warnAb={0.82} />
+            <Tacho name={t('system.temperatur')} anteil={temp / 85} wert={grad(temp)} warnAb={0.82} />
           )}
           {/* Auslagerung nur zeigen, wo es sie gibt — ein Tacho, der immer
               auf null steht, weil gar kein Auslagerungsspeicher eingerichtet
@@ -222,8 +236,8 @@ export function SystemPanel({ onClose }: { onClose: () => void }) {
             <Zeile name={t('system.konten')} wert={daten.inhalt?.users ?? 0} />
             <Zeile name={t('system.kanaele')} wert={daten.inhalt?.channels ?? 0} />
             <Zeile name={t('system.nachrichten')} wert={daten.inhalt?.messages ?? 0} />
-            <Zeile name={t('system.datenbank')} wert={groesse(daten.inhalt?.groesse ?? 0)} />
-            <Zeile name={t('system.dateien')} wert={`${daten.ablage?.dateien ?? 0} · ${groesse(ab.belegt ?? 0)}`} />
+            <Zeile name={t('system.datenbank')} wert={fileSize(daten.inhalt?.groesse ?? 0)} />
+            <Zeile name={t('system.dateien')} wert={`${daten.ablage?.dateien ?? 0} · ${fileSize(ab.belegt ?? 0)}`} />
           </section>
 
           {w?.da && (
@@ -247,7 +261,7 @@ export function SystemPanel({ onClose }: { onClose: () => void }) {
               <Zeile name={t('system.fehler404')} wert={w.heute?.f404 ?? 0} />
               <Zeile name={t('system.fehler5xx')} ton={(w.heute?.f5xx ?? 0) > 0 ? 'warn' : undefined}
                      wert={w.heute?.f5xx ?? 0} />
-              <Zeile name={t('system.uebertragen')} wert={groesse(w.heute?.bytes ?? 0)} />
+              <Zeile name={t('system.uebertragen')} wert={fileSize(w.heute?.bytes ?? 0)} />
             </section>
           )}
 
@@ -289,8 +303,8 @@ export function SystemPanel({ onClose }: { onClose: () => void }) {
 
           <section className="sys__block">
             <h3 className="sys__titel"><HardDrive size={14} /> {t('system.netz')}</h3>
-            <Zeile name={t('system.empfangen')} wert={groesse(l.netz?.rein ?? 0)} />
-            <Zeile name={t('system.gesendet')} wert={groesse(l.netz?.raus ?? 0)} />
+            <Zeile name={t('system.empfangen')} wert={fileSize(l.netz?.rein ?? 0)} />
+            <Zeile name={t('system.gesendet')} wert={fileSize(l.netz?.raus ?? 0)} />
             <Zeile name={t('system.sicherungen')}
                    wert={daten.sicherung ? `${daten.sicherung.anzahl}` : '—'} />
             {Array.isArray(daten.bestandteile) && daten.bestandteile.slice(0, 4).map((b: any) => (

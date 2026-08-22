@@ -15,6 +15,9 @@ export interface StelliumBridge {
    *  aeltere App-Fassungen den Aufruf noch nicht kennen. */
   notifyMoeglich?: () => Promise<boolean>;
   notify(payload: { title: string; body: string; silent?: boolean; channelId?: string }): Promise<boolean>;
+  /** Selbstgezeichnete macOS-Benachrichtigung, siehe src/lib/mac-benachrichtigung.ts.
+   *  Optional wie notifyMoeglich — aeltere App-Fassungen kennen sie noch nicht. */
+  macNotify?(payload: { titel: string; text: string; sprache: string; kanalId?: string; gruppe?: string }): Promise<boolean>;
   setBadge(count: number): Promise<boolean>;
   flashWindow(): Promise<boolean>;
   setTheme(theme: 'system' | 'dark' | 'light'): Promise<boolean>;

@@ -1,6 +1,6 @@
 import { markenSchaetzung } from '@stellium/shared';
 import { useStore } from '../state/store.js';
-import { useT } from '../i18n/index.js';
+import { useT, spracheDesSystems } from '../i18n/index.js';
 
 /**
  * Die Zeile unter dem Schreibfeld: wer gerade tippt — oder was die KI tut.
@@ -24,9 +24,15 @@ export function TypingBar({ channelId }: { channelId: string }) {
      zweite Regel hier hieße zwei Zahlen, die sich widersprechen. */
   const eingabeJetzt = entwurf.trim() ? markenSchaetzung(entwurf) : 0;
 
-  /* Mit Tausendertrennung in der Sprache des Lesers: „12.480" ist auf einen
-     Blick zu erfassen, „12480" muss man zählen. */
-  const sprache = useStore((s) => s.self?.language ?? 'de');
+  /* Mit Tausendertrennung in der Oberflächensprache: „12.480" ist auf einen
+     Blick zu erfassen, „12480" muss man zählen. Bewusst uiLanguage, nicht
+     language: die Zahl steckt in einem bereits übersetzten Satz (ai.tokens,
+     ai.tokensLive, ai.tokensLast) und muss zu dessen Sprache passen, nicht
+     zur separat eingestellten Lesesprache der Nachrichten — sonst stünde
+     hier je nach Kombination eine falsche Tausendertrennung mitten im
+     richtig übersetzten Text. Der frühere feste Rückfall 'de' wich außerdem
+     jeder anderen Sprache, bis die Oberflächensprache selbst gesetzt war. */
+  const sprache = useStore((s) => s.self?.uiLanguage || spracheDesSystems());
   const zahl = (n: number) => n.toLocaleString(sprache);
 
   // Der Assistent hat Vorrang: wenn er arbeitet, ist das die wichtigere Info.

@@ -89,6 +89,58 @@ const COLUMNS: { table: string; column: string; definition: string }[] = [
   /* Vorschläge der Art „termin" brauchen einen Zeitpunkt. */
   { table: 'vorschlaege', column: 'beginnt_am',    definition: 'INTEGER' },
   { table: 'vorschlaege', column: 'dauer_minuten', definition: 'INTEGER' },
+
+  /* Lesebestätigungen: wann die Lesemarke einer Person zuletzt vorwärts
+     sprang. Siehe schema.sql bei channel_members für die Begründung — hier
+     nur die Nachrüstung für eine Datenbank, die es noch nicht kennt. Auf
+     einer bestehenden Datenbank bleibt die Spalte für jede schon vorhandene
+     Zeile NULL: der genaue Zeitpunkt vergangener Lesevorgänge ist nicht
+     bekannt, und diese Migration erfindet keinen. */
+  { table: 'channel_members', column: 'last_read_at', definition: 'INTEGER' },
+  /* Lesebestätigungen abschalten: dieselbe Marke wird weiter gesetzt (siehe
+     last_read_at direkt darüber und messages.markRead) — nur herausgegeben
+     wird sie dann an niemanden mehr. Siehe schema.sql bei users für die
+     ausführliche Begründung. Vorgabe 0, nach dem Muster von auto_status. */
+  { table: 'users', column: 'lesebestaetigung_aus', definition: 'INTEGER NOT NULL DEFAULT 0' },
+
+  /* Anonyme Umfragen: Zählung je Antwort getrennt von der Sperre gegen
+     Mehrfachabstimmen. Siehe schema.sql bei poll_options/poll_participants —
+     hier nur die Nachrüstung für eine bestehende Datenbank. Bestehende
+     Stimmen zu schon vorhandenen anonymen Umfragen zieht
+     anonymeUmfragenAnonymisieren() weiter unten in diese Spalte um. */
+  { table: 'poll_options', column: 'votes', definition: 'INTEGER NOT NULL DEFAULT 0' },
+
+  /* Übersetzungsspeicher: Verweiszähler je Phrase (translation_memory) und
+     die Zeile, die ihn hält (message_translations). Siehe schema.sql und
+     tmVerweiseNachrechnen() in translation/index.ts. */
+  { table: 'translation_memory',   column: 'verweise', definition: 'INTEGER NOT NULL DEFAULT 0' },
+  { table: 'message_translations', column: 'tm_key',   definition: 'TEXT' },
+
+  /* Postfach: mail_nachrichten wuchs während der Entwicklung um vier Felder,
+     nachdem die Tabelle selbst schon stand — auf jeder Datenbank, die die
+     Tabelle vorher schon kannte, fehlen sie deshalb bis hierher. Genau daran
+     scheiterte der Index auf zustell_schluessel weiter unten: der lief in
+     schema.sql, bevor diese Nachrüstung ihn anlegen konnte (siehe Kommentar
+     dort, dieselbe Art Fehler wie bei sha256/projekt_id). */
+  { table: 'mail_nachrichten', column: 'umschlag_von',       definition: 'TEXT' },
+  { table: 'mail_nachrichten', column: 'antwort_an',         definition: 'TEXT' },
+  { table: 'mail_nachrichten', column: 'pruefung',           definition: 'TEXT' },
+  { table: 'mail_nachrichten', column: 'zustell_schluessel', definition: 'TEXT' },
+
+  /* users.timezone stand bisher bei jedem Konto, das die Leitung anlegte,
+     auf dem Platzhalter aus createAccount() ('Europe/Berlin') — die Leitung
+     kann beim Anlegen nicht wissen, wo die Person sitzt, und Setup.tsx fragte
+     nur die Sprache ab, nie die Zeitzone. Die Profilkarte zeigte dadurch
+     unter dem Namen der anderen Person still die Zeitzone des Betrachters.
+     timezone_auto = 1 heißt "noch nicht bestätigt" und gilt hier für JEDE
+     bestehende Zeile, unabhängig davon, was in timezone steht — auch für ein
+     Konto, dessen Zeitzone zufällig schon richtig ist. Das ist gewollt: der
+     Nachtrag in state/store.ts (zeitzoneNachtragen) schreibt nur, wenn die
+     vom Browser erkannte Zeitzone von der gespeicherten abweicht, sonst
+     bleibt einfach nichts zu tun. Siehe schema.sql beim users-Feld
+     timezone_auto für die ausführliche Begründung, und ws/gateway.ts
+     (prefs:update) dafür, wie die Spalte wieder auf 0 fällt. */
+  { table: 'users', column: 'timezone_auto', definition: 'INTEGER NOT NULL DEFAULT 1' },
 ];
 
 export function migrate(): void {
@@ -111,6 +163,15 @@ export function migrate(): void {
     )`);
   db.exec('CREATE INDEX IF NOT EXISTS idx_praesenz_tag ON praesenz_tage(tag)');
 
+  /* Anonyme Umfragen: Sperre gegen Mehrfachabstimmen, getrennt von der
+     Zählung (poll_options.votes oben). Siehe schema.sql für die Begründung. */
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS poll_participants (
+      poll_id    TEXT NOT NULL REFERENCES polls(id) ON DELETE CASCADE,
+      user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      created_at INTEGER NOT NULL,
+      PRIMARY KEY (poll_id, user_id)
+    )`);
 
   /* Auf einer bestehenden Datenbank gibt es die Tabellen noch nicht — sie
      stehen zwar in schema.sql, aber die läuft nur beim ersten Anlegen. */
@@ -138,6 +199,28 @@ export function migrate(): void {
       gesendet_id     TEXT
     )`);
   db.exec('CREATE INDEX IF NOT EXISTS idx_mail_entwurf_zustand ON mail_entwuerfe(zustand, erstellt_am)');
+
+  /* Eine frühere Fassung von schema.sql hatte hier ein fehlendes Leerzeichen
+     vor dem Typnamen — `idTEXT PRIMARY KEY` und `anTEXT NOT NULL` wurden
+     dadurch zu Spalten NAMENS `idTEXT` und `anTEXT`, nicht zu `id TEXT` und
+     `an TEXT`. Jede Datenbank, die schema.sql in diesem Zustand einmal
+     durchlaufen hat, trägt die Tabelle seither so — das CREATE TABLE IF NOT
+     EXISTS oben (wie das in schema.sql) rührt einen bestehenden Tabellennamen
+     nicht mehr an, egal wie seine Spalten heißen.
+     Umbenennen statt neu anlegen ist hier gefahrlos möglich, und zwar nicht
+     nur "vermutlich": `entwurfAnlegen()` in post-sichtung.ts schreibt `id`
+     und `an` namentlich in ein INSERT — auf der falschen Spalte wäre das immer
+     sofort gescheitert. Es kann in dieser Tabelle also gar keine Zeile geben,
+     ganz gleich auf welcher Datenbank. */
+  const entwuerfeSpalten = db.all<{ name: string }>('PRAGMA table_info(mail_entwuerfe)');
+  if (entwuerfeSpalten.some((c) => c.name === 'idTEXT')) {
+    db.exec('ALTER TABLE mail_entwuerfe RENAME COLUMN idTEXT TO id');
+    console.log('[db] Spalte mail_entwuerfe.idTEXT in id umbenannt (Tippfehler aus einer früheren schema.sql behoben)');
+  }
+  if (entwuerfeSpalten.some((c) => c.name === 'anTEXT')) {
+    db.exec('ALTER TABLE mail_entwuerfe RENAME COLUMN anTEXT TO an');
+    console.log('[db] Spalte mail_entwuerfe.anTEXT in an umbenannt (Tippfehler aus einer früheren schema.sql behoben)');
+  }
   db.exec(`CREATE TABLE IF NOT EXISTS mail_nachrichten (
   id           TEXT PRIMARY KEY,
   /* An welche Adresse sie ging — daraus entstehen die Ordner in der
@@ -180,8 +263,17 @@ export function migrate(): void {
   db.exec('CREATE INDEX IF NOT EXISTS idx_mail_thread ON mail_nachrichten(thread_id)');
   /* Eindeutig, nicht nur schnell: damit die Idempotenz an der Datenbank
      haengt und nicht daran, dass zwei Anfragen zufaellig nacheinander
-     laufen. */
-  db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_mail_zustell ON mail_nachrichten(zustell_schluessel) WHERE zustell_schluessel IS NOT NULL');
+     laufen. Läuft absichtlich erst hier und nicht in schema.sql: die
+     COLUMNS-Nachrüstung oben hat zustell_schluessel bis zu dieser Zeile
+     garantiert ergänzt, falls eine bestehende Datenbank die Spalte noch
+     nicht kannte. Trotzdem try/catch, nicht nackt — derselbe Vorbehalt wie
+     bei idx_tasks_projekt weiter unten: eine Überraschung hier darf den
+     Start nicht verweigern, nur melden. */
+  try {
+    db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_mail_zustell ON mail_nachrichten(zustell_schluessel) WHERE zustell_schluessel IS NOT NULL');
+  } catch (err) {
+    console.warn('[db] Index idx_mail_zustell:', (err as Error).message);
+  }
   db.exec(`CREATE TABLE IF NOT EXISTS mail_partner (
   /* Der Suchwert: derselbe Blindindex wie bei Konten. Die Adresse selbst ist
      personenbezogen und liegt daneben verschluesselt — gesucht wird ueber den
@@ -195,7 +287,53 @@ export function migrate(): void {
   seit         INTEGER NOT NULL
 )`);
 
-  echosVergessen();
+  /* Notizen — dieselben drei Tabellen wie in schema.sql, aus demselben Grund
+     wie poll_participants und mail_partner oben: auf einer bestehenden
+     Datenbank bringt CREATE TABLE IF NOT EXISTS in schema.sql sie nicht
+     zuverlässig nach, wenn ein früheres Statement in derselben Datei auf
+     einer älteren Datenbank stolpert (siehe Kommentar am Kopf dieser Datei
+     zu genau diesem Ausfall, Fassung 1.0.17). Hier läuft jede Tabelle für
+     sich, unabhängig vom Rest von schema.sql. */
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS notizen (
+      id                 TEXT PRIMARY KEY,
+      owner_id           TEXT NOT NULL REFERENCES users(id),
+      chiffrat           TEXT NOT NULL,
+      version            INTEGER NOT NULL DEFAULT 1,
+      schluessel_fassung INTEGER NOT NULL DEFAULT 1,
+      geaendert_von      TEXT NOT NULL REFERENCES users(id),
+      geaendert_am       INTEGER NOT NULL,
+      erstellt_am        INTEGER NOT NULL
+    )`);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS notiz_mitglieder (
+      notiz_id         TEXT NOT NULL REFERENCES notizen(id) ON DELETE CASCADE,
+      user_id          TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      hinzugefuegt_von TEXT NOT NULL REFERENCES users(id),
+      hinzugefuegt_am  INTEGER NOT NULL,
+      entfernt_am      INTEGER,
+      entfernt_grund   TEXT,
+      PRIMARY KEY (notiz_id, user_id)
+    )`);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS notiz_schluessel_pakete (
+      notiz_id    TEXT NOT NULL REFERENCES notizen(id) ON DELETE CASCADE,
+      user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      fassung     INTEGER NOT NULL,
+      von_user_id TEXT NOT NULL,
+      alg         TEXT NOT NULL,
+      iv          TEXT NOT NULL,
+      daten       TEXT NOT NULL,
+      erstellt_am INTEGER NOT NULL,
+      PRIMARY KEY (notiz_id, user_id)
+    )`);
+  try {
+    db.exec('CREATE INDEX IF NOT EXISTS idx_notizen_owner ON notizen(owner_id)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_notiz_mitglieder_user ON notiz_mitglieder(user_id)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_notiz_pakete_user ON notiz_schluessel_pakete(user_id)');
+  } catch (err) {
+    console.warn('[db] Indizes für Notizen:', (err as Error).message);
+  }
 
   /* Indizes auf nachgerüstete Spalten gehören hierher, nicht in schema.sql:
      die läuft VOR dieser Nachrüstung, und auf einer bestehenden Datenbank
@@ -254,7 +392,9 @@ export function migrate(): void {
   rebuildUsersTable();
   encryptExistingUsers();
   bestehendeTexteVerschluesseln();
+  echosVergessen();
   geloeschteNachtragen();
+  anonymeUmfragenAnonymisieren();
 }
 
 /**
@@ -277,6 +417,74 @@ function geloeschteNachtragen(): void {
     for (const u of offen) db.run('UPDATE users SET deleted_at = ? WHERE id = ?', jetzt, u.id);
   });
   console.log(`[db] ${offen.length} bereits gelöschte Konten als solche gekennzeichnet.`);
+}
+
+/**
+ * Bestehende Stimmen zu anonymen Umfragen anonymisieren.
+ *
+ * Vor dieser Fassung stand `poll_votes(poll_id, option_id, user_id)` für
+ * JEDE Umfrage — auch für anonyme, wo die Oberfläche seit jeher zusagt: "Es
+ * wird nur gezählt, nicht wer gestimmt hat". Die Zusage stimmte für die
+ * Anzeige, nicht für die Datenbank: die Zuordnung Person→Antwort lag für
+ * anonyme Umfragen genauso offen da wie für offene.
+ *
+ * Diese Wanderung holt das nach, einmalig und für jede anonyme Umfrage
+ * einzeln: die Zählung je Antwort zieht nach poll_options.votes um, WER
+ * abgestimmt hat nach poll_participants (ohne Bezug auf die Antwort — nötig,
+ * damit dieselbe Person nicht ein zweites Mal abstimmen kann), und die Zeilen
+ * in poll_votes, die die beiden verknüpften, werden gelöscht. Für offene
+ * Umfragen bleibt poll_votes unangetastet — dort ist genau diese Verknüpfung
+ * die einzige Quelle für Gesichter unter den Antworten und für "Stimme
+ * ändern".
+ *
+ * IDEMPOTENT OHNE MERKER: eine anonyme Umfrage, deren poll_votes-Zeilen schon
+ * weg sind, liefert bei der Abfrage unten nichts mehr und wird übersprungen —
+ * anders als bei bestehendeTexteVerschluesseln() braucht es dafür keinen
+ * Vermerk in app_settings, denn selbst eine Datenbank mit tausend Umfragen
+ * ist eine Abfrage, die auf jedem Start vernachlässigbar wenig kostet.
+ *
+ * Der Zeitpunkt in poll_participants ist nicht der Zeitpunkt dieser
+ * Wanderung, sondern die früheste erhaltene Stimme der Person in dieser
+ * Umfrage — erfunden wird hier nichts, was sich aus den vorhandenen Zeilen
+ * ablesen lässt.
+ */
+function anonymeUmfragenAnonymisieren(): void {
+  if (!db.all('PRAGMA table_info(poll_participants)').length) return;
+  const spalten = db.all<{ name: string }>('PRAGMA table_info(poll_options)');
+  if (!spalten.some((c) => c.name === 'votes')) return;
+
+  const anonyme = db.all<{ id: string }>('SELECT id FROM polls WHERE anonymous = 1');
+  let betroffen = 0;
+  for (const { id: pollId } of anonyme) {
+    const stimmen = db.all<{ option_id: string; user_id: string; created_at: number }>(
+      'SELECT option_id, user_id, created_at FROM poll_votes WHERE poll_id = ?', pollId,
+    );
+    if (!stimmen.length) continue;   // schon anonymisiert, oder nie eine Stimme
+
+    db.transaction(() => {
+      const jeOption = new Map<string, number>();
+      const fruehesteStimme = new Map<string, number>();
+      for (const s of stimmen) {
+        jeOption.set(s.option_id, (jeOption.get(s.option_id) ?? 0) + 1);
+        const bisher = fruehesteStimme.get(s.user_id);
+        if (bisher === undefined || s.created_at < bisher) fruehesteStimme.set(s.user_id, s.created_at);
+      }
+      for (const [optionId, anzahl] of jeOption) {
+        db.run('UPDATE poll_options SET votes = votes + ? WHERE id = ?', anzahl, optionId);
+      }
+      for (const [userId, zeitpunkt] of fruehesteStimme) {
+        db.run(
+          'INSERT OR IGNORE INTO poll_participants (poll_id, user_id, created_at) VALUES (?,?,?)',
+          pollId, userId, zeitpunkt,
+        );
+      }
+      db.run('DELETE FROM poll_votes WHERE poll_id = ?', pollId);
+    });
+    betroffen += 1;
+  }
+  if (betroffen) {
+    console.log(`[db] ${betroffen} anonyme Umfrage(n): Zuordnung Person→Antwort aus der Datenbank entfernt, Zählung erhalten.`);
+  }
 }
 
 /**
@@ -476,7 +684,17 @@ function rebuildUsersTable(): void {
           -- Aus demselben Grund wie deleted_at und kategorie: die Spaltenliste
           -- für das INSERT kommt aus PRAGMA table_info(users), und die Schleife
           -- oben hat diese Spalte bereits ergänzt.
-          sitzungen_ab           INTEGER
+          sitzungen_ab           INTEGER,
+          -- Ebenso hier vergessen wie zuvor deleted_at/kategorie/
+          -- sitzungen_ab: beide kamen über dieselbe Nachrüst-Schleife
+          -- (COLUMNS weiter oben in dieser Datei) auf eine bestehende
+          -- Datenbank, aber nie in diese feste Spaltenliste. Ohne sie
+          -- bricht der Neuaufbau an derselben Stelle wie schon in
+          -- Fassung 1.0.17: INSERT INTO users_neu (${liste}) ... — liste
+          -- kommt aus PRAGMA table_info(users) und kennt beide Spalten
+          -- längst, users_neu bislang nicht.
+          auto_status            INTEGER NOT NULL DEFAULT 1,
+          lesebestaetigung_aus   INTEGER NOT NULL DEFAULT 0
         )
       `);
       db.exec(`INSERT INTO users_neu (${liste}) SELECT ${liste} FROM users`);
@@ -536,50 +754,87 @@ function encryptExistingUsers(): void {
  * Datenbank, lassen sich also nicht mit SQL vergleichen — es bleibt der
  * Durchgang durch alle Zeilen.
  *
- * Läuft bei jedem Start. Der Aufwand wächst mit der Zeilenzahl, ist aber
- * einmal fällig: nach dem Aufräumen entstehen keine neuen mehr, und der
- * Durchgang findet nichts. Bei sehr großen Beständen bricht er ab, bevor er
- * einen Start spürbar aufhält — die Zeilen richten dort keinen neuen Schaden
- * an, sie halten nur alte Texte unübersetzt.
+ * HÖCHSTENS EINMAL, NICHT BEI JEDEM START.
+ * Ein Merker in app_settings hält fest, dass aufgeräumt wurde — dasselbe
+ * Muster wie bei `uebersetzungsspeicherPruefen` nebenan. Ohne ihn läse und
+ * entschlüsselte jeder Start erneut bis zu 50 000 Zeilen, obwohl es nach dem
+ * ersten erfolgreichen Durchgang nichts mehr zu finden gibt.
+ *
+ * Läuft deshalb auch NACH `bestehendeTexteVerschluesseln()` (die wiederum
+ * `uebersetzungsspeicherPruefen` aufruft), nicht davor: hat sich der
+ * Schlüssel seit dem letzten Start geändert, LEERT diese Prüfung
+ * `translation_memory` bereits vollständig, weil dann ohnehin kein
+ * gespeicherter Wert mehr zum aktuellen Schlüssel passt. Liefe dieser
+ * Durchgang vorher, entschlüsselte und bewertete er bis zu 50 000 Zeilen, die
+ * Sekunden später im selben Start weggeworfen werden — reine Arbeit für den
+ * Papierkorb.
+ *
+ * Bei fehlendem ODER falschem Masterpasswort läuft gar nichts an: ohne
+ * Schlüssel gibt es nichts zu entschlüsseln, und mit einem Schlüssel, der
+ * nicht zu den vorhandenen Chiffraten passt, schlägt jede Zeile fehl — nicht
+ * nur, aber auch weil `entschluesseln` bei jedem Fehlschlag eine eigene
+ * Fehlermeldung schreibt, macht ein Durchgang durch alle Zeilen daraus
+ * zehntausende Meldungen synchron im Journal. Eine einzelne Probezeile
+ * VORAB reicht: derselbe Schlüssel gilt für alle Zeilen, schlägt also entweder
+ * keine oder (praktisch) jede fehl. Schlägt die Probe fehl, bricht die
+ * Funktion ab, OHNE den Merker unten zu setzen — ein späterer Start mit dem
+ * richtigen Masterpasswort bekommt dadurch weiterhin seine Chance.
  */
 function echosVergessen(): void {
+  if (!verschluesselungAktiv()) return;  // kein Masterpasswort — nichts zu entschlüsseln
+
+  const erledigt = db.get<{ value: string }>(
+    "SELECT value FROM app_settings WHERE key = 'echos_vergessen'",
+  )?.value;
+  if (erledigt === '1') return;          // schon einmal erfolgreich gelaufen
+
   let zeilen: Array<{ key: string; source_text: string; target_text: string }>;
   try {
     zeilen = db.all('SELECT key, source_text, target_text FROM translation_memory LIMIT 50000');
   } catch { return; }              // Tabelle gibt es noch nicht
-  if (!zeilen.length) return;
 
-  const weg: string[] = [];
-  for (const z of zeilen) {
-    try {
+  if (zeilen.length) {
+    // Probezeile: siehe Erklärung oben. Nur eine bereits verschlüsselte Zeile
+    // taugt als Probe (am "m1:"-Kopf erkennbar, wie in
+    // bestehendeTexteVerschluesseln) — reiner Klartext aus der Zeit vor der
+    // Verschlüsselung bliebe bei jedem Schlüssel unverändert lesbar und
+    // sagte damit nichts darüber, ob der aktuelle Schlüssel zu den echten
+    // Chiffraten in dieser Tabelle passt.
+    const probe = zeilen.find((z) => z.source_text.startsWith('m1:'));
+    if (probe && !entschluesseln(probe.source_text)) return;
+
+    const weg: string[] = [];
+    for (const z of zeilen) {
       const quelle = entschluesseln(z.source_text);
       const ziel = entschluesseln(z.target_text);
-      /* Leer heißt NICHT gleich.
-         `entschluesseln` gibt bei einem falschen oder fehlenden
-         Masterpasswort einen leeren String zurück — für beide Seiten. Ohne
-         diese Zeile wäre dann jede Zeile "gleich" und der ganze
-         Übersetzungsspeicher gelöscht. Ein Aufräumen, das bei fehlendem
-         Schlüssel alles wegwirft, ist kein Aufräumen. */
+      /* Leer heißt NICHT gleich — sonst wäre nach einer fehlgeschlagenen
+         Probe (die den Durchgang oben schon abgebrochen hätte) oder bei
+         einer einzelnen unlesbaren Zeile jede „Übersetzung" ein Treffer. */
       if (!quelle || !ziel) continue;
       /* Dieselbe Untergrenze wie `istEcho` im Schreibpfad.
          Unter drei Wörtern gilt ein unveränderter Text dort ausdrücklich
          NICHT als Echo: „ok", „+1", „Update" oder ein Firmenname lauten in
          beiden Sprachen gleich, und die unveränderte Rückgabe ist die
          richtige Antwort. Der Schreibpfad merkt solche Zeilen deshalb mit
-         Absicht. Ohne diese Grenze löscht das Aufräumen sie bei JEDEM Start
-         wieder weg — und arbeitet damit gegen die Stelle, die es aufräumen
-         soll. */
+         Absicht. Ohne diese Grenze löscht das Aufräumen sie wieder weg — und
+         arbeitet damit gegen die Stelle, die es aufräumen soll. */
       if (woerter(quelle).length < ECHO_MIN_WOERTER) continue;
       /* Genau gleich, nicht ähnlich: `istEcho` wertet auch Wortähnlichkeit,
          und was dort knapp durchging, ist hier keine sichere Fehlmessung.
          Gelöscht wird nur, was zweifelsfrei unübersetzt ist. */
       if (quelle === ziel) weg.push(z.key);
-    } catch { /* nicht lesbar — dann auch nicht zu beurteilen */ }
+    }
+    if (weg.length) {
+      db.transaction(() => {
+        for (const k of weg) db.run('DELETE FROM translation_memory WHERE key = ?', k);
+      });
+      console.log(`[db] ${weg.length} unübersetzte Einträge aus dem Übersetzungsspeicher entfernt`);
+    }
   }
-  if (!weg.length) return;
 
-  db.transaction(() => {
-    for (const k of weg) db.run('DELETE FROM translation_memory WHERE key = ?', k);
-  });
-  console.log(`[db] ${weg.length} unübersetzte Einträge aus dem Übersetzungsspeicher entfernt`);
+  db.run(
+    `INSERT INTO app_settings (key, value, updated_by, updated_at) VALUES ('echos_vergessen', '1', NULL, ?)
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+    Date.now(),
+  );
 }

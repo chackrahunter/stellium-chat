@@ -1,0 +1,88 @@
+/**
+ * Emoji-Namen und Suchbegriffe — IT.
+ *
+ * ERZEUGT von scripts/emoji-katalog-erzeugen.mjs aus emojibase-data
+ * (MIT-Lizenz, © Miles Johnson — github.com/milesj/emojibase, CLDR-Grundlage).
+ * Nicht von Hand ändern — neu erzeugen: node scripts/emoji-katalog-erzeugen.mjs
+ *
+ * Nur die im EmojiPicker tatsächlich gezeigten Emoji, nicht der volle
+ * Unicode-Bestand — siehe Kopfkommentar des Erzeuger-Skripts fürs Warum.
+ */
+import type { EmojiKatalog } from '../typen.js';
+
+const daten: EmojiKatalog = {
+  "👍": {"name":"pollice in su","keywords":["pollice in su","+1","bene","capito","certo","dito","d’accordo","mi piace","ok","perfetto","sì","va bene"]},
+  "🎉": {"name":"spara coriandoli","keywords":["spara coriandoli","auguri","compleanno","congratulazioni","coriandoli","evviva","felicità","festa","party","stelle filanti","urrà","yahoo"]},
+  "❤️": {"name":"cuore rosso","keywords":["cuore rosso","amore","cuore","cuoricino","emozione","rosso"]},
+  "😂": {"name":"faccina con lacrime di gioia","keywords":["faccina con lacrime di gioia","ahahaha","che ridere","contentissimo","contento","faccina","faccina che piange dal ridere","felice","felicissimo","felicità","gioia","lacrima","lacrime di gioia","lol","piangere dal ridere","ridere","risata","rofl"]},
+  "👀": {"name":"occhi","keywords":["occhi","corpo","faccia","guardare","osservare","vedere"]},
+  "🚀": {"name":"razzo","keywords":["razzo","astronauta","astronave","spazio","trasporti","universo","veicolo","viaggiare","viaggio"]},
+  "✅": {"name":"pulsante segno di spunta","keywords":["pulsante segno di spunta","baffo","fatto","segno di spunta","segno di spunta grande","spunta"]},
+  "🔥": {"name":"fuoco","keywords":["fuoco","bruciare","caldo","calore","esplosione","falò","fiamma","fiamme","inferno","passione"]},
+  "🙏": {"name":"mani giunte","keywords":["mani giunte","gesto","grazie","mani","mano","per favore","pregare","preghiera","ti prego"]},
+  "💡": {"name":"lampadina","keywords":["lampadina","brillante","elettrica","elettricità","eureka","fumetto","geniale","idea","luce"]},
+  "👏": {"name":"mani che applaudono","keywords":["mani che applaudono","applaudire","applauso","bravo","clap clap","complimenti","congratulazioni","ok","pregare","preghiera","segno","yeah"]},
+  "🤝": {"name":"stretta di mano","keywords":["stretta di mano","affare fatto","conoscere","d’accordo","mani che si stringono","ok","patto","piacere","presentarsi","presentazione","promessa","stringersi la mano"]},
+  "😀": {"name":"faccina con un gran sorriso","keywords":["faccina con un gran sorriso","allegria","allegro","denti","felice","molto felice","risata","sogghignare","sogghigno","sorriso"]},
+  "😄": {"name":"faccina con sorriso e occhi sorridenti","keywords":["faccina con sorriso e occhi sorridenti","a crepapelle","bene","bocca aperta","faccina che ride","faccina con un gran sorriso e occhi sorridenti","faccina felice","felicità","occhi felici","ridere","risata","sorriso","sorriso a bocca aperta"]},
+  "😊": {"name":"faccina con occhi sorridenti","keywords":["faccina con occhi sorridenti","arrossire","bocca","faccina","felice","felicità","imbarazzato","occhi","occhi sorridenti","sorriso","timido"]},
+  "🙂": {"name":"faccina con sorriso accennato","keywords":["faccina con sorriso accennato","contento","faccina","faccina che sorride","felice","mezzo sorriso","ok","sorrisetto","sorriso","sorriso a bocca chiusa","sorriso accennato","va bene"]},
+  "😉": {"name":"faccina che fa l’occhiolino","keywords":["faccina che fa l’occhiolino","capirsi","faccina","fare l’occhiolino","flirtare","intesa","occhio","occhiolino","sexy","strizzare l’occhio"]},
+  "😍": {"name":"faccina con sorriso e occhi a cuore","keywords":["faccina con sorriso e occhi a cuore","amore","cuore","faccina","innamorato","occhi","occhi a cuore","romantico","sorriso","sorriso con occhi a cuore"]},
+  "🤔": {"name":"faccina concentrata","keywords":["faccina concentrata","arrovellarsi","concentrarsi","dubbio","faccina","faccina che pensa","mmm","pensare","scervellarsi"]},
+  "😅": {"name":"faccina con sorriso e goccia di sudore","keywords":["faccina con sorriso e goccia di sudore","emozionato","faccina con un gran sorriso e goccia di sudore","felice","goccia","nervoso","sollevato","sollievo","sorriso con goccia di sudore","stressato","sudore","teso"]},
+  "😬": {"name":"faccina con smorfia","keywords":["faccina con smorfia","denti","dentista","digrignare","digrignare i denti","faccina","smorfia"]},
+  "😴": {"name":"faccina che dorme","keywords":["faccina che dorme","assonnato","buona notte","dormire","faccina","pisolino","sonno","stanco","zzz"]},
+  "🥳": {"name":"faccina che festeggia","keywords":["faccina che festeggia","cappellino","celebrazione","compleanno","entusiasta","festa","festeggiamenti","festeggiamento","festeggiamo","festeggiare","party","si festeggia","trombetta"]},
+  "😎": {"name":"faccina con sorriso e occhiali da sole","keywords":["faccina con sorriso e occhiali da sole","cool","fighetto","figo","ganzo","luce","relax","soleggiato","spensierato","vacanza"]},
+  "🤯": {"name":"testa che esplode","keywords":["testa che esplode","cervello","faccina sorpresa","mindblown","non ci credo","sbalordito","scioccato","sconcertato","sorpesa","sorpreso","stupore"]},
+  "😭": {"name":"faccina disperata","keywords":["faccina disperata","faccina che piange","infelice","lacrime","no","nooo","piangere","pianto","singhiozzare","triste"]},
+  "😤": {"name":"faccina che sbuffa","keywords":["faccina che sbuffa","arrabbiarsi","arrabbiato","faccina arrabbiata","faccina con il fumo","faccina frustrata","frustrato","frustrazione","rabbia","sbuffare","scontento","uffa"]},
+  "🤗": {"name":"faccina che abbraccia","keywords":["faccina che abbraccia","abbracciare","abbraccio","ciao","faccina","imbarazzo","mani","mano","saluti","sorriso","ti voglio bene","tvb"]},
+  "🙃": {"name":"faccina sottosopra","keywords":["faccina sottosopra","ah ah","ah ah ah","ahah","ahahah","arrabbiato","capovolto","faccina","sarcastico","scombussolata","sottosopra","triste"]},
+  "😇": {"name":"faccina con sorriso e aureola","keywords":["faccina con sorriso e aureola","angelo","angioletto","aureola","faccina sorridente con aureola","innocente","santarellino","santo","sorriso con aureola","spirito"]},
+  "👎": {"name":"pollice verso","keywords":["pollice verso","giù","in basso","mano","no","non mi piace","pollice","pollice abbassato","pollice in giù","segno"]},
+  "👌": {"name":"mano che fa OK","keywords":["mano che fa OK","bene","capito","dito","d’accordo","gesto di ok","ho capito","indice e pollice","ok con la mano","segno di ok","va bene"]},
+  "✌️": {"name":"vittoria","keywords":["vittoria","due","forbice","mano","segno di vittoria","yeah"]},
+  "🤞": {"name":"dita incrociate","keywords":["dita incrociate","buona fortuna","dita","fortuna","incrociare","incrociare le dita","mano"]},
+  "🙌": {"name":"mani alzate","keywords":["mani alzate","celebrare","due mani","evvai","evviva","gesto","grazie","innocente","mano","urrà","vittoria"]},
+  "👋": {"name":"mano che saluta","keywords":["mano che saluta","a dopo","ci sei?","ci vediamo","ciao","ciaone","gesto di saluto","mano","mano aperta","salutare","schiaffo"]},
+  "🤙": {"name":"mano con gesto di chiamata","keywords":["mano con gesto di chiamata","chiamami","chiamare","dita","dito","gesto","mani","mano","telefonare","ti chiamo"]},
+  "💪": {"name":"bicipite","keywords":["bicipite","bodybuilding","braccio piegato","corpo","forte","forza","fumetto","muscolo","palestra","pesi","sollevamento","teso"]},
+  "🫶": {"name":"mani a cuore","keywords":["mani a cuore","amore","cuore","mano","ti amo","ti voglio bene"]},
+  "🤌": {"name":"mano a pigna","keywords":["mano a pigna","che vuoi","cosa vuoi","dita unite","gesto della mano","interrogativo","ma che dici","mano a borsa","mano a carciofo","mano a cuoppo","mano a tulipano","sarcastico"]},
+  "✍️": {"name":"mano che scrive","keywords":["mano che scrive","disegnare","penna","scrivere","scrivere a mano"]},
+  "💻": {"name":"computer portatile","keywords":["computer portatile","computer","notebook","pc","personal","portatile"]},
+  "📱": {"name":"telefono cellulare","keywords":["telefono cellulare","cellulare","chiamare","comunicare","smartphone","telefono"]},
+  "📊": {"name":"grafico a barre","keywords":["grafico a barre","barre","dati","grafico","statistica"]},
+  "📈": {"name":"grafico con andamento positivo","keywords":["grafico con andamento positivo","andamento ascendente","ascendente","aumentare","aumento","crescere","crescita","finanza","grafico","linea","trend"]},
+  "📉": {"name":"grafico con andamento negativo","keywords":["grafico con andamento negativo","andamento discendente","calo","crisi","discendente","economia","finanza","grafico","trend"]},
+  "🗓️": {"name":"calendario a spirale","keywords":["calendario a spirale","calendario","giorni","taccuino","tempo"]},
+  "📌": {"name":"puntina","keywords":["puntina","collage","puntina da disegno","scuola","ufficio"]},
+  "📎": {"name":"graffetta","keywords":["graffetta","clippy","fermaglio","graffa","paperclip","ufficio"]},
+  "✏️": {"name":"matita","keywords":["matita","disegnare","matita con gomma","scrivere","scrivere a matita"]},
+  "🔧": {"name":"chiave inglese","keywords":["chiave inglese","attrezzo","chiave","diy","fai da te","idraulico","inglese","lavoro","meccanico","utensile"]},
+  "⚙️": {"name":"ingranaggio","keywords":["ingranaggio","componente","meccanismo","ruota dentata"]},
+  "🧪": {"name":"provetta","keywords":["provetta","chimica","chimico","esperimenti","esperimento","laboratorio","scienza"]},
+  "🐛": {"name":"insetto","keywords":["insetto","animale","bruco","giardino","millepiedi"]},
+  "🚧": {"name":"area cantiere","keywords":["area cantiere","costruzione","giallo e nero","simbolo","simbolo area cantiere"]},
+  "📦": {"name":"pacco","keywords":["pacco","cartone","collo","consegna","scatola","scatolone","spedizione"]},
+  "🔍": {"name":"lente di ingrandimento rivolta a sinistra","keywords":["lente di ingrandimento rivolta a sinistra","cerca","cercare","investigare","lente","lente d’ingrandimento","lente ingrandimento","lente ingrandimento verso sinistra","verso sinistra"]},
+  "⭐": {"name":"stella","keywords":["stella","astro","natura","stella gialla","stellina"]},
+  "✨": {"name":"stelline","keywords":["stelline","scintille","spendente","stelle"]},
+  "💫": {"name":"stella con scia","keywords":["stella con scia","fumetto","stella cadente","vertiginoso","vorticoso"]},
+  "🌟": {"name":"stella che brilla","keywords":["stella che brilla","brillante","evvai","felicità","festeggiare","natura","notte","scintillante","sorpresa","stella","stella con scintille","stellina"]},
+  "⚡": {"name":"alta tensione","keywords":["alta tensione","alta","fulmine","pericolo","simbolo","tensione","tuono"]},
+  "💧": {"name":"goccia","keywords":["goccia","acqua","freddo","fumetto","lacrima","natura","sudore","triste"]},
+  "🌈": {"name":"arcobaleno","keywords":["arcobaleno","bisessuale","colori","gay","lesbica","lgbt","meteo","natura","omosessuale","pace","pioggia","transgender"]},
+  "🎯": {"name":"bersaglio","keywords":["bersaglio","arciere","arco","colpire","freccette","gioco","sport","target","tiro con l’arco"]},
+  "🏆": {"name":"coppa","keywords":["coppa","campione","premio","sport","trofeo","vincere","vincitore","vittoria"]},
+  "🥇": {"name":"medaglia d’oro","keywords":["medaglia d’oro","medaglia","numero 1","numero uno","oro","primo posto","sport","uno","vincere"]},
+  "💯": {"name":"100 punti","keywords":["100 punti","100","cento","d’accordo","massimo","punteggio","punteggio pieno","punti","sicuro","tutto"]},
+  "❗": {"name":"punto esclamativo rosso","keywords":["punto esclamativo rosso","esclamazione","punteggiatura","punto esclamativo","punto esclamativo pieno"]},
+  "❓": {"name":"punto interrogativo rosso","keywords":["punto interrogativo rosso","?","domanda","punteggiatura","punto di domanda","punto di domanda pieno","punto interrogativo"]},
+  "✔️": {"name":"segno di spunta","keywords":["segno di spunta","baffo","fatto","segno di spunta nero","spunta"]},
+  "❌": {"name":"croce","keywords":["croce","croce rossa","moltiplicazione","x"]},
+};
+
+export default daten;

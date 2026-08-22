@@ -1,0 +1,370 @@
+<!doctype html>
+<html lang="en" data-theme="dark" data-lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; base-uri 'none'; form-action 'none'">
+<title>Stellium — Internal Usage Policy / Interne Nutzungsordnung</title>
+<script>
+  (function () {
+    try {
+      var l = localStorage.getItem('stellium-legal-lang');
+      var t = localStorage.getItem('stellium-legal-theme');
+      if (l === 'de' || l === 'en') { document.documentElement.dataset.lang = l; document.documentElement.lang = l; }
+      if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t;
+    } catch (e) { /* localStorage unavailable — defaults stand */ }
+  })();
+</script>
+<style>
+  :root {
+    --violet:#7c5cff; --cyan:#22d3ee; --amber:#fbbf24; --rose:#fb7185; --mint:#34d399;
+    --grad: linear-gradient(135deg, #7c5cff 0%, #22d3ee 100%);
+    --r-sm:9px; --r-md:13px; --r-lg:18px;
+    --sp-2:.5rem; --sp-3:.75rem; --sp-4:1rem; --sp-5:1.375rem; --sp-6:1.875rem; --sp-7:2.625rem;
+    --font-ui: -apple-system, BlinkMacSystemFont, 'Segoe UI Variable', 'Segoe UI', Inter, Roboto, 'Helvetica Neue', Arial, sans-serif;
+    --safe-t: env(safe-area-inset-top, 0px);
+    --safe-b: env(safe-area-inset-bottom, 0px);
+    --safe-l: env(safe-area-inset-left, 0px);
+    --safe-r: env(safe-area-inset-right, 0px);
+  }
+  [data-theme='dark'] {
+    --bg:#05060f; --bg2:#080b16; --panel:rgba(255,255,255,.045); --panel2:rgba(255,255,255,.07);
+    --line:rgba(255,255,255,.09); --line2:rgba(255,255,255,.17);
+    --tx:#eef1fb; --txm:rgba(238,241,251,.7); --txl:rgba(238,241,251,.46);
+    color-scheme: dark;
+  }
+  [data-theme='light'] {
+    --bg:#eef1f8; --bg2:#f6f7fc; --panel:rgba(255,255,255,.78); --panel2:rgba(255,255,255,.94);
+    --line:rgba(14,20,48,.10); --line2:rgba(14,20,48,.19);
+    --tx:#10142c; --txm:rgba(16,20,44,.68); --txl:rgba(16,20,44,.46);
+    color-scheme: light;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin:0; padding:0; }
+  body {
+    background: var(--bg);
+    color: var(--tx);
+    font: 400 16px/1.65 var(--font-ui);
+    -webkit-font-smoothing: antialiased;
+    padding-left: var(--safe-l); padding-right: var(--safe-r); padding-bottom: var(--safe-b);
+  }
+  a { color: var(--cyan); text-decoration-color: rgba(34,211,238,.4); }
+  a:hover { text-decoration-color: var(--cyan); }
+  h1,h2,h3,h4 { line-height:1.25; font-weight:650; letter-spacing:-.01em; }
+  h2 { font-size:1.5rem; margin: 0 0 .75rem; padding-top: var(--sp-3); }
+  h3 { font-size:1.12rem; margin: var(--sp-6) 0 .6rem; color: var(--tx); }
+  p { margin: 0 0 var(--sp-4); color: var(--tx); }
+  ul, ol { margin: 0 0 var(--sp-4); padding-left: 1.35rem; }
+  li { margin-bottom: .4rem; }
+  .muted { color: var(--txm); }
+  .topbar {
+    position: sticky; top:0; z-index:20;
+    padding-top: calc(var(--safe-t) + .6rem);
+    padding-bottom:.6rem;
+    background: linear-gradient(var(--bg) 78%, transparent);
+    backdrop-filter: blur(10px);
+  }
+  .topbar-inner {
+    max-width: 780px; margin:0 auto; padding: 0 1.1rem;
+    display:flex; align-items:center; justify-content:space-between; gap:.75rem; flex-wrap:wrap;
+  }
+  .wordmark {
+    font-weight:750; font-size:1.05rem; letter-spacing:-.01em;
+    background: var(--grad); -webkit-background-clip:text; background-clip:text; color: var(--violet);
+    -webkit-text-fill-color: transparent;
+  }
+  .doctag { color: var(--txm); font-size:.82rem; margin-left:.5rem; }
+  .toggles { display:flex; gap:.4rem; }
+  .toggles .grp { display:flex; border:1px solid var(--line2); border-radius: var(--r-sm); overflow:hidden; }
+  .toggles button {
+    font: inherit; font-size:.8rem; font-weight:650; letter-spacing:.02em;
+    background: var(--panel); color: var(--txm); border:0; padding:.4rem .65rem; cursor:pointer;
+  }
+  .toggles .grp button + button { border-left:1px solid var(--line2); }
+  .toggles button[aria-pressed="true"] { background: var(--violet); color:#fff; }
+  .toggles button:hover[aria-pressed="false"] { color: var(--tx); }
+  main { max-width: 780px; margin: 0 auto; padding: .5rem 1.1rem var(--sp-7); }
+  .title-block { padding: var(--sp-4) 0 var(--sp-5); border-bottom:1px solid var(--line); margin-bottom: var(--sp-5); }
+  .title-block h1 { font-size:2rem; margin:.2rem 0 .5rem; }
+  .stamp { font-size:.85rem; color: var(--txl); }
+  .binding-note {
+    margin-top: var(--sp-4); padding: var(--sp-3) var(--sp-4); background: var(--panel);
+    border:1px solid var(--line2); border-radius: var(--r-md); font-size:.9rem; color: var(--txm);
+  }
+  nav.toc {
+    background: var(--panel); border:1px solid var(--line); border-radius: var(--r-lg);
+    padding: var(--sp-4) var(--sp-5); margin: 0 0 var(--sp-6);
+  }
+  nav.toc h2 { font-size:1rem; text-transform:uppercase; letter-spacing:.05em; color:var(--txm); margin-bottom:.6rem; padding-top:0; }
+  nav.toc ol { list-style: decimal; padding-left:1.2rem; margin:0; }
+  nav.toc li { margin-bottom:.35rem; }
+  nav.toc a { color: var(--tx); text-decoration:none; }
+  nav.toc a:hover { color: var(--cyan); }
+  section.sec { padding-top: var(--sp-6); scroll-margin-top: 4.5rem; }
+  section.sec:first-of-type { padding-top: 0; }
+  .callout {
+    border:1px solid var(--line2); border-left-width:4px; border-radius: var(--r-md);
+    background: var(--panel); padding: var(--sp-4) var(--sp-5); margin: var(--sp-4) 0;
+  }
+  .callout--warn { border-left-color: var(--amber); }
+  .callout--info { border-left-color: var(--cyan); }
+  .callout--good { border-left-color: var(--mint); }
+  .callout .tag {
+    display:block; font-size:.7rem; font-weight:750; text-transform:uppercase; letter-spacing:.06em;
+    margin-bottom:.4rem; color: var(--txm);
+  }
+  .callout--warn .tag { color: var(--amber); }
+  .callout p:last-child { margin-bottom:0; }
+  code { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size:.85em; background: var(--panel2); padding:.1em .35em; border-radius:5px; }
+  footer { max-width:780px; margin:0 auto; padding: var(--sp-6) 1.1rem calc(var(--sp-6) + var(--safe-b)); color: var(--txl); font-size:.85rem; border-top:1px solid var(--line); }
+  html[data-lang="en"] [data-de] { display:none !important; }
+  html[data-lang="de"] [data-en] { display:none !important; }
+  @media (max-width: 600px) {
+    .title-block h1 { font-size:1.55rem; }
+    h2 { font-size:1.25rem; }
+  }
+  @media print {
+    .topbar, nav.toc { display:none; }
+    body { background:#fff; color:#000; }
+    a { color:#000; text-decoration:underline; }
+    .callout { border-color:#000; }
+  }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <div><span class="wordmark">Stellium</span><span class="doctag" data-en>Internal Usage Policy</span><span class="doctag" data-de>Interne Nutzungsordnung</span></div>
+    <div class="toggles">
+      <div class="grp" role="group" aria-label="Language / Sprache">
+        <button type="button" id="btn-en" aria-pressed="true" onclick="setLang('en')">EN</button>
+        <button type="button" id="btn-de" aria-pressed="false" onclick="setLang('de')">DE</button>
+      </div>
+      <div class="grp" role="group" aria-label="Theme">
+        <button type="button" id="btn-dark" aria-pressed="true" onclick="setTheme('dark')">&#9789;</button>
+        <button type="button" id="btn-light" aria-pressed="false" onclick="setTheme('light')">&#9728;</button>
+      </div>
+    </div>
+  </div>
+</header>
+
+<main>
+  <div class="title-block">
+    <h1 data-en>Internal Usage Policy</h1>
+    <h1 data-de>Interne Nutzungsordnung</h1>
+    <div class="stamp" data-en>Last updated: August 22, 2026 · Stellium team chat</div>
+    <div class="stamp" data-de>Stand: 22. August 2026 · Stellium Team-Chat</div>
+    <div class="binding-note" data-en>This document is published in English and German. <strong>The English text is the binding version.</strong> The German text is a courtesy translation to aid understanding. If the two versions conflict in any way, the English text controls.</div>
+    <div class="binding-note" data-de>Dieses Dokument liegt auf Englisch und Deutsch vor. <strong>Verbindlich ist der englische Text.</strong> Die deutsche Fassung ist eine Übersetzung zur besseren Verständigung. Weicht sie vom englischen Text ab, gilt ausschließlich der englische Text.</div>
+  </div>
+
+  <nav class="toc" aria-label="Table of contents">
+    <div data-en>
+      <h2>Contents</h2>
+      <ol>
+        <li><a href="#purpose">What this is</a></li>
+        <li><a href="#accounts">Accounts</a></li>
+        <li><a href="#use">Acceptable use</a></li>
+        <li><a href="#ai">AI features and their limits</a></li>
+        <li><a href="#confidential">Confidential channels</a></li>
+        <li><a href="#availability">Availability</a></li>
+        <li><a href="#liability">Liability</a></li>
+        <li><a href="#leaving">When your engagement ends</a></li>
+        <li><a href="#law">Governing law</a></li>
+        <li><a href="#changes">Changes</a></li>
+        <li><a href="#contact">Contact</a></li>
+      </ol>
+    </div>
+    <div data-de>
+      <h2>Inhaltsverzeichnis</h2>
+      <ol>
+        <li><a href="#purpose">Worum es geht</a></li>
+        <li><a href="#accounts">Konten</a></li>
+        <li><a href="#use">Zulässige Nutzung</a></li>
+        <li><a href="#ai">KI-Funktionen und ihre Grenzen</a></li>
+        <li><a href="#confidential">Vertrauliche Kanäle</a></li>
+        <li><a href="#availability">Verfügbarkeit</a></li>
+        <li><a href="#liability">Haftung</a></li>
+        <li><a href="#leaving">Beim Ausscheiden</a></li>
+        <li><a href="#law">Anwendbares Recht</a></li>
+        <li><a href="#changes">Änderungen</a></li>
+        <li><a href="#contact">Kontakt</a></li>
+      </ol>
+    </div>
+  </nav>
+
+  <section class="sec" id="purpose">
+    <div data-en>
+      <h2>1. What this is</h2>
+      <p>Stellium is an internal team chat with live translation, built for use inside one company. There are no external customers and nothing is sold through it — this is not a consumer contract. It is an internal policy: it explains what the tool is for, what not to do with it, and how a few of its features work. It applies to everyone who has a Stellium account.</p>
+    </div>
+    <div data-de>
+      <h2>1. Worum es geht</h2>
+      <p>Stellium ist ein interner Team-Chat mit Live-Übersetzung für den Einsatz innerhalb eines einzelnen Unternehmens. Es gibt keine externen Kunden, und es wird nichts darüber verkauft — dies ist kein Verbrauchervertrag. Es ist eine interne Ordnung: Sie erklärt, wofür das Werkzeug da ist, was man damit nicht tun soll und wie einige seiner Funktionen arbeiten. Sie gilt für alle, die ein Stellium-Konto haben.</p>
+    </div>
+  </section>
+
+  <section class="sec" id="accounts">
+    <div data-en>
+      <h2>2. Accounts</h2>
+      <p>Company leadership creates every account; there is no self-registration and no public sign-up. When your account is created, you get a one-time password and are asked to set your own password and display name the first time you use it. Leadership can disable or delete any account at any time, including yours when your engagement with the company ends (see §8).</p>
+      <p>Keep your password to yourself. Do not share your account or let someone else use Stellium under your name.</p>
+    </div>
+    <div data-de>
+      <h2>2. Konten</h2>
+      <p>Konten legt ausschließlich die Unternehmensleitung an; es gibt keine Selbstregistrierung und keine öffentliche Anmeldung. Bei der Einrichtung erhalten Sie ein Einmal-Passwort und werden bei der ersten Nutzung gebeten, ein eigenes Passwort sowie einen Anzeigenamen festzulegen. Die Leitung kann jedes Konto jederzeit sperren oder löschen, auch Ihres, wenn Ihr Verhältnis zum Unternehmen endet (siehe §8).</p>
+      <p>Behalten Sie Ihr Passwort für sich. Geben Sie Ihr Konto nicht weiter und lassen Sie niemanden Stellium unter Ihrem Namen nutzen.</p>
+    </div>
+  </section>
+
+  <section class="sec" id="use">
+    <div data-en>
+      <h2>3. Acceptable use</h2>
+      <ul>
+        <li>Do not use Stellium for anything unlawful, harassing, or discriminatory.</li>
+        <li>Do not try to access another person's account or bypass access controls.</li>
+        <li>Do not use the emergency-access mechanism for confidential channels (§5) for anything other than its intended, exceptional purpose.</li>
+        <li>Do not use confidential channels to avoid legitimate oversight of company business, and do not treat them as a substitute for record-keeping that is legally or contractually required to happen elsewhere.</li>
+        <li>Do not upload content you do not have the right to share.</li>
+        <li>Treat AI-generated content as a tool, not as fact — see §4.</li>
+      </ul>
+    </div>
+    <div data-de>
+      <h2>3. Zulässige Nutzung</h2>
+      <ul>
+        <li>Nutzen Sie Stellium nicht für rechtswidrige, belästigende oder diskriminierende Zwecke.</li>
+        <li>Versuchen Sie nicht, auf das Konto einer anderen Person zuzugreifen oder Zugriffskontrollen zu umgehen.</li>
+        <li>Nutzen Sie den Notzugangs-Mechanismus für vertrauliche Kanäle (§5) nur für seinen vorgesehenen Ausnahmezweck.</li>
+        <li>Nutzen Sie vertrauliche Kanäle nicht, um eine berechtigte Aufsicht über Unternehmensangelegenheiten zu umgehen, und behandeln Sie sie nicht als Ersatz für eine Dokumentation, die aus rechtlichen oder vertraglichen Gründen anderswo erfolgen muss.</li>
+        <li>Laden Sie keine Inhalte hoch, an denen Sie kein Recht zur Weitergabe haben.</li>
+        <li>Behandeln Sie KI-generierte Inhalte als Werkzeug, nicht als Tatsache — siehe §4.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section class="sec" id="ai">
+    <div data-en>
+      <h2>4. AI features and their limits</h2>
+      <p>Stellium translates messages automatically and offers channel summaries, thread digests, and reply suggestions generated by a language model. These are tools, not authoritative records. Translations can be wrong or misleading, especially for anything technical, legal, or numerical; summaries and suggestions can omit details, misattribute them, or invent them. Do not rely on AI-generated text alone for anything that needs to be legally or factually accurate — check the original message.</p>
+      <p>AI suggestions can also assign responsibility for a task to a specific person and record who was mentioned in a message. A suggestion you reject is not deleted; it stays on record. Voice messages are transcribed automatically — treat the transcript with the same caution as any other AI-generated text.</p>
+      <p>For what data this involves and where it is processed, see the <a href="/privacy">Privacy Notice</a>, §3 and §5.</p>
+    </div>
+    <div data-de>
+      <h2>4. KI-Funktionen und ihre Grenzen</h2>
+      <p>Stellium übersetzt Nachrichten automatisch und bietet Kanal-Zusammenfassungen, Thread-Digests und Antwortvorschläge, die von einem Sprachmodell erzeugt werden. Das sind Werkzeuge, keine verbindlichen Aufzeichnungen. Übersetzungen können falsch oder irreführend sein, besonders bei technischen, rechtlichen oder zahlenbezogenen Inhalten; Zusammenfassungen und Vorschläge können Details auslassen, falsch zuordnen oder erfinden. Verlassen Sie sich bei allem, was rechtlich oder sachlich korrekt sein muss, nicht allein auf KI-generierten Text — prüfen Sie die Originalnachricht.</p>
+      <p>KI-Vorschläge können außerdem die Zuständigkeit für eine Aufgabe einer bestimmten Person zuordnen und festhalten, wer in einer Nachricht erwähnt wurde. Ein von Ihnen abgelehnter Vorschlag wird nicht gelöscht, sondern bleibt gespeichert. Sprachnachrichten werden automatisch abgeschrieben — behandeln Sie die Abschrift mit derselben Vorsicht wie jeden anderen KI-generierten Text.</p>
+      <p>Welche Daten das betrifft und wo sie verarbeitet werden, steht in der <a href="/privacy">Datenschutzerklärung</a>, §3 und §5.</p>
+    </div>
+  </section>
+
+  <section class="sec" id="confidential">
+    <div data-en>
+      <h2>5. Confidential channels</h2>
+      <div class="callout callout--good">
+        <p>Confidential channels use real end-to-end encryption: the server does not hold a key and cannot read their content. Translation, AI features, search, link previews, and voice transcription do not work inside them, because none of them can.</p>
+      </div>
+      <p>An emergency-access mechanism exists for exceptional cases. It requires both a release code and the channel owner's key, and it always leaves a visible message in the channel when used — it can never happen without a trace. Use confidential channels for what genuinely needs that level of protection. Outside of them, the operator can read what is stored, as explained in the <a href="/privacy">Privacy Notice</a>.</p>
+    </div>
+    <div data-de>
+      <h2>5. Vertrauliche Kanäle</h2>
+      <div class="callout callout--good">
+        <p>Vertrauliche Kanäle verwenden echte Ende-zu-Ende-Verschlüsselung: Der Server hat keinen Schlüssel und kann ihren Inhalt nicht lesen. Übersetzung, KI-Funktionen, Suche, Linkvorschau und Sprachabschrift funktionieren darin nicht, weil keine davon dort funktionieren kann.</p>
+      </div>
+      <p>Für Ausnahmefälle gibt es einen Notzugangs-Mechanismus. Er erfordert sowohl einen Freigabecode als auch den Schlüssel des Kanal-Eigentümers und hinterlässt bei seiner Nutzung stets eine sichtbare Nachricht im Kanal — er kann also nie spurlos geschehen. Nutzen Sie vertrauliche Kanäle für das, was diesen Schutz tatsächlich braucht. Außerhalb davon kann der Betreiber lesen, was gespeichert ist — siehe die <a href="/privacy">Datenschutzerklärung</a>.</p>
+    </div>
+  </section>
+
+  <section class="sec" id="availability">
+    <div data-en>
+      <h2>6. Availability</h2>
+      <p>Stellium runs on infrastructure the operator maintains and does not come with an uptime guarantee or a service-level agreement. It can be unavailable for maintenance, updates, or technical failure. Do not rely on it as the only channel for anything time-critical or safety-related.</p>
+    </div>
+    <div data-de>
+      <h2>6. Verfügbarkeit</h2>
+      <p>Stellium läuft auf Infrastruktur, die der Betreiber unterhält, und wird ohne Verfügbarkeitszusage oder Service-Level-Agreement bereitgestellt. Es kann wegen Wartung, Aktualisierungen oder technischer Störungen zeitweise nicht erreichbar sein. Verlassen Sie sich nicht allein darauf für etwas Zeitkritisches oder Sicherheitsrelevantes.</p>
+    </div>
+  </section>
+
+  <section class="sec" id="liability">
+    <div data-en>
+      <h2>7. Liability</h2>
+      <p>Stellium is provided as an internal tool, as-is, as part of your engagement with the company. It is not a substitute for the company's official record-keeping, legal, HR, or safety systems. Nothing in this policy limits any right or protection you have under mandatory employment law that applies to you; where this policy would conflict with that law, the law controls.</p>
+    </div>
+    <div data-de>
+      <h2>7. Haftung</h2>
+      <p>Stellium wird als internes Werkzeug im Rahmen Ihres Verhältnisses zum Unternehmen bereitgestellt, so wie es ist. Es ersetzt nicht die offizielle Dokumentation, Rechts-, Personal- oder Sicherheitssysteme des Unternehmens. Nichts in dieser Ordnung schränkt Rechte oder Schutzvorschriften ein, die Ihnen nach zwingendem, für Sie geltendem Arbeitsrecht zustehen; widerspricht diese Ordnung einer solchen Vorschrift, geht die Vorschrift vor.</p>
+    </div>
+  </section>
+
+  <section class="sec" id="leaving">
+    <div data-en>
+      <h2>8. When your engagement ends</h2>
+      <p>When your engagement with the company ends, your account is disabled and, in due course, anonymized. As explained in the <a href="/privacy">Privacy Notice</a> (§5.5), this does not delete the messages, files, tasks, or other content associated with your account — this generally remains part of the company's records. It is not handed back to you or removed on request, because it belongs to the company's business, not to you personally.</p>
+    </div>
+    <div data-de>
+      <h2>8. Beim Ausscheiden</h2>
+      <p>Endet Ihr Verhältnis zum Unternehmen, wird Ihr Konto gesperrt und im weiteren Verlauf anonymisiert. Wie in der <a href="/privacy">Datenschutzerklärung</a> (§5.5) erläutert, werden dabei Nachrichten, Dateien, Aufgaben und andere mit Ihrem Konto verbundene Inhalte nicht gelöscht — sie bleiben grundsätzlich Teil der Unterlagen des Unternehmens. Sie werden Ihnen nicht ausgehändigt und auf Anfrage nicht entfernt, weil sie zum Geschäftsbetrieb des Unternehmens gehören, nicht zu Ihnen persönlich.</p>
+    </div>
+  </section>
+
+  <section class="sec" id="law">
+    <div data-en>
+      <h2>9. Governing law</h2>
+      <p>This policy, and the provision of Stellium as a tool, is governed by the law of the State of Alaska and applicable U.S. federal law, without prejudice to any mandatory employee-protective law of the country in which you are employed, which continues to apply to your employment relationship regardless of this policy.</p>
+    </div>
+    <div data-de>
+      <h2>9. Anwendbares Recht</h2>
+      <p>Diese Ordnung und die Bereitstellung von Stellium als Werkzeug unterliegen dem Recht des Bundesstaats Alaska sowie anwendbarem US-Bundesrecht, unbeschadet zwingender arbeitnehmerschützender Vorschriften des Landes, in dem Sie beschäftigt sind — diese gelten unabhängig von dieser Ordnung für Ihr Beschäftigungsverhältnis fort.</p>
+    </div>
+  </section>
+
+  <section class="sec" id="changes">
+    <div data-en>
+      <h2>10. Changes</h2>
+      <p>We may update this policy as Stellium changes. The date at the top reflects the version currently in effect.</p>
+    </div>
+    <div data-de>
+      <h2>10. Änderungen</h2>
+      <p>Wir aktualisieren diese Ordnung, wenn sich Stellium ändert. Das Datum oben gibt die aktuell geltende Fassung wieder.</p>
+    </div>
+  </section>
+
+  <section class="sec" id="contact">
+    <div data-en>
+      <h2>11. Contact</h2>
+      <p>Questions about this policy go to <a href="mailto:privacy@stellium.club">privacy@stellium.club</a>.</p>
+    </div>
+    <div data-de>
+      <h2>11. Kontakt</h2>
+      <p>Fragen zu dieser Ordnung richten Sie an <a href="mailto:privacy@stellium.club">privacy@stellium.club</a>.</p>
+    </div>
+  </section>
+
+</main>
+
+<footer>
+  <div data-en>Stellium — Internal Usage Policy — Version of August 22, 2026. See also the <a href="/privacy">Privacy Notice</a>.</div>
+  <div data-de>Stellium — Interne Nutzungsordnung — Fassung vom 22. August 2026. Siehe auch die <a href="/privacy">Datenschutzerklärung</a>.</div>
+</footer>
+
+<script>
+  function setLang(l) {
+    document.documentElement.dataset.lang = l;
+    document.documentElement.lang = l;
+    try { localStorage.setItem('stellium-legal-lang', l); } catch (e) {}
+    document.getElementById('btn-en').setAttribute('aria-pressed', String(l === 'en'));
+    document.getElementById('btn-de').setAttribute('aria-pressed', String(l === 'de'));
+  }
+  function setTheme(t) {
+    document.documentElement.dataset.theme = t;
+    try { localStorage.setItem('stellium-legal-theme', t); } catch (e) {}
+    document.getElementById('btn-dark').setAttribute('aria-pressed', String(t === 'dark'));
+    document.getElementById('btn-light').setAttribute('aria-pressed', String(t === 'light'));
+  }
+  setLang(document.documentElement.dataset.lang || 'en');
+  setTheme(document.documentElement.dataset.theme || 'dark');
+</script>
+</body>
+</html>

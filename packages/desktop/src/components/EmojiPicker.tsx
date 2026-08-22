@@ -1,8 +1,9 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { useT } from '../i18n/index.js';
+import { currentUiLanguage, useT } from '../i18n/index.js';
 import { motion } from 'framer-motion';
-import { Search, X } from 'lucide-react';
+import { Search, Sparkles, X } from 'lucide-react';
+import { emojiSuchen, useEmojiKatalog } from '../emoji/katalog.js';
 
 const GROUPS: { name: string; emoji: string[] }[] = [
   { name: 'emoji.frequent', emoji: ['👍', '🎉', '❤️', '😂', '👀', '🚀', '✅', '🔥', '🙏', '💡', '👏', '🤝'] },
@@ -12,21 +13,40 @@ const GROUPS: { name: string; emoji: string[] }[] = [
   { name: 'emoji.symbols', emoji: ['⭐','✨','💫','🌟','⚡','🔥','💧','🌈','🎯','🏆','🥇','💯','❗','❓','✔️','❌'] },
 ];
 
+/** Was ein Klick auf "KI fragen" in der Auswahl anbietet — siehe MessageItem.tsx. */
+interface KiNachfrage {
+  /** null = noch nicht gefragt. Leeres Array = gefragt, nichts Passendes gefunden. */
+  emojis: string[] | null;
+  laeuft: boolean;
+  anfordern: () => void;
+}
+
 interface Props {
   onPick: (emoji: string) => void;
   onClose: () => void;
   /** Element, an dem die Auswahl hängen soll — meist der Emoji-Knopf. */
   ankerRef?: React.RefObject<HTMLElement | null>;
+  /**
+   * Örtlich gefundene Vorschläge für die Nachricht, an der die Auswahl hängt
+   * (siehe emoji/katalog.ts, emojiVorschlaege() — von MessageItem.tsx schon
+   * berechnet und nur durchgereicht, damit es hier nicht zweimal passiert).
+   * Ohne Nachrichtenbezug (z.B. eine künftige Auswahl im Composer) bleibt das
+   * einfach weg — dann zeigt sich nur die gewohnte Liste.
+   */
+  vorschlaege?: string[];
+  /** Auf Wunsch bei der KI nachfragen — nur gesetzt, wenn das überhaupt in Frage kommt (Recht vorhanden, Kanal nicht vertraulich). */
+  kiNachfrage?: KiNachfrage;
 }
 
 const BREITE = 306;
 const RAND = 10;
 
-export function EmojiPicker({ onPick, onClose, ankerRef }: Props) {
+export function EmojiPicker({ onPick, onClose, ankerRef, vorschlaege, kiNachfrage }: Props) {
   const t = useT();
   const [query, setQuery] = useState('');
   const ref = useRef<HTMLDivElement>(null);
   const [ort, setOrt] = useState<{ left: number; top: number; hoehe: number } | null>(null);
+  const katalog = useEmojiKatalog(currentUiLanguage());
 
   /* Am Anker ausrichten und dabei im Fenster bleiben.
      Vorher hing die Auswahl absolut im Eingabebereich und lief unten aus dem
@@ -69,9 +89,33 @@ export function EmojiPicker({ onPick, onClose, ankerRef }: Props) {
     };
   }, [onClose]);
 
+  /*
+   * Wirklich filtern, statt nur so zu tun: solange der Bestand für die
+   * eingestellte Sprache noch nachlädt (erster Aufruf in dieser Sitzung,
+   * dauert normalerweise nur wenige Millisekunden), bleibt die Liste
+   * ungefiltert sichtbar — besser ein kurzer Moment mit zu vielen Treffern
+   * als einer mit "nichts gefunden", obwohl gerade nur die Datei unterwegs
+   * ist. emojiSuchen() selbst gleicht ohne Rücksicht auf Groß-/
+   * Kleinschreibung, Umlaute und Akzente ab (siehe katalog.ts,
+   * normalizeSuche) — "grussen" findet damit auch "grüßen".
+   */
+  const treffer = query.trim() && katalog ? emojiSuchen(katalog, query) : null;
   const groups = query.trim()
-    ? [{ name: 'emoji.hits', emoji: GROUPS.flatMap((g) => g.emoji) }]
+    ? [{
+        name: 'emoji.hits',
+        emoji: [...new Set(GROUPS.flatMap((g) => g.emoji))].filter((e) => !treffer || treffer.has(e)),
+      }]
     : GROUPS;
+
+  /*
+   * Die Vorschlagszeile: örtliche Treffer zuerst, die (seltene) KI-Antwort
+   * nur, wenn örtlich nichts da war. Nur außerhalb einer laufenden Suche —
+   * wer schon tippt, sucht etwas Bestimmtes, keine Vorschläge zum Überfliegen.
+   */
+  const zeigeVorschlaege = !query.trim() && Boolean(vorschlaege?.length);
+  const kiEmojis = kiNachfrage?.emojis;
+  const zeigeKiErgebnis = !query.trim() && !vorschlaege?.length && Boolean(kiEmojis?.length);
+  const zeigeKiKnopf = !query.trim() && !vorschlaege?.length && kiEmojis == null && Boolean(kiNachfrage);
 
   // Am <body>, nicht dort wo es im Baum steht: der Eingabebereich hat einen
   // backdrop-filter, und der macht jede feste Positionierung darin zunichte.
@@ -106,6 +150,41 @@ export function EmojiPicker({ onPick, onClose, ankerRef }: Props) {
         />
         <button className="icon-btn icon-btn--sm" onClick={onClose}><X size={14} /></button>
       </div>
+
+      {(zeigeVorschlaege || zeigeKiErgebnis || zeigeKiKnopf) && (
+        <div style={{ marginBottom: 8 }}>
+          <div className="muted" style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '.07em', textTransform: 'uppercase', margin: '4px 2px' }}>
+            {t('emoji.vorschlaege')}
+          </div>
+          {(zeigeVorschlaege || zeigeKiErgebnis) ? (
+            <div style={{ display: 'flex', gap: 3 }}>
+              {(zeigeVorschlaege ? vorschlaege! : kiEmojis!).map((e) => (
+                <button
+                  key={e}
+                  onClick={() => onPick(e)}
+                  style={{ fontSize: 22, padding: 6, borderRadius: 8, lineHeight: 1 }}
+                  onMouseEnter={(ev) => { ev.currentTarget.style.background = 'var(--bg-hover)'; }}
+                  onMouseLeave={(ev) => { ev.currentTarget.style.background = 'transparent'; }}
+                >{e}</button>
+              ))}
+            </div>
+          ) : (
+            /* Örtlich nichts gefunden — auf Wunsch (ein Klick, nie von selbst)
+               die KI fragen. Nur eingeblendet, wenn der Aufrufer das anbietet:
+               Recht vorhanden, Kanal nicht vertraulich (siehe MessageItem.tsx). */
+            <button
+              className="muted"
+              style={{ fontSize: 12, padding: '4px 2px', display: 'flex', alignItems: 'center', gap: 5 }}
+              disabled={kiNachfrage!.laeuft}
+              onClick={kiNachfrage!.anfordern}
+            >
+              <Sparkles size={12} className={kiNachfrage!.laeuft ? 'spark' : undefined} />
+              {kiNachfrage!.laeuft ? t('emoji.kiLaeuft') : t('emoji.kiFragen')}
+            </button>
+          )}
+        </div>
+      )}
+
       <div style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
         {groups.map((g) => (
           <div key={g.name} style={{ marginBottom: 8 }}>

@@ -1,0 +1,601 @@
+<!doctype html>
+<html lang="en" data-theme="dark" data-lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; base-uri 'none'; form-action 'none'">
+<title>Stellium — Privacy Notice / Datenschutzerklärung</title>
+<script>
+  (function () {
+    try {
+      var l = localStorage.getItem('stellium-legal-lang');
+      var t = localStorage.getItem('stellium-legal-theme');
+      if (l === 'de' || l === 'en') { document.documentElement.dataset.lang = l; document.documentElement.lang = l; }
+      if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t;
+    } catch (e) { /* localStorage unavailable — defaults stand */ }
+  })();
+</script>
+<style>
+  :root {
+    --violet:#7c5cff; --cyan:#22d3ee; --amber:#fbbf24; --rose:#fb7185; --mint:#34d399;
+    --grad: linear-gradient(135deg, #7c5cff 0%, #22d3ee 100%);
+    --r-sm:9px; --r-md:13px; --r-lg:18px;
+    --sp-2:.5rem; --sp-3:.75rem; --sp-4:1rem; --sp-5:1.375rem; --sp-6:1.875rem; --sp-7:2.625rem;
+    --font-ui: -apple-system, BlinkMacSystemFont, 'Segoe UI Variable', 'Segoe UI', Inter, Roboto, 'Helvetica Neue', Arial, sans-serif;
+    --safe-t: env(safe-area-inset-top, 0px);
+    --safe-b: env(safe-area-inset-bottom, 0px);
+    --safe-l: env(safe-area-inset-left, 0px);
+    --safe-r: env(safe-area-inset-right, 0px);
+  }
+  [data-theme='dark'] {
+    --bg:#05060f; --bg2:#080b16; --panel:rgba(255,255,255,.045); --panel2:rgba(255,255,255,.07);
+    --line:rgba(255,255,255,.09); --line2:rgba(255,255,255,.17);
+    --tx:#eef1fb; --txm:rgba(238,241,251,.7); --txl:rgba(238,241,251,.46);
+    color-scheme: dark;
+  }
+  [data-theme='light'] {
+    --bg:#eef1f8; --bg2:#f6f7fc; --panel:rgba(255,255,255,.78); --panel2:rgba(255,255,255,.94);
+    --line:rgba(14,20,48,.10); --line2:rgba(14,20,48,.19);
+    --tx:#10142c; --txm:rgba(16,20,44,.68); --txl:rgba(16,20,44,.46);
+    color-scheme: light;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin:0; padding:0; }
+  body {
+    background: var(--bg);
+    color: var(--tx);
+    font: 400 16px/1.65 var(--font-ui);
+    -webkit-font-smoothing: antialiased;
+    padding-left: var(--safe-l); padding-right: var(--safe-r); padding-bottom: var(--safe-b);
+  }
+  a { color: var(--cyan); text-decoration-color: rgba(34,211,238,.4); }
+  a:hover { text-decoration-color: var(--cyan); }
+  h1,h2,h3,h4 { line-height:1.25; font-weight:650; letter-spacing:-.01em; }
+  h2 { font-size:1.5rem; margin: 0 0 .75rem; padding-top: var(--sp-3); }
+  h3 { font-size:1.12rem; margin: var(--sp-6) 0 .6rem; color: var(--tx); }
+  h4 { font-size:.98rem; margin: var(--sp-5) 0 .4rem; color: var(--txm); text-transform: uppercase; letter-spacing:.04em; font-weight:700;}
+  p { margin: 0 0 var(--sp-4); color: var(--tx); }
+  ul, ol { margin: 0 0 var(--sp-4); padding-left: 1.35rem; }
+  li { margin-bottom: .4rem; }
+  .muted { color: var(--txm); }
+  .topbar {
+    position: sticky; top:0; z-index:20;
+    padding-top: calc(var(--safe-t) + .6rem);
+    padding-bottom:.6rem;
+    background: linear-gradient(var(--bg) 78%, transparent);
+    backdrop-filter: blur(10px);
+  }
+  .topbar-inner {
+    max-width: 780px; margin:0 auto; padding: 0 1.1rem;
+    display:flex; align-items:center; justify-content:space-between; gap:.75rem; flex-wrap:wrap;
+  }
+  .wordmark {
+    font-weight:750; font-size:1.05rem; letter-spacing:-.01em;
+    background: var(--grad); -webkit-background-clip:text; background-clip:text; color: var(--violet);
+    -webkit-text-fill-color: transparent;
+  }
+  .doctag { color: var(--txm); font-size:.82rem; margin-left:.5rem; }
+  .toggles { display:flex; gap:.4rem; }
+  .toggles .grp { display:flex; border:1px solid var(--line2); border-radius: var(--r-sm); overflow:hidden; }
+  .toggles button {
+    font: inherit; font-size:.8rem; font-weight:650; letter-spacing:.02em;
+    background: var(--panel); color: var(--txm); border:0; padding:.4rem .65rem; cursor:pointer;
+  }
+  .toggles .grp button + button { border-left:1px solid var(--line2); }
+  .toggles button[aria-pressed="true"] { background: var(--violet); color:#fff; }
+  .toggles button:hover[aria-pressed="false"] { color: var(--tx); }
+  main { max-width: 780px; margin: 0 auto; padding: .5rem 1.1rem var(--sp-7); }
+  .title-block { padding: var(--sp-4) 0 var(--sp-5); border-bottom:1px solid var(--line); margin-bottom: var(--sp-5); }
+  .title-block h1 { font-size:2rem; margin:.2rem 0 .5rem; }
+  .stamp { font-size:.85rem; color: var(--txl); }
+  .binding-note {
+    margin-top: var(--sp-4); padding: var(--sp-3) var(--sp-4); background: var(--panel);
+    border:1px solid var(--line2); border-radius: var(--r-md); font-size:.9rem; color: var(--txm);
+  }
+  nav.toc {
+    background: var(--panel); border:1px solid var(--line); border-radius: var(--r-lg);
+    padding: var(--sp-4) var(--sp-5); margin: 0 0 var(--sp-6);
+  }
+  nav.toc h2 { font-size:1rem; text-transform:uppercase; letter-spacing:.05em; color:var(--txm); margin-bottom:.6rem; padding-top:0; }
+  nav.toc ol { list-style: decimal; padding-left:1.2rem; margin:0; columns: 1; }
+  nav.toc li { margin-bottom:.35rem; }
+  nav.toc a { color: var(--tx); text-decoration:none; }
+  nav.toc a:hover { color: var(--cyan); }
+  section.sec { padding-top: var(--sp-6); scroll-margin-top: 4.5rem; }
+  section.sec:first-of-type { padding-top: 0; }
+  .callout {
+    border:1px solid var(--line2); border-left-width:4px; border-radius: var(--r-md);
+    background: var(--panel); padding: var(--sp-4) var(--sp-5); margin: var(--sp-4) 0;
+  }
+  .callout--warn { border-left-color: var(--amber); }
+  .callout--info { border-left-color: var(--cyan); }
+  .callout--good { border-left-color: var(--mint); }
+  .callout .tag {
+    display:block; font-size:.7rem; font-weight:750; text-transform:uppercase; letter-spacing:.06em;
+    margin-bottom:.4rem; color: var(--txm);
+  }
+  .callout--warn .tag { color: var(--amber); }
+  .callout--good .tag { color: var(--mint); }
+  .callout p:last-child { margin-bottom:0; }
+  .table-wrap { overflow-x:auto; border:1px solid var(--line); border-radius: var(--r-md); margin: var(--sp-4) 0; }
+  table { width:100%; border-collapse:collapse; font-size:.88rem; min-width: 560px; }
+  th, td { text-align:left; padding:.6rem .75rem; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { color: var(--txm); font-weight:700; font-size:.72rem; text-transform:uppercase; letter-spacing:.04em; background: var(--panel2); }
+  tr:last-child td { border-bottom:0; }
+  code { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size:.85em; background: var(--panel2); padding:.1em .35em; border-radius:5px; }
+  hr.sep { border:0; border-top:1px solid var(--line); margin: var(--sp-6) 0; }
+  footer { max-width:780px; margin:0 auto; padding: var(--sp-6) 1.1rem calc(var(--sp-6) + var(--safe-b)); color: var(--txl); font-size:.85rem; border-top:1px solid var(--line); }
+  html[data-lang="en"] [data-de] { display:none !important; }
+  html[data-lang="de"] [data-en] { display:none !important; }
+  @media (max-width: 600px) {
+    .title-block h1 { font-size:1.55rem; }
+    h2 { font-size:1.25rem; }
+  }
+  @media print {
+    .topbar, nav.toc { display:none; }
+    body { background:#fff; color:#000; }
+    a { color:#000; text-decoration:underline; }
+    .callout { border-color:#000; }
+  }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <div><span class="wordmark">Stellium</span><span class="doctag" data-en>Privacy Notice</span><span class="doctag" data-de>Datenschutzerklärung</span></div>
+    <div class="toggles">
+      <div class="grp" role="group" aria-label="Language / Sprache">
+        <button type="button" id="btn-en" aria-pressed="true" onclick="setLang('en')">EN</button>
+        <button type="button" id="btn-de" aria-pressed="false" onclick="setLang('de')">DE</button>
+      </div>
+      <div class="grp" role="group" aria-label="Theme">
+        <button type="button" id="btn-dark" aria-pressed="true" onclick="setTheme('dark')">&#9789;</button>
+        <button type="button" id="btn-light" aria-pressed="false" onclick="setTheme('light')">&#9728;</button>
+      </div>
+    </div>
+  </div>
+</header>
+
+<main>
+  <div class="title-block">
+    <h1 data-en>Privacy Notice</h1>
+    <h1 data-de>Datenschutzerklärung</h1>
+    <div class="stamp" data-en>Last updated: August 22, 2026 · Stellium team chat</div>
+    <div class="stamp" data-de>Stand: 22. August 2026 · Stellium Team-Chat</div>
+    <div class="binding-note" data-en>This notice is published in English and German. <strong>The English text is the binding version.</strong> The German text is a courtesy translation to aid understanding. If the two versions conflict in any way, the English text controls.</div>
+    <div class="binding-note" data-de>Diese Erklärung liegt auf Englisch und Deutsch vor. <strong>Verbindlich ist der englische Text.</strong> Die deutsche Fassung ist eine Übersetzung zur besseren Verständigung. Weicht sie vom englischen Text ab, gilt ausschließlich der englische Text.</div>
+  </div>
+
+  <nav class="toc" aria-label="Table of contents">
+    <div data-en>
+      <h2>Contents</h2>
+      <ol>
+        <li><a href="#scope">How to read this notice</a></li>
+        <li><a href="#controller">Who is responsible</a></li>
+        <li><a href="#infrastructure">Infrastructure, security, and who else sees data</a></li>
+        <li><a href="#transfers">Sending data to other countries</a></li>
+        <li><a href="#part-a">Part A — Team members</a></li>
+        <li><a href="#part-b">Part B — People who contact us</a></li>
+        <li><a href="#part-c">Part C — Visitors of a partner website</a></li>
+        <li><a href="#rights">Your rights</a></li>
+        <li><a href="#children">Children</a></li>
+        <li><a href="#changes">Changes to this notice</a></li>
+        <li><a href="#contact">Contact</a></li>
+      </ol>
+    </div>
+    <div data-de>
+      <h2>Inhaltsverzeichnis</h2>
+      <ol>
+        <li><a href="#scope">Wie Sie dieses Dokument lesen sollten</a></li>
+        <li><a href="#controller">Wer verantwortlich ist</a></li>
+        <li><a href="#infrastructure">Infrastruktur, Sicherheit und wer sonst Daten sieht</a></li>
+        <li><a href="#transfers">Übermittlung in andere Länder</a></li>
+        <li><a href="#part-a">Teil A — Teammitglieder</a></li>
+        <li><a href="#part-b">Teil B — Menschen, die uns schreiben</a></li>
+        <li><a href="#part-c">Teil C — Besucher:innen einer Partner-Website</a></li>
+        <li><a href="#rights">Ihre Rechte</a></li>
+        <li><a href="#children">Kinder</a></li>
+        <li><a href="#changes">Änderungen dieser Erklärung</a></li>
+        <li><a href="#contact">Kontakt</a></li>
+      </ol>
+    </div>
+  </nav>
+
+  <section class="sec" id="scope">
+    <div data-en>
+      <h2>1. How to read this notice</h2>
+      <p>Stellium is an internal team chat with live translation, used inside one company. There is no public sign-up and no general public using it. This notice covers two different groups of people, and a third group that has nothing to do with the chat at all:</p>
+      <ul>
+        <li><strong>Part A</strong> is for <strong>team members</strong> — the people who have an account and use Stellium at work. For staff, this is workplace data protection, not consumer protection.</li>
+        <li><strong>Part B</strong> is for <strong>people who write to the company</strong> from outside — customers, applicants, security researchers, and anyone else who emails an address such as <code>support@</code>, <code>info@</code>, <code>sales@</code>, <code>jobs@</code>, <code>privacy@</code>, or <code>security@</code>. These people never get an account and never see Stellium; their data is processed because they contacted the company.</li>
+        <li><strong>Part C</strong> is a separate, unrelated matter: visitor statistics for a different website, belonging to a business partner, which happens to run on the same server. This has nothing to do with the chat and does not concern team members or correspondents.</li>
+      </ul>
+      <p>Sections 2–4 apply to all three groups. If you are located in the EU/EEA, the UK, or Switzerland, you may want to go directly to <a href="#transfers">§4, Sending data to other countries</a>.</p>
+    </div>
+    <div data-de>
+      <h2>1. Wie Sie dieses Dokument lesen sollten</h2>
+      <p>Stellium ist ein interner Team-Chat mit Live-Übersetzung, der innerhalb eines einzelnen Unternehmens eingesetzt wird. Es gibt keine öffentliche Registrierung und keine allgemeine Öffentlichkeit, die ihn nutzt. Diese Erklärung betrifft zwei unterschiedliche Personengruppen sowie eine dritte Gruppe, die mit dem Chat überhaupt nichts zu tun hat:</p>
+      <ul>
+        <li><strong>Teil A</strong> gilt für <strong>Teammitglieder</strong> — die Personen, die ein Konto haben und Stellium beruflich nutzen. Für sie ist dies Beschäftigtendatenschutz, kein Verbraucherrecht.</li>
+        <li><strong>Teil B</strong> gilt für <strong>Menschen, die dem Unternehmen von außen schreiben</strong> — Kundinnen und Kunden, Bewerber:innen, Sicherheitsforscher:innen und alle anderen, die eine Adresse wie <code>support@</code>, <code>info@</code>, <code>sales@</code>, <code>jobs@</code>, <code>privacy@</code> oder <code>security@</code> anschreiben. Diese Personen erhalten nie ein Konto und sehen Stellium nie; ihre Daten werden verarbeitet, weil sie das Unternehmen kontaktiert haben.</li>
+        <li><strong>Teil C</strong> ist eine eigene, unabhängige Angelegenheit: Besucherstatistik für eine andere Website, die einem Geschäftspartner gehört und zufällig auf demselben Server läuft. Das hat mit dem Chat nichts zu tun und betrifft weder Teammitglieder noch Korrespondenzpartner.</li>
+      </ul>
+      <p>Die Abschnitte 2–4 gelten für alle drei Gruppen. Wenn Sie sich in der EU/im EWR, im Vereinigten Königreich oder in der Schweiz befinden, lohnt sich ein direkter Sprung zu <a href="#transfers">§4, Übermittlung in andere Länder</a>.</p>
+    </div>
+  </section>
+
+  <section class="sec" id="controller">
+    <div data-en>
+      <h2>2. Who is responsible</h2>
+      <p>The controller for the processing described in this notice is:</p>
+      <p><strong>Aryan Guerrero C</strong><br>915 W 29th Pl<br>Anchorage, AK 99503<br>United States</p>
+      <p>For any data protection matter, write to <a href="privacy@stellium.club">privacy@stellium.club</a>. In this notice, "we," "us," and "the operator" refer to the controller named above.</p>
+    </div>
+    <div data-de>
+      <h2>2. Wer verantwortlich ist</h2>
+      <p>Verantwortlicher für die in dieser Erklärung beschriebene Verarbeitung ist:</p>
+      <p><strong>Aryan Guerrero C</strong><br>915 W 29th Pl<br>Anchorage, AK 99503<br>USA</p>
+      <p>Für alle Fragen des Datenschutzes wenden Sie sich an <a href="privacy@stellium.club">privacy@stellium.club</a>. In dieser Erklärung bezeichnen „wir", „uns" und „der Betreiber" den oben genannten Verantwortlichen.</p>
+    </div>
+  </section>
+
+  <section class="sec" id="infrastructure">
+    <div data-en>
+      <h2>3. Infrastructure, security, and who else sees data</h2>
+      <p>Stellium runs on a server the operator controls, physically located in Alaska, USA. This section explains, in general terms that apply to everyone described in this notice, how data is protected and who besides the operator can come into contact with it.</p>
+
+      <h3>3.1 How encryption is used</h3>
+      <p>Data inside Stellium exists in one of three states:</p>
+      <ul>
+        <li><strong>Plain text.</strong> Readable by anyone who can access the underlying files or database directly.</li>
+        <li><strong>Encrypted with a server-held key.</strong> Certain fields — message text, translations, drafts, scheduled messages, voice-message transcripts, your username and email address, poll text, AI-generated summaries, the entire support/contact mailbox, remote-access credentials, and a sales-platform token — are encrypted at rest with AES-256-GCM, derived from a master password kept on the server.</li>
+        <li><strong>End-to-end encrypted.</strong> Only inside <em>confidential channels</em> (see §5.3). There, the server never holds a key at all.</li>
+      </ul>
+      <div class="callout callout--warn">
+        <span class="tag">Read this carefully</span>
+        <p>Server-held-key encryption is designed to protect data if the physical server or its storage is lost or stolen. <strong>It does not protect your messages from the operator.</strong> Whoever controls the server and the master password can decrypt and read anything encrypted this way — including message text, drafts, and voice transcripts. The only place this is not true is inside confidential channels, which use real end-to-end encryption instead (§5.3).</p>
+      </div>
+      <p>The following categories are <strong>not</strong> encrypted and are stored as plain text: display names (in practice, usually your real name), channel names/topics/purposes, tasks and their change history, ideas together with comments and votes on them, calendar entries including location, projects, file and attachment <em>names</em> (see the note on file contents below), reminder notes, the translation glossary, link previews (including the URL, page title, and preview image), status text, quiet-hours settings, how many seconds you were online each day, and all membership/relationship data — who is in which channel, who mentions whom, who reacts to what, who voted how.</p>
+      <p>We have not separately confirmed whether the contents of uploaded files and attachments (as opposed to their file names) are encrypted at rest outside confidential channels. Treat files you upload in ordinary (non-confidential) channels as visible to the operator, the same as messages.</p>
+
+      <h3>3.2 Who else receives data</h3>
+      <p>The table below lists every category of outside recipient built into Stellium's design, where each one is located, and what we can currently confirm about whether it is actually active on the server running today.</p>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Recipient</th><th>Role</th><th>Country</th><th>Current status</th></tr></thead>
+        <tbody>
+          <tr><td>Cloudflare, Inc.</td><td>Network tunnel — the TLS endpoint for all traffic to the service; inbound email routing, including a worker that parses every incoming message</td><td>USA</td><td>Active</td></tr>
+          <tr><td>Self-hosted AI / translation service, operated by us (not a third-party AI vendor)</td><td>Message translation, channel summaries, thread digests, reply suggestions, voice-message transcription</td><td>Outside the USA, reached over a private network connection</td><td>Active — this is where these features currently run</td></tr>
+          <tr><td>Groq, Inc.</td><td>Cloud translation / AI / voice transcription (configured as a fallback provider)</td><td>USA</td><td>Not active — no access key is configured</td></tr>
+          <tr><td>OpenAI, L.L.C.</td><td>Cloud AI (configured as a secondary fallback)</td><td>USA</td><td>Not active — no valid access key is configured; the fallback address is currently pointed back at our own infrastructure instead</td></tr>
+          <tr><td>DeepL SE</td><td>Alternative translation-only provider</td><td>Germany</td><td>Not active — no access key is configured</td></tr>
+          <tr><td>Google, Mozilla, Apple</td><td>Push notification delivery. The notification content is end-to-end encrypted to your device; the fact that a notification was sent, and to which device, is visible to these providers as connection metadata</td><td>USA</td><td>Used only if and when push notifications are enabled</td></tr>
+          <tr><td>Resend</td><td>Sending system emails (e.g. account notices)</td><td>USA</td><td>Built into the software for this purpose; live configuration on this server not independently confirmed for this notice</td></tr>
+          <tr><td>Gumroad, Inc.</td><td>Looking up sales figures</td><td>USA</td><td>Built into the software for this purpose; live configuration on this server not independently confirmed for this notice</td></tr>
+          <tr><td>The operator of any external link you share</td><td>Learns that their page was requested when Stellium generates a link preview</td><td>Wherever that operator is located</td><td>Happens automatically whenever a link is shared outside a confidential channel</td></tr>
+          <tr><td>TeamViewer</td><td>Remote-access software installed on the server</td><td>Germany / global relay network</td><td><strong>Actively installed; a connection was open when this notice was last reviewed</strong></td></tr>
+        </tbody>
+      </table></div>
+      <p>What is actually sent to whichever translation/AI service is active is often more than "the message": a plain translation request sends a single message with obvious identifiers (code blocks, links, @mentions) masked out, plus the glossary; a channel summary can include up to 300 messages from that channel, each labeled with a timestamp, display name, and handle, plus a list of the people in the channel; a thread digest can include up to 200 replies; reply suggestions include the last 12 messages and the name of the person being replied to; and if the local speech-recognition service described below is unreachable and a cloud fallback is configured, a voice message is sent as an audio file, up to 25&nbsp;MB, rather than as text.</p>
+      <p>As of the date of this notice, none of that reaches Groq, OpenAI, or DeepL, because none of them has a working key configured (see the table above): translation, summaries, and voice transcription currently run on infrastructure we operate ourselves. Voice messages are transcribed locally, using speech-recognition software running on that same infrastructure; the audio file does not currently leave it.</p>
+      <div class="callout callout--warn">
+        <span class="tag">What changes if we switch provider</span>
+        <p>We can change this configuration at any time. If a commercial provider such as Groq or OpenAI is activated, the data described above would be sent to that provider's servers in the United States (Germany, for DeepL). The system is also built so that if our own translation service does not answer, it automatically retries through Groq and then OpenAI as a fallback — so even someone who deliberately chose on-premises translation could have a message routed to a US provider if our own service happens to be unreachable at that moment, provided a working key for that fallback is configured. No such key is configured today, so this cannot currently happen; if we activate one, this automatic fallback would apply without any further choice by the person sending the message.</p>
+      </div>
+
+      <h3>3.3 What we do not do</h3>
+      <div class="callout callout--good">
+        <p>Stellium does not use telemetry, crash reporting, or analytics tools of any kind, and it does not load fonts or scripts from a content delivery network or any other outside source. Software updates are checked against our own server, not a third party. The chat application itself does not log who accessed it or when.</p>
+      </div>
+      <p>That last point is about the application only. The network components in front of it also run software that can produce its own operating logs; at present, no maximum retention period is configured for those logs beyond a general size limit, so entries persist until that limit is reached rather than being deleted on a schedule.</p>
+
+      <h3>3.4 Backups and physical access</h3>
+      <p>Backups are taken daily and three generations are kept, but they are stored on the same physical device as the live data. They protect against an operator mistake, not against loss, theft, or failure of that device itself.</p>
+      <p>The server also has its own remote-access feature, restricted to the server owner, which shares the screen and clipboard only for as long as someone is actively watching and does not record anything. Separately, and outside of Stellium's own design, the TeamViewer software listed in the table above is installed on the same machine and provides its own, independent remote-access path.</p>
+    </div>
+
+    <div data-de>
+      <h2>3. Infrastruktur, Sicherheit und wer sonst Daten sieht</h2>
+      <p>Stellium läuft auf einem Server, den der Betreiber kontrolliert und der sich physisch in Alaska, USA, befindet. Dieser Abschnitt erklärt allgemein — gültig für alle in dieser Erklärung genannten Personengruppen —, wie Daten geschützt werden und wer außer dem Betreiber mit ihnen in Berührung kommen kann.</p>
+
+      <h3>3.1 Wie Verschlüsselung eingesetzt wird</h3>
+      <p>Daten in Stellium liegen in einem von drei Zuständen vor:</p>
+      <ul>
+        <li><strong>Klartext.</strong> Lesbar für jeden, der direkten Zugriff auf die zugrunde liegenden Dateien oder die Datenbank hat.</li>
+        <li><strong>Mit einem serverseitigen Schlüssel verschlüsselt.</strong> Bestimmte Felder — Nachrichtentext, Übersetzungen, Entwürfe, geplante Nachrichten, Abschriften von Sprachnachrichten, Ihr Benutzername und Ihre E-Mail-Adresse, Umfragetexte, KI-generierte Zusammenfassungen, das gesamte Support-/Kontakt-Postfach, Zugangsdaten für den Fernzugriff sowie ein Token einer Verkaufsplattform — sind mit AES-256-GCM verschlüsselt abgelegt; der Schlüssel wird aus einem auf dem Server hinterlegten Master-Passwort abgeleitet.</li>
+        <li><strong>Ende-zu-Ende-verschlüsselt.</strong> Nur innerhalb <em>vertraulicher Kanäle</em> (siehe §5.3). Dort hat der Server überhaupt keinen Schlüssel.</li>
+      </ul>
+      <div class="callout callout--warn">
+        <span class="tag">Bitte aufmerksam lesen</span>
+        <p>Die Verschlüsselung mit serverseitigem Schlüssel schützt Daten, falls der physische Server oder sein Speicher verloren geht oder gestohlen wird. <strong>Sie schützt Ihre Nachrichten nicht vor dem Betreiber.</strong> Wer den Server und das Master-Passwort kontrolliert, kann alles, was auf diese Weise verschlüsselt ist, entschlüsseln und lesen — einschließlich Nachrichtentext, Entwürfen und Sprachabschriften. Die einzige Ausnahme sind vertrauliche Kanäle, die stattdessen echte Ende-zu-Ende-Verschlüsselung verwenden (§5.3).</p>
+      </div>
+      <p>Folgende Kategorien sind <strong>nicht</strong> verschlüsselt und liegen im Klartext vor: Anzeigenamen (in der Praxis meist Ihr echter Name), Kanalnamen/-themen/-zwecke, Aufgaben samt ihrer Änderungshistorie, Ideen samt Kommentaren und Stimmen dazu, Termine einschließlich Ort, Projekte, Datei- und Anhang<em>namen</em> (siehe Hinweis zum Dateiinhalt unten), Erinnerungsnotizen, das Übersetzungsglossar, Linkvorschauen (samt URL, Seitentitel und Vorschaubild), Statustexte, Ruhezeiten-Einstellungen, wie viele Sekunden Sie an jedem Tag online waren, sowie sämtliche Mitgliedschafts- und Beziehungsdaten — wer in welchem Kanal ist, wer wen erwähnt, wer wie reagiert, wer wie abgestimmt hat.</p>
+      <p>Wir haben nicht gesondert geprüft, ob der Inhalt hochgeladener Dateien und Anhänge (im Unterschied zu ihren Dateinamen) außerhalb vertraulicher Kanäle verschlüsselt gespeichert wird. Gehen Sie davon aus, dass Dateien, die Sie in gewöhnlichen (nicht vertraulichen) Kanälen hochladen, für den Betreiber einsehbar sind — genau wie Nachrichten.</p>
+
+      <h3>3.2 Wer sonst noch Daten erhält</h3>
+      <p>Die folgende Tabelle listet jede Kategorie externer Empfänger auf, die in Stelliums Aufbau angelegt ist, wo sich dieser Empfänger befindet, und was wir aktuell dazu bestätigen können, ob er auf dem heute laufenden Server tatsächlich aktiv ist.</p>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Empfänger</th><th>Rolle</th><th>Land</th><th>Aktueller Stand</th></tr></thead>
+        <tbody>
+          <tr><td>Cloudflare, Inc.</td><td>Netzwerktunnel — TLS-Endpunkt für den gesamten Verkehr zum Dienst; eingehendes E-Mail-Routing, einschließlich eines Workers, der jede eingehende Nachricht zerlegt</td><td>USA</td><td>Aktiv</td></tr>
+          <tr><td>Eigenbetriebener KI-/Übersetzungsdienst (kein Drittanbieter)</td><td>Nachrichtenübersetzung, Kanal-Zusammenfassungen, Thread-Digests, Antwortvorschläge, Abschrift von Sprachnachrichten</td><td>Außerhalb der USA, erreichbar über eine private Netzwerkverbindung</td><td>Aktiv — hier laufen diese Funktionen derzeit</td></tr>
+          <tr><td>Groq, Inc.</td><td>Cloud-Übersetzung / KI / Sprachabschrift (als Ausweichanbieter hinterlegt)</td><td>USA</td><td>Nicht aktiv — kein Zugangsschlüssel hinterlegt</td></tr>
+          <tr><td>OpenAI, L.L.C.</td><td>Cloud-KI (als zweiter Ausweichanbieter hinterlegt)</td><td>USA</td><td>Nicht aktiv — kein gültiger Zugangsschlüssel hinterlegt; die Ausweichadresse zeigt derzeit stattdessen auf unsere eigene Infrastruktur</td></tr>
+          <tr><td>DeepL SE</td><td>Alternativer, reiner Übersetzungsanbieter</td><td>Deutschland</td><td>Nicht aktiv — kein Zugangsschlüssel hinterlegt</td></tr>
+          <tr><td>Google, Mozilla, Apple</td><td>Zustellung von Push-Benachrichtigungen. Der Inhalt der Benachrichtigung ist Ende-zu-Ende zu Ihrem Gerät verschlüsselt; dass eine Benachrichtigung verschickt wurde und an welches Gerät, ist für diese Anbieter als Verbindungsmetadatum sichtbar</td><td>USA</td><td>Nur genutzt, wenn und sobald Push-Benachrichtigungen aktiviert sind</td></tr>
+          <tr><td>Resend</td><td>Versand von System-E-Mails (z. B. Kontohinweise)</td><td>USA</td><td>Im Programm für diesen Zweck angelegt; ob es auf diesem Server tatsächlich eingerichtet ist, wurde für diese Erklärung nicht eigenständig geprüft</td></tr>
+          <tr><td>Gumroad, Inc.</td><td>Abruf von Verkaufszahlen</td><td>USA</td><td>Im Programm für diesen Zweck angelegt; ob es auf diesem Server tatsächlich eingerichtet ist, wurde für diese Erklärung nicht eigenständig geprüft</td></tr>
+          <tr><td>Betreiber eines von Ihnen geteilten externen Links</td><td>Erfährt, dass seine Seite abgerufen wurde, wenn Stellium eine Linkvorschau erzeugt</td><td>Wo auch immer dieser Betreiber sitzt</td><td>Geschieht automatisch, sobald ein Link außerhalb eines vertraulichen Kanals geteilt wird</td></tr>
+          <tr><td>TeamViewer</td><td>Auf dem Server installierte Fernzugriffssoftware</td><td>Deutschland / weltweites Vermittlungsnetz</td><td><strong>Aktiv installiert; bei der letzten Prüfung dieser Erklärung bestand eine offene Verbindung</strong></td></tr>
+        </tbody>
+      </table></div>
+      <p>Was tatsächlich an den jeweils aktiven Übersetzungs-/KI-Dienst geht, ist oft mehr als „die Nachricht": Eine reine Übersetzungsanfrage schickt einen Einzeltext, in dem eindeutige Kennungen (Codeblöcke, Links, @-Erwähnungen) maskiert sind, dazu das Glossar; eine Kanal-Zusammenfassung kann bis zu 300 Nachrichten aus diesem Kanal enthalten, jede mit Zeitstempel, Anzeigename und Handle versehen, dazu eine Liste der Kanalmitglieder; ein Thread-Digest kann bis zu 200 Antworten enthalten; Antwortvorschläge enthalten die letzten 12 Nachrichten sowie den Namen der Person, der geantwortet wird; und wenn der unten beschriebene lokale Spracherkennungsdienst nicht erreichbar ist und ein Cloud-Ausweichanbieter eingerichtet ist, wird eine Sprachnachricht als Audiodatei — bis zu 25&nbsp;MB — statt als Text verschickt.</p>
+      <p>Zum Datum dieser Erklärung erreicht nichts davon Groq, OpenAI oder DeepL, weil für keinen von ihnen ein funktionierender Schlüssel hinterlegt ist (siehe Tabelle oben): Übersetzung, Zusammenfassungen und Sprachabschrift laufen derzeit auf von uns selbst betriebener Infrastruktur. Sprachnachrichten werden lokal abgeschrieben, mit Spracherkennungssoftware auf derselben Infrastruktur; die Audiodatei verlässt sie derzeit nicht.</p>
+      <div class="callout callout--warn">
+        <span class="tag">Was sich bei einem Anbieterwechsel ändert</span>
+        <p>Wir können diese Einstellung jederzeit ändern. Wird ein kommerzieller Anbieter wie Groq oder OpenAI aktiviert, würden die oben beschriebenen Daten an dessen Server in den USA gehen (bei DeepL: nach Deutschland). Das System ist zudem so gebaut, dass es automatisch über Groq und dann OpenAI ausweicht, wenn unser eigener Übersetzungsdienst nicht antwortet — selbst wer sich bewusst für die lokale Übersetzung entschieden hat, könnte also eine Nachricht an einen US-Anbieter geleitet bekommen, wenn unser eigener Dienst gerade nicht erreichbar ist, sofern für diesen Ausweichweg ein funktionierender Schlüssel hinterlegt ist. Ein solcher Schlüssel ist heute nicht hinterlegt, das kann also derzeit nicht passieren; richten wir einen ein, gilt dieser automatische Ausweichweg ohne weitere Wahlmöglichkeit der schreibenden Person.</p>
+      </div>
+
+      <h3>3.3 Was wir nicht tun</h3>
+      <div class="callout callout--good">
+        <p>Stellium verwendet keine Telemetrie, keine Absturzberichte und kein Analytics jeglicher Art und lädt keine Schriftarten oder Skripte von einem Content-Delivery-Network oder einer sonstigen externen Quelle. Softwareaktualisierungen werden beim eigenen Server geprüft, nicht bei einem Dritten. Die Chat-Anwendung selbst protokolliert nicht, wer wann darauf zugegriffen hat.</p>
+      </div>
+      <p>Das gilt nur für die Anwendung selbst. Die vorgeschalteten Netzwerkkomponenten betreiben eigene Software, die ihrerseits Protokolle erzeugen kann; derzeit ist für diese Protokolle keine maximale Aufbewahrungsdauer festgelegt, sondern nur eine allgemeine Größengrenze — Einträge bleiben also erhalten, bis diese Grenze erreicht ist, statt planmäßig gelöscht zu werden.</p>
+
+      <h3>3.4 Sicherungen und physischer Zugang</h3>
+      <p>Sicherungen werden täglich erstellt, drei Generationen werden aufbewahrt — sie liegen jedoch auf demselben physischen Gerät wie die Live-Daten. Sie schützen vor einem Fehler des Betreibers, nicht vor Verlust, Diebstahl oder Ausfall dieses Geräts selbst.</p>
+      <p>Der Server verfügt außerdem über eine eigene Fernzugriffsfunktion, die auf den Server-Eigentümer beschränkt ist, Bildschirm und Zwischenablage nur so lange teilt, wie jemand aktiv zusieht, und nichts aufzeichnet. Unabhängig von Stelliums eigenem Aufbau ist auf derselben Maschine zusätzlich die oben genannte Software TeamViewer installiert, die einen eigenen, unabhängigen Fernzugriffsweg bereitstellt.</p>
+    </div>
+  </section>
+
+  <section class="sec" id="transfers">
+    <div data-en>
+      <h2>4. Sending data to other countries</h2>
+      <p>The server is in the United States. If you, as a team member or a correspondent, are located in the European Economic Area, the United Kingdom, or Switzerland, using Stellium or writing to the company means your personal data — at minimum, your email address or account details, and depending on the feature, your messages — is sent to a country outside those regions. Several of the recipients listed in §3.2 are also in the United States. Under Chapter V of the GDPR, this is a "third-country transfer" and needs its own legal safeguard, separate from the legal basis for the processing itself.</p>
+      <p>The European Commission has adopted an adequacy decision for the United States — the EU–U.S. Data Privacy Framework — which allows transfers to U.S. organizations that have self-certified under it, without further safeguards. As of the date of this notice, that adequacy decision is valid and in effect; it is being challenged before the Court of Justice of the EU, and an appeal is pending, but no ruling has been issued. Its two predecessors, Safe Harbor and Privacy Shield, were both struck down after similar challenges, so this could change. Where a recipient has not self-certified under the Framework, a transfer to it needs a different safeguard recognized under Chapter V — most commonly, the European Commission's Standard Contractual Clauses.</p>
+      <p>We have not completed a recipient-by-recipient review confirming which of these safeguards is actually in place for each U.S. recipient listed in §3.2. This notice does not claim that such a review has been completed. If you would like to know what safeguard applies to a specific recipient, write to <a href="mailto:privacy@stellium.club">privacy@stellium.club</a> and we will look into it.</p>
+    </div>
+    <div data-de>
+      <h2>4. Übermittlung in andere Länder</h2>
+      <p>Der Server steht in den USA. Wenn Sie sich als Teammitglied oder als Korrespondenzpartner:in im Europäischen Wirtschaftsraum, im Vereinigten Königreich oder in der Schweiz befinden, bedeutet die Nutzung von Stellium oder eine Nachricht an das Unternehmen, dass Ihre personenbezogenen Daten — mindestens Ihre E-Mail-Adresse oder Kontodaten, je nach Funktion auch Ihre Nachrichten — in ein Land außerhalb dieser Regionen übermittelt werden. Auch mehrere der in §3.2 genannten Empfänger sitzen in den USA. Nach Kapitel V der DSGVO handelt es sich dabei um eine „Drittlandsübermittlung", die eine eigene rechtliche Absicherung braucht — getrennt von der Rechtsgrundlage für die Verarbeitung selbst.</p>
+      <p>Die Europäische Kommission hat für die USA einen Angemessenheitsbeschluss erlassen — das EU-US Data Privacy Framework —, der Übermittlungen an dort selbstzertifizierte US-Unternehmen ohne weitere Absicherung erlaubt. Zum Datum dieser Erklärung ist dieser Angemessenheitsbeschluss gültig und in Kraft; er wird vor dem Europäischen Gerichtshof angefochten, eine Berufung ist anhängig, es liegt aber noch keine Entscheidung vor. Seine beiden Vorgänger, Safe Harbor und Privacy Shield, wurden nach vergleichbaren Verfahren beide für ungültig erklärt — das kann sich also ändern. Ist ein Empfänger dort nicht selbstzertifiziert, braucht eine Übermittlung an ihn eine andere, nach Kapitel V anerkannte Absicherung — meist die Standardvertragsklauseln der Europäischen Kommission.</p>
+      <p>Wir haben keine empfängerweise Prüfung abgeschlossen, welche dieser Absicherungen für jeden der in §3.2 genannten US-Empfänger tatsächlich vorliegt. Diese Erklärung behauptet nicht, dass eine solche Prüfung abgeschlossen ist. Wenn Sie wissen möchten, welche Absicherung für einen bestimmten Empfänger gilt, schreiben Sie an <a href="mailto:privacy@stellium.club">privacy@stellium.club</a> — wir gehen dem nach.</p>
+    </div>
+  </section>
+
+  <section class="sec" id="part-a">
+    <div data-en>
+      <h2>5. Part A — Team members</h2>
+      <p>This part applies to you if you have a Stellium account. Accounts are created only by company leadership; there is no self-service sign-up and no age check on account creation.</p>
+
+      <h3>5.1 Legal basis</h3>
+      <p>We process the data described in this Part on the basis of Art. 6(1)(b) GDPR (necessary for your employment or engagement) and Art. 6(1)(f) GDPR (our legitimate interest in enabling internal team communication), together with Art. 88 GDPR and, for staff based in Germany, § 26 BDSG.</p>
+      <div class="callout callout--warn">
+        <span class="tag">The most important point for team members</span>
+        <p>Some of what is described below — how many seconds you were online each day, whether your device automatically reports the app as being in the foreground ("auto status"), your presence status, and, once introduced, read receipts — goes beyond what is strictly needed to use a chat tool and amounts to monitoring of employee behavior. Where a works council (Betriebsrat) exists or is later established, introducing or continuing to use these features is subject to its co-determination right under § 87(1) no. 6 BetrVG and should be the subject of a works agreement (Betriebsvereinbarung). As of this notice, no such agreement has been documented.</p>
+      </div>
+
+      <h3>5.2 What we collect</h3>
+      <p>See §3.1 for the full breakdown of what is stored in plain text and what is encrypted. In short: message content is encrypted at rest but readable by the operator; display names, channel/task/project structure, calendar entries, link previews, status text, and all membership and reaction data are stored in plain text.</p>
+
+      <h3>5.3 Confidential channels</h3>
+      <div class="callout callout--good">
+        <p>Confidential channels are the one place in Stellium with real end-to-end encryption (ECDH P-256 + AES-GCM): the server never holds a key and cannot read the content, regardless of the master password. Translation, AI features, search, link previews, and voice transcription are all switched off inside a confidential channel — none of them work there, because none of them can. An emergency-access mechanism exists, requiring both a release code and the channel owner's key; using it leaves a visible message in the channel, so it can never happen silently.</p>
+      </div>
+
+      <h3>5.4 AI-assisted translation and other features</h3>
+      <p>Outside confidential channels, translation and the other AI-assisted features described in §3.2 process your messages as described there. AI-generated task and reply suggestions can attribute responsibility for a task to a specific person and record who was mentioned in the underlying text; a suggestion you reject is not deleted and remains stored. This is the same kind of behavioral signal flagged in the callout in §5.1.</p>
+      <p>Read receipts (a signal that a message has been seen) are a feature we are planning to introduce; it is not live today. When it is introduced, we will update this notice to describe how it works — and, like presence data, it is exactly the kind of feature that may trigger co-determination rights where a works council exists.</p>
+
+      <h3>5.5 Retention and deletion</h3>
+      <p>There is currently no defined retention period for any category of team-member data described in this notice. Data is kept indefinitely unless removed by hand; there is no automated deletion process.</p>
+      <p>Deleting an account anonymizes it. It does <strong>not</strong> delete the messages that account sent, the translation memory built from them, its recorded online-time history, push-notification registrations, mentions, reactions, votes, task history, uploaded files, or pending invitations — these remain in the system, attributed to the now-anonymized record. If a channel itself is deleted, tasks and ideas that were created from it are not deleted either; they become visible to everyone rather than staying limited to that channel's former members, including a task title that originated in a private channel.</p>
+      <p>You can edit your own messages yourself for up to two hours after sending. Beyond that window, or for other categories of data, a correction requires a manual request to <a href="mailto:privacy@stellium.club">privacy@stellium.club</a>.</p>
+      <p>Rights that go further than this — access, restriction, objection, and data portability — are described for every audience in <a href="#rights">§8</a>. We do not have a self-service tool for any of them today; requests are handled by hand.</p>
+    </div>
+
+    <div data-de>
+      <h2>5. Teil A — Teammitglieder</h2>
+      <p>Dieser Teil gilt für Sie, wenn Sie ein Stellium-Konto haben. Konten legt ausschließlich die Unternehmensleitung an; es gibt keine Selbstregistrierung und keine Altersprüfung bei der Kontoanlage.</p>
+
+      <h3>5.1 Rechtsgrundlage</h3>
+      <p>Wir verarbeiten die in diesem Teil beschriebenen Daten auf Grundlage von Art. 6 Abs. 1 lit. b DSGVO (erforderlich für Ihr Beschäftigungs- oder Vertragsverhältnis) und Art. 6 Abs. 1 lit. f DSGVO (unser berechtigtes Interesse an interner Team-Kommunikation), zusammen mit Art. 88 DSGVO und, für in Deutschland Beschäftigte, § 26 BDSG.</p>
+      <div class="callout callout--warn">
+        <span class="tag">Der wichtigste Punkt für Teammitglieder</span>
+        <p>Manches von dem, was unten beschrieben ist — wie viele Sekunden Sie an jedem Tag online waren, ob Ihr Gerät automatisch meldet, dass die App im Vordergrund ist („Auto-Status"), Ihr Anwesenheitsstatus und, sobald eingeführt, Lesebestätigungen — geht über das hinaus, was für die reine Nutzung eines Chat-Werkzeugs nötig ist, und stellt eine Überwachung von Verhalten oder Leistung Beschäftigter dar. Besteht ein Betriebsrat oder wird später einer gebildet, unterliegen Einführung und fortgesetzter Einsatz dieser Funktionen seinem Mitbestimmungsrecht nach § 87 Abs. 1 Nr. 6 BetrVG und sollten Gegenstand einer Betriebsvereinbarung sein. Zum Zeitpunkt dieser Erklärung ist eine solche Vereinbarung nicht dokumentiert.</p>
+      </div>
+
+      <h3>5.2 Was wir erheben</h3>
+      <p>Die vollständige Aufschlüsselung, was im Klartext und was verschlüsselt gespeichert wird, finden Sie in §3.1. Kurz gefasst: Nachrichteninhalte sind verschlüsselt gespeichert, aber für den Betreiber lesbar; Anzeigenamen, die Struktur von Kanälen/Aufgaben/Projekten, Termine, Linkvorschauen, Statustexte sowie alle Mitgliedschafts- und Reaktionsdaten liegen im Klartext vor.</p>
+
+      <h3>5.3 Vertrauliche Kanäle</h3>
+      <div class="callout callout--good">
+        <p>Vertrauliche Kanäle sind die einzige Stelle in Stellium mit echter Ende-zu-Ende-Verschlüsselung (ECDH P-256 + AES-GCM): Der Server hat nie einen Schlüssel und kann den Inhalt nicht lesen — unabhängig vom Master-Passwort. Übersetzung, KI-Funktionen, Suche, Linkvorschau und Sprachabschrift sind innerhalb eines vertraulichen Kanals allesamt abgeschaltet — keine davon funktioniert dort, weil keine davon dort funktionieren kann. Es gibt einen Notzugangs-Mechanismus, der sowohl einen Freigabecode als auch den Schlüssel des Kanal-Eigentümers erfordert; seine Nutzung hinterlässt eine sichtbare Nachricht im Kanal, kann also nie unbemerkt geschehen.</p>
+      </div>
+
+      <h3>5.4 KI-gestützte Übersetzung und weitere Funktionen</h3>
+      <p>Außerhalb vertraulicher Kanäle verarbeiten Übersetzung und die übrigen in §3.2 beschriebenen KI-gestützten Funktionen Ihre Nachrichten wie dort beschrieben. KI-generierte Aufgaben- und Antwortvorschläge können die Zuständigkeit für eine Aufgabe einer bestimmten Person zuordnen und festhalten, wer im zugrunde liegenden Text erwähnt wurde; ein von Ihnen abgelehnter Vorschlag wird nicht gelöscht, sondern bleibt gespeichert. Das ist dieselbe Art von Verhaltenssignal, auf die der Kasten in §5.1 hinweist.</p>
+      <p>Lesebestätigungen (ein Signal, dass eine Nachricht gesehen wurde) sind eine Funktion, deren Einführung wir planen; sie ist heute nicht live. Sobald sie eingeführt wird, aktualisieren wir diese Erklärung um eine Beschreibung ihrer Funktionsweise — und wie Anwesenheitsdaten ist sie genau die Art von Funktion, die bei bestehendem Betriebsrat Mitbestimmungsrechte auslösen kann.</p>
+
+      <h3>5.5 Aufbewahrung und Löschung</h3>
+      <p>Für keine der in dieser Erklärung beschriebenen Kategorien von Teammitglieder-Daten gibt es derzeit eine festgelegte Aufbewahrungsfrist. Daten werden unbegrenzt aufbewahrt, sofern sie nicht von Hand entfernt werden; einen automatisierten Löschvorgang gibt es nicht.</p>
+      <p>Das Löschen eines Kontos anonymisiert es. Es löscht <strong>nicht</strong> die von diesem Konto gesendeten Nachrichten, den daraus aufgebauten Übersetzungsspeicher, seine erfasste Online-Zeit-Historie, Push-Benachrichtigungs-Registrierungen, Erwähnungen, Reaktionen, Stimmen, die Aufgabenhistorie, hochgeladene Dateien oder offene Einladungen — diese bleiben im System bestehen und sind dem nun anonymisierten Eintrag zugeordnet. Wird ein Kanal selbst gelöscht, werden daraus entstandene Aufgaben und Ideen ebenfalls nicht gelöscht; sie werden für alle sichtbar, statt auf die ehemaligen Mitglieder dieses Kanals beschränkt zu bleiben — auch ein Aufgabentitel, der aus einem privaten Kanal stammt.</p>
+      <p>Eigene Nachrichten können Sie selbst bis zu zwei Stunden nach dem Senden bearbeiten. Danach, oder für andere Datenkategorien, erfordert eine Berichtigung eine formlose Anfrage an <a href="mailto:privacy@stellium.club">privacy@stellium.club</a>.</p>
+      <p>Weitergehende Rechte — Auskunft, Einschränkung, Widerspruch und Datenübertragbarkeit — sind für alle Personengruppen in <a href="#rights">§8</a> beschrieben. Für keines davon gibt es heute eine Selbstbedienungsfunktion; Anfragen werden von Hand bearbeitet.</p>
+    </div>
+  </section>
+
+  <section class="sec" id="part-b">
+    <div data-en>
+      <h2>6. Part B — People who contact us</h2>
+      <p>This part applies to you if you email the company — for example at <code>support@</code>, <code>info@</code>, <code>sales@</code>, <code>jobs@</code>, <code>privacy@</code>, or <code>security@stellium.club</code> — without holding a Stellium account. You never get access to the chat; your message is handled through our mailbox.</p>
+
+      <h3>6.1 Legal basis</h3>
+      <p>We process your message on the basis of Art. 6(1)(b) GDPR, where it relates to an existing or prospective contract (for example, a customer inquiry), or Art. 6(1)(f) GDPR, our legitimate interest in reading and responding to mail sent to us (for example, a security report). If you are applying for a job, Art. 88 GDPR and, where German law applies, § 26 BDSG apply instead — German law treats job applicants as "Beschäftigte" for this purpose.</p>
+
+      <h3>6.2 What we do with your message</h3>
+      <p>The mailbox is encrypted at rest with the server-held key described in §3.1 — the same regime that applies to chat messages, and with the same limit: it protects against a lost or stolen server, not against the operator. An AI assistant may read incoming mail to help triage it and draft a reply. It never sends anything on its own — every reply requires a person to review and send it — and it will not even prepare a draft if the incoming message fails DMARC authentication. Any AI-assisted draft is clearly labeled as such. This same AI processing, on the same basis described in §3.2 (currently our own infrastructure; a commercial U.S. provider only if we activate one), applies to messages sent to any of the addresses above, including <code>privacy@</code> itself.</p>
+
+      <h3>6.3 Job applications</h3>
+      <p>If you write to <code>jobs@</code>, your application, including any attached documents, is processed as described above. There is currently no defined retention period specific to application documents; the general statement in §6.5 applies. We recognize this should have its own, shorter retention period, and treat this as an open item — see also our note in §6.5.</p>
+
+      <h3>6.4 If a message cannot be delivered</h3>
+      <div class="callout callout--warn">
+        <span class="tag">Fallback delivery</span>
+        <p>If an incoming message cannot be delivered to its normal destination after repeated attempts because of a network or server error, the system sends the complete original message, including any attachments, to a separate fallback address configured by the operator, <strong>unencrypted</strong>. This happens without a permission check and without notifying the sender or any intended recipient that it happened.</p>
+      </div>
+
+      <h3>6.5 Retention, recipients, and rights</h3>
+      <p>As with team-member data, there is no defined retention period for mail sent to us; it is kept indefinitely unless removed by hand. Recipients are as described in §3.2 (Cloudflare for inbound routing; the AI/translation infrastructure described there; Resend, if configured, for any reply we send). Your rights are described for every audience in <a href="#rights">§8</a>.</p>
+    </div>
+
+    <div data-de>
+      <h2>6. Teil B — Menschen, die uns schreiben</h2>
+      <p>Dieser Teil gilt für Sie, wenn Sie dem Unternehmen eine E-Mail schreiben — etwa an <code>support@</code>, <code>info@</code>, <code>sales@</code>, <code>jobs@</code>, <code>privacy@</code> oder <code>security@stellium.club</code> —, ohne ein Stellium-Konto zu besitzen. Sie erhalten nie Zugang zum Chat; Ihre Nachricht wird über unser Postfach bearbeitet.</p>
+
+      <h3>6.1 Rechtsgrundlage</h3>
+      <p>Wir verarbeiten Ihre Nachricht auf Grundlage von Art. 6 Abs. 1 lit. b DSGVO, soweit sie sich auf ein bestehendes oder angebahntes Vertragsverhältnis bezieht (z. B. eine Kundenanfrage), oder auf Art. 6 Abs. 1 lit. f DSGVO, unser berechtigtes Interesse, an uns gerichtete Post zu lesen und zu beantworten (z. B. eine Sicherheitsmeldung). Bewerben Sie sich auf eine Stelle, gelten stattdessen Art. 88 DSGVO und, soweit deutsches Recht anwendbar ist, § 26 BDSG — das deutsche Recht behandelt Bewerber:innen für diesen Zweck als „Beschäftigte".</p>
+
+      <h3>6.2 Was wir mit Ihrer Nachricht tun</h3>
+      <p>Das Postfach ist mit dem in §3.1 beschriebenen serverseitigen Schlüssel verschlüsselt gespeichert — demselben Regime wie Chat-Nachrichten, mit derselben Grenze: Es schützt vor einem verlorenen oder gestohlenen Server, nicht vor dem Betreiber. Eine KI-Assistenz kann eingehende Post lesen, um sie zu sichten und einen Antwortentwurf vorzubereiten. Sie versendet nie selbstständig etwas — jede Antwort muss von einer Person geprüft und verschickt werden — und bereitet nicht einmal einen Entwurf vor, wenn die eingehende Nachricht die DMARC-Prüfung nicht besteht. Jeder KI-gestützte Entwurf ist deutlich als solcher gekennzeichnet. Dieselbe KI-Verarbeitung, auf derselben in §3.2 beschriebenen Grundlage (derzeit unsere eigene Infrastruktur; ein kommerzieller US-Anbieter nur, wenn wir einen aktivieren), gilt für Nachrichten an jede der oben genannten Adressen — auch an <code>privacy@</code> selbst.</p>
+
+      <h3>6.3 Bewerbungen</h3>
+      <p>Schreiben Sie an <code>jobs@</code>, wird Ihre Bewerbung samt etwaiger Anhänge wie oben beschrieben verarbeitet. Es gibt derzeit keine eigene, kürzere Aufbewahrungsfrist speziell für Bewerbungsunterlagen; es gilt die allgemeine Angabe in §6.5. Wir sehen, dass dafür eigentlich eine eigene, kürzere Frist gehören würde, und behandeln das als offenen Punkt — siehe dazu auch unseren Hinweis in §6.5.</p>
+
+      <h3>6.4 Wenn eine Nachricht nicht zugestellt werden kann</h3>
+      <div class="callout callout--warn">
+        <span class="tag">Ausweich-Zustellung</span>
+        <p>Kann eine eingehende Nachricht nach mehreren Versuchen wegen eines Netzwerk- oder Serverfehlers nicht an ihr eigentliches Ziel zugestellt werden, schickt das System die vollständige Original-Nachricht samt Anhängen an eine vom Betreiber gesondert eingerichtete Ausweichadresse — <strong>unverschlüsselt</strong>. Das geschieht ohne Berechtigungsprüfung und ohne dass Absender:in oder eigentliche:r Empfänger:in davon erfahren.</p>
+      </div>
+
+      <h3>6.5 Aufbewahrung, Empfänger und Rechte</h3>
+      <p>Wie bei Teammitglieder-Daten gibt es auch für an uns gerichtete Post keine festgelegte Aufbewahrungsfrist; sie wird unbegrenzt aufbewahrt, sofern nicht von Hand entfernt. Empfänger sind wie in §3.2 beschrieben (Cloudflare für eingehendes Routing; die dort beschriebene KI-/Übersetzungsinfrastruktur; Resend, soweit eingerichtet, für von uns versandte Antworten). Ihre Rechte sind für alle Personengruppen in <a href="#rights">§8</a> beschrieben.</p>
+    </div>
+  </section>
+
+  <section class="sec" id="part-c">
+    <div data-en>
+      <h2>7. Part C — Visitors of a partner website</h2>
+      <p>This part has nothing to do with Stellium, its team members, or its correspondents. Separately, and on the same server, the operator also measures traffic for a website belonging to a business partner. If you are reading this because you were told about it in connection with that other website, this section is for you.</p>
+      <p>No IP address is ever stored as such. Each visiting IP address is hashed (SHA-256) together with a salt value before anything is written to disk. A short-lived salt, rotated weekly, is used for day-to-day aggregate figures, so those cannot be linked from one day to the next. Separately, a long-lived salt is kept so a returning visitor can be recognized (for example, to tell a new visitor from a repeat one) for up to 730 days — meaning an individual visitor can, in principle, remain recognizable for up to two years, even though their IP address itself is never stored.</p>
+      <p>The long-lived salt and the hashed values it produces are stored in the same file. Someone with access to that file could, in principle, compute the same hash for every possible IPv4 address and match the results back to a visitor. Access to the file is restricted through operating-system file permissions; the protection is a permission setting, not a mathematical guarantee. This makes the data <strong>pseudonymous, not anonymous</strong>, within the meaning of Recital 26 GDPR. The aggregate visitor counts that the Stellium software itself displays do not include the salt or any per-visitor identifier — that figure genuinely is just a sum.</p>
+    </div>
+    <div data-de>
+      <h2>7. Teil C — Besucher:innen einer Partner-Website</h2>
+      <p>Dieser Teil hat mit Stellium, seinen Teammitgliedern oder seinen Korrespondenzpartner:innen nichts zu tun. Getrennt davon, auf demselben Server, misst der Betreiber außerdem den Besucherverkehr einer Website, die einem Geschäftspartner gehört. Wenn Sie diesen Abschnitt lesen, weil man Sie im Zusammenhang mit dieser anderen Website darauf hingewiesen hat, ist er für Sie gedacht.</p>
+      <p>Es wird zu keinem Zeitpunkt eine IP-Adresse als solche gespeichert. Jede besuchende IP-Adresse wird zusammen mit einem Salt-Wert gehasht (SHA-256), bevor irgendetwas auf die Platte geschrieben wird. Ein kurzlebiges, wöchentlich wechselndes Salt dient den täglichen Summenwerten, sodass diese sich nicht von einem Tag zum nächsten verknüpfen lassen. Getrennt davon wird ein langlebiges Salt aufbewahrt, damit wiederkehrende Besucher:innen erkannt werden können (etwa um neue von wiederkehrenden zu unterscheiden) — für bis zu 730 Tage. Das bedeutet: Eine einzelne besuchende Person kann grundsätzlich bis zu zwei Jahre lang wiedererkennbar bleiben, obwohl ihre IP-Adresse selbst nie gespeichert wird.</p>
+      <p>Das langlebige Salt und die daraus erzeugten Hash-Werte liegen in derselben Datei. Wer Zugriff auf diese Datei hat, könnte grundsätzlich denselben Hash für jede mögliche IPv4-Adresse berechnen und das Ergebnis einer Besucherin oder einem Besucher zuordnen. Der Zugriff auf die Datei ist über Dateiberechtigungen des Betriebssystems eingeschränkt; der Schutz ist eine Berechtigungseinstellung, keine mathematische Garantie. Das macht die Daten <strong>pseudonym, nicht anonym</strong> im Sinne von Erwägungsgrund 26 DSGVO. Die zusammengefassten Besucherzahlen, die die Stellium-Software selbst anzeigt, enthalten weder das Salt noch eine personenbezogene Kennung je Besucher:in — diese Zahl ist tatsächlich nur eine Summe.</p>
+    </div>
+  </section>
+
+  <section class="sec" id="rights">
+    <div data-en>
+      <h2>8. Your rights</h2>
+      <p>Which rights apply to you depends on where you are. All requests below go to <a href="mailto:privacy@stellium.club">privacy@stellium.club</a>; none of them currently have a self-service tool, so every request is handled by hand.</p>
+
+      <h3>8.1 EU/EEA, United Kingdom, Switzerland</h3>
+      <p>Under the GDPR (and the UK and Swiss equivalents), you in principle have the right to access the data we hold about you, correct it, have it deleted, restrict its processing, object to processing based on legitimate interest, receive a portable copy of data you provided, and lodge a complaint with your local data protection authority.</p>
+      <div class="callout callout--warn">
+        <p>We are honest that we cannot yet fulfil all of these in a self-service way. There is no built-in access or export function — a full access request would need to be compiled by hand across many separate parts of the database. Restriction, objection, and portability requests have no dedicated process yet and would be assessed individually. Deletion, as explained in §5.5 and §6.5, is partial: an account is anonymized, but much of the data it produced remains.</p>
+      </div>
+
+      <h3>8.2 California (CCPA/CPRA)</h3>
+      <p>The California Consumer Privacy Act, as amended by the CPRA, applies to businesses that meet certain size or revenue thresholds. We have not determined whether those thresholds apply to us. If they do, this is what would apply: since January 1, 2023, California employees and job applicants have the same rights as consumers under this law, so this section is relevant to Part A and to applicants under Part B, not only to Part B's other correspondents.</p>
+      <p>We do not sell or share personal information for cross-context behavioral advertising. If the CCPA/CPRA applies to us, California residents have the right to know what personal information we have collected about them (the categories are described throughout this notice: identifiers, communications content, internet/network activity such as online-time, and, if you apply for a job, professional/employment-related information), the right to delete it (subject to the same limits described in §5.5/§6.5), the right to correct it, the right to limit the use of sensitive personal information, and the right not to be discriminated against for exercising any of these rights.</p>
+
+      <h3>8.3 Other U.S. states</h3>
+      <p>A number of other U.S. states (for example Virginia, Colorado, Connecticut, and Utah, among others) have their own comprehensive privacy laws. Where one of them applies to you, it generally gives you rights broadly similar to those in §8.2 — to know, correct, delete, and obtain a copy of your personal information, and to opt out of certain uses. Write to <a href="mailto:privacy@stellium.club">privacy@stellium.club</a> to exercise any of them; we will handle the request under whichever law applies to you.</p>
+
+      <h3>8.4 Brazil (LGPD)</h3>
+      <p>If Brazil's Lei Geral de Proteção de Dados applies to you, you have rights similar to those in §8.1: confirmation of processing, access, correction, anonymization or deletion of unnecessary data, portability, and information about who we share your data with.</p>
+
+      <h3>8.5 Canada (PIPEDA)</h3>
+      <p>If Canada's Personal Information Protection and Electronic Documents Act applies to you, you have the right to know why we collect your personal information, to access it, and to challenge its accuracy.</p>
+    </div>
+
+    <div data-de>
+      <h2>8. Ihre Rechte</h2>
+      <p>Welche Rechte für Sie gelten, hängt davon ab, wo Sie sich befinden. Alle folgenden Anfragen richten Sie an <a href="mailto:privacy@stellium.club">privacy@stellium.club</a>; für keine davon gibt es derzeit eine Selbstbedienungsfunktion, jede Anfrage wird von Hand bearbeitet.</p>
+
+      <h3>8.1 EU/EWR, Vereinigtes Königreich, Schweiz</h3>
+      <p>Nach der DSGVO (und den entsprechenden Regelungen in UK und der Schweiz) haben Sie grundsätzlich das Recht auf Auskunft über die bei uns gespeicherten Daten, auf deren Berichtigung, Löschung, Einschränkung der Verarbeitung, Widerspruch gegen eine auf berechtigtem Interesse beruhende Verarbeitung, Übertragbarkeit der von Ihnen bereitgestellten Daten sowie das Recht auf Beschwerde bei Ihrer zuständigen Aufsichtsbehörde.</p>
+      <div class="callout callout--warn">
+        <p>Wir sagen ehrlich, dass wir noch nicht alle diese Rechte im Selbstbedienungsweg erfüllen können. Es gibt keine eingebaute Auskunfts- oder Exportfunktion — eine vollständige Auskunft müsste von Hand aus vielen einzelnen Teilen der Datenbank zusammengestellt werden. Für Einschränkung, Widerspruch und Übertragbarkeit gibt es noch keinen eigenen Ablauf; sie würden im Einzelfall geprüft. Löschung ist, wie in §5.5 und §6.5 erläutert, nur teilweise möglich: Ein Konto wird anonymisiert, aber ein Großteil der damit erzeugten Daten bleibt bestehen.</p>
+      </div>
+
+      <h3>8.2 Kalifornien (CCPA/CPRA)</h3>
+      <p>Der California Consumer Privacy Act in der durch den CPRA geänderten Fassung gilt für Unternehmen, die bestimmte Größen- oder Umsatzschwellen überschreiten. Wir haben nicht geprüft, ob diese Schwellen auf uns zutreffen. Falls ja, gilt Folgendes: Seit dem 1. Januar 2023 haben kalifornische Beschäftigte und Bewerber:innen dieselben Rechte wie Verbraucher:innen nach diesem Gesetz — dieser Abschnitt betrifft also auch Teil A und Bewerber:innen aus Teil B, nicht nur die übrigen Korrespondenzpartner:innen aus Teil B.</p>
+      <p>Wir verkaufen oder „teilen" personenbezogene Daten nicht für kontextübergreifende Verhaltenswerbung. Sollte das CCPA/CPRA auf uns zutreffen, haben Personen mit Wohnsitz in Kalifornien das Recht zu erfahren, welche personenbezogenen Daten wir über sie erhoben haben (die Kategorien sind über diese Erklärung verteilt beschrieben: Identifikatoren, Kommunikationsinhalte, Internet-/Netzwerkaktivität wie Online-Zeit, und, bei einer Bewerbung, berufsbezogene Informationen), das Recht auf Löschung (mit denselben Einschränkungen wie in §5.5/§6.5 beschrieben), das Recht auf Berichtigung, das Recht, die Nutzung sensibler personenbezogener Daten einzuschränken, sowie das Recht, wegen der Ausübung dieser Rechte nicht benachteiligt zu werden.</p>
+
+      <h3>8.3 Andere US-Bundesstaaten</h3>
+      <p>Mehrere andere US-Bundesstaaten (etwa Virginia, Colorado, Connecticut und Utah, unter anderen) haben eigene umfassende Datenschutzgesetze. Soweit eines davon auf Sie zutrifft, gewährt es in der Regel ähnliche Rechte wie in §8.2 — Auskunft, Berichtigung, Löschung, eine Kopie Ihrer personenbezogenen Daten sowie ein Widerspruchsrecht gegen bestimmte Nutzungen. Schreiben Sie zur Ausübung dieser Rechte an <a href="mailto:privacy@stellium.club">privacy@stellium.club</a>; wir bearbeiten die Anfrage nach dem für Sie geltenden Recht.</p>
+
+      <h3>8.4 Brasilien (LGPD)</h3>
+      <p>Findet Brasiliens Lei Geral de Proteção de Dados auf Sie Anwendung, haben Sie ähnliche Rechte wie in §8.1: Bestätigung der Verarbeitung, Auskunft, Berichtigung, Anonymisierung oder Löschung nicht mehr erforderlicher Daten, Übertragbarkeit sowie Auskunft darüber, mit wem wir Ihre Daten teilen.</p>
+
+      <h3>8.5 Kanada (PIPEDA)</h3>
+      <p>Findet Kanadas Personal Information Protection and Electronic Documents Act auf Sie Anwendung, haben Sie das Recht zu erfahren, warum wir Ihre personenbezogenen Daten erheben, Auskunft zu erhalten und deren Richtigkeit anzufechten.</p>
+    </div>
+  </section>
+
+  <section class="sec" id="children">
+    <div data-en>
+      <h2>9. Children</h2>
+      <p>Stellium is a workplace tool. Accounts are created only by company leadership for team members, and there is no self-registration, so there is no age-verification step in the product itself. It is not directed at children and is not intended to be used by them.</p>
+    </div>
+    <div data-de>
+      <h2>9. Kinder</h2>
+      <p>Stellium ist ein Arbeitswerkzeug. Konten werden ausschließlich von der Unternehmensleitung für Teammitglieder angelegt; da es keine Selbstregistrierung gibt, gibt es im Produkt selbst auch keinen Altersprüfungsschritt. Es richtet sich nicht an Kinder und ist nicht für deren Nutzung bestimmt.</p>
+    </div>
+  </section>
+
+  <section class="sec" id="changes">
+    <div data-en>
+      <h2>10. Changes to this notice</h2>
+      <p>We will update this notice as Stellium's features, providers, or infrastructure change — for example, if we activate a commercial translation provider, introduce read receipts, or register a company entity to operate Stellium (see §2). The date at the top always reflects the version currently in effect.</p>
+    </div>
+    <div data-de>
+      <h2>10. Änderungen dieser Erklärung</h2>
+      <p>Wir aktualisieren diese Erklärung, wenn sich Funktionen, Anbieter oder Infrastruktur von Stellium ändern — etwa wenn wir einen kommerziellen Übersetzungsanbieter aktivieren, Lesebestätigungen einführen oder eine Unternehmensform für den Betrieb von Stellium eintragen (siehe §2). Das Datum oben gibt stets die aktuell geltende Fassung wieder.</p>
+    </div>
+  </section>
+
+  <section class="sec" id="contact">
+    <div data-en>
+      <h2>11. Contact</h2>
+      <p>For any question about this notice, or to exercise any of the rights described in it, write to <a href="mailto:privacy@stellium.club">privacy@stellium.club</a>.</p>
+    </div>
+    <div data-de>
+      <h2>11. Kontakt</h2>
+      <p>Für Fragen zu dieser Erklärung oder zur Ausübung der darin beschriebenen Rechte schreiben Sie an <a href="mailto:privacy@stellium.club">privacy@stellium.club</a>.</p>
+    </div>
+  </section>
+
+</main>
+
+<footer>
+  <div data-en>Stellium — Privacy Notice — Version of August 22, 2026. See also the <a href="/terms">Internal Usage Policy</a>.</div>
+  <div data-de>Stellium — Datenschutzerklärung — Fassung vom 22. August 2026. Siehe auch die <a href="/terms">Interne Nutzungsordnung</a>.</div>
+</footer>
+
+<script>
+  function setLang(l) {
+    document.documentElement.dataset.lang = l;
+    document.documentElement.lang = l;
+    try { localStorage.setItem('stellium-legal-lang', l); } catch (e) {}
+    document.getElementById('btn-en').setAttribute('aria-pressed', String(l === 'en'));
+    document.getElementById('btn-de').setAttribute('aria-pressed', String(l === 'de'));
+  }
+  function setTheme(t) {
+    document.documentElement.dataset.theme = t;
+    try { localStorage.setItem('stellium-legal-theme', t); } catch (e) {}
+    document.getElementById('btn-dark').setAttribute('aria-pressed', String(t === 'dark'));
+    document.getElementById('btn-light').setAttribute('aria-pressed', String(t === 'light'));
+  }
+  // Reflect whatever the early head script already decided, so buttons match on load.
+  setLang(document.documentElement.dataset.lang || 'en');
+  setTheme(document.documentElement.dataset.theme || 'dark');
+</script>
+</body>
+</html>

@@ -9,7 +9,7 @@ import { useStore } from '../state/store.js';
 import { useFokusfalle } from './Fokusfalle.jsx';
 import { api } from '../net/api.js';
 import { Avatar } from './Avatar.jsx';
-import { t } from '../i18n/index.js';
+import { currentUiLanguage, t } from '../i18n/index.js';
 import { kanalName, languageInfo, localTimeFor, relativeTime } from '../lib/format.js';
 
 /* ── Neuer Kanal ────────────────────────────────────────────── */
@@ -92,7 +92,7 @@ export function PeoplePanel({ onClose }: { onClose: () => void }) {
     .filter((u) => !u.technisch)
     .sort((a, b) => {
     const rank = (s: string) => (s === 'online' ? 0 : s === 'away' ? 1 : s === 'dnd' ? 2 : 3);
-    return rank(a.status) - rank(b.status) || a.displayName.localeCompare(b.displayName, 'de');
+    return rank(a.status) - rank(b.status) || a.displayName.localeCompare(b.displayName, currentUiLanguage());
   });
 
   return (
@@ -389,7 +389,7 @@ export function Shell({ title, icon, onClose, width, subtitle, actions, children
               „Neue Aufgabe" und das Kreuz zum Schließen lagen außerhalb. */}
           <div className="panel__aktionen">
             {actions}
-            <button className="icon-btn" onClick={onClose}><X size={17} /></button>
+            <button className="icon-btn" onClick={onClose} title={t('common.close')} aria-label={t('common.close')}><X size={17} /></button>
           </div>
         </div>
         <div className="panel__body">{children}</div>

@@ -3,9 +3,8 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { Languages, Loader2, Pause, Play, RefreshCw, Sparkles } from 'lucide-react';
 import type { VoiceNote } from '@stellium/shared';
 import { useStore } from '../state/store.js';
-import { useT } from '../i18n/index.js';
+import { useT, spracheName } from '../i18n/index.js';
 import { fileUrl } from '../net/api.js';
-import { languageInfo } from '../lib/format.js';
 
 interface Props {
   voice: VoiceNote;
@@ -106,9 +105,16 @@ export function VoiceMessage({ voice, messageId, translatedText, showOriginal }:
           >
             <div className="voice__transcript-head">
               {translated ? <Languages size={10} /> : <Sparkles size={10} />}
+              {/* spracheName() statt languageInfo(...).native: der Eigenname
+                  einer Sprache gehört in eine Auswahlliste, nicht in einen
+                  übersetzten Satz — sonst las man in englischer Oberfläche
+                  wörtlich "translated from Deutsch" statt "from German". */}
+              {/* '—' bei fehlender Sprachkennung: derselbe Rückfall, den
+                  languageInfo(null).native vorher lieferte — nur der Weg
+                  zum Namen selbst hat sich geändert, nicht der Rückfall. */}
               {translated
-                ? t('voice.transcriptTranslated', { language: languageInfo(voice.transcriptLang).native })
-                : t('voice.transcript', { language: languageInfo(voice.transcriptLang).native })}
+                ? t('voice.transcriptTranslated', { language: voice.transcriptLang ? spracheName(voice.transcriptLang) : '—' })
+                : t('voice.transcript', { language: voice.transcriptLang ? spracheName(voice.transcriptLang) : '—' })}
             </div>
             {text}
           </motion.div>

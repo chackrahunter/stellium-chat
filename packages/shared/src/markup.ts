@@ -10,7 +10,11 @@ export interface MaskResult {
   tokens: string[];
 }
 
-const PLACEHOLDER = (i: number) => `{{${i}}}`;
+/* Exportiert, weil translation/index.ts denselben Platzhalter-Namensraum
+   für Maßangaben (25 °C, 10 kg, …) mitbenutzt — genau dieselbe Maschinerie
+   wie für Code/Links/Mentions, statt eines zweiten, ungeschützten Formats.
+   Siehe dort messwerteMaskieren(). */
+export const PLACEHOLDER = (i: number) => `{{${i}}}`;
 const PLACEHOLDER_RE = /\{\{\s*(\d+)\s*\}\}/g;
 
 export interface MaskOptions {
@@ -59,10 +63,21 @@ export function maskText(text: string, opts: MaskOptions = {}): MaskResult {
   return { masked: out, tokens };
 }
 
-export function unmaskText(masked: string, tokens: string[]): string {
+/**
+ * `resolve` ist optional: ohne sie verhält sich die Funktion genau wie vorher
+ * (Platzhalter -> unveränderter Originalwortlaut). Mit ihr kann der Aufrufer
+ * für einzelne Platzhalter etwas ANDERES einsetzen als den rohen Fundtext —
+ * genutzt von translation/index.ts, um eine erkannte Maßangabe statt ihres
+ * Wortlauts durch einen Sentinel (siehe einheiten.ts) zu ersetzen, der erst
+ * beim Ausliefern an eine bestimmte Empfängerin aufgelöst wird.
+ */
+export function unmaskText(
+  masked: string, tokens: string[], resolve?: (index: number, rohtext: string) => string,
+): string {
   return masked.replace(PLACEHOLDER_RE, (whole, idxRaw) => {
     const idx = Number(idxRaw);
-    return Number.isInteger(idx) && idx >= 0 && idx < tokens.length ? tokens[idx] : whole;
+    if (!Number.isInteger(idx) || idx < 0 || idx >= tokens.length) return whole;
+    return resolve ? resolve(idx, tokens[idx]) : tokens[idx];
   });
 }
 

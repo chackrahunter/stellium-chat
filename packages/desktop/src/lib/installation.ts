@@ -100,6 +100,83 @@ export function lageBestimmen(): Lage {
   };
 }
 
+/* ── Welches Betriebssystem läuft auf dem Rechner? ───────────────────
+   Das Gegenstück zu obigem für den Schreibtisch: nicht "welcher Browser",
+   sondern "welches System" — für den Hinweis, dass es Stellium auch als
+   eigene App gibt, mit der richtigen Fassung schon vorausgewählt.
+
+   Zuerst die neue Schnittstelle: `userAgentData.platform` bleibt zuverlässig,
+   auch wenn Chrome die klassische Kennung inzwischen kürzt und vereinheit-
+   licht ("UA-Reduction") — Regeln, die allein auf `userAgent` bauen, laufen
+   dadurch nach und nach ins Leere. Kennt der Browser sie nicht (Safari und
+   Firefox bislang nicht), fällt die Prüfung auf `userAgent` zurück, und ganz
+   zuletzt auf das abgekündigte `navigator.platform` — eine grobe Vermutung
+   ist dort immer noch besser als gar keine. */
+export type Rechnersystem = 'darwin' | 'win32' | 'linux';
+
+/* `undefined` heißt "keine Aussage möglich", nicht "kein Rechner" — dafür
+   steht eigens `null`. Sonst würde ein sicheres "das ist ein Telefon" von
+   einer schwächeren, späteren Quelle wieder überschrieben. */
+function ausUaDaten(): Rechnersystem | null | undefined {
+  const daten = (navigator as { userAgentData?: { platform?: string; mobile?: boolean } }).userAgentData;
+  if (!daten) return undefined;
+  if (daten.mobile) return null;
+  switch (daten.platform) {
+    case 'macOS': return 'darwin';
+    case 'Windows': return 'win32';
+    case 'Linux': return 'linux';
+    /* ChromeOS baut zwar auf Linux auf, hat aber nichts zu installieren —
+       Chromebooks laufen über den Play Store oder als Web-App. */
+    case 'Chrome OS': case 'Android': return null;
+    default: return undefined;
+  }
+}
+
+function ausUserAgent(): Rechnersystem | null | undefined {
+  const k = navigator.userAgent;
+  if (!k) return undefined;
+  if (/CrOS/.test(k)) return null;
+  if (/iPhone|iPad|iPod|Android/.test(k)) return null;
+  if (/Mac OS X|Macintosh/.test(k)) return 'darwin';
+  if (/Windows/.test(k)) return 'win32';
+  if (/Linux|X11/.test(k)) return 'linux';
+  return undefined;
+}
+
+/* Nur die letzte Linie: `navigator.platform` ist abgekündigt und liefert
+   längst nicht überall noch etwas Brauchbares — aber besser als nichts,
+   wenn die beiden Quellen oben schweigen. */
+function ausNavigatorPlatform(): Rechnersystem | null | undefined {
+  const p = navigator.platform;
+  if (!p) return undefined;
+  if (/Mac/.test(p)) return 'darwin';
+  if (/Win/.test(p)) return 'win32';
+  if (/Linux/.test(p)) return 'linux';
+  return undefined;
+}
+
+/**
+ * Auf welchem Rechner-Betriebssystem sitzt jemand — oder `null`, wenn es
+ * keins ist (Telefon, Tablet, Chromebook) oder sich keins bestimmen lässt.
+ */
+export function rechnersystemErkennen(): Rechnersystem | null {
+  if (typeof navigator === 'undefined') return null;
+
+  let system = ausUaDaten();
+  if (system === undefined) system = ausUserAgent();
+  if (system === undefined) system = ausNavigatorPlatform();
+
+  /* iPadOS gibt sich seit Fassung 13 als Mac aus — sogar mit angeschlossener
+     Tastatur samt Trackpad, der einen echten Mauszeiger zeigt. Was es
+     trotzdem verrät, ist einzig die Zahl der Berührpunkte: die hat ein
+     echter Mac nie, ein iPad immer. Bewusst nur für "darwin" geprüft: ein
+     Windows- oder Linux-Rechner mit Berührbildschirm ist trotzdem ein
+     Rechner und soll den Hinweis sehen. */
+  if (system === 'darwin' && navigator.maxTouchPoints > 1) return null;
+
+  return system ?? null;
+}
+
 /**
  * Soll die Einrichtungsseite gezeigt werden?
  *

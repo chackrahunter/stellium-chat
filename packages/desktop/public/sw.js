@@ -5,10 +5,20 @@
  * an genau den Stellen nicht unterstützt, an denen Stellium auf dem Telefon
  * läuft. Eine Web-App auf dem iPhone-Startbildschirm kennt den Aufruf
  * schlicht nicht — iOS verlangt `ServiceWorkerRegistration.showNotification`.
- * Chrome verlangt dasselbe für installierte Web-Apps. Ohne diese Datei kam
- * deshalb auf keinem Telefon je eine Benachrichtigung an, und im Browser
- * auch nur dann, wenn jemand die Erlaubnis von Hand in den Einstellungen
- * erteilt hatte.
+ * Chrome verlangt dasselbe für installierte Web-Apps.
+ *
+ * Zwei ganz verschiedene Auslöser laufen hier zusammen, und der Unterschied
+ * ist der Grund, warum es diese Datei überhaupt braucht:
+ *
+ *   - `notificationclick` — jemand tippt auf eine bereits gezeigte Meldung.
+ *     Das gab es schon immer, unabhängig davon, wie sie entstand.
+ *   - `push` — eine Nachricht vom Push-Dienst (Apple/Google/Mozilla), die
+ *     ankommt, WÄHREND STELLIUM NICHT LÄUFT. Ohne dieses Ereignis kam bisher
+ *     jede echte Benachrichtigung nie an: `zeigen()` in
+ *     lib/benachrichtigung.ts läuft im Code der offenen Seite, und der
+ *     existiert auf einem gesperrten Telefon schlicht nicht. Ein
+ *     Service Worker dagegen wacht das Betriebssystem gezielt für genau
+ *     dieses Ereignis wieder auf — das ist der ganze Witz von Web Push.
  *
  * Bewusst OHNE Zwischenspeicher für Dateien. Ein Service Worker, der auch
  * Antworten aufbewahrt, entscheidet mit darüber, welche Fassung der App
@@ -45,5 +55,65 @@ self.addEventListener('notificationclick', (e) => {
        frisch geöffnetes Fenster keine Nachricht empfangen kann, bevor es
        fertig geladen hat. */
     await self.clients.openWindow(kanal ? `/#kanal=${kanal}` : '/');
+  })());
+});
+
+/*
+ * Eine Push-Nachricht vom Server — das eigentliche Ziel dieser Datei.
+ *
+ * Die Nutzlast ist verschlüsselt zwischen Server und Browser unterwegs (der
+ * Push-Dienst dazwischen kann sie nicht lesen); an dieser Stelle liegt sie
+ * bereits entschlüsselt vor. Form siehe services/push.ts: { titel, text,
+ * kanalId, gruppe }.
+ */
+self.addEventListener('push', (e) => {
+  e.waitUntil((async () => {
+    let daten = {};
+    try { daten = e.data ? e.data.json() : {}; } catch { /* leere oder kaputte Nutzlast — dann eben ohne Text */ }
+
+    /* Steht gerade ein Fenster im Vordergrund, sieht diese Person die App
+       ohnehin gerade an — die Nachricht kam dann über die offene
+       WebSocket-Verbindung längst an und zeigt sich selbst
+       (state/store.ts, notifyIfNeeded()). Eine zweite, vom Push-Dienst
+       ausgelöste Meldung obendrauf wäre nur ein Echo derselben Sache. Der
+       Server kennt den Sichtbarkeitszustand eines Fensters nicht — das kann
+       nur hier, im Worker desselben Geräts, entschieden werden. */
+    const fenster = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    if (fenster.some((f) => f.focused)) return;
+
+    await self.registration.showNotification(daten.titel || 'Stellium', {
+      body: daten.text || '',
+      tag: daten.gruppe || daten.kanalId || 'stellium',
+      icon: '/stellium-192.png',
+      badge: '/stellium-192.png',
+      data: { kanalId: daten.kanalId || null },
+    });
+  })());
+});
+
+/*
+ * Der Browser erneuert ein Abonnement von sich aus — ein ablaufender
+ * interner Schlüssel, ein Wechsel des Push-Diensts. Der Server erfährt davon
+ * nichts von selbst, er kennt nur den `endpoint`, den er zuletzt bekommen
+ * hat, und der wird mit der Erneuerung ungültig.
+ *
+ * Zwei Wege, ihn trotzdem zu erreichen: ein offenes Fenster bekommt das neue
+ * Abonnement sofort zugeschickt und reicht es über die WebSocket-Verbindung
+ * weiter (die hat einen Anmeldenachweis, den dieser Worker nicht besitzt —
+ * er kann den Server nicht direkt anrufen). Ist keines offen, holt sich die
+ * App das beim nächsten Start ohnehin selbst: pushAbonnieren() in
+ * lib/benachrichtigung.ts vergleicht bei jedem Verbindungsaufbau, ob der
+ * Server noch dasselbe Abonnement kennt.
+ */
+self.addEventListener('pushsubscriptionchange', (e) => {
+  e.waitUntil((async () => {
+    const alteOptionen = e.oldSubscription && e.oldSubscription.options;
+    if (!alteOptionen || !alteOptionen.applicationServerKey) return;   // ohne Schlüssel kein Neuaufbau möglich
+    const neu = await self.registration.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: alteOptionen.applicationServerKey,
+    });
+    const fenster = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    for (const f of fenster) f.postMessage({ art: 'push-erneuert', subscription: neu.toJSON() });
   })());
 });

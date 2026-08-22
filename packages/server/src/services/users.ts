@@ -8,6 +8,7 @@ import { db } from '../db/index.js';
 import { newId } from '../util/id.js';
 import { avatarColorFor, hashPassword } from '../auth.js';
 import { blindIndex, decryptField, encryptField } from '../crypto/pii.js';
+import { kontoBereinigen as notizenKontoBereinigen } from './notizen.js';
 
 /* ── Einmal-Passwörter ────────────────────────────────────────── */
 
@@ -284,6 +285,22 @@ export function setDisabled(userId: string, disabled: boolean): void {
 /**
  * Konto löschen. Nachrichten bleiben stehen — sonst würden Gespräche
  * unverständlich. Der Name wird durch einen Platzhalter ersetzt.
+ *
+ * praesenz_tage (Onlinezeit je Tag) bleibt aus demselben Grund wie die
+ * Nachrichten stehen und wird bewusst NICHT gelöscht: die Summen können
+ * betrieblich gebraucht werden (z. B. für eine Auswertung über den Monat),
+ * und sie sind, genau wie alte Nachrichten, schon durch das UPDATE oben
+ * anonymisiert — jede Anzeige liest den Namen zur user_id erst beim
+ * Darstellen nach, und die zeigt für dieses Konto ab jetzt „Ehemaliges
+ * Mitglied". Eine eigene Löschung hier brächte keinen zusätzlichen Schutz,
+ * nur den Verlust echter Zahlen.
+ *
+ * push_subscriptions dagegen hat kein Gegenstück zu „bleibt sinnvoll
+ * stehen": eine Zustell-URL zeigt auf das Gerät einer Person, die das Konto
+ * gerade verlassen hat, und ohne diese Zeile bekäme es weiter Nachrichten
+ * zugestellt. Der Fremdschlüssel trägt zwar ON DELETE CASCADE (schema.sql),
+ * aber die Zeile in `users` wird hier nur geändert, nie gelöscht — die
+ * Kaskade greift also nie von selbst.
  */
 export function deleteAccount(userId: string): void {
   const ziel = db.get<{ role: string; deleted_at: number | null }>(
@@ -311,6 +328,14 @@ export function deleteAccount(userId: string): void {
     db.run('DELETE FROM reminders WHERE user_id = ?', userId);
     db.run('DELETE FROM scheduled_messages WHERE user_id = ?', userId);
     db.run('DELETE FROM saved_messages WHERE user_id = ?', userId);
+    // Geräte einer Person, die es nicht mehr gibt, sollen nichts mehr zugestellt
+    // bekommen — siehe Begründung oben, warum das hier stehen muss.
+    db.run('DELETE FROM push_subscriptions WHERE user_id = ?', userId);
+    /* Notizen: rein persönliche fallen weg wie Entwürfe und Erinnerungen
+       oben, geteilte bleiben stehen und bekommen die am längsten dabei
+       stehende Person als neue besitzende Person. Siehe services/notizen.ts,
+       kontoBereinigen() für die ausführliche Begründung beider Fälle. */
+    notizenKontoBereinigen(userId);
   });
   /* Auch hier und nicht nur in der Route: wer künftig von anderswoher löscht,
      soll die Sitzungen nicht eigens mitbedenken müssen. */

@@ -95,12 +95,21 @@ const kennung = kennungLaden(ORDNER);
 /* ── Zustand für das Dashboard ───────────────────────────────── */
 
 /* Ausdrücklich nur, OB jemand verbunden ist — nie, was er dabei sieht oder
-   tut. Genau so hat Don es verlangt. */
+   tut. Genau so hat Don es verlangt.
+
+   Seit Kurzem steht hier auch WER — aber nur als Behauptung, kein Nachweis.
+   Angemeldet wird sich allein über das gemeinsame Passwort; wer es kennt,
+   kann jeden Namen eintragen (siehe `alsProtokollname` weiter unten). Auf
+   einem Rechner, an dem mehrere mit demselben Passwort zusehen dürfen, ist
+   „irgendjemand sieht gerade zu" trotzdem zu wenig — es geht um
+   Nachvollziehbarkeit im Alltag, nicht um Beweiskraft. Am WAS ändert das
+   nichts: das steht hier weiterhin nirgends. */
 let verbunden = null;
 function zustandSchreiben() {
   const z = {
     verbunden: Boolean(verbunden),
     seit: verbunden?.seit ?? null,
+    konto: verbunden?.kontoName ?? null,
     id: kennung.id,
     hafen: PORT,
     aktualisiert: new Date().toISOString(),
@@ -491,6 +500,32 @@ function senden(sitzung, art, inhalt) {
   } catch { /* Verbindung weg — der close-Umgang räumt auf */ }
 }
 
+/**
+ * Auf eine kurze, harmlose Zeile kürzen — für die Anzeige im Protokoll.
+ *
+ * Kein Identitätsnachweis, siehe oben: der Name ist eine Behauptung. Trotzdem
+ * soll ein launischer oder falsch verdrahteter Client das Dashboard nicht mit
+ * Steuerzeichen oder endlosem Text durcheinanderbringen können — deshalb
+ * Steuerzeichen raus und eine Länge, die auf einer Zeile bleibt.
+ *
+ * Gefiltert wird über den Zahlenwert (`codePointAt`), nicht über eine Regex
+ * mit Kontrollbytes in der Zeichenklasse — die sind in einer Quelldatei
+ * kaum verlässlich zu halten und machen daraus für Werkzeuge wie `grep`
+ * leicht eine "binäre" Datei. `Array.from` statt `.slice` direkt auf dem
+ * String, damit ein Emoji am Rand nicht mitten im Surrogatpaar zerschnitten
+ * wird.
+ */
+function alsProtokollname(roh) {
+  if (typeof roh !== 'string') return null;
+  const zeichen = Array.from(roh).filter((z) => {
+    const p = z.codePointAt(0);
+    return p >= 32 && p !== 127;
+  });
+  const platt = zeichen.join('').trim();
+  if (!platt) return null;
+  return Array.from(platt).slice(0, 60).join('');
+}
+
 /* ── Verbindungen ────────────────────────────────────────────── */
 
 const server = new WebSocketServer({ port: PORT, maxPayload: 4 * 1024 * 1024 });
@@ -515,6 +550,7 @@ server.on('connection', (ws, anfrage) => {
   const sitzung = {
     ws, kind: null, hinaus: null, herein: null,
     seit: null, bilder: 0, verworfen: 0, letzteMeldung: '',
+    kontoName: null,        /* Behauptung der Gegenstelle, siehe oben */
   };
 
   /* Wer sich nicht binnen zehn Sekunden ausweist, fliegt. Sonst könnte man
@@ -587,6 +623,13 @@ server.on('connection', (ws, anfrage) => {
           sitzung.kind = null;
           alt.kill('SIGTERM');
           sitzung.kind = hostStarten(sitzung, w);
+        } else if (w.art === 'konto') {
+          /* Kommt aus der App, NICHT aus dem Handschlag — der stand zu dem
+             Zeitpunkt noch offen, hier ist die Leitung längst verschlüsselt.
+             Wer das schickt, hat sich schon übers Passwort ausgewiesen; der
+             Name selbst bleibt trotzdem eine Behauptung, siehe oben. */
+          sitzung.kontoName = alsProtokollname(w.name);
+          zustandSchreiben();
         }
       }
     } catch (fehler) {

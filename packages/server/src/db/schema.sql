@@ -15,6 +15,17 @@ CREATE TABLE IF NOT EXISTS users (
   avatar_url            TEXT,
   title                 TEXT,
   timezone              TEXT NOT NULL DEFAULT 'Europe/Berlin',
+  -- Steht die Zeitzone noch auf der Vorgabe, weil sie niemand bestätigt hat?
+  -- 'Europe/Berlin' oben ist nur ein Platzhalter — die Leitung, die ein
+  -- Konto anlegt (services/users.ts createAccount), kann von hier aus nicht
+  -- wissen, wo die Person wirklich sitzt. 1 heißt "noch nicht bestätigt":
+  -- der Browser darf die echte Zeitzone beim nächsten Anmelden einmalig
+  -- selbst eintragen (state/store.ts zeitzoneNachtragen). Jeder Schreibzugriff
+  -- auf timezone — von Hand in Settings.tsx oder durch diesen Nachtrag
+  -- selbst — setzt die Spalte auf 0 (ws/gateway.ts, prefs:update): ab dann
+  -- rührt kein Client die Zeitzone mehr automatisch an, auch nicht nach
+  -- einer Dienstreise.
+  timezone_auto         INTEGER NOT NULL DEFAULT 1,
   language              TEXT NOT NULL DEFAULT 'de',
   auto_translate        INTEGER NOT NULL DEFAULT 1,
   status                TEXT NOT NULL DEFAULT 'offline',
@@ -28,6 +39,13 @@ CREATE TABLE IF NOT EXISTS users (
   compose_target_preview INTEGER NOT NULL DEFAULT 1,
   -- Status folgt dem Fenster (vorn = online, weg = abwesend)
   auto_status           INTEGER NOT NULL DEFAULT 1,
+  -- Lesebestätigungen abgeschaltet: die eigene Lesemarke (siehe
+  -- channel_members.last_read_message_id/last_read_at) rückt unverändert
+  -- vor, damit der eigene Ungelesen-Zähler weiter stimmt — nur herausgegeben
+  -- wird sie dann an niemanden mehr (siehe readReceiptsBatch in
+  -- services/messages.ts). Vorgabe 0: Lesebestätigungen sind an, bis jemand
+  -- sie ausdrücklich abschaltet.
+  lesebestaetigung_aus  INTEGER NOT NULL DEFAULT 0,
   -- Schublade in der Verwaltung. NULL heißt: automatisch einsortieren.
   kategorie  TEXT,
   theme                 TEXT NOT NULL DEFAULT 'dark',
@@ -54,6 +72,15 @@ CREATE TABLE IF NOT EXISTS channel_members (
   user_id             TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   joined_at           INTEGER NOT NULL,
   last_read_message_id TEXT,
+  /* Wann die Lesemarke zuletzt vorwärts sprang — Grundlage für
+     Lesebestätigungen (wer hat gelesen, und wann). Bewusst EIN Zeitpunkt für
+     den ganzen Sprung, nicht einer je Nachricht: die Marke ist die einzige
+     Wahrheit darüber, was gelesen ist (siehe last_read_message_id direkt
+     darüber), und eine zweite, feinere Tabelle je Nachricht wüchse mit
+     Nachrichten × Personen statt mit Personen × Kanälen. NULL heißt: entweder
+     noch nie gelesen, oder vor dieser Fassung gelesen — dann ist der genaue
+     Zeitpunkt nicht mehr bekannt, und erfunden wird hier nichts. */
+  last_read_at        INTEGER,
   muted               INTEGER NOT NULL DEFAULT 0,
   starred             INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (channel_id, user_id)
@@ -122,6 +149,11 @@ CREATE TABLE IF NOT EXISTS message_translations (
   confidence  REAL,
   source_hash TEXT NOT NULL,   -- erkennt Edits: Hash des Originaltexts
   created_at  INTEGER NOT NULL,
+  /* Welcher Eintrag in translation_memory diese Zeile gerade trägt — die
+     einzige Quelle, aus der translation_memory.verweise nachgerechnet wird
+     (siehe dort). NULL heißt: kein Treffer im Satz-Cache, z.B. weil der Text
+     nicht übersetzbar war. */
+  tm_key      TEXT,
   PRIMARY KEY (message_id, lang)
 );
 
@@ -134,7 +166,19 @@ CREATE TABLE IF NOT EXISTS translation_memory (
   target_text TEXT NOT NULL,
   provider   TEXT NOT NULL,
   hits       INTEGER NOT NULL DEFAULT 1,
-  created_at INTEGER NOT NULL
+  created_at INTEGER NOT NULL,
+  /* Wie viele Zeilen in message_translations gerade auf diesen Schlüssel
+     zeigen (message_translations.tm_key) — dieselbe Machart wie
+     bloecke.verweise/datei_bloecke: nicht hoch- und runterzählen, sondern aus
+     der Wahrheit nachrechnen (services/translation/index.ts,
+     tmVerweiseNachrechnen). Erreicht der Wert 0, gehört die Phrase keiner
+     bestehenden Nachricht mehr — dann wird die Zeile gelöscht, nicht nur auf
+     0 gesetzt: der Zwischenspeicher ist sonst der einzige Ort, an dem der
+     Inhalt einer gelöschten Nachricht überlebt. Von Umfragen und
+     Kanalangaben erzeugte Zeilen tragen weiterhin 0 (niemand zählt sie mit)
+     und werden von diesem Aufräumen nicht angefasst — es räumt ausdrücklich
+     nur die Schlüssel auf, die es übergeben bekommt. */
+  verweise   INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS glossary (
@@ -206,16 +250,44 @@ CREATE TABLE IF NOT EXISTS poll_options (
   id       TEXT PRIMARY KEY,
   poll_id  TEXT NOT NULL REFERENCES polls(id) ON DELETE CASCADE,
   position INTEGER NOT NULL,
-  text     TEXT NOT NULL
+  text     TEXT NOT NULL,
+  /* Nur für anonyme Umfragen die maßgebliche Zählung (siehe poll_participants
+     weiter unten) — bei offenen Umfragen bleibt die Spalte auf 0 und die
+     Zählung kommt weiter aus poll_votes, denn dort steht ohnehin schon jede
+     Stimme mit Person. Zwei Wahrheiten für dieselbe Zahl wären ein Weg, auf
+     dem sie auseinanderlaufen; deshalb gilt je Umfrage nur eine der beiden. */
+  votes    INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_poll_options ON poll_options(poll_id, position);
 
+/* Stimmen mit Person↔Antwort — für offene Umfragen die einzige Quelle
+   (Gesichter unter den Antworten, Stimme ändern/zurückziehen). Für ANONYME
+   Umfragen darf hier nach der ersten Stimme nichts mehr stehen: siehe
+   poll_participants direkt darunter, das die beiden Fragen "wer hat
+   abgestimmt" und "was wurde gewählt" bewusst auseinanderhält. */
 CREATE TABLE IF NOT EXISTS poll_votes (
   poll_id    TEXT NOT NULL REFERENCES polls(id) ON DELETE CASCADE,
   option_id  TEXT NOT NULL REFERENCES poll_options(id) ON DELETE CASCADE,
   user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   created_at INTEGER NOT NULL,
   PRIMARY KEY (poll_id, option_id, user_id)
+);
+
+/* Wer bei einer ANONYMEN Umfrage abgestimmt hat — ohne Bezug darauf, was.
+   Trägt zwei Aufgaben, die poll_votes für offene Umfragen in einer Tabelle
+   erledigt, hier aber auseinandergehören: die Sperre gegen Mehrfachabstimmen
+   (diese Zeile) und die Zählung je Antwort (poll_options.votes oben). Damit
+   steht nirgends in der Datenbank, wie eine bestimmte Person bei einer
+   anonymen Umfrage gestimmt hat — nur, dass sie es hat. Genau das verspricht
+   die Oberfläche ("Es wird nur gezählt, nicht wer gestimmt hat"), und genau
+   das muss die Datenbank dann auch halten. Bei offenen Umfragen bleibt diese
+   Tabelle für die betreffende poll_id leer; sie gilt ausschließlich für
+   anonymous = 1. */
+CREATE TABLE IF NOT EXISTS poll_participants (
+  poll_id    TEXT NOT NULL REFERENCES polls(id) ON DELETE CASCADE,
+  user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (poll_id, user_id)
 );
 
 -- Link-Vorschauen werden pro URL genau einmal geholt und geteilt.
@@ -249,6 +321,21 @@ CREATE TABLE IF NOT EXISTS reminders (
   created_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_reminders_due ON reminders(remind_at, done);
+
+-- Web-Push-Abonnements: ein Gerät, ein Datensatz. `endpoint` ist eindeutig
+-- über alle Konten hinweg (die URL kommt vom Push-Dienst des Browsers und
+-- gehört genau einem Gerät), deshalb genügt ON CONFLICT(endpoint) als
+-- Aufnahme oder Auffrischung, ohne vorher nachzusehen, ob es den Datensatz
+-- schon gibt.
+CREATE TABLE IF NOT EXISTS push_subscriptions (
+  id         TEXT PRIMARY KEY,
+  user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  endpoint   TEXT NOT NULL UNIQUE,
+  p256dh     TEXT NOT NULL,
+  auth       TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_push_subscriptions_user ON push_subscriptions(user_id);
 
 -- Entwürfe überleben Kanalwechsel und Neustart.
 CREATE TABLE IF NOT EXISTS drafts (
@@ -616,6 +703,89 @@ CREATE TABLE IF NOT EXISTS vertraulich_freigabe_pakete (
 );
 
 -- ─────────────────────────────────────────────────────────────────
+-- Notizen — Ende-zu-Ende verschlüsselt wie oben, aber keine Kanäle
+-- ─────────────────────────────────────────────────────────────────
+/* Dieselbe Maschinerie wie bei vertraulichen Kanälen (ECDH-Schlüsselpaar aus
+   vertraulich_schluessel, Pakete im selben Format) — eigene Tabellen aber
+   trotzdem, aus einem einzigen Grund: eine Notiz ist kein Nachrichtenstrom,
+   sondern EIN Schriftstück, das sich ändert. Ein Kanal muss jede alte
+   Fassung seines Schlüssels für immer behalten, weil alte Nachrichten unter
+   ihr verschlossen bleiben; eine Notiz hat keine alten Nachrichten — beim
+   Schlüsselwechsel wird ihr einziger Inhalt einfach neu verschlossen, und
+   die alte Fassung ist danach ohne Bedeutung. Diese Tabellen bilden das
+   nicht künstlich nach: es gibt hier keine Fassungs-Vergangenheit zu
+   verwalten, und deshalb auch keine Tabelle dafür (vergleiche
+   kanal_schluessel oben, das genau das für Kanäle führt).
+
+   Hinzufügen und Entfernen sind bewusst nur der besitzenden Person erlaubt
+   (siehe services/notizen.ts) — nicht aus Misstrauen, sondern damit beim
+   Entfernen immer dieselbe Person handelt, die den Notizschlüssel ohnehin
+   in der Hand hat. Ein Kanal braucht für den Schlüsselwechsel eine Absprache
+   unter den verbleibenden Mitgliedern (siehe vertraulich:wechsel-noetig),
+   weil dort jede berechtigte Person entfernen darf, auch ohne Schlüssel.
+   Diese Absprache entfällt hier vollständig. */
+CREATE TABLE IF NOT EXISTS notizen (
+  id                TEXT PRIMARY KEY,
+  owner_id          TEXT NOT NULL REFERENCES users(id),
+  /* "e1:<fassung>:<iv>:<daten>" — trägt Titel UND Text als ein JSON, mit
+     derselben Nutzlast-Form wie eine Nachricht in einem vertraulichen Kanal
+     (siehe E2ENutzlast in shared/vertraulich.ts). Ein eigenes Format für
+     Notizen hätte nichts gewonnen und wäre die zweite Chiffre-Sprache im
+     Haus gewesen. */
+  chiffrat          TEXT NOT NULL,
+  /* Inhaltsstand für die Konflikterkennung beim Speichern — zählt bei jedem
+     Speichern hoch, unabhängig von schluessel_fassung darunter. Getrennt,
+     weil ein Schlüsselwechsel (jemand wird entfernt) den Inhalt nicht
+     ändert, nur seine Hülle — würden beide dieselbe Zahl teilen, sähe jeder
+     Wechsel wie eine Bearbeitung aus, und "hat sich die Notiz geändert?"
+     ließe sich nicht mehr beantworten. */
+  version           INTEGER NOT NULL DEFAULT 1,
+  schluessel_fassung INTEGER NOT NULL DEFAULT 1,
+  geaendert_von     TEXT NOT NULL REFERENCES users(id),
+  geaendert_am      INTEGER NOT NULL,
+  erstellt_am       INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_notizen_owner ON notizen(owner_id);
+
+/* Wer zusätzlich zur besitzenden Person lesen und schreiben darf.
+   entfernt_am bleibt stehen statt die Zeile zu löschen — das ist die
+   Grundlage für Notiz.ehemaligeMitglieder: die Oberfläche sagt beim
+   Entfernen ehrlich, dass Gelesenes damit nicht ungelesen wird, und diese
+   Spalte ist der Beleg dafür, dass genau das nirgends verschwiegen wird.
+   entfernt_grund unterscheidet "eine Person hat entfernt" (dann steht sie in
+   notiz_ereignis, siehe unten — hier reicht der Zeitpunkt) von "das Konto
+   wurde gelöscht" (services/users.ts, deleteAccount). */
+CREATE TABLE IF NOT EXISTS notiz_mitglieder (
+  notiz_id        TEXT NOT NULL REFERENCES notizen(id) ON DELETE CASCADE,
+  user_id         TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  hinzugefuegt_von TEXT NOT NULL REFERENCES users(id),
+  hinzugefuegt_am INTEGER NOT NULL,
+  entfernt_am     INTEGER,
+  entfernt_grund  TEXT,
+  PRIMARY KEY (notiz_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_notiz_mitglieder_user ON notiz_mitglieder(user_id);
+
+/* Der Notizschlüssel, verpackt für genau ein Konto — dieselbe Form wie
+   kanal_schluessel_pakete, nur ohne fassung in der Kennung: hier lebt immer
+   nur die AKTUELLE Fassung (siehe Erklärung oben), ein neuer Wechsel ersetzt
+   die Zeile statt eine weitere anzulegen. `fassung` steht trotzdem als
+   normale Spalte dabei — als Gegenprobe für die App, dass ein gerade
+   angekommenes Paket wirklich zur Fassung gehört, die sie erwartet. */
+CREATE TABLE IF NOT EXISTS notiz_schluessel_pakete (
+  notiz_id    TEXT NOT NULL REFERENCES notizen(id) ON DELETE CASCADE,
+  user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  fassung     INTEGER NOT NULL,
+  von_user_id TEXT NOT NULL,
+  alg         TEXT NOT NULL,
+  iv          TEXT NOT NULL,
+  daten       TEXT NOT NULL,
+  erstellt_am INTEGER NOT NULL,
+  PRIMARY KEY (notiz_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_notiz_pakete_user ON notiz_schluessel_pakete(user_id);
+
+-- ─────────────────────────────────────────────────────────────────
 -- Vorschläge der KI, bevor sie etwas werden
 -- ─────────────────────────────────────────────────────────────────
 /* Die Zwischenstufe zwischen "die KI hat etwas erkannt" und "es steht auf dem
@@ -696,17 +866,20 @@ CREATE TABLE IF NOT EXISTS mail_sichtung (
  Als Text und nicht in Spalten: welche Felder nützlich sind, weiß man
  erst nach einigen Wochen echter Post. */
   einordnung  TEXT,
-  /* 'gemeldet' = niemand muss antworten, die Leitung wurde benachrichtigt.
+  /* 'laeuft'   = die KI fragt gerade das Modell, noch keine Antwort da.
+ 'gemeldet' = niemand muss antworten, die Leitung wurde benachrichtigt.
  'entwurf'  = ein Entwurf wartet auf Freigabe.
- 'gesendet' / 'abgelehnt' = entschieden. */
+ 'gesendet' / 'abgelehnt' = entschieden.
+ 'fehler'   = das Modell hat nicht geantwortet; nachzusichten() nimmt die
+              Zeile für einen zweiten Anlauf. */
   zustand TEXT NOT NULL DEFAULT 'gemeldet'
 );
 
 CREATE TABLE IF NOT EXISTS mail_entwuerfe (
-  idTEXT PRIMARY KEY,
+  id        TEXT PRIMARY KEY,
   mail_id   TEXT NOT NULL,
   thread_id TEXT NOT NULL,
-  anTEXT NOT NULL,
+  an        TEXT NOT NULL,
   betreff   TEXT NOT NULL,
   text  TEXT NOT NULL,
   /* Warum die KI meint, dass geantwortet werden sollte — steht neben dem
@@ -761,7 +934,11 @@ CREATE TABLE IF NOT EXISTS mail_nachrichten (
 );
 CREATE INDEX IF NOT EXISTS idx_mail_fach ON mail_nachrichten(fach, am DESC);
 CREATE INDEX IF NOT EXISTS idx_mail_thread ON mail_nachrichten(thread_id);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_mail_zustell ON mail_nachrichten(zustell_schluessel) WHERE zustell_schluessel IS NOT NULL;
+-- Der Index auf zustell_schluessel entsteht in migrate.ts, nicht hier: diese
+-- Datei läuft vor dem Nachrüsten der Spalten, und auf einer Datenbank, die
+-- mail_nachrichten schon vor diesem Feld kannte, gibt es die Spalte an dieser
+-- Stelle noch nicht. Der Server startete dann gar nicht (dieselbe Art Fehler
+-- wie beim Index auf sha256 oben).
 CREATE TABLE IF NOT EXISTS mail_partner (
   /* Der Suchwert: derselbe Blindindex wie bei Konten. Die Adresse selbst ist
      personenbezogen und liegt daneben verschluesselt — gesucht wird ueber den

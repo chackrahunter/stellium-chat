@@ -84,8 +84,11 @@ WACHE = wache_holen()
 TEXTE = {
     "de": {
         "schirm_frei": "Bildschirm  ·  niemand verbunden",
-        "schirm_da": "Bildschirm  ·  verbunden seit {zeit}",
+        "schirm_da": "Bildschirm  ·  {wer}  ·  verbunden seit {zeit}",
         "schirm_aus": "Bildschirm  ·  Fernsteuerung läuft nicht",
+        # Steht anstelle eines Namens, wenn die Gegenstelle keinen mitschickt
+        # (ältere App-Fassung) oder keinen angegeben hat.
+        "schirm_unbekannt": "unbekannt",
         "verbinden": "Verbinden", "chat": "Chat-Server", "aussen": "Weg nach außen",
         "leistung": "Leistung", "teile": "Bestandteile",
         "dienst": "Dienst", "uebersetzung": "Übersetzung", "modell": "Modell",
@@ -98,6 +101,10 @@ TEXTE = {
         "aus": "AUS", "an": "an", "uebersetzung_aus": "aus",
         "stumm": "antwortet nicht", "ohne_modell": "kein Modell geladen",
         "seit": "seit", "nie_erreicht": "noch nie erreicht",
+        # TLS endet nicht auf diesem Pi, sondern beim Tunnel-Anbieter (siehe
+        # zertifikat()/tunnelZertifikat() in stellium-konsole.mjs). "{anbieter}"
+        # ist z.B. "Cloudflare".
+        "zert_tunnel": "{anbieter} · TLS endet dort, nicht auf dem Pi",
         "kein_zert": "keines — Verbindung offen", "noch_keine": "noch keine",
         "stand": "Stand", "staende": "Stände", "tage": "noch {n} Tage",
         "eigenes_netz": "im eigenen Netz", "offen": "unverschlüsselt",
@@ -163,8 +170,11 @@ TEXTE = {
     },
     "en": {
         "schirm_frei": "Screen  ·  nobody connected",
-        "schirm_da": "Screen  ·  connected since {zeit}",
+        "schirm_da": "Screen  ·  {wer}  ·  connected since {zeit}",
         "schirm_aus": "Screen  ·  remote control not running",
+        # Shown instead of a name when the other side doesn't send one
+        # (older app version) or didn't provide one.
+        "schirm_unbekannt": "unknown",
         "verbinden": "Connect", "chat": "Chat server", "aussen": "Public access",
         "leistung": "Performance", "teile": "Components",
         "dienst": "Service", "uebersetzung": "Translation", "modell": "Model",
@@ -177,6 +187,9 @@ TEXTE = {
         "aus": "OFF", "an": "on", "uebersetzung_aus": "off",
         "stumm": "not responding", "ohne_modell": "no model loaded",
         "seit": "since", "nie_erreicht": "never reached",
+        # TLS terminates at the tunnel provider, not on this Pi — see
+        # zertifikat()/tunnelZertifikat() in stellium-konsole.mjs.
+        "zert_tunnel": "{anbieter} · TLS terminates there, not on this Pi",
         "kein_zert": "none — connection is open", "noch_keine": "none yet",
         "stand": "backup", "staende": "backups", "tage": "{n} days left",
         "eigenes_netz": "on this network", "offen": "unencrypted",
@@ -2861,7 +2874,15 @@ class Konsole:
                         calendar.timegm(time.strptime(seit[:19], "%Y-%m-%dT%H:%M:%S"))))
                 except Exception:
                     wann = "?"
-            text, farbe = T("schirm_da").format(zeit=wann), F["warn"]
+            # `konto` ist eine Behauptung der Gegenstelle, keine geprüfte
+            # Identität — wer das Passwort hat, kann jeden Namen angeben
+            # (siehe fernsteuerung/dienst/fern-dienst.mjs). Für den Alltag
+            # reicht das: es geht darum zu sehen, wer üblicherweise
+            # dransitzt, nicht um einen Beweis. Fehlt der Name (ältere
+            # App-Fassung), steht dort „unbekannt" statt gar nichts.
+            konto = f.get("konto")
+            wer = konto.strip() if isinstance(konto, str) and konto.strip() else T("schirm_unbekannt")
+            text, farbe = T("schirm_da").format(zeit=wann, wer=wer), F["warn"]
         else:
             text, farbe = T("schirm_frei"), F["leise"]
         if text != getattr(self, "_schirm_text", None):
@@ -2972,7 +2993,14 @@ class Konsole:
                            else T("laeuft") if web.get("an") else T("aus"),
                            F["gut"] if web.get("an") else F["schlecht"], roh="nginx")
         zert = d.get("zertifikat")
-        if zert:
+        if zert and zert.get("art") == "tunnel":
+            # TLS endet bei Cloudflare (oder wer sonst den Tunnel betreibt),
+            # nicht auf diesem Pi -- "kein Zertifikat" wäre hier schlicht
+            # falsch. Siehe tunnelZertifikat() in stellium-konsole.mjs.
+            self.k_aussen.feld("zertifikat",
+                               T("zert_tunnel", anbieter=zert.get("anbieter", "Tunnel")),
+                               F["gut"])
+        elif zert:
             tage = zert.get("tage", 0)
             self.k_aussen.feld("zertifikat", f"{zert['name']} · {T('tage', n=tage)}",
                                F["schlecht"] if tage < 10 else F["warn"] if tage < 25 else F["gut"])

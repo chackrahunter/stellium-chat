@@ -99,9 +99,10 @@ const INLINE_RE = new RegExp(
     '(\\[[^\\]\\n]+\\]\\([^)\\s]+\\))',                 // 5 [Text](url)
     '(https?://[^\\s<]+)',                              // 6 nackte URL
     '(@[a-zA-Z0-9_.-]{2,32})',                          // 7 Erwähnung
-    '(#[a-zA-Z0-9äöüß_-]{2,48})',                       // 8 Kanal
+    '(#[\\p{L}\\p{N}_-]{2,48})',                        // 8 Kanal — \p{L}\p{N} statt a-zA-Z0-9äöüß:
+                                                         // #продажи, #売上, #satış brauchten sonst rohen Text.
   ].join('|'),
-  'g',
+  'gu',
 );
 
 function renderInline(text: string, ctx: Ctx): ReactNode[] {

@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { Vault, redact, resolvePassphrase } from './secrets.js';
+import { neuesSchluesselpaar } from './crypto/ec.js';
 
 /**
  * Die Daten hängen am Server-Paket, nicht am Arbeitsverzeichnis.
@@ -59,6 +60,69 @@ function resolveSecret(): string {
     fs.writeFileSync(file, gen, { mode: 0o600 });
     console.warn('[config] JWT_SECRET nicht gesetzt — generiertes Secret in data/.jwt-secret abgelegt.');
     return gen;
+  }
+}
+
+/**
+ * Das Schlüsselpaar für Web Push (VAPID, RFC 8292).
+ *
+ * Anders als der Groq-Schlüssel ist das kein Zugang zu einem fremden Dienst,
+ * den nur der Auftraggeber besitzen kann — es ist ein Beweis "diese Nachricht
+ * stammt vom selben Server, der das Abonnement entgegengenommen hat", den
+ * niemand von außen vorgeben muss. Deshalb derselbe Weg wie beim JWT_SECRET:
+ * gesetzt in der Umgebung gewinnt, sonst ein einmal erzeugtes und in
+ * data/.vapid-keys.json abgelegtes Paar. Niemand muss von Hand ein
+ * Schlüsselpaar erzeugen, damit Benachrichtigungen ankommen.
+ *
+ * Wird die Datei verworfen oder auf einen anderen Rechner umgezogen, ändert
+ * sich der Schlüssel — jedes bestehende Abonnement wird dann vom Push-Dienst
+ * abgelehnt (403). Das ist kein Fehlerfall, den man beheben müsste: der
+ * Client meldet sich beim nächsten Öffnen ohnehin neu an (siehe
+ * push.ts / push:subscribe), das alte Abonnement räumt sich mit dem nächsten
+ * Fehlschlag selbst weg.
+ *
+ * Beide Werte, falls über die Umgebung gesetzt, stehen als base64url-Text
+ * ohne Auffüllzeichen da — genau die Form, in der `npx web-push
+ * generate-vapid-keys` sie ausgibt, falls der Auftraggeber lieber ein
+ * eigenes Paar einträgt.
+ */
+function resolveVapidKeys(): { publicKey: string; privateKey: string } {
+  const envPub = str('VAPID_PUBLIC_KEY');
+  const envPriv = str('VAPID_PRIVATE_KEY');
+  if (envPub && envPriv) {
+    try {
+      // Nur die Länge prüfen — ob es wirklich ein gültiger Punkt ist, zeigt
+      // sich beim ersten Signieren, und dann steht es klar im Protokoll.
+      if (Buffer.from(envPub, 'base64url').length === 65 && Buffer.from(envPriv, 'base64url').length === 32) {
+        return { publicKey: envPub, privateKey: envPriv };
+      }
+      console.warn('[config] VAPID_PUBLIC_KEY/VAPID_PRIVATE_KEY haben nicht die erwartete Länge — ignoriert.');
+    } catch {
+      console.warn('[config] VAPID_PUBLIC_KEY/VAPID_PRIVATE_KEY sind kein gültiges base64url — ignoriert.');
+    }
+  }
+
+  const file = path.join(dataDir, '.vapid-keys.json');
+  try {
+    const gespeichert = JSON.parse(fs.readFileSync(file, 'utf8')) as { publicKey?: string; privateKey?: string };
+    if (gespeichert.publicKey && gespeichert.privateKey) return gespeichert as { publicKey: string; privateKey: string };
+  } catch { /* noch keine Datei, oder sie ist beschädigt — dann neu erzeugen */ }
+
+  try {
+    const paar = neuesSchluesselpaar();
+    const werte = {
+      publicKey: paar.oeffentlich.toString('base64url'),
+      privateKey: paar.privat.toString('base64url'),
+    };
+    fs.writeFileSync(file, JSON.stringify(werte), { mode: 0o600 });
+    console.warn('[config] Kein VAPID-Schlüsselpaar gesetzt — neues Paar erzeugt und in data/.vapid-keys.json abgelegt.');
+    return werte;
+  } catch (err) {
+    // Push ist ein Zusatz, kein Grundbedürfnis — der Server soll deswegen
+    // nicht scheitern. Ohne Schlüssel bleibt vapidPublicKey im 'ready'-
+    // Ereignis auf null, und der Client bleibt beim alten Weg.
+    console.error('[config] VAPID-Schlüsselpaar ließ sich weder lesen noch erzeugen:', (err as Error).message);
+    return { publicKey: '', privateKey: '' };
   }
 }
 
@@ -262,7 +326,22 @@ export const config = {
       warteschlange: int('STIMME_WARTESCHLANGE', 8),
     },
   },
+
+  /** Web Push — Benachrichtigungen, während die App nicht offen ist. */
+  push: {
+    ...resolveVapidKeys(),
+    /* Pflichtangabe des Protokolls (RFC 8292): eine Kontaktmöglichkeit, über
+       die ein Push-Dienst sich meldet, falls von diesem Server Missbrauch
+       ausgeht. Ohne eigene Angabe ein Platzhalter — kein Grund, deswegen
+       Benachrichtigungen abzuschalten, aber sinnvoll, ihn zu ersetzen. */
+    subject: str('VAPID_SUBJECT', 'mailto:admin@stellium.chat'),
+  },
 } as const;
+
+/** Ist ein Schlüsselpaar da, mit dem sich überhaupt etwas verschicken lässt? */
+export function pushConfigured(): boolean {
+  return Boolean(config.push.publicKey && config.push.privateKey);
+}
 
 /** Ist ein echter Übersetzungs-/KI-Provider konfiguriert? */
 export function aiConfigured(): boolean {

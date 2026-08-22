@@ -47,11 +47,41 @@ export function toUser(r: any): User {
   };
 }
 
+/**
+ * Stichtag für den echten Rückfall auf die Rechnersprache (siehe uiLanguage
+ * unten). Vorher stand hier `r.ui_language ?? r.language ?? 'de'` — dadurch
+ * war uiLanguage für JEDES Konto gefüllt (language selbst fällt in
+ * users.ts auf 'de' zurück), und der Rückfall auf die Rechnersprache in
+ * i18n/index.ts wurde nie erreicht: der Bildschirm nach der Erstanmeldung
+ * erschien für alle Menschen deutsch, ganz gleich, welche Sprache ihr
+ * Rechner sprach.
+ *
+ * Ein einfaches Entfernen des `?? r.language`-Rückfalls hätte das für NEUE
+ * Konten richtiggestellt, aber gleichzeitig JEDES bestehende Konto über
+ * Nacht umgestellt: `ui_language` steht bei allen (nachgesehen in der
+ * laufenden Datenbank) auf NULL, sie sähen also schlagartig die Sprache
+ * ihres jeweiligen Rechners statt der Sprache, die sie kennen — bei den
+ * meisten 'de', bei einem Konto bewusst 'en'. Das wäre die Wanderung, vor der
+ * groß gewarnt wurde: schlimmer als der Fehler, den sie beheben soll.
+ *
+ * Deshalb der Zeitstempel: nur ein WIRKLICH neues Konto (angelegt an oder
+ * nach diesem Tag) bekommt den leeren Wert und damit den echten Rückfall auf
+ * die Rechnersprache. Jedes ältere Konto behält genau das Verhalten von
+ * heute — bis es seine Oberflächensprache selbst einstellt, in Setup.tsx
+ * oder später in den Einstellungen; ab dann steht `ui_language` explizit in
+ * der Datenbank und dieser ganze Rückfall greift für dieses Konto nie wieder.
+ */
+const UI_LANGUAGE_FALLBACK_SEIT = Date.parse('2026-08-22T00:00:00Z');
+
 export function toSelf(r: any): SelfUser {
   return {
     ...toUser(r),
     notifyOn: r.notify_on,
     autoStatus: r.auto_status !== 0,
+    // Siehe timezoneAuto in @stellium/shared und die Spalte timezone_auto
+    // in migrate.ts/schema.sql: 1/true heißt "noch nicht bestätigt".
+    timezoneAuto: r.timezone_auto !== 0,
+    lesebestaetigungAus: r.lesebestaetigung_aus === 1,
     quietHoursStart: r.quiet_hours_start ?? null,
     quietHoursEnd: r.quiet_hours_end ?? null,
     composeTargetPreview: Boolean(r.compose_target_preview),
@@ -59,7 +89,13 @@ export function toSelf(r: any): SelfUser {
     density: r.density,
     notificationSound: r.notification_sound ?? 'ping',
     translationSpeed: r.translation_speed ?? 'balanced',
-    uiLanguage: r.ui_language ?? r.language ?? 'de',
+    /* '' heißt "nicht gesetzt, der Rechnersprache folgen" — dieselbe
+       Bedeutung wie beim leeren Auswahlwert in Settings.tsx
+       ("settings.uiLanguageSystem") und beim Rückfall in i18n/index.ts
+       (`self?.uiLanguage || spracheDesSystems()`). Ist ui_language gesetzt,
+       gilt es immer, unabhängig vom Kontoalter — das ist eine bewusste Wahl,
+       kein Rückfall. */
+    uiLanguage: r.ui_language ?? (r.created_at >= UI_LANGUAGE_FALLBACK_SEIT ? '' : (r.language ?? 'de')),
     permissions: permissionsFor(r.id),
     mustChangePassword: Boolean(r.must_change_password),
     mustCompleteProfile: Boolean(r.must_complete_profile),
@@ -99,6 +135,20 @@ export function getUser(id: string): User | null {
 export function getSelf(id: string): SelfUser | null {
   const r = db.get('SELECT * FROM users WHERE id = ?', id);
   return r ? toSelf(r) : null;
+}
+
+/**
+ * Hat diese Person Lesebestätigungen abgeschaltet?
+ *
+ * Für den Rundruf in ws/gateway.ts (case 'read'): die eigene Lesemarke rückt
+ * dort unverändert vor und der lesenden Person selbst geht ihr eigener
+ * Ungelesen-Zähler über channel:state zu, ganz gleich, was hier steht — nur
+ * der Ruf an die ANDEREN Kanalmitglieder ("diese Person hat gerade gelesen")
+ * unterbleibt, wenn diese Funktion true liefert. readReceiptsBatch() in
+ * services/messages.ts prüft dasselbe Feld für die gebündelte Anfrage.
+ */
+export function lesebestaetigungAus(userId: string): boolean {
+  return db.get<{ v: number }>('SELECT lesebestaetigung_aus AS v FROM users WHERE id = ?', userId)?.v === 1;
 }
 
 export function getUserByHandle(handle: string): User | null {

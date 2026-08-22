@@ -4,6 +4,7 @@ import type {
 } from '@stellium/shared';
 import { socket } from '../net/socket.js';
 import { anfrage } from './store.js';
+import { zeigen } from '../lib/benachrichtigung.js';
 
 /**
  * Der Eingang für Vorschläge der KI — Zustand in der Oberfläche.
@@ -126,6 +127,17 @@ export const useVorschlaege = create<VorschlagState>((set, get) => ({
     }
     if ((ev.t === 'vorschlag:upsert' || ev.t === 'vorschlag:neu') && ev.vorschlag) {
       const v = ev.vorschlag;
+      if (ev.t === 'vorschlag:neu') {
+        /* Nur bei echt Neuem — 'vorschlag:upsert' feuert auch für jede
+           spätere Änderung an einem längst bekannten Vorschlag, und dafür
+           soll es kein zweites Mal klingeln.
+           TODO(i18n): fester deutscher Text — i18n/ durfte in dieser
+           Änderung nicht angefasst werden. Vorschlag für Schlüssel:
+           toast.vorschlagNeuAufgabe / toast.vorschlagNeuTermin / toast.vorschlagNeuIdee. */
+        const artText = v.art === 'aufgabe' ? 'Neue Aufgabe vorgeschlagen'
+          : v.art === 'termin' ? 'Neuer Termin vorgeschlagen' : 'Neue Idee vorgeschlagen';
+        zeigen({ titel: artText, text: v.titel, kanalId: v.channelId, gruppe: `vorschlag:${v.id}` });
+      }
       const ohne = get().liste.filter((x) => x.id !== v.id);
       set({
         // Nur Offenes steht im Eingang. Angenommenes und Abgelehntes bleibt in

@@ -6,7 +6,7 @@ import { ChevronDown,
 } from 'lucide-react';
 import type { Attachment, RewriteTone } from '@stellium/shared';
 import { normalizeLang } from '@stellium/shared';
-import { useStore } from '../state/store.js';
+import { useStore, waitForMessageId } from '../state/store.js';
 import { useFokusfalle } from './Fokusfalle.jsx';
 import { spracheName, useT, t } from '../i18n/index.js';
 import { api } from '../net/api.js';
@@ -67,6 +67,17 @@ export function Composer({ channelId, parentId = null, placeholder, autoFocus }:
 
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  /**
+   * Welcher Anhang zu welcher schon verschickten Nachricht gehört.
+   *
+   * Wird beim Absenden befüllt (siehe submit()): alles, was zu dem Zeitpunkt
+   * noch hochlädt, bekommt hier seine `clientId` hinterlegt. Wird der Upload
+   * danach fertig — oder scheitert er —, findet einzeln() über diese Karte
+   * heraus, ob noch ein normaler Composer-Anhang gemeint ist (Karte leer) oder
+   * eine Nachricht, die längst unterwegs ist (Kennung vorhanden), und meldet
+   * es im zweiten Fall über message:attach / message:attachGiveUp nach.
+   */
+  const unterwegs = useRef<Map<string, string>>(new Map());
 
   /* Höhe automatisch an den Inhalt anpassen */
   useEffect(() => {
@@ -229,6 +240,34 @@ export function Composer({ channelId, parentId = null, placeholder, autoFocus }:
     const liste = Array.from(files);
     const GLEICHZEITIG = 3;
 
+    /**
+     * Einen Anhang aufgeben — der Upload ist gescheitert, oder er ließ sich
+     * gar nicht erst verschlüsseln.
+     *
+     * Zwei Fälle, je nachdem, ob die Nachricht schon unterwegs war (siehe
+     * `unterwegs` oben an der Komponente): Läuft der Anhang noch im
+     * Composer-Feld mit, genügt es, ihn dort wegzunehmen. Steht die Nachricht
+     * aber schon — weil senden inzwischen nicht mehr auf einen Upload wartet
+     * —, muss der Server erfahren, dass aus dem Platzhalter nichts wird
+     * (message:attachGiveUp), sonst zeigte die Nachricht bei allen anderen
+     * für immer "wird hochgeladen".
+     */
+    const aufgeben = async (tempId: string, fehler: Error) => {
+      setAttachments((prev) => prev.filter((a) => a.id !== tempId));
+      useStore.getState().toast({ kind: 'error', title: t('composer.uploadFailed'), body: fehler.message });
+
+      const zielClientId = unterwegs.current.get(tempId);
+      if (!zielClientId) return;
+      unterwegs.current.delete(tempId);
+      try {
+        const messageId = await waitForMessageId(zielClientId);
+        useStore.getState().giveUpAttachment(messageId, tempId);
+      } catch {
+        // Die Nachricht kam nie durch (siehe waitForMessageId-Frist) — dann
+        // gibt es auch nichts, wovon man den Anhang wieder abmelden müsste.
+      }
+    };
+
     const einzeln = async (roh: File) => {
       const temp: PendingAttachment = {
         id: `tmp_${Math.random()}`, name: roh.name, mime: roh.type, size: roh.size, progress: 0,
@@ -263,10 +302,7 @@ export function Composer({ channelId, parentId = null, placeholder, autoFocus }:
           const zu = await dateiVerschluesseln(verkleinert, kanalHuelle(channelId));
           file = new File([zu], 'verschlossen', { type: 'application/octet-stream' });
         } catch (err) {
-          setAttachments((prev) => prev.filter((a) => a.id !== temp.id));
-          useStore.getState().toast({
-            kind: 'error', title: t('composer.uploadFailed'), body: (err as Error).message,
-          });
+          await aufgeben(temp.id, err as Error);
           return;
         }
       }
@@ -292,9 +328,33 @@ export function Composer({ channelId, parentId = null, placeholder, autoFocus }:
         setAttachments((prev) => prev.map((a) => a.id === temp.id
           ? { ...attachment, name: roh.name, mime: verkleinert.type || roh.type, progress: 1 }
           : a));
+
+        /* Stand die Nachricht schon, als dieser Upload fertig wurde (siehe
+           submit() und `unterwegs`), muss sie ihren Anhang jetzt nachträglich
+           bekommen — sie wartet nicht auf uns, wir holen sie ein. */
+        const zielClientId = unterwegs.current.get(temp.id);
+        if (zielClientId) {
+          unterwegs.current.delete(temp.id);
+          void (async () => {
+            try {
+              const messageId = await waitForMessageId(zielClientId);
+              useStore.getState().attachUploadToMessage(messageId, temp.id, attachment.id);
+            } catch (fehler) {
+              /* Die Nachricht kam nie durch (siehe waitForMessageId-Frist,
+                 oder der Zweig "nicht verschlüsselbar" in sendMessage). Ohne
+                 sie gibt es nichts, woran der Anhang hängen könnte — er bleibt
+                 als eigenständige Zeile liegen (message_id NULL), genau wie
+                 jeder Anhang, der hochgeladen und nie in eine Nachricht
+                 aufgenommen wurde. Dafür gibt es heute keinen eigenen
+                 Aufräumlauf — derselbe, seit je bestehende Zustand wie beim
+                 Schließen der App mit einem angehängten, aber nie
+                 abgeschickten Bild. */
+              console.error('[composer] Anhang nicht nachgetragen:', (fehler as Error).message);
+            }
+          })();
+        }
       } catch (err) {
-        setAttachments((prev) => prev.filter((a) => a.id !== temp.id));
-        useStore.getState().toast({ kind: 'error', title: t('composer.uploadFailed'), body: (err as Error).message });
+        await aufgeben(temp.id, err as Error);
       }
     };
 
@@ -312,19 +372,24 @@ export function Composer({ channelId, parentId = null, placeholder, autoFocus }:
   const submit = () => {
     const clean = text.trim();
     const ready = attachments.filter((a) => !a.id.startsWith('tmp_'));
-    if (!clean && ready.length === 0) return;
-    if (attachments.length !== ready.length) {
-      useStore.getState().toast({ kind: 'info', title: t('composer.uploadRunning'), body: t('composer.uploadWait') });
-      return;
-    }
+    const pending = attachments.filter((a) => a.id.startsWith('tmp_'));
+    if (!clean && ready.length === 0 && pending.length === 0) return;
 
     const command = handleSlashCommand(clean, channelId);
     if (command.handled) { setText(''); return; }
 
-    useStore.getState().sendMessage({
+    /* Nicht mehr warten, bis der letzte Anhang oben ist: die Nachricht geht
+       sofort hinaus, mit dem, was schon fertig ist. Was noch hochlädt, holt
+       sie sich über message:attach nach, sobald es fertig ist — einzeln()
+       findet die Nachricht über `unterwegs` wieder, sobald ihre echte
+       Kennung feststeht (siehe waitForMessageId in state/store.ts). */
+    const clientId = useStore.getState().sendMessage({
       channelId, text: command.replaceWith ?? clean, parentId,
       attachmentIds: ready.map((a) => a.id),
+      pendingAttachments: pending.map((p) => ({ tempId: p.id, name: p.name, mime: p.mime })),
     });
+    for (const p of pending) unterwegs.current.set(p.id, clientId);
+
     setText('');
     setAttachments([]);
     setPreview(null);

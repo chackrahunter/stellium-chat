@@ -68,7 +68,9 @@ function auspacken(z: Zeile): Nachricht {
     threadId: z.thread_id,
     am: z.am,
     gelesen: z.gelesen === 1,
-    anhaenge: z.anhaenge ? JSON.parse(z.anhaenge) : [],
+    // Kaputter Wert reißt sonst die ganze Liste mit (JSON.parse wirft),
+    // nicht nur diese eine Zeile -- darum hier abgefangen statt durchgereicht.
+    anhaenge: z.anhaenge ? (() => { try { return JSON.parse(z.anhaenge); } catch { return []; } })() : [],
   };
 }
 

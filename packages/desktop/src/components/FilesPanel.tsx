@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
-  Download, File as FileIcon, FileText, FolderOpen, Hash, Image as ImageIcon,
-  Loader2, Lock, Music, Pencil, Search, Trash2, Unlock, Upload, Video,
+  AlertTriangle, Download, File as FileIcon, FileText, FolderOpen, Hash, Image as ImageIcon,
+  Loader2, Lock, Music, Pencil, Search, Trash2, Unlock, Upload, Video, X,
 } from 'lucide-react';
 import type { StoredFile } from '@stellium/shared';
 import { useStore } from '../state/store.js';
-import { useT } from '../i18n/index.js';
+import { currentUiLanguage, useT } from '../i18n/index.js';
 import { Avatar } from './Avatar.jsx';
 import { Shell } from './Panels.jsx';
 import { dateiUrl } from '../net/api.js';
@@ -37,7 +37,12 @@ export function FilesPanel({ onClose }: { onClose: () => void }) {
   const users = useStore((s) => s.users);
   const channels = useStore((s) => s.channels);
   const self = useStore((s) => s.self);
-  const { loadFiles, uploadFile, deleteFile, updateFile } = useStore.getState();
+  /* Der Fortschritt lebt im Zustand, nicht in einem lokalen useState: schließt
+     jemand diese Ansicht, während eine Datei noch hochlädt, läuft der Upload
+     unbeeindruckt weiter (siehe uploadLibraryFiles in state/store.ts) — und
+     wer die Ablage wieder öffnet, sieht genau da weiter, wo er stand. */
+  const libraryUploads = useStore((s) => s.libraryUploads);
+  const { loadFiles, uploadLibraryFiles, dismissLibraryUpload, deleteFile, updateFile } = useStore.getState();
 
   const [suche, setSuche] = useState('');
   const [ordner, setOrdner] = useState('');
@@ -46,15 +51,15 @@ export function FilesPanel({ onClose }: { onClose: () => void }) {
      Person niemand mehr, auch keine Vertretung im Urlaub. Wer sie will, soll
      sie wählen. */
   const [privat, setPrivat] = useState(false);
-  const [laedt, setLaedt] = useState(false);
-  const [stand, setStand] = useState<{ name: string; anteil: number; tempo?: number; rest?: number } | null>(null);
   const [ueberZone, setUeberZone] = useState(false);
   const dateiFeld = useRef<HTMLInputElement>(null);
 
   useEffect(() => { loadFiles(); }, [loadFiles]);
 
+  const laedt = libraryUploads.some((u) => u.status === 'laeuft');
+
   const ordnerListe = useMemo(
-    () => [...new Set(files.map((f) => f.folder).filter(Boolean))].sort(),
+    () => [...new Set(files.map((f) => f.folder).filter(Boolean))].sort((a, b) => a.localeCompare(b, currentUiLanguage())),
     [files],
   );
 
@@ -67,38 +72,9 @@ export function FilesPanel({ onClose }: { onClose: () => void }) {
     });
   }, [files, suche, ordner]);
 
-  const hochladen = async (liste: FileList | null) => {
+  const hochladen = (liste: FileList | null) => {
     if (!liste?.length) return;
-    setLaedt(true);
-    try {
-      // Nacheinander, damit das Kontingent sauber geprüft wird.
-      for (const datei of Array.from(liste)) {
-        /* Tempo über ein gleitendes Fenster — bisher stand hier nur "lädt…",
-           und bei einer großen Datei wusste niemand, ob es vorangeht. */
-        const proben: { zeit: number; bytes: number }[] = [{ zeit: performance.now(), bytes: 0 }];
-        setStand({ name: datei.name, anteil: 0 });
-        await uploadFile(
-          datei,
-          { folder: ordner && ordner !== '__root' ? ordner : undefined, privat },
-          (anteil, bytes) => {
-            const jetzt = performance.now();
-            proben.push({ zeit: jetzt, bytes });
-            while (proben.length > 2 && jetzt - proben[0].zeit > 3000) proben.shift();
-            const sekunden = (jetzt - proben[0].zeit) / 1000;
-            const tempo = sekunden > 0.25 ? (bytes - proben[0].bytes) / sekunden : undefined;
-            setStand({
-              name: datei.name,
-              anteil,
-              tempo,
-              rest: tempo && tempo > 0 ? (datei.size - bytes) / tempo : undefined,
-            });
-          },
-        );
-      }
-    } finally {
-      setLaedt(false);
-      setStand(null);
-    }
+    void uploadLibraryFiles(liste, { folder: ordner && ordner !== '__root' ? ordner : undefined, privat });
   };
 
   const anteil = usage && usage.quota > 0 ? Math.min(1, usage.used / usage.quota) : 0;
@@ -130,23 +106,44 @@ export function FilesPanel({ onClose }: { onClose: () => void }) {
         onChange={(e) => { void hochladen(e.target.files); e.target.value = ''; }}
       />
 
-      {stand && (
-        <div className="upload-stand">
-          <div className="upload-stand__kopf">
-            <span className="truncate">{stand.name}</span>
-            <span className="muted">
-              {[
-                `${Math.round(stand.anteil * 100)} %`,
-                stand.tempo ? `${(stand.tempo / 1048576).toFixed(1)} MB/s` : null,
-                stand.rest && stand.rest > 1 ? restzeit(stand.rest) : null,
-              ].filter(Boolean).join(' · ')}
-            </span>
-          </div>
-          <span className="upload-stand__balken">
-            <span style={{ width: `${Math.round(stand.anteil * 100)}%` }} />
-          </span>
+      {libraryUploads.map((u) => (
+        <div key={u.id} className="upload-stand">
+          {u.status === 'fehler' ? (
+            <div className="upload-stand__kopf">
+              <span className="truncate" style={{ color: 'var(--red)' }}>
+                <AlertTriangle size={13} style={{ verticalAlign: -2, marginRight: 4 }} />
+                {u.name}
+              </span>
+              <span className="muted truncate" style={{ maxWidth: 260 }} title={u.fehler}>
+                {t('toast.uploadFailed')}
+              </span>
+              <button
+                className="icon-btn icon-btn--sm"
+                title={t('toast.uploadFailed')}
+                onClick={() => dismissLibraryUpload(u.id)}
+              >
+                <X size={13} />
+              </button>
+            </div>
+          ) : (
+            <>
+              <div className="upload-stand__kopf">
+                <span className="truncate">{u.name}</span>
+                <span className="muted">
+                  {[
+                    `${Math.round(u.anteil * 100)} %`,
+                    u.tempo ? `${(u.tempo / 1048576).toFixed(1)} MB/s` : null,
+                    u.rest && u.rest > 1 ? restzeit(u.rest) : null,
+                  ].filter(Boolean).join(' · ')}
+                </span>
+              </div>
+              <span className="upload-stand__balken">
+                <span style={{ width: `${Math.round(u.anteil * 100)}%` }} />
+              </span>
+            </>
+          )}
         </div>
-      )}
+      ))}
 
       {usage && (
         <div className="quota">

@@ -6,11 +6,22 @@ import {
 } from 'lucide-react';
 import { EVENT_KINDS, type CalendarEvent, type EventKind } from '@stellium/shared';
 import { useStore } from '../state/store.js';
-import { useT } from '../i18n/index.js';
+import { currentUiLanguage, useT } from '../i18n/index.js';
 import { Avatar } from './Avatar.jsx';
 import { Shell } from './Panels.jsx';
 import { PruefListe } from './PruefListe.jsx';
 import { clsx, localTimeFor } from '../lib/format.js';
+
+/* TypeScript kennt Intl.Locale.weekInfo noch nicht (Stand TS 5.9), obwohl
+   Electron/Chromium es längst liefert — kurze Ergänzung des Typs statt eines
+   pauschalen `any` an der Aufrufstelle. */
+declare global {
+  namespace Intl {
+    interface Locale {
+      weekInfo?: { firstDay: number; weekend: number[]; minimalDays: number };
+    }
+  }
+}
 
 const ART_FARBE: Record<EventKind, string> = {
   meeting: 'var(--violet)',
@@ -22,11 +33,29 @@ const ART_FARBE: Record<EventKind, string> = {
 
 const TAG = 86_400_000;
 
-/** Montag 00:00 der Woche, in der das Datum liegt. */
-function wochenStart(ms: number): number {
+/**
+ * Erster Wochentag als ISO-Zahl (1 = Montag … 7 = Sonntag) — nicht überall
+ * derselbe: en-US, ja, ko, hi und pt-BR fangen die Woche sonntags an, ar
+ * samstags. Ohne diese Abfrage saß „heute" für die halbe Welt in der
+ * falschen Spalte.
+ */
+function ersterWochentag(sprache: string): number {
+  try {
+    return new Intl.Locale(sprache).weekInfo?.firstDay ?? 1;
+  } catch {
+    return 1;
+  }
+}
+
+/** 00:00 des ersten Wochentags der Sprache, in der Woche, in der das Datum liegt. */
+function wochenStart(ms: number, sprache: string): number {
   const d = new Date(ms);
   d.setHours(0, 0, 0, 0);
-  const versatz = (d.getDay() + 6) % 7;
+  const start = ersterWochentag(sprache);
+  // d.getDay(): 0 = So … 6 = Sa. Auf dieselbe 1..7-Zählung (Mo=1…So=7) heben,
+  // dann den Abstand zum gewünschten Wochenanfang bilden.
+  const isoTag = d.getDay() === 0 ? 7 : d.getDay();
+  const versatz = (isoTag - start + 7) % 7;
   return d.getTime() - versatz * TAG;
 }
 
@@ -37,10 +66,9 @@ function uhrzeit(ms: number, sprache: string): string {
 export function CalendarPanel({ onClose }: { onClose: () => void }) {
   const t = useT();
   const events = useStore((s) => s.events);
-  const self = useStore((s) => s.self);
   const { loadEvents, terminGeprueft, deleteEvent } = useStore.getState();
 
-  const [anker, setAnker] = useState(() => wochenStart(Date.now()));
+  const [anker, setAnker] = useState(() => wochenStart(Date.now(), currentUiLanguage()));
   const [neuOffen, setNeuOffen] = useState<number | null>(null);
   const [offenerTermin, setOffenerTermin] = useState<string | null>(null);
   /** Der Reiter „Prüfen": nur, was die KI selbst eingetragen hat. */
@@ -65,7 +93,10 @@ export function CalendarPanel({ onClose }: { onClose: () => void }) {
   }, [events, tage]);
 
   const heute = new Date().setHours(0, 0, 0, 0);
-  const sprache = self?.language ?? 'de';
+  // uiLanguage, nicht self.language: Letzteres ist die Lesesprache der
+  // Nachrichten, nicht die der Oberfläche — hier geht es um Wochentage,
+  // Uhrzeiten und Zeiträume, also um Bedienelemente.
+  const sprache = currentUiLanguage();
 
   const ungeprueft = useMemo(
     () => Object.values(events).filter((e) => e.vonKi && !e.geprueft),
@@ -86,7 +117,7 @@ export function CalendarPanel({ onClose }: { onClose: () => void }) {
       actions={
         <>
           <button className="icon-btn" onClick={() => setAnker((a) => a - 7 * TAG)}><ChevronLeft size={16} /></button>
-          <button className="pill" onClick={() => setAnker(wochenStart(Date.now()))}>{t('calendar.today')}</button>
+          <button className="pill" onClick={() => setAnker(wochenStart(Date.now(), currentUiLanguage()))}>{t('calendar.today')}</button>
           <button className="icon-btn" onClick={() => setAnker((a) => a + 7 * TAG)}><ChevronRight size={16} /></button>
           {ungeprueft.length > 0 && (
             <button
@@ -113,7 +144,7 @@ export function CalendarPanel({ onClose }: { onClose: () => void }) {
           }))}
           onOeffnen={(id) => { setPruefen(false); setOffenerTermin(id); }}
           onPasst={(id) => terminGeprueft(id)}
-          onWeg={(id) => { if (confirm(t('calendar.delete'))) deleteEvent(id); }}
+          onWeg={(id) => { if (confirm(t('calendar.deleteConfirm'))) deleteEvent(id); }}
         />
       ) : (
       <div className="week">
@@ -227,7 +258,7 @@ function EventDialog({ start, onClose }: { start: number; onClose: () => void })
           <input className="input" type="datetime-local" value={endsAt} onChange={(e) => setEndsAt(e.target.value)} />
         </div>
         <div className="field">
-          <label className="field__label">{t('calendar.kind.meeting')}</label>
+          <label className="field__label">{t('calendar.kindLabel')}</label>
           <select className="select" value={kind} onChange={(e) => setKind(e.target.value as EventKind)}>
             {EVENT_KINDS.map((k) => <option key={k} value={k}>{t(`calendar.kind.${k}` as never)}</option>)}
           </select>
@@ -293,7 +324,7 @@ function EventDetail({ event, onClose }: { event: CalendarEvent; onClose: () => 
   const users = useStore((s) => s.users);
   const self = useStore((s) => s.self);
   const { respondEvent, deleteEvent } = useStore.getState();
-  const sprache = self?.language ?? 'de';
+  const sprache = currentUiLanguage();
 
   const meine = event.attendees.find((a) => a.userId === self?.id);
   const darfLoeschen = event.createdBy === self?.id || self?.permissions['event.manage'];

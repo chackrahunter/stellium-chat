@@ -8,6 +8,7 @@ import {
   fristVerschieben, beimBeendenInstallieren,
 } from './updater.js';
 import { fernsteuerungEinrichten, fernsteuerungBeenden } from './fernsteuerung.js';
+import { macNotifyEinrichten } from './mac-notify.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const isDev = !app.isPackaged;
@@ -255,6 +256,11 @@ ipcMain.handle('update:postpone', () => { fristVerschieben(); return true; });
    braucht — das gibt es in der Browser-Krypto nicht. Nebenwirkung, die uns
    entgegenkommt: der Sitzungsschlüssel bleibt hier und die Ansicht sieht ihn nie. */
 fernsteuerungEinrichten(() => mainWindow);
+
+/* Selbstgezeichnete macOS-Benachrichtigung — nur auf dieser Plattform tut sie
+   etwas, siehe electron/mac-notify.ts. Dort sitzt auch die ganze Geometrie
+   und der Stapel; hier nur der eine Aufruf, der sie an den Draht hängt. */
+macNotifyEinrichten(() => mainWindow);
 
 ipcMain.handle('app:info', () => ({
   locale: app.getLocale(),
