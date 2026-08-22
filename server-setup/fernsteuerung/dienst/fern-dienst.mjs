@@ -78,6 +78,22 @@ function zustandSchreiben() {
     id: kennung.id,
     hafen: PORT,
     aktualisiert: new Date().toISOString(),
+    /* Wie schnell es gerade läuft — Takt, Rückstau, Verworfene.
+       Das ist KEIN Bruch mit der Regel darüber: hier steht, wie schnell
+       Bilder fließen, nirgends WAS auf ihnen zu sehen ist.
+       Der Grund dafür ist praktischer Natur: um zu messen, wie sich die
+       Fernsteuerung im Betrieb schlägt, wurde bisher ein zweiter Abgriff
+       daneben gestartet — und der halbiert auf vier Kernen genau das, was
+       er messen soll. Mehrere Messreihen sind daran gescheitert. Die
+       laufende Sitzung selbst berichten zu lassen, kostet nichts und
+       verfälscht nichts. */
+    leistung: verbunden ? {
+      takt: verbunden.letzteMeldung || null,
+      stau: verbunden.stau ?? 0,
+      rate: verbunden.rateJetzt ?? null,
+      verworfenGesamt: verbunden.verworfenGesamt ?? 0,
+      bilder: verbunden.bilder ?? 0,
+    } : null,
   };
   try {
     fs.writeFileSync(ZUSTAND + '.neu', JSON.stringify(z, null, 2), { mode: 0o644 });
@@ -303,6 +319,10 @@ function hostRahmen(sitzung, art, inhalt) {
     senden(sitzung, N_ABLAGE, inhalt);
   } else if (art === H_MELDUNG) {
     sitzung.letzteMeldung = String(inhalt);
+    sitzung.verworfenGesamt = (sitzung.verworfenGesamt ?? 0) + sitzung.verworfen;
+    /* Bei jeder Meldung mitschreiben — so steht im Zustand immer der Stand
+       der letzten zwei Sekunden, ohne eigenen Zeitgeber. */
+    zustandSchreiben();
     senden(sitzung, N_INFO, Buffer.from(JSON.stringify({
       takt: sitzung.letzteMeldung,
       verworfen: sitzung.verworfen,
