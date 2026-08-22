@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { t } from '../i18n';
 import {
   aufforderungBeobachten, aufforderungDa, einrichtenAnbieten, lageBestimmen,
   type Browserfamilie,
@@ -104,6 +105,21 @@ function Kacheln() {
   );
 }
 
+/*
+ * `*so*` im Text wird fett.
+ *
+ * Warum nicht einfach JSX mit <b> in der Anleitung: die Sätze müssen
+ * übersetzbar sein, und ein Satz, der in fünf JSX-Stücke zerfällt, ist es
+ * nicht — wer ihn übersetzt, bekommt Wortfetzen ohne Zusammenhang und kann
+ * die Reihenfolge nicht ändern, obwohl genau das in vielen Sprachen nötig
+ * ist. Ein Stern ist die kleinste Auszeichnung, die ein Übersetzer
+ * unfallfrei stehen lässt.
+ */
+function fett(text: string): React.ReactNode[] {
+  return text.split(/\*([^*]+)\*/g).map((teil, i) =>
+    i % 2 === 1 ? <b key={i}>{teil}</b> : <span key={i}>{teil}</span>);
+}
+
 /* ── Anleitungen ──────────────────────────────────────────── */
 
 interface Schritt { symbol: React.ReactNode; text: React.ReactNode }
@@ -111,73 +127,78 @@ interface Schritt { symbol: React.ReactNode; text: React.ReactNode }
 function anleitung(familie: Browserfamilie, name: string): {
   titel: string; schritte: Schritt[]; hinweis?: React.ReactNode;
 } {
+  /* Ein Schlüssel je Schritt statt Textstücken im Code — siehe fett(). */
+  const S = (k: string) => t(`einrichten.${k}` as never, { browser: name });
+  const schritt = (symbol: React.ReactNode, k: string): Schritt =>
+    ({ symbol, text: fett(S(k)) });
+
   switch (familie) {
     case 'safari-ios':
       return {
-        titel: 'In Safari sind es drei Schritte',
+        titel: S('safari.titel'),
         schritte: [
-          { symbol: <TeilenIos />, text: <>Unten in der Leiste auf <b>Teilen</b> tippen — das Feld mit dem Pfeil nach oben.</> },
-          { symbol: <PlusFeld />, text: <>In der Liste nach unten wischen bis <b>Zum Home-Bildschirm</b>.</> },
-          { symbol: <Haken />, text: <>Oben rechts auf <b>Hinzufügen</b>. Fertig.</> },
+          schritt(<TeilenIos />, 'safari.1'),
+          schritt(<PlusFeld />, 'safari.2'),
+          schritt(<Haken />, 'safari.3'),
         ],
       };
 
     case 'andere-ios':
       return {
-        titel: `Auf dem iPhone geht das nur in Safari, nicht in ${name}`,
+        titel: S('ios.titel'),
         schritte: [
-          { symbol: <Kompass />, text: <>Die Seite in <b>Safari</b> öffnen. In {name} steht der Punkt im Menü, meist als <b>In Safari öffnen</b>.</> },
-          { symbol: <TeilenIos />, text: <>Dort unten auf <b>Teilen</b> tippen.</> },
-          { symbol: <PlusFeld />, text: <><b>Zum Home-Bildschirm</b> wählen, dann <b>Hinzufügen</b>.</> },
+          schritt(<Kompass />, 'ios.1'),
+          schritt(<TeilenIos />, 'ios.2'),
+          schritt(<PlusFeld />, 'ios.3'),
         ],
-        hinweis: <>Das ist keine Vorliebe, sondern eine Vorgabe von Apple: nur Safari darf auf iPhone und iPad ein Symbol auf dem Startbildschirm anlegen.</>,
+        hinweis: S('ios.hinweis'),
       };
 
     case 'chrome-android':
       return {
-        titel: `In ${name} sind es zwei Schritte`,
+        titel: S('chrome.titel'),
         schritte: [
-          { symbol: <PunkteSenkrecht />, text: <>Oben rechts auf die <b>drei Punkte</b> tippen.</> },
-          { symbol: <PlusFeld />, text: <><b>App installieren</b> wählen — je nach Fassung heißt es <b>Zum Startbildschirm hinzufügen</b>.</> },
+          schritt(<PunkteSenkrecht />, 'chrome.1'),
+          schritt(<PlusFeld />, 'chrome.2'),
         ],
       };
 
     case 'samsung':
       return {
-        titel: 'In Samsung Internet sind es zwei Schritte',
+        titel: S('samsung.titel'),
         schritte: [
-          { symbol: <Balken />, text: <>Unten rechts auf die <b>drei Striche</b> tippen.</> },
-          { symbol: <PlusFeld />, text: <><b>Seite hinzufügen zu</b> und dann <b>Startbildschirm</b> wählen.</> },
+          schritt(<Balken />, 'samsung.1'),
+          schritt(<PlusFeld />, 'samsung.2'),
         ],
       };
 
     case 'firefox-android':
       return {
-        titel: 'In Firefox sind es zwei Schritte',
+        titel: S('firefox.titel'),
         schritte: [
-          { symbol: <PunkteSenkrecht />, text: <>Rechts in der Adressleiste auf die <b>drei Punkte</b> tippen.</> },
-          { symbol: <PlusFeld />, text: <><b>Zum Startbildschirm hinzufügen</b> wählen.</> },
+          schritt(<PunkteSenkrecht />, 'firefox.1'),
+          schritt(<PlusFeld />, 'firefox.2'),
         ],
       };
 
     case 'in-app':
       return {
-        titel: 'Diese Seite läuft gerade im Browser einer anderen App',
+        titel: S('inapp.titel'),
         schritte: [
-          { symbol: <PunkteSenkrecht />, text: <>Im Menü dieser App auf <b>Im Browser öffnen</b> tippen.</> },
-          { symbol: <TeilenIos />, text: <>Im richtigen Browser dann auf <b>Teilen</b> beziehungsweise das Menü.</> },
-          { symbol: <PlusFeld />, text: <><b>Zum Startbildschirm hinzufügen</b> wählen.</> },
+          schritt(<PunkteSenkrecht />, 'inapp.1'),
+          schritt(<TeilenIos />, 'inapp.2'),
+          schritt(<PlusFeld />, 'inapp.3'),
         ],
-        hinweis: <>Eingebaute Browser — etwa in Instagram oder WhatsApp — können keine Symbole auf dem Startbildschirm anlegen.</>,
+        hinweis: S('inapp.hinweis'),
       };
 
     default:
       return {
-        titel: 'So richtest du Stellium ein',
+        titel: S('allg.titel'),
         schritte: [
-          { symbol: <PunkteSenkrecht />, text: <>Das <b>Menü</b> deines Browsers öffnen — meist drei Punkte oder drei Striche.</> },
-          { symbol: <PlusFeld />, text: <>Den Punkt <b>Zum Startbildschirm hinzufügen</b> wählen.</> },
-          { symbol: <Kacheln />, text: <>Stellium ab jetzt über das neue Symbol öffnen.</> },
+          schritt(<PunkteSenkrecht />, 'allg.1'),
+          schritt(<PlusFeld />, 'allg.2'),
+          schritt(<Kacheln />, 'allg.3'),
         ],
       };
   }
@@ -202,27 +223,23 @@ export function Startbildschirm() {
           <div className="einrichten__zeichen" aria-hidden="true"><Kacheln /></div>
           <div>
             <div className="einrichten__name">Stellium</div>
-            <div className="einrichten__sinn">Chat mit Übersetzung in 22 Sprachen</div>
+            <div className="einrichten__sinn">{t('einrichten.sinn')}</div>
           </div>
         </div>
 
-        <h1 className="einrichten__ueberschrift">Zuerst auf den Startbildschirm legen</h1>
-        <p className="einrichten__warum">
-          Auf dem Telefon läuft Stellium als eigene App, nicht als Seite im Browser.
-          Nur so bleibt der ganze Bildschirm frei, kommen Benachrichtigungen an und
-          startet die App ohne Adressleiste.
-        </p>
+        <h1 className="einrichten__ueberschrift">{t('einrichten.ueberschrift')}</h1>
+        <p className="einrichten__warum">{t('einrichten.warum')}</p>
 
         {kannEinrichten && (
           <>
             <button type="button" className="btn btn--primary einrichten__knopf"
                     onClick={() => { void einrichtenAnbieten(); }}>
-              Jetzt einrichten
+              {t('einrichten.jetzt')}
             </button>
             {/* Der Knopf ist der kurze Weg. Die Schritte darunter bleiben
                 trotzdem stehen: bricht jemand die Abfrage ab, kommt sie in
                 derselben Sitzung nicht wieder. */}
-            <div className="einrichten__oder">oder von Hand:</div>
+            <div className="einrichten__oder">{t('einrichten.oder')}</div>
           </>
         )}
 
@@ -243,10 +260,7 @@ export function Startbildschirm() {
             einen eigenen Speicher, eine Anmeldung im Browser wandert NICHT
             mit. Wer das erwartet und dann doch das Anmeldefenster sieht,
             hält die App für kaputt. */}
-        <p className="einrichten__fuss">
-          Stellium ab dann immer über das neue Symbol öffnen. Dort meldest du dich
-          einmal an und bleibst angemeldet.
-        </p>
+        <p className="einrichten__fuss">{t('einrichten.fuss')}</p>
       </div>
     </div>
   );
