@@ -206,6 +206,53 @@ async function schonDa(
   return null;
 }
 
+/* ── Verkaufsstatistik: Formen der Antworten von services/gumroad.ts und
+   services/patreon.ts auf dem Server ──────────────────────────────────
+   Nicht aus @stellium/shared importiert — dieses Paket bündelt das
+   Chat-Protokoll und Typen, die wirklich über beide Seiten hinweg geteilt
+   werden (Nachrichten, Rechte). Diese Formen hier sind reine
+   Verkauf-Auskünfte, dieselbe lokale Bauart wie schon patreonZugang() oben. */
+export interface PatreonKennzahlen {
+  stand: number;
+  kampagneId: string;
+  aktiveUnterstuetzer: number;
+  deklinierteUnterstuetzer: number;
+  ehemaligeUnterstuetzer: number;
+  follower: number;
+  monatlicheEinnahmenCents: number;
+  waehrung: string | null;
+  neuDiesenMonat: number;
+  abgaengeDiesenMonat: null;
+}
+
+export interface PatreonMomentaufnahme {
+  tag: string; aktive: number; deklination: number; ehemalig: number; follower: number;
+  einnahmenCents: number; waehrung: string | null; neuDiesenMonat: number;
+}
+
+export interface GumroadUebersicht {
+  stand: number;
+  hatDaten: boolean;
+  tokenVorhanden: boolean;
+  waehrung: string;
+  umsatz: {
+    monatCent: number; zahlend: number; inProbe: number;
+    aufteilung: { laufzeit: string; anzahl: number; monatCent: number }[];
+  };
+  abonnenten: {
+    aktiv: number; probe: number; zahlend: number; gekuendigt: number; gescheitert: number;
+    statusVerteilung: Record<string, number>;
+  };
+  verlauf: { monat: string; bruttoCent: number; nettoCent: number; anzahl: number }[];
+  zuAbgaenge: { monat: string; neu: number; abgang: number }[];
+  erstattungen: { anzahl: number; betragCent: number; teilweise: number };
+  anfechtungen: { anzahl: number; betragCent: number };
+  rueckbuchungen: { anzahl: number; betragCent: number };
+  einmalig: { anzahl: number; bruttoCent: number };
+  wiederkehrend: { anzahl: number; bruttoCent: number };
+  auszahlungen: { status: string; waehrung: string | null; anzahl: number; summeRoh: number }[];
+}
+
 export const api = {
   health: () => request<{ ok: boolean; workspace: string; ai: AiCapabilities }>('/api/health'),
 
@@ -460,6 +507,30 @@ export const api = {
     hinterlegt: boolean; clientId: string | null; clientSecretHinterlegt: boolean;
     refreshTokenHinterlegt: boolean; ablaufAm: number | null; verschluesselt: boolean;
   }>('/api/verkauf/patreon', { method: 'POST', body: JSON.stringify(werte) }),
+
+  /* Zusätzlich zu patreonZugang(): ob die automatische Erneuerung zuletzt
+     geklappt hat. Getrennter Aufruf, damit patreonZugang() (siehe
+     verkaufzugang.ts auf dem Server) unangetastet bleibt. */
+  patreonErneuerungsStand: () => request<{
+    scope: string | null; letzterFehler: string | null;
+    letzterVersuchAm: number | null; letzteErneuerungAm: number | null;
+  }>('/api/verkauf/patreon/erneuerung'),
+
+  /* Nur die Patreon-Zahlen selbst — für die kleine Zeile in der
+     Verkaufskachel (SystemPanel.tsx). Dieselbe Route wie im Reiter
+     "Schlüssel" käme in Frage, hat dort aber eine eigene Fehlerbehandlung
+     (Diagnose); die Kachel braucht nur die nackten Zahlen oder gar nichts. */
+  verkaufPatreonKennzahlen: () => request<PatreonKennzahlen>('/api/verkauf/patreon/kennzahlen'),
+
+  /* Die ausführliche Ansicht (VerkaufDetailPanel.tsx) — ein Aufruf für
+     Gumroad UND Patreon, siehe /api/verkauf/uebersicht auf dem Server. Beide
+     Felder können unabhängig `null` sein: kein Fehler, sondern "dieser
+     Anbieter ist nicht eingerichtet". */
+  verkaufUebersicht: () => request<{
+    gumroad: GumroadUebersicht | null;
+    patreon: PatreonKennzahlen | null;
+    patreonVerlauf: PatreonMomentaufnahme[];
+  }>('/api/verkauf/uebersicht'),
 
   /* Postfach: dieselbe Trennung wie beim Fernzugang. Zurück kommt nur, DASS
      etwas hinterlegt ist — die Schlüssel selbst gibt der Server nie heraus,

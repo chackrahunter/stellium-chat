@@ -7,6 +7,7 @@ import { mitKennung } from '../translation/fehler.js';
 import { createAccount } from './users.js';
 import { encryptField, blindIndex } from '../crypto/pii.js';
 import { entschluesseln } from '../crypto/nachrichten.js';
+import { Abweisung } from '../util/abweisung.js';
 
 /**
  * Der KI-Assistent als Gesprächspartner.
@@ -29,7 +30,43 @@ export const TEAM_CHANNEL = 'ki-team';
 
 export type AiMode = 'off' | 'mention' | 'always';
 
-/** Konto des Assistenten, bei Bedarf angelegt. */
+/**
+ * Konto des Assistenten, bei Bedarf angelegt.
+ *
+ * "Bei Bedarf" heißt: erst suchen, dann anlegen — und genau dieser Abstand
+ * zwischen Suchen und Schreiben ist eine Wettlaufbedingung, keine Formalie.
+ * Läuft dieser Aufruf zweimal nah beieinander (zwei Serverstarts, ein Start
+ * mitten in einem laufenden zweiten Prozess), können beide die erste SELECT
+ * leer sehen und beide anlegen. Der partielle eindeutige Index auf
+ * handle_bidx (db/migrate.ts, idx_users_handle_bidx) fängt den Fall ab, in
+ * dem beide Aufrufe *denselben* Blind-Index berechnet haben: die zweite
+ * INSERT scheitert dann an der Datenbank statt in der Anwendung, und der
+ * catch unten holt sich über eine erneute SELECT einfach die Kennung, die
+ * der andere Aufruf gerade angelegt hat — dasselbe Muster wie bei
+ * idx_vorschlaege_dublette.
+ *
+ * Was das NICHT abfängt: läuft blindIndex() bei den beiden Aufrufen mit
+ * unterschiedlichem Schlüssel (Masterpasswort zur Startzeit nicht dieselbe),
+ * ergeben sich für denselben Klartext "stelliumai" zwei verschiedene,
+ * beide für sich genommen gültige handle_bidx-Werte — der Index sieht dann
+ * gar keinen Konflikt, weil er nur gleiche Werte als Dublette erkennt.
+ *
+ * Ein früherer Kommentar behauptete hier, genau das sei am 18./19.08. passiert
+ * (zwei Bot-Konten, ~2,4 Stunden auseinander). Das war falsch und ist am
+ * 22.08. an der laufenden Datenbank widerlegt worden: Das zweite Bot-Konto
+ * heißt @claude und wurde von Hand angelegt — zwei verschiedene Namen ergeben
+ * selbstverständlich zwei verschiedene Abdrücke. Alle acht Konten passen zum
+ * aktuellen Schlüssel, alle Nachrichten sind lesbar, das Masterpasswort hat
+ * nie gewechselt. Die Lehre daraus: ein zeitlicher Abstand belegt keine
+ * Ursache.
+ *
+ * Der Mechanismus bleibt trotzdem real — dieselbe blindIndex()-Suche trägt
+ * handleTaken()/emailTaken() und den Login (services/users.ts). Ein Wechsel
+ * des Masterpassworts, der nicht alle vorhandenen Zeilen neu indiziert, macht
+ * bestehende Konten unauffindbar, nicht nur diesen einen Bot. Deshalb prüft
+ * db/schluesselprobe.ts das beim Start und lässt den Server gar nicht erst
+ * hochkommen, wenn der Schlüssel nicht zu den Daten passt.
+ */
 export function ensureAssistant(): string {
   const vorhanden = db.get<{ id: string }>(
     'SELECT id FROM users WHERE handle_bidx = ?', blindIndex(ASSISTANT_HANDLE),
@@ -51,14 +88,34 @@ export function ensureAssistant(): string {
     return bot.id;
   }
 
-  const konto = createAccount({
-    displayName: ASSISTANT_NAME,
-    handle: ASSISTANT_HANDLE,
-    role: 'bot',
-    language: 'de',
-    timezone: 'UTC',
-    createdBy: 'system',
-  });
+  let konto;
+  try {
+    konto = createAccount({
+      displayName: ASSISTANT_NAME,
+      handle: ASSISTANT_HANDLE,
+      role: 'bot',
+      language: 'de',
+      timezone: 'UTC',
+      createdBy: 'system',
+    });
+  } catch (err) {
+    // Zwischen der SELECT oben und dieser INSERT hat ein zweiter Aufruf
+    // gewonnen — entweder über handleTaken() (Abweisung, freundlicher Fall)
+    // oder weil createAccount() selbst noch schneller war und erst die
+    // UNIQUE-Bedingung der Datenbank zugeschlagen hat (roher Fehler aus
+    // node:sqlite). Beides heißt: der Assistent existiert jetzt, nur eben
+    // durch den anderen Aufruf. Erneut suchen statt einen zweiten anzulegen.
+    const bereitsVorhanden = err instanceof Abweisung
+      ? err.code === 'fehler.benutzernameVergeben'
+      : /UNIQUE constraint failed/i.test((err as Error).message ?? '');
+    if (!bereitsVorhanden) throw err;
+
+    const jetztVorhanden = db.get<{ id: string }>(
+      'SELECT id FROM users WHERE handle_bidx = ?', blindIndex(ASSISTANT_HANDLE),
+    );
+    if (jetztVorhanden) return jetztVorhanden.id;
+    throw err;   // handle_bidx wich ab (anderer Schlüssel) — kein Gewinner auffindbar
+  }
 
   // Ein Bot richtet nichts ein und meldet sich nie selbst an.
   db.run(

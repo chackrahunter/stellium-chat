@@ -1407,8 +1407,15 @@ export function verkaeufeAuswerten(verkaeufe, preisJeAbo = new Map()) {
       }
     }
     /* Zurückerstattet, angefochten, rückgebucht: das Geld ist wieder weg und
-       gehört nicht in die Einnahmen. */
-    if (k.refunded || k.disputed || k.chargebacked) continue;
+       gehört nicht in die Einnahmen.
+       Zwei Schreibweisen, weil Gumroad selbst zwei benutzt: `/v2/sales`
+       (und alles, was von dort kommt) nennt das Feld `chargedback`,
+       `/v2/licenses/*` dagegen `chargebacked` — nachgelesen in der
+       offiziellen Doku (archive.org, Snapshot 4.12.2025, Abschnitte „Sales"
+       und „Licenses"). Nur `chargebacked` zu prüfen hieße: das Feld, das
+       diese Funktion hier tatsächlich bekommt, nie zu sehen — eine
+       Rückbuchung zählte dann still als Umsatz weiter. */
+    if (k.refunded || k.disputed || k.chargedback || k.chargebacked) continue;
     brutto += zahl(k.price) ?? 0;
     gebuehr += zahl(k.gumroad_fee) ?? 0;
     anzahl += 1;
@@ -1732,6 +1739,277 @@ async function aboHolen() {
   }
 
   aboSchreiben(stand);
+}
+
+/* ── Diagnose: was gibt die Schnittstelle wirklich her? ──────────
+ *
+ * Beantwortet zwei Fragen, ohne je einen Kundendatensatz oder den
+ * Zugangsschlüssel preiszugeben:
+ *
+ *   1. Klappt der Aufruf — mit genau dem Schlüssel, den `gumroadToken()`
+ *      auch sonst benutzt (Umgebungsvariable zuerst, danach die Datei)?
+ *   2. Welche Felder liefert Gumroad für DIESEN Zugang tatsächlich, und wie
+ *      oft sind sie gefüllt? Das entscheidet, welche Kennzahlen sich bauen
+ *      lassen — nicht die offizielle Doku, die zeigt nur, was möglich WÄRE.
+ *
+ * Die Auskunft bleibt strikt auf Struktur beschränkt: Feldnamen und
+ * Trefferzahlen, nie der Inhalt. Ein Name, eine E-Mail-Adresse, ein
+ * Lizenzschlüssel — keins davon verlässt diese Funktion. Wo eine Zahl
+ * aussagekräftig UND unverfänglich ist (Cent-Beträge in Summe, Status- und
+ * Laufzeit-Verteilungen, gesehene Währungen), wird sie zusammengefasst
+ * zurückgegeben; einzelne Datensätze verlassen `listePruefen` nie.
+ */
+
+/** Für jedes Feld: in wie vielen der Datensätze steckt ein echter Wert?
+ *  Zählt nur — der Wert selbst wird nirgends gespeichert oder ausgegeben. */
+function feldStatistik(datensaetze) {
+  const felder = new Map();
+  for (const d of datensaetze ?? []) {
+    if (!d || typeof d !== 'object') continue;
+    for (const [name, wert] of Object.entries(d)) {
+      const leer = wert === null || wert === undefined || wert === ''
+        || (Array.isArray(wert) && wert.length === 0)
+        || (typeof wert === 'object' && !Array.isArray(wert) && Object.keys(wert).length === 0);
+      felder.set(name, (felder.get(name) ?? 0) + (leer ? 0 : 1));
+    }
+  }
+  const gesamt = (datensaetze ?? []).length;
+  return [...felder.entries()]
+    .map(([name, gefuellt]) => ({ name, gefuellt, von: gesamt }))
+    .sort((a, b) => b.gefuellt - a.gefuellt || a.name.localeCompare(b.name));
+}
+
+/** Verkäufe zusammenfassen: Summen und Verteilungen, nie ein einzelner
+ *  Datensatz. `subscription_duration` steht hier für „bei diesem Verkauf
+ *  bezahlte Laufzeit"; `einmalig` heißt: kein Abo. */
+function verkaeufeZusammenfassen(liste) {
+  let bruttoCent = 0; let gebuehrCent = 0;
+  let erstattet = 0; let angefochten = 0; let rueckgebucht = 0;
+  const waehrungen = new Set();
+  const abos = new Set();
+  const laufzeiten = new Map();
+  for (const k of liste ?? []) {
+    if (k.currency_symbol) waehrungen.add(k.currency_symbol);
+    if (k.refunded) erstattet += 1;
+    if (k.disputed) angefochten += 1;
+    if (k.chargedback || k.chargebacked) rueckgebucht += 1;
+    if (k.subscription_id) abos.add(k.subscription_id);
+    const lz = k.subscription_duration ?? (k.subscription_id ? 'unbekannt' : 'einmalig');
+    laufzeiten.set(lz, (laufzeiten.get(lz) ?? 0) + 1);
+    if (!k.refunded && !k.disputed && !(k.chargedback || k.chargebacked)) {
+      bruttoCent += zahl(k.price) ?? 0;
+      gebuehrCent += zahl(k.gumroad_fee) ?? 0;
+    }
+  }
+  return {
+    anzahl: (liste ?? []).length,
+    bruttoCent, gebuehrCent, nettoCent: bruttoCent - gebuehrCent,
+    erstattet, angefochten, rueckgebucht,
+    waehrungenGesehen: [...waehrungen],
+    verschiedeneAbos: abos.size,
+    laufzeitVerteilung: Object.fromEntries(laufzeiten),
+  };
+}
+
+/** Abonnenten zusammenfassen: Status- und Laufzeitverteilung, Probezeit. */
+function abonnentenZusammenfassen(liste, jetzt = Date.now()) {
+  const status = new Map();
+  const laufzeiten = new Map();
+  let inProbe = 0;
+  for (const t of liste ?? []) {
+    const s = String(t.status ?? 'unbekannt');
+    status.set(s, (status.get(s) ?? 0) + 1);
+    const lz = t.recurrence ?? 'unbekannt';
+    laufzeiten.set(lz, (laufzeiten.get(lz) ?? 0) + 1);
+    if (t.free_trial_ends_at && Date.parse(t.free_trial_ends_at) > jetzt) inProbe += 1;
+  }
+  return {
+    anzahl: (liste ?? []).length,
+    statusVerteilung: Object.fromEntries(status),
+    laufzeitVerteilung: Object.fromEntries(laufzeiten),
+    inProbe,
+  };
+}
+
+/** Auszahlungen zusammenfassen: Währungen, Status, Summe je Währung.
+ *  Die Auszahlungswährung ist der einzige Ort, an dem eine andere Währung
+ *  als beim Verkauf auftauchen kann — deshalb eigens erfasst. */
+function auszahlungenZusammenfassen(liste) {
+  const waehrungen = new Set();
+  const status = new Map();
+  const summeJeWaehrung = new Map();
+  for (const p of liste ?? []) {
+    if (p.currency) waehrungen.add(p.currency);
+    const s = String(p.status ?? 'unbekannt');
+    status.set(s, (status.get(s) ?? 0) + 1);
+    const betrag = Number(p.amount);
+    if (Number.isFinite(betrag)) {
+      const w = p.currency ?? '?';
+      summeJeWaehrung.set(w, (summeJeWaehrung.get(w) ?? 0) + betrag);
+    }
+  }
+  return {
+    anzahl: (liste ?? []).length,
+    waehrungenGesehen: [...waehrungen],
+    statusVerteilung: Object.fromEntries(status),
+    summeJeWaehrung: Object.fromEntries(summeJeWaehrung),
+  };
+}
+
+/** Eine Listen-Ressource abrufen (mit Seitenblättern) und nur ihre Struktur
+ *  zurückgeben. `datensaetzeRoh` ist absichtlich dabei — für die
+ *  Zusammenfassungen oben —, aber der Aufrufer entfernt es wieder, bevor das
+ *  Ergebnis nach außen geht. So bleibt der Rohinhalt auf diese Funktion
+ *  begrenzt, ganz gleich, was später noch mit dem Ergebnis passiert. */
+async function listePruefen(name, ersteAdresse, kopf, listenSchluessel, maxSeiten = 8) {
+  try {
+    let adresse = ersteAdresse;
+    let seiten = 0;
+    let datensaetze = [];
+    let antwortSchluessel = [];
+    while (adresse && seiten < maxSeiten) {
+      const antwort = await abruf(adresse, kopf, 15000);
+      antwortSchluessel = Object.keys(antwort ?? {});
+      const teil = antwort?.[listenSchluessel];
+      if (Array.isArray(teil)) datensaetze = datensaetze.concat(teil);
+      seiten += 1;
+      adresse = antwort?.next_page_url ? `https://api.gumroad.com${antwort.next_page_url}` : null;
+    }
+    return {
+      name, ok: true, anzahl: datensaetze.length, seiten,
+      unvollstaendig: !!adresse, antwortSchluessel,
+      felder: feldStatistik(datensaetze),
+      datensaetzeRoh: datensaetze,
+    };
+  } catch (f) {
+    return { name, ok: false, status: f?.status ?? null, fehler: String(f?.message ?? f).slice(0, 160) };
+  }
+}
+
+/** Eine Einzelobjekt-Ressource (z. B. `/user`) abrufen und nur ihre Struktur
+ *  zurückgeben. */
+async function einzelobjektPruefen(name, adresse, kopf, objektSchluessel) {
+  try {
+    const antwort = await abruf(adresse, kopf, 15000);
+    const objekt = antwort?.[objektSchluessel] ?? null;
+    return {
+      name, ok: true, vorhanden: !!objekt,
+      antwortSchluessel: Object.keys(antwort ?? {}),
+      felder: objekt ? feldStatistik([objekt]) : [],
+    };
+  } catch (f) {
+    return { name, ok: false, status: f?.status ?? null, fehler: String(f?.message ?? f).slice(0, 160) };
+  }
+}
+
+/** Die eigentliche Diagnose. Ruft an, was für Verkaufsstatistiken gebraucht
+ *  würde (`user`, `products`, `sales`, `subscribers`, `payouts`) und meldet
+ *  je Endpunkt: geklappt oder nicht, wie viele Datensätze, welche Felder
+ *  gefüllt waren. `sales` läuft bewusst seit einem weit zurückliegenden
+ *  Datum, nicht nur die 30-Tage-Ansicht der laufenden Anzeige — die Diagnose
+ *  soll die ganze Historie sehen, einmalig, nicht im Zehn-Minuten-Takt. */
+export async function gumroadDiagnose() {
+  const zeit = new Date().toISOString();
+  const token = gumroadToken();
+  if (!token) {
+    return {
+      zeit, tokenVorhanden: false,
+      grund: envUnlesbar() ? 'kein-zugriff' : 'kein-token',
+      pruefungen: [],
+    };
+  }
+  const tokenQuelle = process.env.GUMROAD_TOKEN ? 'umgebungsvariable' : ABO_ENV;
+  const kopf = { Authorization: `Bearer ${token}` };
+
+  let produktId = null; let produktFehler = null;
+  try {
+    const p = await abruf(ABO_QUELLE);
+    produktId = p?.id ?? null;
+  } catch (f) {
+    produktFehler = String(f?.message ?? f).slice(0, 120);
+  }
+
+  const pruefungen = [];
+  pruefungen.push(await einzelobjektPruefen('user', 'https://api.gumroad.com/v2/user', kopf, 'user'));
+
+  /* Katalog des Kontos — eigene Produkte des Verkäufers, keine Kundendaten.
+     Nur eine handverlesene, unverfängliche Auswahl an Feldern kommt mit raus;
+     der Rest bleibt auf die Feldstatistik beschränkt wie überall sonst. */
+  const produkte = await listePruefen('products', 'https://api.gumroad.com/v2/products', kopf, 'products');
+  let alleProduktIds = [];
+  if (produkte.ok) {
+    alleProduktIds = (produkte.datensaetzeRoh ?? []).map((p) => p.id).filter(Boolean);
+    produkte.katalog = (produkte.datensaetzeRoh ?? []).map((p) => ({
+      id: p.id ?? null, name: p.name ?? null, veroeffentlicht: p.published ?? null,
+      waehrung: p.currency ?? null, verkaufsanzahl: zahl(p.sales_count),
+      istZielprodukt: p.id === produktId,
+    }));
+  }
+  pruefungen.push(entrohen(produkte));
+
+  /* Verkäufe des Zielprodukts (Triton) — dieselbe Abfrage, die auch die
+     laufende Anzeige nutzt, nur seit 2020 statt nur 30 Tage. */
+  const salesAdresse = 'https://api.gumroad.com/v2/sales?after=2020-01-01'
+    + (produktId ? `&product_id=${encodeURIComponent(produktId)}` : '');
+  const sales = await listePruefen('sales', salesAdresse, kopf, 'sales');
+  if (sales.ok) sales.zusammenfassung = verkaeufeZusammenfassen(sales.datensaetzeRoh);
+  pruefungen.push(entrohen(sales));
+
+  /* Verkäufe über das GANZE Konto, ohne product_id-Filter — nur um zu sehen,
+     ob es überhaupt irgendwo reale Verkaufsdatensätze gibt (und damit deren
+     Feldform), falls das Zielprodukt selbst noch keine hat. */
+  const salesKonto = await listePruefen('sales_konto', 'https://api.gumroad.com/v2/sales?after=2020-01-01', kopf, 'sales');
+  if (salesKonto.ok) salesKonto.zusammenfassung = verkaeufeZusammenfassen(salesKonto.datensaetzeRoh);
+  pruefungen.push(entrohen(salesKonto));
+
+  if (produktId) {
+    const subs = await listePruefen(
+      'subscribers',
+      `https://api.gumroad.com/v2/products/${encodeURIComponent(produktId)}/subscribers?paginated=true`,
+      kopf, 'subscribers',
+    );
+    if (subs.ok) subs.zusammenfassung = abonnentenZusammenfassen(subs.datensaetzeRoh);
+    pruefungen.push(entrohen(subs));
+  }
+
+  /* Abonnenten über ALLE Produkte des Kontos, aus demselben Grund wie oben
+     bei den Verkäufen: die Feldform sehen, auch wenn das Zielprodukt selbst
+     leer ausgeht. */
+  if (alleProduktIds.length) {
+    let kombiniert = [];
+    const proProdukt = [];
+    for (const id of alleProduktIds) {
+      const s = await listePruefen(
+        `subscribers_${id}`,
+        `https://api.gumroad.com/v2/products/${encodeURIComponent(id)}/subscribers?paginated=true`,
+        kopf, 'subscribers',
+      );
+      if (s.ok) {
+        kombiniert = kombiniert.concat(s.datensaetzeRoh ?? []);
+        proProdukt.push({ produktId: id, anzahl: s.anzahl });
+      } else {
+        proProdukt.push({ produktId: id, ok: false, status: s.status, fehler: s.fehler });
+      }
+    }
+    pruefungen.push({
+      name: 'subscribers_konto', ok: true, anzahl: kombiniert.length, proProdukt,
+      felder: feldStatistik(kombiniert),
+      zusammenfassung: abonnentenZusammenfassen(kombiniert),
+    });
+  }
+
+  const payouts = await listePruefen('payouts', 'https://api.gumroad.com/v2/payouts', kopf, 'payouts');
+  if (payouts.ok) payouts.zusammenfassung = auszahlungenZusammenfassen(payouts.datensaetzeRoh);
+  pruefungen.push(entrohen(payouts));
+
+  return { zeit, tokenVorhanden: true, tokenQuelle, produktId, produktFehler, pruefungen };
+}
+
+/** Entfernt `datensaetzeRoh` wieder, nachdem eine Zusammenfassung daraus
+ *  gezogen wurde — der Rohinhalt soll `gumroadDiagnose` nie verlassen. */
+function entrohen(pruefung) {
+  const { datensaetzeRoh, ...rest } = pruefung;
+  return rest;
 }
 
 /** Einen abgekoppelten Abruf anstoßen — und sofort zurückkehren. */
@@ -2272,6 +2550,12 @@ if (!ALS_HAUPT) {
   /* Der abgekoppelte Abruf. Er schreibt nur die Zwischenspeicherdatei und
      endet; die Anzeige selbst wartet nie auf ihn. */
   await aboHolen();
+  process.exit(0);
+} else if (process.argv.includes('gumroad-diagnose')) {
+  /* Prüfläufer: ruft die Schnittstelle einmalig vollständig ab und gibt nur
+     Struktur zurück (siehe Kommentar bei `gumroadDiagnose`). Schreibt nichts
+     auf die Platte, rührt die Zwischenspeicherdatei der Anzeige nicht an. */
+  process.stdout.write(JSON.stringify(await gumroadDiagnose(), null, 2));
   process.exit(0);
 } else if (ALS_JSON) {
   process.stdout.write(JSON.stringify(await daten()));

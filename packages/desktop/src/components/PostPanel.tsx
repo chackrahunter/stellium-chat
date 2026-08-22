@@ -18,14 +18,17 @@
  */
 import { useEffect, useRef, useState } from 'react';
 import {
-  AlertTriangle, ArrowDownLeft, ArrowUpRight, AtSign, Inbox, Loader2, Mail,
-  Paperclip, RefreshCw, Send,
+  AlertTriangle, ArrowDownLeft, ArrowUpRight, AtSign, Clock, Inbox, Loader2, Mail,
+  Paperclip, RefreshCw, Send, Sparkles,
 } from 'lucide-react';
+import type { Absenderart, Dringlichkeit } from '@stellium/shared';
 import { useStore } from '../state/store.js';
 import { t as tStatisch, useT, type TranslationKey } from '../i18n/index.js';
 import { Shell } from './Panels.jsx';
+import { PostSchreiben } from './PostSchreiben.jsx';
 import { ApiError, serverUrl, token } from '../net/api.js';
 import { clsx, dateTime, fileSize, relativeTime } from '../lib/format.js';
+import { dringlichkeitFarbe } from '../lib/post-farben.js';
 
 /* ── Die Daten, wie post.ts sie liefert ────────────────────────────
    Lokal noch einmal erklärt statt aus dem Serverpaket importiert: das
@@ -54,6 +57,19 @@ interface PostFach {
   fach: string;
   gesamt: number;
   ungelesen: number;
+}
+
+/**
+ * Zustand und Einordnung der KI-Sichtung zu einer Mail — die kleine Hülle
+ * für `GET /api/post/sichtungen`, gebraucht für die Färbung und die
+ * Sortierung nach Dringlichkeit weiter unten. Nur die Felder, die dafür
+ * zählen; die volle Form (Anliegen, Begründung, Sprache, Modell) trägt
+ * `PostMeldung` aus `@stellium/shared` und gehört dem Reiter
+ * „Post-Sichtung" (PostMeldungen.tsx), nicht dieser Tafel hier.
+ */
+interface SichtungKurz {
+  zustand: 'laeuft' | 'gemeldet' | 'entwurf' | 'gesendet' | 'abgelehnt' | 'fehler';
+  einordnung: { absenderart: Absenderart; dringlichkeit: Dringlichkeit } | null;
 }
 
 const SEITENGROESSE = 50;
@@ -111,6 +127,17 @@ async function listeHolen(fach: string | null, vor?: number): Promise<PostNachri
   if (vor) qs.set('vor', String(vor));
   const r = await postFetch<{ nachrichten: PostNachricht[] }>(`/api/post/liste?${qs}`);
   return r.nachrichten;
+}
+
+/** Zustand/Dringlichkeit für eine Handvoll Mails — für Färbung und Sortierung
+    nach Dringlichkeit, siehe SichtungKurz weiter oben. Leer rein, leer
+    raus: eine Seite ohne eingegangene Mail (nur Gesendetes) braucht keinen
+    Netzwerkumweg. */
+async function sichtungenHolen(mailIds: string[]): Promise<Record<string, SichtungKurz>> {
+  if (!mailIds.length) return {};
+  const qs = new URLSearchParams({ ids: mailIds.join(',') });
+  const r = await postFetch<{ sichtungen: Record<string, SichtungKurz> }>(`/api/post/sichtungen?${qs}`);
+  return r.sichtungen;
 }
 
 /** Eine einzelne Nachricht. */
@@ -194,6 +221,14 @@ export function PostPanel({ onClose }: { onClose: () => void }) {
   const [listeFehler, setListeFehler] = useState<string | null>(null);
   const [kannWeiterladen, setKannWeiterladen] = useState(false);
   const [weitereLaedt, setWeitereLaedt] = useState(false);
+  /* Zustand/Dringlichkeit je Mail, für Rand-Farbe und Sortierung — sammelt
+     sich über mehrere Seiten hinweg an (siehe sichtungenNachladen), damit
+     „Ältere laden" nicht die Einordnung der schon gezeigten Zeilen verliert. */
+  const [sichtungen, setSichtungen] = useState<Record<string, SichtungKurz>>({});
+  /* Vorgabe „Dringlichkeit": das ist eine Einschätzung der KI, keine
+     Tatsache (siehe sortierteEintraege weiter unten) — deshalb bleibt „Nach
+     Zeit" jederzeit ein Klick entfernt, nicht nur beim ersten Laden. */
+  const [sortierung, setSortierung] = useState<'dringlichkeit' | 'zeit'>('dringlichkeit');
 
   const [ausgewaehlteId, setAusgewaehlteId] = useState<string | null>(null);
   const [verlauf, setVerlauf] = useState<PostNachricht[]>([]);
@@ -216,6 +251,19 @@ export function PostPanel({ onClose }: { onClose: () => void }) {
     }
   };
 
+  /* Fehlschlagen darf die Liste selbst nicht mit reißen: ohne Einordnung
+     bleibt eine Zeile einfach neutral gefärbt (siehe dringlichkeitRang()
+     weiter unten) statt dass ein zweiter Fehlertext über der Liste steht,
+     die gerade erfolgreich geladen hat. */
+  const sichtungenNachladen = async (nachrichten: PostNachricht[]) => {
+    const ids = nachrichten.filter((n) => n.richtung === 'ein').map((n) => n.id);
+    if (!ids.length) return;
+    try {
+      const gefunden = await sichtungenHolen(ids);
+      setSichtungen((v) => ({ ...v, ...gefunden }));
+    } catch { /* siehe Begründung oben */ }
+  };
+
   const listeLaden = async (fach: string | null) => {
     // Sofort leeren statt erst nach der Antwort: sonst zeigt die Liste kurz
     // die Post des VORHERIGEN Fachs unter dem neu gewählten Namen an.
@@ -224,6 +272,7 @@ export function PostPanel({ onClose }: { onClose: () => void }) {
       const seite = await listeHolen(fach);
       setEintraege(seite);
       setKannWeiterladen(seite.length >= SEITENGROESSE);
+      void sichtungenNachladen(seite);
     } catch (err) {
       setListeFehler((err as Error).message);
     } finally {
@@ -238,6 +287,7 @@ export function PostPanel({ onClose }: { onClose: () => void }) {
       const seite = await listeHolen(aktivesFach, eintraege[eintraege.length - 1].am);
       setEintraege((v) => [...v, ...seite]);
       setKannWeiterladen(seite.length >= SEITENGROESSE);
+      void sichtungenNachladen(seite);
     } catch (err) {
       setListeFehler((err as Error).message);
     } finally {
@@ -247,6 +297,20 @@ export function PostPanel({ onClose }: { onClose: () => void }) {
 
   useEffect(() => { void faecherLaden(); }, []);
   useEffect(() => { void listeLaden(aktivesFach); }, [aktivesFach]);
+
+  /* Sprung aus dem Reiter „Post-Sichtung" (siehe jumpToPostMail() in
+     state/store.ts): eine Mail auswählen, sobald von dort eine Kennung
+     ankommt, und uns danach abmelden — sonst wählte ein späteres,
+     unabhängiges Öffnen dieses Reiters dieselbe Mail noch einmal aus. Die
+     Auswahl selbst holt sich ihren Inhalt über den Effekt weiter unten
+     (nachrichtHolen), unabhängig davon, ob die Mail im aktuell geladenen
+     Fach/Ausschnitt der Liste steht. */
+  const postJumpMailId = useStore((s) => s.postJumpMailId);
+  useEffect(() => {
+    if (!postJumpMailId) return;
+    setAusgewaehlteId(postJumpMailId);
+    useStore.getState().postJumpConsumed();
+  }, [postJumpMailId]);
 
   useEffect(() => {
     if (!ausgewaehlteId) { setVerlauf([]); setDetailFehler(null); return; }
@@ -284,6 +348,53 @@ export function PostPanel({ onClose }: { onClose: () => void }) {
   }, [ausgewaehlteId, verlauf]);
 
   const gesamtUngelesen = faecher?.reduce((summe, f) => summe + f.ungelesen, 0) ?? 0;
+
+  /**
+   * Stufe für die Sortierung nach Dringlichkeit — kleiner ist weiter oben.
+   *
+   * VIER FALLSTRICKE, VIER ENTSCHEIDUNGEN:
+   *
+   *   1. Ungesichtete Post darf nicht untergehen. Eine Mail ohne eigene
+   *      Zeile in `sichtungen` (frisch eingegangen, `sichtungenNachladen`
+   *      noch nicht durch oder die Sichtung selbst noch nicht einmal
+   *      gestartet) landet in Stufe 0 — ganz oben, noch vor „hoch". Sie ist
+   *      die neueste Mail und könnte alles sein; sie unten anzuhängen wäre
+   *      der stille Rückfall auf „niedrig", den es hier nicht geben soll.
+   *   2. Zeit zählt als zweite Ordnung — siehe sortierteEintraege() unten:
+   *      innerhalb derselben Stufe bleibt die vom Server gelieferte
+   *      Reihenfolge (neueste zuerst) einfach erhalten.
+   *   3. Eine gescheiterte Sichtung (`fehler`) — die KI hat nichts geliefert
+   *      — steht aus demselben Grund wie Punkt 1 ebenfalls in Stufe 0, nicht
+   *      in „niedrig": „nichts weiß" ist kein Werturteil.
+   *   4. Die Einstufung kommt von einer KI und kann falsch liegen — deshalb
+   *      ist „Nach Dringlichkeit" nur die VORGABE, nicht die einzige
+   *      Ordnung. Der Umschalter in der Kopfzeile wechselt jederzeit auf
+   *      „Nach Zeit", der reinen, von keiner Einschätzung abhängigen Order.
+   *
+   * Gesendete Post (`richtung === 'aus'`) hat nie eine Sichtung und keine
+   * Dringlichkeit — sie steht bewusst UNTER „niedrig": diese Sortierung ist
+   * eine Triage eingehender Post, das eigene Archiv drängt sich dabei nicht
+   * nach vorn.
+   */
+  const dringlichkeitRang = (n: PostNachricht): number => {
+    if (n.richtung === 'aus') return 4;
+    const s = sichtungen[n.id];
+    if (!s || s.zustand === 'laeuft' || s.zustand === 'fehler') return 0;
+    const d = s.einordnung?.dringlichkeit;
+    if (d === 'hoch') return 1;
+    if (d === 'normal') return 2;
+    if (d === 'niedrig') return 3;
+    return 0; // z.B. 'entwurf'/'gemeldet', dessen Einordnung noch nicht eingetroffen ist
+  };
+
+  // 'zeit' ist keine eigene Sortierung: der Server liefert `eintraege` schon
+  // chronologisch (neueste zuerst, siehe post.liste()) — genau das ist die
+  // reine, von keiner KI-Einschätzung abhängige Ordnung aus Fallstrick 4
+  // oben. `sort()` auf einer Kopie, damit `eintraege` selbst (Grundlage für
+  // `weitereLaden()`s Zeitstempel) unverändert bleibt.
+  const sortierteEintraege = sortierung === 'zeit'
+    ? eintraege
+    : [...eintraege].sort((a, b) => dringlichkeitRang(a) - dringlichkeitRang(b));
 
   // Antwortziel: die jeweils ANDERE Seite des letzten Eintrags im Verlauf —
   // bei einer eingegangenen Nachricht ihr Absender, bei einer gesendeten ihr
@@ -332,13 +443,17 @@ export function PostPanel({ onClose }: { onClose: () => void }) {
       onClose={onClose}
       width={1180}
       actions={
-        <button
-          className="icon-btn"
-          title={t('post.aktualisieren')}
-          onClick={() => { void faecherLaden(); void listeLaden(aktivesFach); }}
-        >
-          <RefreshCw size={15} />
-        </button>
+        <>
+          {/* Eigene Komponente, eine Zeile eingehängt (siehe PostSchreiben.tsx) — verwaltet Knopf und Fenster vollständig selbst. */}
+          <PostSchreiben onGesendet={() => { void faecherLaden(); void listeLaden(aktivesFach); }} />
+          <button
+            className="icon-btn"
+            title={t('post.aktualisieren')}
+            onClick={() => { void faecherLaden(); void listeLaden(aktivesFach); }}
+          >
+            <RefreshCw size={15} />
+          </button>
+        </>
       }
     >
       <div className="post">
@@ -381,10 +496,33 @@ export function PostPanel({ onClose }: { onClose: () => void }) {
               <p>{t('post.listeLeer')}</p>
             </div>
           )}
-          {!listeLaedt && eintraege.map((n) => (
+          {/* Vorgabe „Nach Dringlichkeit", aber jederzeit umschaltbar: die
+              Einstufung stammt von einer KI und kann danebenliegen — siehe
+              die ausführliche Begründung bei dringlichkeitRang() weiter oben. */}
+          {!listeLaedt && !!eintraege.length && (
+            <div className="post__sortierung" role="group" aria-label={t('post.sortierungAria')}>
+              <button
+                className={clsx('pill pill--sort', sortierung === 'dringlichkeit' && 'pill--sort-on')}
+                aria-pressed={sortierung === 'dringlichkeit'}
+                title={t('post.sortierungHinweis')}
+                onClick={() => setSortierung('dringlichkeit')}
+              >
+                <Sparkles size={12} /> {t('post.sortierungDringlichkeit')}
+              </button>
+              <button
+                className={clsx('pill pill--sort', sortierung === 'zeit' && 'pill--sort-on')}
+                aria-pressed={sortierung === 'zeit'}
+                onClick={() => setSortierung('zeit')}
+              >
+                <Clock size={12} /> {t('post.sortierungZeit')}
+              </button>
+            </div>
+          )}
+          {!listeLaedt && sortierteEintraege.map((n) => (
             <NachrichtZeile
               key={n.id}
               n={n}
+              sichtung={sichtungen[n.id]}
               aktiv={n.id === ausgewaehlteId}
               onOeffnen={() => setAusgewaehlteId(n.id)}
             />
@@ -481,12 +619,20 @@ export function PostPanel({ onClose }: { onClose: () => void }) {
     );
   }
 
-  function NachrichtZeile({ n, aktiv, onOeffnen }: { n: PostNachricht; aktiv: boolean; onOeffnen: () => void }) {
+  function NachrichtZeile({ n, sichtung, aktiv, onOeffnen }: {
+    n: PostNachricht; sichtung: SichtungKurz | undefined; aktiv: boolean; onOeffnen: () => void;
+  }) {
     const ungelesen = n.richtung === 'ein' && !n.gelesen;
     const adresse = n.richtung === 'aus' ? n.an : n.von;
+    // Dieselbe Farbe wie im Reiter „Post-Sichtung" (siehe lib/post-farben.ts)
+    // — `undefined` (noch nicht gesichtet) und `dringlichkeit` fehlend
+    // (Sichtung läuft/fehlgeschlagen) ergeben beide die neutrale Randfarbe,
+    // nie die Farbe von „niedrig" (siehe dringlichkeitRang() weiter oben).
+    const randFarbe = n.richtung === 'ein' ? dringlichkeitFarbe(sichtung?.einordnung?.dringlichkeit) : undefined;
     return (
       <button
         className={clsx('post-row', ungelesen && 'post-row--ungelesen')}
+        style={randFarbe ? { borderInlineStartColor: randFarbe } : undefined}
         aria-current={aktiv ? 'true' : undefined}
         onClick={onOeffnen}
       >

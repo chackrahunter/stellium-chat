@@ -79,13 +79,19 @@ node scripts/e2e-thread.mjs          # Thread-Layout über alle Breiten
 node scripts/e2e-verschluesselung.mjs
 node scripts/e2e-upload.mjs
 node scripts/e2e-nachruesten.mjs   # Server auf einer ALTEN Datenbank
+node scripts/schluesselwechsel-pruefen.mjs   # falsches Masterpasswort
 ```
 
-Der letzte braucht keinen laufenden Server: Er baut eine Datenbank nach dem
-Schema der letzten Fassung und startet den heutigen Server darauf. Alle
-anderen Läufe legen ihre Datenbank frisch an — dort bringt `CREATE TABLE`
-jede neue Spalte gleich mit, und ein Fehler in `db/migrate.ts` fällt erst auf
-dem Server auf. Wer eine Spalte ergänzt, prüft damit.
+Die letzten beiden brauchen keinen laufenden Server. `e2e-nachruesten` baut
+eine Datenbank nach dem Schema der letzten Fassung und startet den heutigen
+Server darauf. Alle anderen Läufe legen ihre Datenbank frisch an — dort bringt
+`CREATE TABLE` jede neue Spalte gleich mit, und ein Fehler in `db/migrate.ts`
+fällt erst auf dem Server auf. Wer eine Spalte ergänzt, prüft damit.
+
+`schluesselwechsel-pruefen` startet gegen Wegwerf-Datenbanken einmal mit dem
+richtigen und einmal mit einem anderen Masterpasswort: der zweite Start muss
+abbrechen. Wer an `crypto/pii.ts`, `crypto/nachrichten.ts` oder der
+Schlüsselableitung dreht, prüft damit.
 
 ## Sprache im Code
 

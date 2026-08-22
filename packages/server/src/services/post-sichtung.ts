@@ -13,8 +13,13 @@
  *   2. Mail laden, Anweisung für ihr Fach holen, Modell fragen.
  *   3. Ergebnis in `mail_sichtung` festhalten.
  *   4. Antwort nötig  -> Entwurf in `mail_entwuerfe`, Zustand `offen`.
- *   5. Antwort nicht nötig -> Benachrichtigung an Teamleitung und
- *      Administratoren mit dem Kern der Mail.
+ *   5. In jedem Fall -> eine strukturierte Zeile für den Reiter
+ *      „Post-Sichtung" (`PostMeldung`, siehe `@stellium/shared`) plus eine
+ *      kurze Web-Push-Meldung an Teamleitung und Administratoren mit
+ *      `mail.lesen`. Der Reiter ist der Rückhalt: er liest über
+ *      `meldungenListe()` weiter unten direkt aus `mail_sichtung` /
+ *      `mail_entwuerfe`, also geht nichts verloren, auch wenn beim Eintreffen
+ *      niemand online war oder der Push ins Leere ging.
  *
  * DIE SPERREN
  *
@@ -63,7 +68,7 @@
  * unten (`entwurfLesen`, `offeneEntwuerfe`, `sichtungFuer`) und liest nicht
  * selbst aus der Tabelle.
  */
-import { languageInfo, type Message } from '@stellium/shared';
+import { languageInfo, type PostMeldung, type PostMeldungAbweichung, type MeldungGrundCode } from '@stellium/shared';
 import { db } from '../db/index.js';
 import { newId } from '../util/id.js';
 import { verschluesseln, entschluesseln } from '../crypto/nachrichten.js';
@@ -75,8 +80,6 @@ import {
   KENNZEICHNUNG_DE, KENNZEICHNUNG_EN,
   type Absenderart, type Dringlichkeit, type EingehendeMailFuerKi,
 } from './post-ki.js';
-import { createMessage } from './messages.js';
-import { openPrivateChat, ensureAssistant } from './assistant.js';
 import { may } from './users.js';
 
 /* ── Stellschrauben ───────────────────────────────────────────── */
@@ -199,34 +202,42 @@ function empfaengerkreis(): string[] {
 
 /* ── Zustellung ───────────────────────────────────────────────── */
 
-type Melder = (nachricht: Message) => void;
+type Melder = (userId: string, meldung: PostMeldung) => void;
 let melder: Melder | null = null;
 
 /**
- * Wie eine frische Meldung noch im selben Moment auf den Schirm kommt.
+ * Wie eine frische Meldung noch im selben Moment ihre Web-Push-Benachrichtigung
+ * auslöst.
  *
  * Dieselbe Machart wie `vorschlaege.zustellerSetzen()`: der Dienst kennt das
  * Gateway nicht und soll es nicht kennen — sonst ließe er sich in einem
  * Prüflauf nicht ohne WebSocket starten. Das Gateway meldet sich beim Start
- * einmal hier an (`postSichtung.melderSetzen(deliverMessage)`).
+ * einmal hier an und baut daraus die Push-Meldung (siehe dort,
+ * `postMeldungPushMelden`).
  *
- * Meldet sich niemand an, geht nichts verloren: die Meldung ist eine ganz
- * normale Nachricht in der Datenbank und steht beim nächsten Öffnen da.
+ * Meldet sich niemand an, geht nichts verloren: die Zeile steht in
+ * `mail_sichtung` (und bei einem Entwurf zusätzlich in `mail_entwuerfe`) und
+ * damit im Reiter „Post-Sichtung", sobald ihn wieder jemand öffnet —
+ * `meldungenListe()` weiter unten liest von dort, nicht aus einem
+ * Zwischenspeicher, der einen fehlenden Gateway-Start überleben müsste.
  */
 export function melderSetzen(fn: Melder | null): void { melder = fn; }
 
 /**
- * Die Meldung zustellen — als Direktnachricht des Assistenten an jede Person
- * des Kreises.
+ * Die Meldung zustellen — an jede Person des Kreises einzeln.
  *
- * Kein eigener Kanal und kein öffentlicher: in der Meldung stehen Absender und
- * Betreff echter Kundenpost. Ein öffentlicher Kanal zeigte sie jedem
- * Mitglied, auch Gästen — der Kreis wäre dann nicht mehr der, der oben
- * ausgerechnet wurde.
+ * Bis Fassung 1.0.30 stand hier eine Direktnachricht des Assistenten im Chat:
+ * sieben Zeilen Fließtext mit einer technischen Kennung am Ende, zwischen
+ * echten Gesprächen. Der Reiter „Post-Sichtung" ist jetzt der Rückhalt (siehe
+ * `melderSetzen` oben) — eine zusätzliche Kopie im Chat hätte denselben Stand
+ * an zwei Stellen gehalten, die mit der Zeit auseinanderliefen: der Zustand
+ * einer Sichtung ändert sich (`entwurf` -> `gesendet`/`abgelehnt`), eine schon
+ * verschickte Chatnachricht nie mit. Was bleibt, ist die kurze Web-Push-
+ * Meldung — für den Moment gedacht, in dem gerade niemand hinschaut.
  *
  * Gibt zurück, wie viele Menschen sie wirklich bekommen haben.
  */
-function benachrichtigen(text: string): number {
+function benachrichtigen(meldung: PostMeldung): number {
   const kreis = empfaengerkreis();
   if (!kreis.length) {
     /* Kein Wurf: die Mail liegt im Postfach, sie ist nicht weg. Aber es soll
@@ -235,42 +246,32 @@ function benachrichtigen(text: string): number {
     return 0;
   }
 
-  const botId = ensureAssistant();
   let zugestellt = 0;
-
   for (const userId of kreis) {
     try {
-      const channelId = openPrivateChat(userId);
-      const msg = createMessage({
-        channelId,
-        userId: botId,
-        text,
-        /* Erwähnungen aus: der Text enthält Wortlaut aus einer fremden Mail.
-           Ein „@don" darin soll niemanden anstupsen, den ein Fremder sich
-           ausgesucht hat. */
-        mayMention: false,
-        mayMentionEveryone: false,
-      });
+      melder?.(userId, meldung);
       zugestellt += 1;
-      melder?.(msg);
     } catch (err) {
-      /* Eine Person, deren Direktchat klemmt, darf die anderen nicht
-         mitnehmen — sonst hängt die ganze Meldung an einem kaputten Kanal. */
+      /* Eine Person, deren Zustellung klemmt (etwa ein totes Push-Abonnement),
+         darf die anderen nicht mitnehmen. */
       console.error('[post-sichtung] Meldung an', userId, 'fehlgeschlagen:', (err as Error).message);
     }
   }
   return zugestellt;
 }
 
-/* ── Text der Meldung ─────────────────────────────────────────── */
+/* ── Die PostMeldung bauen ────────────────────────────────────── */
 
 /**
- * Wortlaut aus einer fremden Mail für eine Chatnachricht entschärfen.
+ * Wortlaut aus einer fremden Mail für die Anzeige entschärfen.
  *
- * Zeilenumbrüche heraus, damit ein Absender die Zeilen der Meldung nicht
- * nachbauen und eine zusätzliche Angabe vortäuschen kann („Dringlichkeit:
- * niedrig"). Unsichtbare Zeichen heraus, aus demselben Grund wie in
- * post-ki.ts. Und eine Länge, die auf einen Schirm passt.
+ * Zeilenumbrüche heraus, damit ein Absender in einem einzeiligen Feld (Fach,
+ * Von, Betreff) nicht selbst welche einschmuggelt. Unsichtbare Zeichen heraus,
+ * aus demselben Grund wie in post-ki.ts. Und eine Länge, die auf einen Schirm
+ * passt. Galt schon für die frühere Chatnachricht und gilt unverändert für
+ * jedes Feld einer `PostMeldung` — strukturierte Felder statt Fließtext
+ * nehmen einem Absender zwar die Möglichkeit, eine ganze Zeile der Meldung
+ * vorzutäuschen, aber nicht die, ein einzelnes Feld zu verunstalten.
  */
 function fuerMeldung(wert: string, max: number): string {
   const sauber = wert
@@ -280,31 +281,69 @@ function fuerMeldung(wert: string, max: number): string {
   return sauber.length > max ? `${sauber.slice(0, max)}…` : (sauber || '—');
 }
 
-const DRINGLICHKEIT_WORT: Record<Dringlichkeit, string> = {
-  hoch: 'hoch', normal: 'normal', niedrig: 'niedrig',
-};
-
-function meldungBauen(input: {
-  mail: Nachricht;
-  absender: string;
-  einordnung: Einordnung | null;
-  schluss: string;
-}): string {
-  const { mail, absender, einordnung, schluss } = input;
-  const zeilen = [
-    `Neue Post im Fach ${fuerMeldung(mail.fach, 60)}`,
-    `Von: ${fuerMeldung(absender, 200)}`,
-    `Betreff: ${fuerMeldung(mail.betreff, 200)}`,
-  ];
-  if (einordnung) {
-    zeilen.push(
-      `Anliegen: ${fuerMeldung(einordnung.anliegen, ANLIEGEN_MAX)}`,
-      `Dringlichkeit: ${DRINGLICHKEIT_WORT[einordnung.dringlichkeit]} · Absender: ${einordnung.absenderart}`,
-      `Einordnung: ${fuerMeldung(einordnung.begruendung, BEGRUENDUNG_MAX)}`,
-    );
+/**
+ * Warum (noch) kein Entwurf entstand, oder dass einer bereitliegt oder schon
+ * entschieden ist — als Kennung für `PostMeldung.grundCode`. Die Übersetzung
+ * dazu steht im Wörterbuch der Oberfläche (`postSichtung.grund.*`), nicht
+ * hier: diese Datei läuft auf dem Server, ohne Wörterbuch-Kontext. Dieselbe
+ * Bauart wie bei `PostFehler`/`fehler()` in routes.ts.
+ *
+ * Für `zustand === 'gemeldet'` fällt hier derselbe Dreiweg-Entscheid wie in
+ * `sichten()` weiter unten noch einmal — nicht aus Bequemlichkeit doppelt,
+ * sondern weil `meldungenListe()` eine Zeile Tage später aus der Datenbank
+ * liest, ohne dass der Grund von damals irgendwo mitgespeichert wäre. Er
+ * lässt sich verlustfrei zurückgewinnen, weil `einordnung`, DMARC-Stand und
+ * `an` selbst gespeichert bleiben und derselbe Vorrang gilt.
+ */
+function grundCodeFuer(
+  zustand: Sichtungszustand, einordnung: Einordnung | null, dmarcOk: boolean, an: string | null,
+): MeldungGrundCode | null {
+  switch (zustand) {
+    case 'entwurf': return 'entwurfWartet';
+    case 'gesendet': return 'entwurfGesendet';
+    case 'abgelehnt': return 'entwurfAbgelehnt';
+    case 'fehler': return 'modellFehler';
+    case 'laeuft': return null;
+    case 'gemeldet':
+      if (!einordnung?.antwortNoetig) return 'keinAntwortNoetig';
+      if (!dmarcOk) return 'keinDmarc';
+      if (!an) return 'keineAdresse';
+      // Unerreichbar: 'gemeldet' entsteht in sichten() nur, wenn einer der
+      // drei Gründe oben zutraf. Der Zweig ist für TypeScript da (jeder Pfad
+      // muss etwas zurückgeben), nicht weil er je liefe.
+      return 'keinAntwortNoetig';
   }
-  zeilen.push('', schluss, `Kennung: ${mail.id}`);
-  return zeilen.join('\n');
+}
+
+/**
+ * Eine `PostMeldung` bauen — für den Reiter „Post-Sichtung" und für die
+ * Web-Push-Benachrichtigung im selben Moment (siehe `benachrichtigen` oben).
+ *
+ * `an` und `dmarcOk` sind nur für die Feinunterscheidung innerhalb von
+ * `zustand === 'gemeldet'` nötig (siehe `grundCodeFuer`) und für den
+ * Warnsatz bei abweichender Reply-To-Domäne — deshalb optional: Die drei
+ * Aufrufer in `sichten()` unten haben beides ohnehin schon in der Hand,
+ * `meldungenListe()` beschafft es sich nur dort, wo es wirklich gebraucht
+ * wird (siehe dort).
+ */
+function bauMeldung(input: {
+  mail: Nachricht; zustand: Sichtungszustand; einordnung: Einordnung | null;
+  gesichtetAm: number; an?: string | null; dmarcOk?: boolean;
+}): PostMeldung {
+  const { mail, zustand, einordnung, gesichtetAm, an = null, dmarcOk = false } = input;
+  return {
+    mailId: mail.id,
+    fach: fuerMeldung(mail.fach, 60),
+    von: fuerMeldung(mail.von, 200),
+    betreff: fuerMeldung(mail.betreff, 200),
+    gesichtetAm,
+    zustand,
+    einordnung,
+    grundCode: grundCodeFuer(zustand, einordnung, dmarcOk, an),
+    // Nur solange ein Entwurf offen ist: einmal entschieden, ist der Hinweis
+    // Geschichte statt Handlungsaufforderung — siehe abweichungAdressen() weiter unten.
+    abweichung: (zustand === 'entwurf' && an) ? abweichungAdressen(mail, an) : null,
+  };
 }
 
 /* ── Die Mail, wie sie gespeichert liegt ──────────────────────── */
@@ -379,21 +418,36 @@ function antwortAdresse(mail: Nachricht, zusatz: Zusatz): string | null {
 }
 
 /**
- * Weicht die Antwortadresse vom sichtbaren Absender ab?
+ * Weicht die Antwortadresse vom sichtbaren Absender ab? Reine Werte, kein
+ * Satz — `abweichungsHinweis()` baut daraus den deutschen Text für die
+ * verschlüsselte `begruendung` eines Entwurfs, `bauMeldung()` weiter oben
+ * dieselben zwei Werte für `PostMeldung.abweichung` (die Übersetzung dazu
+ * steht im Wörterbuch der Oberfläche, `postSichtung.abweichung`, mit `an`
+ * und `von` als Platzhalter — der Server legt hier keinen Anzeigetext mehr
+ * fest, siehe `grundCodeFuer` weiter oben für dieselbe Bauart).
  *
  * DMARC bestätigt die Domain im `From:`, nicht die im `Reply-To:`. Zeigen die
  * beiden auf verschiedene Domains, ist das genau der Umleitungsversuch, nur
  * eine Kopfzeile höher als im Mailtext. Verhindern lässt er sich hier nicht —
  * die Vorgabe lautet `antwortAn` vor `von`, und meistens ist er harmlos. Was
  * sich verhindern lässt, ist die stille Freigabe: der Hinweis steht in der
- * Begründung des Entwurfs, also da, wo der freigebende Mensch hinsieht.
- * Dieselbe Haltung wie beim Umschlagabsender in db/schema.sql.
+ * Begründung des Entwurfs UND im Reiter „Post-Sichtung", also an beiden
+ * Stellen, an denen der freigebende Mensch hinsieht. Dieselbe Haltung wie
+ * beim Umschlagabsender in db/schema.sql.
  */
-function abweichungsHinweis(mail: Nachricht, an: string): string | null {
+function abweichungAdressen(mail: Nachricht, an: string): PostMeldungAbweichung | null {
   const vonDomaene = nurAdresse(mail.von).split('@')[1];
   const anDomaene = an.split('@')[1];
   if (!vonDomaene || !anDomaene || vonDomaene === anDomaene) return null;
-  return `Achtung: Die Antwort ginge an ${an}, geschrieben hat aber ${nurAdresse(mail.von)}. `
+  return { an, von: nurAdresse(mail.von) };
+}
+
+/** Derselbe Vergleich wie `abweichungAdressen()`, als fertiger deutscher Satz
+    für `mail_entwuerfe.begruendung` (verschlüsselt, kein Wörterbuch-Text). */
+function abweichungsHinweis(mail: Nachricht, an: string): string | null {
+  const adressen = abweichungAdressen(mail, an);
+  if (!adressen) return null;
+  return `Achtung: Die Antwort ginge an ${adressen.an}, geschrieben hat aber ${adressen.von}. `
     + 'Die Mail hat eine abweichende Antwortadresse gesetzt — bitte vor der Freigabe prüfen.';
 }
 
@@ -668,9 +722,8 @@ export async function sichten(mailId: string): Promise<SichtungBericht | null> {
     const grund = (err as Error).message;
     console.warn('[post-sichtung]', mailId, '—', grund);
     sichtungFesthalten(mailId, 'fehler', null);
-    const benachrichtigt = benachrichtigen(meldungBauen({
-      mail, absender: an ?? schreiber, einordnung: null,
-      schluss: 'Die KI konnte diese Mail nicht einordnen — bitte von Hand ansehen.',
+    const benachrichtigt = benachrichtigen(bauMeldung({
+      mail, zustand: 'fehler', einordnung: null, gesichtetAm: Date.now(),
     }));
     return { mailId, zustand: 'fehler', entwurfId: null, benachrichtigt, grund };
   }
@@ -703,9 +756,9 @@ export async function sichten(mailId: string): Promise<SichtungBericht | null> {
 
   if (grund || !an) {
     sichtungFesthalten(mailId, 'gemeldet', einordnung);
-    const benachrichtigt = benachrichtigen(meldungBauen({
-      mail, absender: an ?? schreiber, einordnung,
-      schluss: grund ?? 'Kein Entwurf entstanden.',
+    const benachrichtigt = benachrichtigen(bauMeldung({
+      mail, zustand: 'gemeldet', einordnung, gesichtetAm: Date.now(),
+      an, dmarcOk: absenderBestaetigt(zusatz.pruefung),
     }));
     return { mailId, zustand: 'gemeldet', entwurfId: null, benachrichtigt, grund };
   }
@@ -724,10 +777,13 @@ export async function sichten(mailId: string): Promise<SichtungBericht | null> {
   });
 
   /* Auch ein Entwurf wird gemeldet. Ein Vorschlag, den niemand sieht, ist
-     keiner — und niemand soll das Postfach im Verdacht öffnen müssen. */
-  const benachrichtigt = benachrichtigen(meldungBauen({
-    mail, absender: an, einordnung,
-    schluss: `Ein Antwortentwurf liegt zur Freigabe bereit (${entwurfId}). Nichts geht ohne Freigabe hinaus.`,
+     keiner — und niemand soll das Postfach im Verdacht öffnen müssen.
+     `entwurfId` geht bewusst NICHT in die Meldung: eine technische Kennung
+     hat in der Anzeige nichts verloren (siehe `PostMeldung` in
+     @stellium/shared) — wer den Entwurf sehen will, folgt `mailId` in den
+     Postfach-Reiter, dort steht er ohnehin beim jüngsten Eintrag der Mail. */
+  const benachrichtigt = benachrichtigen(bauMeldung({
+    mail, zustand: 'entwurf', einordnung, gesichtetAm: Date.now(), an,
   }));
 
   return { mailId, zustand: 'entwurf', entwurfId, benachrichtigt, grund: null };
@@ -884,6 +940,96 @@ export function sichtungFuer(mailId: string): {
     try { einordnung = JSON.parse(entschluesseln(z.einordnung)) as Einordnung; } catch { einordnung = null; }
   }
   return { zustand: z.zustand as Sichtungszustand, gesichtetAm: z.gesichtet_am, einordnung };
+}
+
+/**
+ * Zustand und Einordnung mehrerer Mails auf einen Schlag, nach `mailId`
+ * geordnet — für den Postfach-Reiter (PostPanel.tsx), der eine ganze Seite
+ * der Liste einfärbt und nach Dringlichkeit sortiert und dafür nicht 50
+ * einzelne Anfragen stellen soll (dasselbe Anliegen wie `may()`, das für
+ * mehrere Rechte auch nicht einzeln aufgerufen wird).
+ *
+ * Mails ohne eigene Zeile in `mail_sichtung` (frisch eingegangen, die
+ * Sichtung hat noch nicht einmal `beanspruchen()` durchlaufen) fehlen im
+ * Ergebnis einfach — das ist Absicht: die aufrufende Seite unterscheidet so
+ * „noch nie gesichtet" von jedem tatsächlichen Zustand, und genau diese
+ * Unterscheidung braucht sie, um eine ganz frische Mail nicht so zu
+ * behandeln, als sei sie als „niedrig" eingestuft.
+ */
+export function sichtungenFuer(mailIds: string[]): Record<string, {
+  zustand: Sichtungszustand; einordnung: Einordnung | null;
+}> {
+  const eindeutig = [...new Set(mailIds)].filter(Boolean).slice(0, 200);
+  const ergebnis: Record<string, { zustand: Sichtungszustand; einordnung: Einordnung | null }> = {};
+  if (!eindeutig.length) return ergebnis;
+
+  const platzhalter = eindeutig.map(() => '?').join(',');
+  const zeilen = db.all<{ mail_id: string; zustand: string; einordnung: string | null }>(
+    `SELECT mail_id, zustand, einordnung FROM mail_sichtung WHERE mail_id IN (${platzhalter})`,
+    ...eindeutig,
+  );
+  for (const z of zeilen) {
+    let einordnung: Einordnung | null = null;
+    if (z.einordnung) {
+      try { einordnung = JSON.parse(entschluesseln(z.einordnung)) as Einordnung; } catch { einordnung = null; }
+    }
+    ergebnis[z.mail_id] = { zustand: z.zustand as Sichtungszustand, einordnung };
+  }
+  return ergebnis;
+}
+
+/**
+ * Die Zeilen für den Reiter „Post-Sichtung" — neueste zuerst, `vor` als
+ * Blätterkennung. Dieselbe Bauart wie `post.liste()`: `vor` ist der
+ * `gesichtetAm`-Wert der letzten schon geladenen Zeile, keine Seitenzahl —
+ * eine neu eingegangene Mail zwischen zwei Abrufen verschiebt damit keine
+ * andere Zeile auf eine falsche Seite.
+ *
+ * Liest die Mail selbst ausschließlich über `nachricht()` aus post.ts, nie
+ * direkt aus der Tabelle `mail` — dieselbe Grenze, die der Dateikopf für die
+ * ganze Datei zieht. Eine Mail, die es nicht mehr gibt, lässt die Zeile
+ * stillschweigend aus, statt eine Lücke in der Liste zu zeigen.
+ *
+ * `an`/die DMARC-Bestätigung werden nur dort nachgeschlagen, wo `bauMeldung()`
+ * sie wirklich braucht (`entwurf` für den Abweichungshinweis, `gemeldet` für
+ * die Feinunterscheidung des Grundes) — die Mehrheit der Zeilen (`gesendet`,
+ * `abgelehnt`, `fehler`, `laeuft`) kommt ohne eine weitere Abfrage aus.
+ */
+export function meldungenListe(anzahl = 50, vor?: number): PostMeldung[] {
+  const grenze = Math.min(Math.max(1, Math.trunc(anzahl) || 50), 200);
+  const zeilen = db.all<{ mail_id: string; zustand: string; einordnung: string | null; gesichtet_am: number }>(
+    vor
+      ? `SELECT mail_id, zustand, einordnung, gesichtet_am FROM mail_sichtung
+          WHERE gesichtet_am < ? ORDER BY gesichtet_am DESC LIMIT ?`
+      : `SELECT mail_id, zustand, einordnung, gesichtet_am FROM mail_sichtung
+          ORDER BY gesichtet_am DESC LIMIT ?`,
+    ...(vor ? [vor, grenze] : [grenze]),
+  );
+
+  const ergebnis: PostMeldung[] = [];
+  for (const z of zeilen) {
+    const mail = nachricht(z.mail_id);
+    if (!mail) continue;
+    const zustand = z.zustand as Sichtungszustand;
+
+    let einordnung: Einordnung | null = null;
+    if (z.einordnung) {
+      try { einordnung = JSON.parse(entschluesseln(z.einordnung)) as Einordnung; } catch { einordnung = null; }
+    }
+
+    let an: string | null = null;
+    let dmarcOk = false;
+    if (zustand === 'entwurf') {
+      an = entwurfZurMail(z.mail_id)?.an ?? null;
+    } else if (zustand === 'gemeldet') {
+      const zusatz = zusatzLesen(z.mail_id);
+      an = antwortAdresse(mail, zusatz);
+      dmarcOk = absenderBestaetigt(zusatz.pruefung);
+    }
+
+    ergebnis.push(bauMeldung({ mail, zustand, einordnung, gesichtetAm: z.gesichtet_am, an, dmarcOk }));
+  }
+  return ergebnis;
 }
 
 /**

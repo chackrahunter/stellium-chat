@@ -1,0 +1,22 @@
+Neu
+- Postfach: eigener Reiter "Post-Sichtung" zeigt jede eingegangene Mail als Karte -
+  Fach, Absender, Anliegen, Dringlichkeit, und ob ein Antwortentwurf wartet.
+  Ein Klick springt direkt zur Mail.
+- Mails lassen sich nach Dringlichkeit sortieren. Ungesichtete und fehlgeschlagene
+  stehen oben, nicht bei "niedrig" - nichts zu wissen ist kein Werturteil.
+- Neue Mail schreiben: mit Betreff, an eine beliebige Adresse, Absenderfach waehlbar.
+- Ein Knopf laesst die KI die Mail schreiben. Gesendet wird nie von selbst.
+- Briefpartner lassen sich in Gruppen einordnen (Kunden, Firmen, Lieferanten,
+  Bewerber, Behoerden). Die KI schlaegt einmal eine vor - danach nie wieder.
+- Verkaufszahlen ausfuehrlich: Abonnenten nach Status, Probezeit getrennt,
+  Zu- und Abgaenge, Erstattungen und Rueckbuchungen, Verlauf. Patreon angebunden.
+
+Behoben
+- Ein falsches Masterpasswort loeschte bisher stillschweigend den ganzen
+  Uebersetzungsspeicher. Jetzt startet der Server gar nicht erst und sagt, was zu tun ist.
+- Der Resend-Sandkasten sah aus wie ein kaputter Schluessel. Jetzt steht da,
+  was wirklich los ist - ebenso beim Tageskontingent.
+- Beim Senden konnte man versehentlich an zwei Empfaenger schicken.
+- Schluessel speichern: es steht jetzt da, ob es geklappt hat - und wenn nicht, warum.
+- Scheitert die KI, steht der Grund im Protokoll. Vorher wurde er weggeworfen.
+- Kleinere Berichtigungen an Formaten, Farben und Beschriftungen.

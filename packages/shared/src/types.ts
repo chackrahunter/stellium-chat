@@ -727,6 +727,92 @@ export interface VorschlagAenderung {
   faelligAm?: number | null;
 }
 
+/* ── Post-Sichtung: KI-Meldungen zur Firmenpost ──────────────────
+ *
+ * Was `packages/server/src/services/post-sichtung.ts` aus einer eingegangenen
+ * Mail macht, für die Oberfläche — strukturiert statt als Fließtext, und ohne
+ * jede technische Kennung (die bleibt serverseitig; `mailId` ist die einzige
+ * Ausnahme und wird selbst nirgends angezeigt, sie führt nur über
+ * `jumpToPostMail()` in den Postfach-Reiter).
+ */
+
+/**
+ * Wer geschrieben hat, so wie die KI-Sichtung es einordnet.
+ *
+ * Dieselben vier Werte wie in der Anweisung an das Modell
+ * (server/services/post-ki.ts) — `behörde` bleibt mit Umlaut, exakt der Wert,
+ * den Modell und Datenbank tragen.
+ */
+export type Absenderart = 'privatperson' | 'firma' | 'behörde' | 'automat';
+
+/** Wie dringend die KI-Sichtung eine eingegangene Mail einordnet. */
+export type Dringlichkeit = 'niedrig' | 'normal' | 'hoch';
+
+/**
+ * Der Weg einer Sichtung — dieselben Werte wie `mail_sichtung.zustand` auf
+ * dem Server (siehe dort). `laeuft` heißt: eben erst eingegangen, die KI
+ * fragt gerade noch das Modell.
+ */
+export type Sichtungszustand = 'laeuft' | 'gemeldet' | 'entwurf' | 'gesendet' | 'abgelehnt' | 'fehler';
+
+/** Was die KI aus einer Mail herausgelesen hat. */
+export interface Einordnung {
+  absenderart: Absenderart;
+  anliegen: string;
+  dringlichkeit: Dringlichkeit;
+  antwortNoetig: boolean;
+  begruendung: string;
+  /** In welcher Sprache geantwortet würde. */
+  sprache: string;
+  /** Welches Modell geurteilt hat. */
+  modell: string | null;
+}
+
+/**
+ * Warum (noch) kein Entwurf entstand, oder dass einer bereitliegt oder schon
+ * entschieden ist — eine Kennung, kein Satz.
+ *
+ * post-sichtung.ts läuft auf dem Server, ohne Wörterbuch-Kontext, und legt
+ * deshalb keinen deutschen Anzeigetext mehr fest — dieselbe Bauart wie bei
+ * `PostFehler`/`fehler()` in routes.ts: Kennung hin, Übersetzung erst in der
+ * Oberfläche (`postSichtung.grund.*` im Wörterbuch).
+ */
+export type MeldungGrundCode =
+  | 'entwurfWartet' | 'entwurfGesendet' | 'entwurfAbgelehnt'
+  | 'keinAntwortNoetig' | 'keinDmarc' | 'keineAdresse' | 'modellFehler';
+
+/**
+ * Der Warnsatz bei abweichender Reply-To-Domäne — als Werte, nicht als
+ * fertiger Satz, aus demselben Grund wie bei `MeldungGrundCode`: die beiden
+ * Adressen füllen die Platzhalter in `postSichtung.abweichung` im
+ * Wörterbuch. Die Bedeutung bleibt dieselbe wie in `abweichungsHinweis()`
+ * (post-sichtung.ts): DMARC bestätigt nur die Domäne im `From:`, eine
+ * Antwort ginge aber an `an` — und das muss vor einer Freigabe auffallen.
+ */
+export interface PostMeldungAbweichung {
+  /** Wohin die Antwort tatsächlich ginge. */
+  an: string;
+  /** Wer die Mail sichtbar geschrieben hat. */
+  von: string;
+}
+
+/** Eine Zeile im Reiter „Post-Sichtung" — eine eingegangene Mail und was die KI daraus machte. */
+export interface PostMeldung {
+  /** Führt über `jumpToPostMail()` zur Mail im Postfach-Reiter — wird selbst nicht angezeigt. */
+  mailId: string;
+  fach: string;
+  von: string;
+  betreff: string;
+  /** Wann die Sichtung zuletzt einen Stand festhielt — Sortier- und Blätterkennung zugleich. */
+  gesichtetAm: number;
+  zustand: Sichtungszustand;
+  /** `null`, solange die Sichtung noch läuft oder das Modell nicht geantwortet hat. */
+  einordnung: Einordnung | null;
+  grundCode: MeldungGrundCode | null;
+  /** Nur gesetzt, solange ein Entwurf offen ist und die Domänen abweichen. */
+  abweichung: PostMeldungAbweichung | null;
+}
+
 /* ── Protokoll ────────────────────────────────────────────────── */
 
 /** Ergebnis einer Besprechung, weitergabefähig zusammengefasst. */
@@ -817,4 +903,45 @@ export interface Notiz {
   geaendertVon: string;
   geaendertAm: number;
   erstelltAm: number;
+}
+
+/* ── Briefpartner: Gruppen im Unternehmenspostfach ───────────────
+ *
+ * Fest, nicht frei. Eine freie Liste wäre flexibler, aber die KI kann nur in
+ * eine Gruppe einordnen, die sie kennt — bei freien Namen bliebe ihr nur
+ * Raten oder ständiges Neuerfinden ähnlicher Namen ("Kunde" neben "Kunden"
+ * neben "Kundschaft"). Der feste Grundstock hier deckt, was ein
+ * Firmenpostfach an Briefpartnern kennt; wer mehr braucht, ändert diese
+ * Liste im Quelltext (plus Wörterbucheintrag je Sprache) statt eine eigene
+ * Verwaltungsoberfläche für Gruppen zu bauen, die dieses Ausmaß an Aufwand
+ * nicht rechtfertigt. `sonstige` ist der Auffangkorb und immer vorhanden —
+ * er verhindert, dass die KI etwas erfindet, weil keine der übrigen fünf
+ * passt.
+ */
+export const PARTNER_GRUPPEN = [
+  'kunden', 'firmen', 'lieferanten', 'bewerber', 'behoerden', 'sonstige',
+] as const;
+export type PartnerGruppe = (typeof PARTNER_GRUPPEN)[number];
+
+/**
+ * Ein Briefpartner, so wie die Oberfläche ihn sieht — eine Zeile aus
+ * `mail_partner` (packages/server/src/services/post-partnergruppen.ts).
+ *
+ * `gruppeVonKi` unterscheidet Vorschlag von Tatsache: `true` heißt, die
+ * Gruppe steht so da, wie die KI sie einmalig vorgeschlagen hat, und noch
+ * kein Mensch hat zugestimmt oder umentschieden. `gruppeVorschlagAm` ist
+ * unabhängig davon der Zeitpunkt der EINEN Gelegenheit, die die KI je
+ * Adresse hat — er bleibt stehen, auch wenn `gruppe` später von Hand
+ * geändert wird, und verhindert genau dadurch jeden weiteren Vorschlag.
+ */
+export interface MailPartner {
+  adresse: string;
+  gruppe: PartnerGruppe | null;
+  gruppeVonKi: boolean;
+  gruppeVorschlagAm: number | null;
+  /** Ein Satz der KI, warum sie so entschieden hat — nur bei `gruppeVonKi`. */
+  begruendung: string | null;
+  sprache: string;
+  /** Seit wann diese Adresse bekannt ist (erster Kontakt oder erste Zuordnung). */
+  seit: number;
 }

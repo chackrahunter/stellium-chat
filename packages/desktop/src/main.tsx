@@ -15,6 +15,7 @@ import './styles/app.css';
    und muss deshalb später kommen. Als @import am Dateiende wäre sie
    ungültig — CSS erlaubt @import nur ganz oben. */
 import './styles/post.css';
+import './styles/partnergruppen.css';
 import './styles/mobil.css';
 
 /**

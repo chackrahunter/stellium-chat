@@ -19,7 +19,7 @@
 import { db } from '../db/index.js';
 import { newId } from '../util/id.js';
 import { verschluesseln, entschluesseln } from '../crypto/nachrichten.js';
-import { zugangLesen } from './mailzugang.js';
+import { zugangLesen, zugangStand } from './mailzugang.js';
 
 const VERSAND_ENDE = 'https://api.resend.com/emails';
 
@@ -242,9 +242,69 @@ export interface Ausgang {
   antwortAuf?: { messageId: string | null; referenzen: string | null; threadId: string | null };
 }
 
+/**
+ * Genau eine Mailadresse — wortgleich mit der Prüfung in post-sichtung.ts.
+ *
+ * Duplikat statt Import: post-sichtung.ts exportiert sie nicht, und die Datei
+ * dort anzufassen ist gerade nicht möglich — dieselbe Lage wie bei
+ * `absenderBestaetigt()` dort, nur seitenverkehrt (siehe der Kommentar an
+ * jener Stelle: „post.ts anzufassen ist gerade nicht möglich"; hier ist es
+ * post-sichtung.ts).
+ *
+ * „kunde@firma.de, angreifer@boese.tld" käme sonst unverändert durch
+ * `nurAdresse()` (die nur „Name <a@b.de>" auspackt, aber nicht prüft, ob am
+ * Ende EINE Adresse übrig bleibt) und stünde als `to` beim Versanddienst —
+ * der macht daraus bereitwillig zwei Empfänger.
+ *
+ * Geprüft wird HIER, in `senden()` selbst, und nicht nur in der Route, aus
+ * demselben Grund wie beim Eingang oben: `senden()` ist die einzige Stelle,
+ * durch die jeder Versand läuft — von Hand verfasst über die Oberfläche,
+ * eine freigegebene KI-Antwort, jede künftige dritte Aufrufstelle. Wer hier
+ * prüft, muss es an keiner Aufrufstelle wiederholen und kann es dort auch
+ * nicht vergessen.
+ */
+const EINE_ADRESSE = /^[^\s@,;:<>"'()[\]\\]+@[^\s@,;:<>"'()[\]\\]+\.[^\s@,;:<>"'()[\]\\]{2,}$/;
+
+/**
+ * Die acht Fächer als vollständige Adressen — für die Auswahl beim freien
+ * Verfassen einer neuen Mail.
+ *
+ * Die Domäne kommt aus `zugangStand()`, nicht aus `zugangLesen()`: die Liste
+ * soll auch erscheinen, wenn der Versandschlüssel (noch) fehlt — sonst sähe
+ * die schreibende Person gar keine Fächer und wüsste nicht, woran das liegt.
+ * `senden()` meldet den fehlenden Schlüssel dann für sich, beim Versuch zu
+ * senden. Ist gar keine Absenderadresse hinterlegt, gibt es noch keine
+ * Domäne und damit auch keine Liste — leer statt geraten.
+ */
+export function absenderFaecher(): string[] {
+  const domaene = zugangStand().absender?.split('@')[1];
+  return domaene ? FAECHER.map((lokal) => `${lokal}@${domaene}`) : [];
+}
+
 export async function senden(m: Ausgang): Promise<{ id: string }> {
   const z = zugangLesen();
-  if (!z) throw new PostFehler('post.nichtEingerichtet', 'Kein Versandweg hinterlegt.', 400);
+  if (!z) {
+    /* „Kein Versandweg hinterlegt" allein sagt nicht, WAS fehlt — und
+       Schlüssel und Absenderadresse werden an zwei verschiedenen Stellen im
+       Reiter „Post" eingetragen (siehe zugangStand() in mailzugang.ts). Wer
+       nur den Schlüssel gesetzt hat, aber keinen Absender, soll das lesen
+       können, statt aus einer einzigen pauschalen Meldung zu raten. */
+    const stand = zugangStand();
+    if (!stand.versandBereit) {
+      throw new PostFehler('post.keinSchluessel', 'Kein Versandschlüssel hinterlegt.', 400);
+    }
+    throw new PostFehler('post.keinAbsender', 'Keine Absenderadresse für den Versand hinterlegt.', 400);
+  }
+
+  /* Die einzige Adresse, die tatsächlich verschickt wird — normalisiert wie
+     beim Eingang (`nurAdresse()`) und geprüft, bevor irgendetwas an den
+     Versanddienst geht. Alles Weitere in dieser Funktion verwendet
+     `empfaenger`, nicht mehr `m.an`. */
+  const empfaenger = nurAdresse(m.an);
+  if (!EINE_ADRESSE.test(empfaenger)) {
+    throw new PostFehler('post.ungueltigeAdresse',
+      'Das ist keine einzelne, gültige Mailadresse.', 400);
+  }
 
   /* Aus dem Fach antworten, in dem die Frage ankam: wer an `support@`
      schreibt, soll die Antwort von `support@` bekommen und nicht von
@@ -270,7 +330,7 @@ export async function senden(m: Ausgang): Promise<{ id: string }> {
     },
     body: JSON.stringify({
       from: `${z.name} <${absender}>`,
-      to: [m.an],
+      to: [empfaenger],
       subject: m.betreff,
       text: m.text,
       ...(Object.keys(kopf).length ? { headers: kopf } : {}),
@@ -282,12 +342,61 @@ export async function senden(m: Ausgang): Promise<{ id: string }> {
   });
 
   if (!antwort.ok) {
-    /* Der Text des Dienstes enthält kein Geheimnis, wird aber gekürzt: eine
-       Fehlermeldung ist keine Protokolldatei. */
-    const grund = (await antwort.text().catch(() => '')).slice(0, 200);
-    if (antwort.status === 401 || antwort.status === 403) {
+    /* Der Rumpf enthält kein Geheimnis. Roh geparst, weil Resend bei einem
+       Fehlschlag JSON mit `name` und `message` schickt (siehe
+       resend.com/docs/api-reference/errors) — erst daran lassen sich die
+       Fälle unten auseinanderhalten. Kommt doch kein JSON zurück, bleibt es
+       beim rohen Text als Grund. */
+    const roh = await antwort.text().catch(() => '');
+    let art = '';
+    let dienstMeldung = '';
+    try {
+      const k = JSON.parse(roh) as { name?: unknown; message?: unknown };
+      if (typeof k.name === 'string') art = k.name;
+      if (typeof k.message === 'string') dienstMeldung = k.message;
+    } catch { /* keine JSON-Antwort — grund bleibt unten der rohe Text */ }
+    const grund = (dienstMeldung || roh).slice(0, 200);
+
+    /* 401 und 403 sind bei Resend NICHT dasselbe Problem, auch wenn beide wie
+       „abgelehnt" aussehen:
+       · ein ungültiger oder gesperrter Schlüssel  → 401, oder 403 mit
+         `restricted_api_key`/`suspended_api_key`.
+       · der Sandkasten vor der Domainprüfung      → ebenfalls 403, aber mit
+         `validation_error` und dem Satz „You can only send testing emails
+         to your own email address …". Der Schlüssel ist dabei völlig in
+         Ordnung — nur die Domain ist bei Resend noch nicht bestätigt.
+       Beides unter „Versandschlüssel gilt nicht mehr" zu zeigen hieß
+       zuletzt: ein gültiger Schlüssel im Sandkasten sah aus wie ein
+       ungültiger, und niemand kam auf die eigentliche Ursache. */
+    if (art === 'restricted_api_key' || art === 'suspended_api_key' || antwort.status === 401) {
       throw new PostFehler('post.schluesselAbgelehnt',
         'Der hinterlegte Versandschlüssel gilt nicht mehr.', 400);
+    }
+    if (antwort.status === 403) {
+      throw new PostFehler('post.sandkasten',
+        'Die Domain ist bei Resend noch nicht bestätigt. Im Sandkasten geht Post nur an die eigene '
+        + `Kontoadresse — an jede andere Adresse schlägt der Versand fehl, bis eine Domain verifiziert `
+        + `ist. Meldung des Diensts: ${grund}`, 400);
+    }
+    /* Resend unterscheidet Tages- und Monatskontingent von der allgemeinen
+       Rate-Bremse — alle drei kommen als 429, aber mit unterschiedlichem
+       `name` und unterschiedlicher Abhilfe. Der Gratistarif deckelt bei 100
+       Mails am Tag; das ist der Fall, den der Auftraggeber ausdrücklich
+       sehen und nicht erraten soll. */
+    if (art === 'daily_quota_exceeded') {
+      throw new PostFehler('post.kontingentTag',
+        'Das Tageskontingent des Versanddiensts ist erschöpft (Gratistarif: 100 Mails am Tag). '
+        + 'Es geht erst wieder, wenn 24 Stunden seit der ersten Mail des Tages vergangen sind — oder mit einem größeren Tarif.',
+        429);
+    }
+    if (art === 'monthly_quota_exceeded') {
+      throw new PostFehler('post.kontingentMonat',
+        'Das Monatskontingent des Versanddiensts ist erschöpft.', 429);
+    }
+    if (antwort.status === 429) {
+      throw new PostFehler('post.rateLimit',
+        'Der Versanddienst bremst gerade — zu viele Anfragen kurz hintereinander. Gleich noch einmal versuchen.',
+        429);
     }
     throw new PostFehler('post.abgelehnt',
       `Der Versanddienst lehnt ab (${antwort.status}). ${grund}`, 502);
@@ -304,7 +413,7 @@ export async function senden(m: Ausgang): Promise<{ id: string }> {
         message_id, referenzen, thread_id, am, gelesen, anhaenge)
      VALUES (?,?,'aus',?,?,?,?,NULL,?,?,?,?,1,'[]')`,
     id, absender.toLowerCase(),
-    verschluesseln(absender), verschluesseln(m.an),
+    verschluesseln(absender), verschluesseln(empfaenger),
     verschluesseln(m.betreff), verschluesseln(m.text),
     d.id ?? null, kopf.References ?? null,
     m.antwortAuf?.threadId ?? d.id ?? null,

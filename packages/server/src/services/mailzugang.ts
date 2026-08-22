@@ -62,7 +62,22 @@ export function zugangStand(): {
   absender: string | null; name: string | null;
 } {
   return {
-    versandBereit: zugangLesen() !== null,
+    /* Nur, ob der Versand-SCHLÜSSEL selbst hinterlegt ist — nicht, ob damit
+       auch tatsächlich verschickt werden kann (das braucht zusätzlich den
+       Absender, siehe zugangLesen() für den echten Versand). Stünde hier
+       zugangLesen() !== null, zeigte der Reiter „Schlüssel" FEHLT für den
+       Versand-Schlüssel, obwohl er längst gespeichert ist — nur weil im
+       Reiter „Post" noch kein Absender eingetragen wurde. Zwei Reiter, ein
+       Wert, eine irreführende Meldung. */
+    /* Direkt am gespeicherten Wert geprüft, nicht am entschlüsselten:
+       decryptField() gibt bei einem fehlenden Feld '' zurück, nie `null`
+       (ihr Rückgabetyp ist `string`, kein `string | null`) — ein Vergleich
+       `decryptField(...) !== null` war dadurch IMMER wahr, ganz gleich, ob
+       ein Schlüssel hinterlegt war oder nicht. Das fiel erst auf, als
+       post.ts::senden() sich auf genau dieses Feld verließ, um „kein
+       Schlüssel" von „kein Absender" zu unterscheiden — mit dem alten
+       Vergleich hätte es nie „kein Schlüssel" gemeldet. */
+    versandBereit: getSetting(S_VERSAND) !== null,
     eingangBereit: eingangGeheimnis() !== null,
     /* Ohne Masterpasswort liegt es im Klartext in der Datenbank. Das ist kein
        Fehler, aber die Verwaltung soll es wissen. */

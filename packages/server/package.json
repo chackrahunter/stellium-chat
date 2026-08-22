@@ -10,7 +10,8 @@
     "start": "node --experimental-sqlite dist/index.js",
     "seed": "tsx src/seed.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "secret": "tsx src/cli/secret.ts"
+    "secret": "tsx src/cli/secret.ts",
+    "patreon-diagnose": "tsx src/cli/patreon-diagnose.ts"
   },
   "dependencies": {
     "@fastify/cors": "^10.0.2",

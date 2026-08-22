@@ -50,12 +50,40 @@
   width: 100%;
   padding: 9px 11px;
   border-radius: var(--r-sm);
+  /* Trägt die Dringlichkeit der KI-Sichtung — Farbe kommt inline aus
+     dringlichkeitFarbe() in lib/post-farben.ts (eingegangene Post) bzw.
+     bleibt ohne Regel transparent (gesendete Post, siehe NachrichtZeile in
+     PostPanel.tsx: dort ohne `style`). Dieselbe Bauart wie der Rand am
+     Verlaufseintrag weiter unten (.post__eintrag--richtung-aus) und an den
+     Karten in post-meldungen.css. */
+  border-inline-start: 3px solid transparent;
   text-align: start;
   color: var(--tx-mid);
   transition: background var(--t-fast);
 }
 .post-row:hover { background: var(--bg-hover); }
 .post-row[aria-current='true'] { background: var(--bg-active); }
+
+/* ── Sortierung nach Dringlichkeit/Zeit ────────────────────────────
+   Eigene, kleine Pillenvariante statt .vorschlag-tab: die dort feste
+   Randfarbe (--violet bei „an") passt nicht zu einem Umschalter, dessen
+   zwei Zustände gleichrangig sind — keiner ist eine „Auswahl unter vielen"
+   wie bei den Vorschlag-Filtern, sondern ein Entweder-oder. */
+.post__sortierung {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.pill--sort {
+  height: 26px;
+  padding: 0 9px;
+  font-size: 11px;
+}
+.pill--sort-on {
+  color: var(--tx-hi);
+  background: var(--bg-active);
+  border-color: var(--violet);
+}
 
 /* „ungelesen fett" — nur Absender und Betreff, der Ausschnitt bleibt in
    normaler Stärke, sonst wiegt eine unread-Zeile schwerer als die Betreff-

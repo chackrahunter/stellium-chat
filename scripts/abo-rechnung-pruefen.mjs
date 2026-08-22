@@ -246,6 +246,22 @@ pruefe('Rückbuchung und Anfechtung zählen ebenfalls nicht',
     return { brutto: v.brutto, anzahl: v.anzahl };
   })(), { brutto: 2500, anzahl: 1 });
 
+/* Gumroad selbst ist hier uneinheitlich: `/v2/sales` (und damit alles, was
+   verkaeufeAuswerten je zu sehen bekommt) nennt das Feld `chargedback`,
+   nicht `chargebacked` — nachgelesen in der offiziellen Doku (archive.org,
+   Snapshot 4.12.2025). `chargebacked` gehört zu `/v2/licenses/*`, einer
+   Ressource, die hier nie ankommt. Dieser Fall bildet nach, was Gumroad
+   wirklich schickt — der vorige Fall oben testet nur die (falsche)
+   Schreibweise, die früher im Code stand, und wäre grün geblieben, selbst
+   wenn die Prüfung auf `chargedback` gefehlt hätte. */
+pruefe('Rückbuchung mit der Schreibweise, die /v2/sales wirklich benutzt',
+  (() => {
+    const v = verkaeufeAuswerten([
+      { price: 2500, gumroad_fee: 250 },
+      { price: 2500, gumroad_fee: 250, chargedback: true }]);
+    return { brutto: v.brutto, anzahl: v.anzahl };
+  })(), { brutto: 2500, anzahl: 1 });
+
 pruefe('Gumroads Gebühr wird ausgewiesen, nicht verschluckt',
   (() => {
     const v = verkaeufeAuswerten([{ price: 30000, gumroad_fee: 3000 }]);

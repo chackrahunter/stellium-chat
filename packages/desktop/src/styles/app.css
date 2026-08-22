@@ -3558,6 +3558,50 @@ button.msg__author:hover { color: var(--violet-soft); text-decoration: underline
   color: var(--tx-lo); font-size: 13px; padding: 20px 0;
 }
 
+/* Knopf "Alle Verkaufszahlen ansehen" — eigene Zeile am Fuß des Verkaufs-
+   Blocks, nicht neben den Zahlen: er gehört zu keiner einzelnen Zeile,
+   sondern zum ganzen Block. */
+.sys__mehr { margin-top: 6px; width: 100%; justify-content: center; }
+
+/* ── Verkaufszahlen: ausführliche Ansicht (VerkaufDetailPanel.tsx) ────
+   Baut auf denselben Klassen wie oben (.sys__block, .syszeile) auf — es ist
+   inhaltlich dieselbe Art Tafel, nur ausführlicher. Neu sind nur der
+   Kennzahlen-Kopf und die Balkenreihen für den Verlauf. */
+.verkauf__detail { grid-template-columns: 1fr; }
+
+.verkauf__kopf {
+  display: flex; gap: var(--sp-5); justify-content: space-around;
+  text-align: center;
+}
+.verkauf__kennzahl { display: flex; flex-direction: column; gap: 2px; }
+.verkauf__kennzahlWert {
+  font-size: 20px; font-weight: 650; color: var(--tx-hi);
+  font-variant-numeric: tabular-nums;
+}
+.verkauf__kennzahlLabel { font-size: 11.5px; color: var(--tx-lo); }
+
+/* Ein Balken je Monat, Länge relativ zum größten Wert der Reihe — dieselbe
+   Idee wie die ASCII-Balken der Pi-Konsole (balken() in
+   server-setup/stellium-konsole.mjs), nur als HTML/CSS. */
+.verkauf__balken { display: grid; gap: 4px; }
+.verkauf__balkenzeile {
+  display: grid; grid-template-columns: 56px 1fr auto; align-items: center;
+  gap: 8px; font-size: 12px;
+}
+.verkauf__balkenlabel { color: var(--tx-lo); }
+.verkauf__balkenspur {
+  height: 8px; border-radius: 4px; background: var(--bg-hover);
+  overflow: hidden;
+}
+.verkauf__balkenfuellung {
+  display: block; height: 100%; min-width: 2px; border-radius: 4px;
+  background: var(--cyan);
+}
+.verkauf__balkenwert {
+  color: var(--tx-hi); font-variant-numeric: tabular-nums; text-align: right;
+  white-space: nowrap;
+}
+
 /* Hinweis, dass die Reiterleiste weitergeht.
    Reines CSS kann nicht wissen, ob gerollt werden kann — die Klassen setzt
    lib/reiterleiste.ts, wenn Inhalts- und Sichtbreite auseinandergehen.

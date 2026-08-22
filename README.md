@@ -402,6 +402,7 @@ WebSocket-Upgrade auf `/ws` durchreichen.
 | `AI_PROVIDER` | `groq` | `groq` · `openai` · `deepl` · `libre` · `demo` |
 | `GROQ_MODEL` | leer | Leer = der Server wählt selbst |
 | `STELLIUM_MASTER_PASSPHRASE` | Keychain | Masterpasswort für den Tresor |
+| `STELLIUM_SCHLUESSELWECHSEL` | leer | `ja` lässt den Server trotz gewechseltem Masterpasswort starten — die alten Konten und Nachrichten bleiben dann unlesbar |
 | `MAX_UPLOAD_MB` | `50` | Maximale Dateigröße |
 | `STORAGE_QUOTA_GB` | `20` | Kontingent der Dateiablage |
 | `STORAGE_DIR` | `./data/storage` | Ablageordner |

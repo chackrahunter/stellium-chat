@@ -949,5 +949,175 @@ CREATE TABLE IF NOT EXISTS mail_partner (
   /* Wie sicher die Erkennung war, die zu dieser Sprache gefuehrt hat. Eine
      spaetere, unsicherere Messung soll eine sichere nicht umwerfen. */
   sicher       REAL NOT NULL DEFAULT 0,
-  seit         INTEGER NOT NULL
+  seit         INTEGER NOT NULL,
+  /* Die Gruppe des Briefpartners (siehe PARTNER_GRUPPEN in
+     packages/shared/src/types.ts) -- dieselbe Art Merkmal wie sprache oben,
+     deshalb dieselbe Zeile und keine eigene Tabelle. NULL heisst: noch nicht
+     eingeordnet.
+     gruppe_von_ki: steht "gruppe" so da, wie die KI sie vorgeschlagen hat,
+     und hat noch kein Mensch zugestimmt oder umentschieden? Nur eine Anzeige
+     ("Vorschlag" statt "Tatsache"), keine Sperre.
+     gruppe_vorschlag_am: die EINE Gelegenheit, die die KI je Adresse hat,
+     einen Vorschlag zu machen -- gesetzt, sobald sie einmal geurteilt hat,
+     und danach fuer immer gesetzt. post-partnergruppen.ts fragt nur dann
+     erneut, wenn diese Spalte NULL ist; ein Mensch, der von Hand eine Gruppe
+     setzt, fuellt sie ebenfalls (siehe dort), damit die KI eine von Hand
+     getroffene Wahl nie wieder anruehrt -- auch dann nicht, wenn die KI
+     selbst nie gefragt wurde.
+     gruppe_begruendung: ein Satz der KI, warum sie so entschieden hat.
+     Bleibt stehen, wenn ein Mensch genau diesen Wert bestaetigt (er erklaert
+     dann weiterhin, warum die Zeile so steht) -- wird NULL, sobald ein
+     Mensch eine ANDERE Gruppe waehlt, denn dann erklaert der Satz eine
+     Entscheidung, die nicht mehr gilt. */
+  gruppe               TEXT,
+  gruppe_von_ki        INTEGER NOT NULL DEFAULT 0,
+  gruppe_vorschlag_am  INTEGER,
+  gruppe_begruendung   TEXT
+);
+-- Der Index auf gruppe (fuer die Filterung nach Gruppe) entsteht in
+-- migrate.ts, nicht hier -- aus demselben Grund wie bei zustell_schluessel
+-- oben: diese Spalte ist auf einer bestehenden Datenbank erst nachgeruestet.
+
+/* ── Verkaufsstatistik ─────────────────────────────────────────
+ * Zwei Entwurfsentscheidungen stecken in diesen Tabellen (siehe Auftrag
+ * "Verkaufsstatistik ausbauen"):
+ *
+ * 1. ROH SPEICHERN, SUMMEN RECHNEN — NICHT SUMMEN SPEICHERN. Eine
+ *    Erstattung kommt oft Wochen nach dem Verkauf. Wer im März 40 Verkäufe
+ *    summiert und wegschreibt, hat dort für immer 40 stehen, auch wenn zwei
+ *    zurückgingen. Deshalb liegt hier JEDER Verkauf und JEDES Abonnement
+ *    einzeln, mit der Kennung, die Gumroad selbst dafür vergibt — ein
+ *    erneuter Abruf AKTUALISIERT dieselbe Zeile (ON CONFLICT), statt sie ein
+ *    zweites Mal zu zählen. Jede Kennzahl (Umsatz je Monat, Abonnenten nach
+ *    Status, Erstattungsquote) wird bei Bedarf frisch aus diesen Rohdaten
+ *    gerechnet, siehe services/gumroad.ts.
+ *
+ * 2. KEINE KUNDENDATEN. Name, E-Mail, Adresse eines Käufers stehen absichtlich
+ *    NICHT hier — nur Beträge, Status und Zeitstempel, alles, was eine
+ *    Kennzahl braucht, nichts, was eine Person identifiziert. Dieselbe
+ *    Zurückhaltung wie in gumroadDiagnose() (server-setup/stellium-konsole.mjs):
+ *    "kein Kundendatensatz verlässt diese Funktion". Auszahlungen sind davon
+ *    ausgenommen (siehe verkauf_gumroad_auszahlungen unten) — das ist Gumroads
+ *    Überweisung an den Verkäufer selbst, keine Käuferdaten.
+ *
+ * Beide Tabellen unten sind kontoweit (ALLE Produkte des Gumroad-Kontos),
+ * nicht auf ein einzelnes Produkt beschränkt — `produkt_id` steht bei jeder
+ * Zeile dabei, falls eine künftige Ansicht nach Produkt aufschlüsseln will. */
+CREATE TABLE IF NOT EXISTS verkauf_gumroad_verkaeufe (
+  id                  TEXT PRIMARY KEY,     -- Gumroads eigene Verkaufs-ID
+  produkt_id          TEXT,
+  subscription_id     TEXT,                 -- NULL = einmaliger Kauf
+  preis_cent          INTEGER NOT NULL DEFAULT 0,
+  gebuehr_cent        INTEGER NOT NULL DEFAULT 0,
+  waehrung            TEXT NOT NULL DEFAULT 'USD',
+  /* Gumroad selbst ist hier uneinheitlich zwischen seinen Endpunkten —
+     `recurrence` UND `subscription_duration` kommen beide vor. Siehe
+     services/gumroad.ts, laufzeitVon(), für die doppelte Prüfung (derselbe
+     Grund wie bei chargedback/chargebacked unten). NULL = einmaliger Kauf. */
+  laufzeit            TEXT,
+  erstellt_am         INTEGER,
+  erstattet           INTEGER NOT NULL DEFAULT 0,     -- refunded (vollständig)
+  teilerstattet       INTEGER NOT NULL DEFAULT 0,     -- partially_refunded
+  erstattbar_cent     INTEGER,                        -- amount_refundable_in_currency, roh übernommen
+  angefochten         INTEGER NOT NULL DEFAULT 0,      -- disputed
+  anfechtung_gewonnen INTEGER,                         -- dispute_won, NULL = keine Anfechtung/unbekannt
+  /* Zwei Schreibweisen bei Gumroad: `/v2/sales` liefert `chargedback`,
+     `/v2/licenses/*` (eine andere Ressource) `chargebacked`. Diese Spalte
+     ist das Ergebnis NACH der Prüfung beider Schreibweisen — sie hält nicht
+     fest, welche Schreibweise ankam, nur DASS eine Rückbuchung vorliegt. */
+  rueckgebucht        INTEGER NOT NULL DEFAULT 0,
+  /* Der EZB-Referenzkurs zum Tag von erstellt_am — NICHT der heutige. Einmal
+     aufgelöst und dann stehengelassen (siehe services/gumroad.ts): ein
+     historisches Datum liefert immer denselben Kurs, ein erneuter Abruf
+     überschreibt ihn nur, solange er noch fehlt (COALESCE beim Upsert). So
+     bleibt der Umsatz eines alten Verkaufs stabil, auch wenn sich der
+     heutige Kurs ändert. */
+  kurs_eur_je_usd     REAL,
+  kurs_datum          TEXT,
+  zuletzt_gesehen_am  INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_verkauf_gr_verkaeufe_erstellt ON verkauf_gumroad_verkaeufe(erstellt_am);
+CREATE INDEX IF NOT EXISTS idx_verkauf_gr_verkaeufe_abo ON verkauf_gumroad_verkaeufe(subscription_id);
+
+CREATE TABLE IF NOT EXISTS verkauf_gumroad_abonnenten (
+  id                 TEXT PRIMARY KEY,      -- Gumroads eigene Abonnenten-ID
+  produkt_id         TEXT,
+  /* alive, pending_cancellation, pending_failure, failed_payment, cancelled */
+  status             TEXT NOT NULL,
+  laufzeit           TEXT,                  -- recurrence
+  erstellt_am        INTEGER,
+  probe_bis          INTEGER,               -- free_trial_ends_at, NULL = keine Probezeit
+  gekuendigt_am      INTEGER,
+  beendet_am         INTEGER,
+  fehlgeschlagen_am  INTEGER,
+  zuletzt_gesehen_am INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_verkauf_gr_abo_status ON verkauf_gumroad_abonnenten(status);
+
+/* Auszahlungen sind Gumroads Überweisung AN den Verkäufer — keine
+   Käuferdaten, deshalb hier (anders als oben) auch das vollständige Feld
+   `rohdaten`. Grund: `zahlungsart` ist als Kennzahl gewünscht (siehe
+   Auftrag), aber ohne einen echten Zugang zum Prüfen des genauen Feldnamens
+   nicht sicher zu benennen — gumroadDiagnose() bestätigt bislang nur
+   `amount`, `status`, `currency`. Die Rohantwort bleibt darum daneben
+   liegen, statt einen falschen Feldnamen zu erfinden; siehe Bericht am
+   Auftragsende. `betrag` ist NICHT bestätigt in Cent oder Dezimalwährung —
+   roh übernommen, nicht durch 100 geteilt. */
+CREATE TABLE IF NOT EXISTS verkauf_gumroad_auszahlungen (
+  id                 TEXT PRIMARY KEY,
+  betrag             REAL,
+  waehrung           TEXT,
+  status             TEXT,
+  zahlungsart        TEXT,
+  rohdaten           TEXT,
+  zuletzt_gesehen_am INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_verkauf_gr_auszahl_status ON verkauf_gumroad_auszahlungen(status);
+
+/* Momentaufnahmen — für Anbieter OHNE eigene Historie.
+ *
+ * Patreon kennt kein "ehemalig seit wann": die Kennzahlen-Schnittstelle
+ * (services/patreon.ts, patreonKennzahlen()) liefert nur den STAND JETZT.
+ * Ohne eigene, regelmäßige Momentaufnahme gäbe es für Patreon nie einen
+ * Verlauf und nie eine Abgangszahl — beides lässt sich aus der Schnittstelle
+ * selbst nicht nachträglich rekonstruieren. Gumroad braucht diese Tabelle
+ * NICHT: dort steht die Historie schon roh in den beiden Tabellen oben
+ * (erstellt_am, gekuendigt_am, beendet_am je Abonnement), ein Verlauf lässt
+ * sich daraus jederzeit neu rechnen.
+ *
+ * `tag` (UTC) statt eines Zeitstempels als Teil des Schlüssels — dieselbe
+ * Bauart wie praesenz_tage oben: höchstens eine Zeile je Anbieter und Tag,
+ * ein erneuter Lauf am selben Tag aktualisiert sie nur. `anbieter` bleibt
+ * ein Textfeld statt einer festen Spaltenliste, falls einmal ein weiterer
+ * Anbieter ohne eigene Historie dazukommt. */
+CREATE TABLE IF NOT EXISTS verkauf_momentaufnahmen (
+  anbieter          TEXT NOT NULL,
+  tag               TEXT NOT NULL,
+  erfasst_am        INTEGER NOT NULL,
+  aktive            INTEGER NOT NULL DEFAULT 0,
+  deklination       INTEGER NOT NULL DEFAULT 0,
+  ehemalig          INTEGER NOT NULL DEFAULT 0,
+  follower          INTEGER NOT NULL DEFAULT 0,
+  einnahmen_cent    INTEGER NOT NULL DEFAULT 0,
+  waehrung          TEXT,
+  neu_diesen_monat  INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (anbieter, tag)
+);
+
+/* Historische Wechselkurse, dauerhaft zwischengespeichert — ein Kurs zu
+   einem vergangenen Datum ändert sich nie wieder, also lohnt sich das
+   Nachschlagen kein zweites Mal. Dieselbe Quelle wie überall im Haus
+   (api.frankfurter.dev, EZB-Referenzkurs), nur mit einem festen statt dem
+   "latest"-Pfad — siehe services/wechselkurse.ts. `datum` ist das
+   ANGEFRAGTE Datum (Schlüssel für den Zwischenspeicher), `quelldatum` das
+   Datum, das die Quelle tatsächlich geliefert hat (an Wochenenden und
+   Feiertagen der letzte Werktag davor). */
+CREATE TABLE IF NOT EXISTS wechselkurse (
+  datum      TEXT NOT NULL,
+  basis      TEXT NOT NULL,
+  ziel       TEXT NOT NULL,
+  kurs       REAL NOT NULL,
+  quelldatum TEXT,
+  geholt_am  INTEGER NOT NULL,
+  PRIMARY KEY (datum, basis, ziel)
 );

@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import {
-  Activity, AlertTriangle, Cpu, Gauge as GaugeIcon, Globe, HardDrive,
+  Activity, AlertTriangle, ChevronRight, Cpu, Gauge as GaugeIcon, Globe, HardDrive,
   Loader2, MemoryStick, Server, Thermometer, Wallet,
 } from 'lucide-react';
 import { Shell } from './Panels.jsx';
+import { VerkaufDetailPanel } from './VerkaufDetailPanel.jsx';
 import { useT, currentUiLanguage } from '../i18n';
 import { api } from '../net/api.js';
-import { fileSize } from '../lib/format.js';
+import { fileSize, geld, zeitspanne } from '../lib/format.js';
 
 /**
  * Die Werte des Servers — dieselben, die die Konsole auf dem Pi zeigt.
@@ -94,36 +95,10 @@ function grad(temp: number): string {
   return new Intl.NumberFormat(currentUiLanguage(), { style: 'unit', unit: 'celsius', unitDisplay: 'short' }).format(Math.round(temp));
 }
 
-/* Beträge kommen in Cent und mit Währungskürzel — beides muss man dem
-   Browser sagen, sonst steht am Ende „2500 USD" da, wo „$25.00" hingehört.
-   Die Sprache ist die der Oberfläche, nicht die des Servers: derselbe Betrag
-   heißt im Deutschen 25,00 $ und im Englischen $25.00. */
-function geld(cent: number | null | undefined, waehrung: string | null | undefined): string {
-  if (cent === null || cent === undefined || !Number.isFinite(cent)) return '—';
-  try {
-    return new Intl.NumberFormat(currentUiLanguage(), {
-      style: 'currency', currency: waehrung || 'USD',
-    }).format(cent / 100);
-  } catch {
-    /* Unbekanntes Kürzel: lieber die nackte Zahl als gar nichts. */
-    return `${(cent / 100).toFixed(2)} ${waehrung ?? ''}`.trim();
-  }
-}
-
-/* „1 Woche" statt „week: 1". Intl kennt die Zeiteinheiten in allen Sprachen,
-   die hier vorkommen — ein eigener Satz Wörterbucheinträge für Tag, Woche,
-   Monat und Jahr wäre doppelte Arbeit mit mehr Fehlern. */
-function zeitspanne(anzahl: number | null | undefined, einheit: string | null | undefined,
-                   lang: 'long' | 'short' = 'long'): string {
-  if (!anzahl || !einheit) return '—';
-  try {
-    return new Intl.NumberFormat(currentUiLanguage(), {
-      style: 'unit', unit: einheit, unitDisplay: lang,
-    }).format(anzahl);
-  } catch {
-    return `${anzahl} ${einheit}`;
-  }
-}
+/* geld() und zeitspanne() zogen nach ../lib/format.ts um — dieselbe
+   Formatierung braucht jetzt auch VerkaufDetailPanel.tsx, und eine zweite
+   Kopie hier wäre irgendwann eine Stelle, an der beide Ansichten
+   auseinanderlaufen. */
 
 type Werte = Record<string, any>;
 
@@ -132,6 +107,13 @@ export function SystemPanel({ onClose }: { onClose: () => void }) {
   const [daten, setDaten] = useState<Werte | null>(null);
   const [fehler, setFehler] = useState<string | null>(null);
   const [da, setDa] = useState(true);
+  /* Patreon kommt über eine eigene Route (siehe api.verkaufPatreonKennzahlen,
+     services/patreon.ts) statt über `daten.abo` — die Konsole auf dem Pi
+     kennt Patreon gar nicht, das bleibt Gumroads Weg. Ein Fehlschlag (nicht
+     eingerichtet, gerade nicht erreichbar) bleibt hier `null` und blendet die
+     Zeile einfach aus, statt die ganze Verkaufskachel zu stören. */
+  const [patreon, setPatreon] = useState<Werte | null>(null);
+  const [detailOffen, setDetailOffen] = useState(false);
   const laeuft = useRef(true);
 
   useEffect(() => {
@@ -152,6 +134,18 @@ export function SystemPanel({ onClose }: { onClose: () => void }) {
     const takt = window.setInterval(holen, 4000);
     return () => { laeuft.current = false; window.clearInterval(takt); };
   }, []);
+
+  useEffect(() => {
+    /* Erst fragen, wenn feststeht, dass die Verkaufskachel überhaupt zu
+       sehen ist (siehe Kommentar weiter unten bei `daten.abo?.da`) — sonst
+       liefe hier bei jedem ohne `verkauf.sehen` unnötig ein 403 auf. */
+    if (!daten?.abo?.da || !laeuft.current) return;
+    let eigenerLauf = true;
+    api.verkaufPatreonKennzahlen()
+      .then((w) => { if (eigenerLauf && laeuft.current) setPatreon(w); })
+      .catch(() => { if (eigenerLauf && laeuft.current) setPatreon(null); });
+    return () => { eigenerLauf = false; };
+  }, [daten?.abo?.da]);
 
   const inhalt = () => {
     if (fehler) return <div className="sys__leer"><AlertTriangle size={15} /> {fehler}</div>;
@@ -273,11 +267,38 @@ export function SystemPanel({ onClose }: { onClose: () => void }) {
           {daten.abo?.da && (
             <section className="sys__block">
               <h3 className="sys__titel"><Wallet size={14} /> {t('system.verkauf')}</h3>
-              <Zeile name={t('system.produkt')} wert={daten.abo.name ?? '—'} />
-              <Zeile name={t('system.mitglieder')} wert={daten.abo.mitglieder ?? '—'} />
+              {/* Ersetzt die frühere reine Mitgliederzahl: mit Token weiß die
+                  Konsole, wer davon wirklich zahlt und wer noch in der
+                  kostenlosen Probewoche sitzt (Auftrag: "wie viele noch in
+                  der Probewoche sind") — genau die Aufschlüsselung zeigen,
+                  statt einer Gesamtzahl, in der beides ununterscheidbar
+                  steckt. Ohne Token bleibt es bei der öffentlichen Zahl,
+                  siehe system.mitglieder unten. */}
+              <Zeile name={daten.abo.abonnenten ? t('system.abonnenten') : t('system.mitglieder')}
+                     wert={daten.abo.abonnenten
+                       ? t('system.zahlendInProbe', {
+                           zahlend: String(daten.abo.abonnenten.zahlend ?? 0),
+                           probe: String(daten.abo.abonnenten.probe ?? 0),
+                         })
+                       : (daten.abo.mitglieder ?? '—')} />
               <Zeile name={t('system.umsatz')}
                      wert={geld(daten.abo.umsatz?.monatCent, daten.abo.umsatz?.waehrung ?? daten.abo.waehrung)} />
-              <Zeile name={t('system.preis')} wert={daten.abo.preisText ?? '—'} />
+              {/* Vorher stand hier Gumroads roher Text ("$25+ a month") —
+                  Englisch, ungeachtet der Oberflächensprache, und "+"
+                  behauptete eine Staffelung, die es nicht gibt (siehe
+                  umsatzRechnen() in stellium-konsole.mjs: alle Laufzeiten
+                  kosten aufs Monat gerechnet dasselbe). Jetzt der Monatspreis
+                  aus der geprüften Preisliste, mit derselben Intl-Formatierung
+                  wie jede andere Geldzahl hier. Fehlt die Preisliste (z. B.
+                  weil Gumroad gerade nicht antwortet), lieber "noch nicht
+                  bekannt" als der rohe Text. */}
+              <Zeile name={t('system.preis')} wert={(() => {
+                const preise: any[] = Array.isArray(daten.abo.preise) ? daten.abo.preise : [];
+                const monatspreis = preise.find((p) => p.monate === 1) ?? preise[0];
+                return monatspreis
+                  ? t('system.preisMonatlich', { betrag: geld(monatspreis.cent, daten.abo.waehrung) })
+                  : t('system.preisUnbekannt');
+              })()} />
               <Zeile name={t('system.probe')}
                      wert={zeitspanne(daten.abo.probe?.anzahl, daten.abo.probe?.einheit)} />
               {/* Ohne Gumroad-Token gibt es keine echten Einnahmen. Das steht
@@ -298,6 +319,23 @@ export function SystemPanel({ onClose }: { onClose: () => void }) {
                        ? t('system.keinToken')
                        : `${geld(daten.abo.einnahmen.nettoCent, daten.abo.einnahmen.waehrung)}`
                          + ` · ${zeitspanne(daten.abo.einnahmen.tage, 'day', 'short')}`} />
+              {/* Patreon steht neben Gumroad, nicht darunter vermischt — beide
+                  Anbieter zählen unterschiedlich (Unterstützer statt
+                  Abonnenten, keine Probezeit), eine gemeinsame Zeile würde
+                  Äpfel mit Birnen summieren. Nur sichtbar, wenn Patreon
+                  wirklich eingerichtet UND erreichbar ist (siehe Effekt oben)
+                  — sonst fehlt die Zeile einfach, statt einen Fehler zu
+                  zeigen, der niemanden betrifft, der kein Patreon nutzt. */}
+              {patreon && (
+                <Zeile name={t('system.patreon')}
+                       wert={t('system.patreonZeile', {
+                         aktiv: String(patreon.aktiveUnterstuetzer ?? 0),
+                         betrag: geld(patreon.monatlicheEinnahmenCents, patreon.waehrung),
+                       })} />
+              )}
+              <button type="button" className="btn btn--ghost btn--sm sys__mehr" onClick={() => setDetailOffen(true)}>
+                {t('system.alleZahlenAnsehen')} <ChevronRight size={13} />
+              </button>
             </section>
           )}
 
@@ -317,8 +355,11 @@ export function SystemPanel({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    <Shell title={t('system.titel')} icon={<GaugeIcon size={16} />} onClose={onClose} width={860}>
-      {inhalt()}
-    </Shell>
+    <>
+      <Shell title={t('system.titel')} icon={<GaugeIcon size={16} />} onClose={onClose} width={860}>
+        {inhalt()}
+      </Shell>
+      {detailOffen && <VerkaufDetailPanel onClose={() => setDetailOffen(false)} />}
+    </>
   );
 }

@@ -1,0 +1,90 @@
+/* ── Briefpartner-Gruppen ──────────────────────────────────────────
+   Nutzt ausschließlich Farbtoken, Radien und Abstände aus tokens.css sowie
+   allgemeine Klassen aus app.css (.btn, .select, .pill, .empty-state,
+   .muted, .spin, .truncate — siehe dort). Diese Datei fügt nur hinzu, was
+   für die drei Spalten dieser Tafel eigen ist. */
+
+.partnergruppen {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  height: min(66vh, 600px);
+  min-height: 320px;
+}
+
+.partnergruppen__filter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.partnergruppen__liste {
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.partnergruppen__kopf,
+.partnergruppen__zeile {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(220px, 0.9fr) 110px;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: 8px 4px;
+}
+
+.partnergruppen__kopf {
+  font-size: 11.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--tx-lo);
+  border-block-end: 1px solid var(--line);
+}
+
+.partnergruppen__zeile {
+  border-block-end: 1px solid var(--line-soft, var(--line));
+}
+.partnergruppen__zeile:hover { background: var(--bg-hover); }
+
+.partnergruppen__adresse { color: var(--tx-hi); font-weight: 500; }
+
+.partnergruppen__gruppe-feld {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.partnergruppen__select { min-width: 150px; }
+
+/* Ein Vorschlag ist eine Vermutung, keine Tatsache — deshalb eigens
+   markiert statt unauffällig wie eine bestätigte Gruppe zu wirken. */
+.partnergruppen__vorschlag {
+  height: 24px;
+  padding: 0 9px;
+  font-size: 11px;
+  border-style: dashed;
+  color: var(--violet-soft, var(--tx-mid));
+  cursor: help;
+}
+
+.partnergruppen__badge-inline {
+  height: 22px;
+  padding: 0 8px;
+  font-size: 11px;
+  gap: 5px;
+}
+.partnergruppen__badge-inline em {
+  font-style: normal;
+  opacity: 0.7;
+}
+
+@media (max-width: 640px) {
+  .partnergruppen__kopf,
+  .partnergruppen__zeile {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+  .partnergruppen__kopf span:last-child,
+  .partnergruppen__zeile > .muted { display: none; }
+}

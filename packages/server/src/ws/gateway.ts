@@ -3,7 +3,7 @@ import { kennungVon } from '../util/abweisung.js';
 import {
   decode, encode, isSupportedLang, normalizeLang, regionFuerZeitzone, WS_PROTOCOL_VERSION,
   type ClientEvent, type Message, type ServerEvent, type Task, type TranslationView, type UserStatus,
-  type Vorschlag,
+  type Vorschlag, type PostMeldung,
 } from '@stellium/shared';
 import { verifyToken } from '../auth.js';
 import { db } from '../db/index.js';
@@ -39,6 +39,8 @@ import * as events from '../services/events.js';
 import * as files from '../services/files.js';
 import * as ideas from '../services/ideas.js';
 import * as vorschlaege from '../services/vorschlaege.js';
+import * as patreon from '../services/patreon.js';
+import * as partnerGruppen from '../services/post-partnergruppen.js';
 import * as postSichtung from '../services/post-sichtung.js';
 import * as push from '../services/push.js';
 import * as wartung from '../services/wartung.js';
@@ -2763,6 +2765,32 @@ function vorschlagPushMelden(v: Vorschlag): void {
   });
 }
 
+/**
+ * Push für eine Meldung der Postfach-Sichtung — der einzige Rest der alten
+ * Chatnachricht, der als echte Zustellung übrig bleibt (siehe Dateikopf von
+ * post-sichtung.ts). Der Reiter „Post-Sichtung" selbst liest live über
+ * `GET /api/post/meldungen`, nicht über einen WebSocket-Kanal — wie
+ * PostPanel.tsx daneben, aus demselben Grund: Postfach und Post-Sichtung
+ * teilen sich `mail.lesen`, keinen eigenen Draht.
+ *
+ * `kanalId` bleibt aus: es gibt keinen Kanal, in den ein Klick auf die
+ * Systembenachrichtigung führen könnte. Ohne `kanalId` öffnet ein Klick nur
+ * die App (siehe electron/mac-notify.ts) — von dort führt der Reiter
+ * „Post-Sichtung" weiter, genau wie ein Vorschlag-Push in den Kanal führt,
+ * nicht direkt in den Eingang.
+ *
+ * Deutscher Text fest verdrahtet, dieselbe Bauart wie `VORSCHLAG_TITEL`
+ * oben: eine Push-Nutzlast geht auch an ein Gerät, auf dem die App gerade
+ * nicht läuft, und hat dort keinen Wörterbuch-Zugriff.
+ */
+function postMeldungPushMelden(userId: string, m: PostMeldung): void {
+  if (!push.sollBenachrichtigen(userId, { dringend: true })) return;
+  const titel = m.zustand === 'entwurf' ? 'Antwortentwurf wartet auf Freigabe' : `Neue Post im Fach ${m.fach}`;
+  void push.sendenAn(userId, {
+    titel, text: `${m.von} — ${m.betreff}`, gruppe: `post-meldung:${m.mailId}`,
+  });
+}
+
 /** Umfrage-Stand an alle im Kanal schicken — jede:r sieht die eigene Wahl. */
 function broadcastPoll(pollId: string): void {
   const row = database.get<{ message_id: string }>('SELECT message_id FROM polls WHERE id = ?', pollId);
@@ -2939,11 +2967,28 @@ function vielleichtAntworten(channelId: string, text: string, authorId: string):
       }
     })
     .catch((err) => {
-      console.warn('[ki]', (err as Error).message);
+      /* err ist hier meist schon eine Abweisung — der freundliche Satz, den
+         auch der Kanal gleich bekommt ("Die KI konnte das gerade nicht
+         erledigen"). Der protokolliert sich damit selbst nur schön: wer das
+         liest, weiß, DASS es scheiterte, nicht WORAN. Die Einordnung in
+         fehler.ts loggt den echten Grund normalerweise schon an der Quelle —
+         aber das ist die einzige Stelle, die das tut. Fällt dieser eine
+         Log-Aufruf aus irgendeinem Grund aus (Prozess beendet sich mitten im
+         Schreiben, o. Ä.), bleibt sonst nichts übrig, an dem sich der Ausfall
+         nachher noch nachvollziehen ließe. Deshalb hier ein zweiter,
+         unabhängiger Versuch: `cause` trägt den Fehler, aus dem die Abweisung
+         gebaut wurde, und der steht hier zusätzlich — an einer zweiten
+         Stelle, mit einem zweiten Log-Aufruf, der nicht von demselben
+         Codepfad abhängt wie der erste. */
+      const fehler = err as Error & { cause?: unknown };
+      const ursache = fehler.cause;
+      const ursacheText = ursache === undefined ? ''
+        : ` — Ursache: ${ursache instanceof Error ? `${ursache.constructor.name}: ${ursache.message}` : String(ursache)}`;
+      console.warn(`[ki] ${channelId}: ${fehler.message}${ursacheText}`);
       // Fehler gehören in den Chat, nicht nur ins Log — sonst wartet man endlos.
       const msg = messages.createMessage({
         channelId, userId: botId,
-        text: `Ich konnte gerade nicht antworten: ${(err as Error).message}`,
+        text: `Ich konnte gerade nicht antworten: ${fehler.message}`,
         mayMention: false, mayMentionEveryone: false,
       });
       deliverMessage(msg);
@@ -3328,13 +3373,31 @@ export function startBackgroundJobs(): () => void {
   });
   const stopVorschlaege = vorschlaege.startVorschlagJob();
 
+  /* Patreons Zugriffstoken vor dem Ablauf erneuern — nicht erst, wenn ein
+     Abruf mit 401 scheitert (siehe Dateikopf von services/patreon.ts). Dieselbe
+     Form wie startVorschlagJob() oben: der Dienst kennt das Gateway nicht,
+     hier wird nur angestoßen und beim Herunterfahren sauber angehalten. */
+  const stopPatreon = patreon.startPatreonErneuerungJob();
+
+  /* Die Gruppe eines Briefpartners vorschlagen — Kunden, Firmen, Bewerber
+     und so weiter. Dieselbe Form wie startVorschlagJob() oben: eigener
+     Dienst, eigener Takt, hier nur angestoßen und beim Herunterfahren
+     angehalten. Läuft unabhängig von der Postfach-Sichtung (postSichtung
+     unten) — eigener Wasserstand über mail_nachrichten, eigener
+     Modellaufruf, siehe services/post-partnergruppen.ts. */
+  const stopPartnerGruppen = partnerGruppen.startPartnerGruppenJob();
+
   /* Meldungen der Postfach-Sichtung — dieselbe Machart wie bei vorschlaege
      oben: der Dienst kennt das Gateway nicht; die Zustellung wird
      eingehängt, damit er sich in einem Prüflauf ohne WebSocket starten
      lässt. Anders als bei Vorschlägen entscheidet post-sichtung.ts selbst,
      WER die Meldung bekommt (Leitung/Administration mit `mail.lesen`, siehe
-     dort) — hier wird nur noch zugestellt, nicht mehr gefiltert. */
-  postSichtung.melderSetzen(deliverMessage);
+     dort) — hier wird nur noch zugestellt, nicht mehr gefiltert.
+     Zugestellt heißt seit Fassung 1.0.31 nicht mehr „als Chatnachricht
+     geschrieben", sondern „per Web-Push angestoßen" — der Reiter
+     „Post-Sichtung" selbst holt sich seinen Stand über
+     `GET /api/post/meldungen`, siehe postMeldungPushMelden() oben. */
+  postSichtung.melderSetzen((userId, meldung) => postMeldungPushMelden(userId, meldung));
 
   /* Mails nachholen, deren Sichtung hängengeblieben oder fehlgeschlagen ist.
      Ohne diesen Lauf bliebe für immer ungesichtet, was eine ausgefallene KI
@@ -3356,6 +3419,8 @@ export function startBackgroundJobs(): () => void {
   return () => {
     vorschlaege.zustellerSetzen(null);
     stopVorschlaege();
+    stopPatreon();
+    stopPartnerGruppen();
     postSichtung.melderSetzen(null);
     clearInterval(nachsichtungTimer);
     clearInterval(scheduler);

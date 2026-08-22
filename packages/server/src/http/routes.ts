@@ -27,8 +27,13 @@ import * as releases from '../services/releases.js';
 import * as fernzugang from '../services/fernzugang.js';
 import * as mailzugang from '../services/mailzugang.js';
 import * as verkaufzugang from '../services/verkaufzugang.js';
+import * as patreon from '../services/patreon.js';
+import * as gumroad from '../services/gumroad.js';
 import * as post from '../services/post.js';
 import * as postSichtung from '../services/post-sichtung.js';
+import * as postEntwurfKi from '../services/post-entwurf-ki.js';
+import * as partnerGruppen from '../services/post-partnergruppen.js';
+import { PARTNER_GRUPPEN } from '@stellium/shared';
 import { registerPostEingang } from './posteingang.js';
 import { downloadSeite, systemErkennen } from './download/seite.js';
 
@@ -1379,6 +1384,49 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     return { verlauf: post.verlauf((req.params as { threadId: string }).threadId) };
   });
 
+  /* ── Postfach: Briefpartner-Gruppen ───────────────────────────
+     Kunden, Firmen, Bewerber und so weiter — siehe services/
+     post-partnergruppen.ts für die Regeln (feste Gruppen, die KI schlägt nur
+     EINMAL je Adresse vor). `mail.lesen` zum Ansehen und Filtern,
+     `mail.senden` zum Ändern: dieselbe Schwelle wie beim Freigeben eines
+     KI-Entwurfs weiter unten — beides ist aktives Arbeiten am Postfach, kein
+     bloßes Lesen. Bewusst NICHT `mail.verwalten`: das bleibt dem Inhaber
+     vorbehalten fürs Einrichten des Zugangs (siehe dort, ownerOnly) und
+     schlösse die Teamleitung aus, die laut ihrem Rechteprofil genau diese
+     tägliche Einordnung treffen soll (mail.lesen + mail.senden, siehe
+     packages/shared/src/permissions.ts). */
+  app.get('/api/post/partner', async (req) => {
+    requirePermission(requireUser(req), 'mail.lesen');
+    const q = req.query as { gruppe?: string; nurVorschlaege?: string };
+    return {
+      partner: partnerGruppen.listePartner({
+        gruppe: q.gruppe && q.gruppe !== 'alle' ? q.gruppe : null,
+        nurVorschlaege: q.nurVorschlaege === '1',
+      }),
+      offen: partnerGruppen.offeneVorschlaegeAnzahl(),
+    };
+  });
+
+  /**
+   * Eine Gruppe von Hand setzen, ändern — oder einen Vorschlag bestätigen,
+   * indem derselbe Wert noch einmal geschickt wird. Alle drei sind für
+   * `gruppeSetzen()` dieselbe Operation: von jetzt an gilt der Wert als
+   * Tatsache, nicht mehr als Vorschlag, und die KI rührt diese Adresse nie
+   * wieder an (siehe dort).
+   */
+  app.post('/api/post/partner/gruppe', async (req, reply) => {
+    const userId = requireUser(req);
+    requirePermission(userId, 'mail.senden');
+    const k = req.body as { adresse?: string; gruppe?: string | null };
+    if (!k?.adresse) return fehler(reply, 400, 'fehler.unvollstaendig', 'Eine Adresse ist nötig.');
+    if (k.gruppe && !(PARTNER_GRUPPEN as readonly string[]).includes(k.gruppe)) {
+      return fehler(reply, 400, 'fehler.unbekannteGruppe', 'Diese Gruppe gibt es nicht.');
+    }
+    // Geprüft direkt darüber — der Cast macht daraus nur wieder den engen Typ.
+    const gruppe = (k.gruppe || null) as (typeof PARTNER_GRUPPEN)[number] | null;
+    return { partner: partnerGruppen.gruppeSetzen(post.nurAdresse(k.adresse), gruppe) };
+  });
+
   app.post('/api/post/senden', async (req, reply) => {
     const userId = requireUser(req);
     requirePermission(userId, 'mail.senden');
@@ -1397,6 +1445,69 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       const e = f as { code?: string; status?: number; message?: string };
       return fehler(reply, e.status ?? 502, e.code ?? 'fehler.post',
         e.message ?? 'Senden fehlgeschlagen.');
+    }
+  });
+
+  /* ── Postfach: frei verfassen ─────────────────────────────────
+     Für das Schreibfenster: die Fächer, aus denen gesendet werden darf, und
+     die gelernte Sprache einer Adresse — beide lesend, beide hinter
+     `mail.senden`, weil beide nur zum Verfassen einer neuen Mail gebraucht
+     werden (anders als `mail.lesen`, das die vorhandene Post zeigt). */
+
+  app.get('/api/post/schreibfaecher', async (req) => {
+    requirePermission(requireUser(req), 'mail.senden');
+    return { faecher: post.absenderFaecher() };
+  });
+
+  app.get('/api/post/sprache', async (req, reply) => {
+    requirePermission(requireUser(req), 'mail.senden');
+    const q = req.query as { adresse?: string };
+    if (!q?.adresse) return fehler(reply, 400, 'fehler.unvollstaendig', 'Eine Adresse ist nötig.');
+    return { sprache: post.spracheFuer(post.nurAdresse(q.adresse)) };
+  });
+
+  /**
+   * Einen Mailentwurf von der KI schreiben lassen — nie senden.
+   *
+   * Dieselbe Reihenfolge wie überall im Postfach: `requirePermission` vor
+   * dem Aufruf, nicht danach. Anders als bei `/api/post/senden` verlässt
+   * hier zwar nichts das Haus, aber das Recht ist dasselbe (`mail.senden`)
+   * wie am Sendeknopf selbst — wer keine Post verschicken darf, soll auch
+   * keine Modellaufrufe für ausgehende Firmenpost auslösen.
+   */
+  app.post('/api/post/ki-entwurf', async (req, reply) => {
+    const userId = requireUser(req);
+    requirePermission(userId, 'mail.senden');
+    const k = req.body as {
+      modus?: string; mailId?: string; fach?: string; an?: string; thema?: string;
+    };
+    try {
+      if (k?.modus === 'antwort') {
+        if (!k.mailId) return fehler(reply, 400, 'fehler.unvollstaendig', 'Eine Nachricht ist nötig.');
+        return await postEntwurfKi.entwurfSchreiben({ modus: 'antwort', mailId: k.mailId });
+      }
+      if (k?.modus === 'neu') {
+        if (!k.fach || !k.an || !k.thema) {
+          return fehler(reply, 400, 'fehler.unvollstaendig', 'Fach, Empfänger und Thema sind nötig.');
+        }
+        return await postEntwurfKi.entwurfSchreiben({ modus: 'neu', fach: k.fach, an: k.an, thema: k.thema });
+      }
+      return fehler(reply, 400, 'fehler.unvollstaendig', 'Unbekannter Modus.');
+    } catch (f) {
+      const e = f as { code?: string; status?: number; message?: string; werte?: Record<string, string> };
+      /* Abweisung (util/abweisung.ts) trägt keinen eigenen Status — anders
+         als PostFehler ist sie bewusst statuslos, die Route entscheidet.
+         Eine fehlende Mail ist 404, eine unvollständige oder von der KI
+         abgelehnte Angabe 400, alles andere (KI nicht eingerichtet, nicht
+         erreichbar, Fenster zu klein) 502 — die Ursache liegt dann nicht
+         beim Aufruf, sondern beim Modell dahinter. */
+      const status = e.status ?? (
+        e.code === 'fehler.nichtGefunden' ? 404
+          : e.code === 'post.kiOhneThema' || e.code === 'post.kiOhneEntwurf' ? 400
+            : 502
+      );
+      return fehler(reply, status, e.code ?? 'fehler.post',
+        e.message ?? 'Die KI konnte keinen Entwurf schreiben.', e.werte);
     }
   });
 
@@ -1503,6 +1614,40 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   });
 
   /**
+   * Der Reiter „Post-Sichtung": strukturiert, was die KI aus eingegangener
+   * Post gemacht hat — neueste zuerst, `vor` zum Nachladen (dieselbe Kennung
+   * wie bei `/api/post/liste`: der `gesichtetAm`-Wert der letzten schon
+   * geladenen Zeile).
+   *
+   * Nur `mail.lesen`, keine engere Rolle: wer die Post selbst lesen darf,
+   * darf auch sehen, wie die KI sie eingeordnet hat — das ist dieselbe
+   * Schwelle wie bei jeder anderen Postfach-Route oben. Die engere Runde
+   * (Leitung/Administration) betrifft nur, WER live benachrichtigt wird
+   * (`empfaengerkreis()` in post-sichtung.ts), nicht wer den Reiter öffnen
+   * darf.
+   */
+  app.get('/api/post/meldungen', async (req) => {
+    requirePermission(requireUser(req), 'mail.lesen');
+    const q = req.query as { anzahl?: string; vor?: string };
+    return {
+      meldungen: postSichtung.meldungenListe(Number(q.anzahl) || 50, q.vor ? Number(q.vor) : undefined),
+    };
+  });
+
+  /**
+   * Zustand und Dringlichkeit für eine Handvoll Mails auf einen Schlag —
+   * für die Färbung und die Sortierung nach Dringlichkeit im Postfach-Reiter
+   * selbst (PostPanel.tsx). Dieselbe Schwelle wie `/api/post/meldungen`
+   * direkt darüber: `mail.lesen` genügt.
+   */
+  app.get('/api/post/sichtungen', async (req) => {
+    requirePermission(requireUser(req), 'mail.lesen');
+    const q = req.query as { ids?: string };
+    const ids = (q.ids ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+    return { sichtungen: postSichtung.sichtungenFuer(ids) };
+  });
+
+  /**
    * Eingehende Post vom Cloudflare Email Worker.
    *
    * Anders als die Postfach-Routen oben: kein `requireUser`. Diese Route
@@ -1550,6 +1695,96 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     };
     verkaufzugang.patreonSetzen(körper ?? {}, userId);
     return verkaufzugang.patreonStand();
+  });
+
+  /* ── Verkauf: Patreon — Erneuerung, Diagnose, Kennzahlen ─────
+     Rein additiv zum Block oben, damit hier niemand in dieselben Zeilen wie
+     die Gumroad-Anbindung (verkaufzugang.ts, gemeinsam bearbeitet) muss.
+
+     `erneuerung` und `diagnose` verlangen verkauf.verwalten — dieselbe
+     Schwelle wie beim Eintragen der Zugangsdaten, weil beide indirekt auch
+     Zugangsdaten SCHREIBEN (eine fällige Erneuerung tauscht Access- und
+     Refresh-Token aus). `kennzahlen` verlangt nur verkauf.sehen — dieselbe
+     Schwelle wie `abo`/`kaufquote` in /api/systemwerte, weil hier dieselbe
+     Art Zahl herauskommt: was das Geschäft einbringt, nicht wie der Zugang
+     eingerichtet ist. */
+  app.get('/api/verkauf/patreon/erneuerung', async (req) => {
+    const userId = requireUser(req);
+    requirePermission(userId, 'verkauf.verwalten');
+    return patreon.patreonErneuerungsStand();
+  });
+
+  /**
+   * Prüflauf gegen die echte Patreon-Schnittstelle: erneuert den
+   * Zugriffstoken (nur wenn fällig, außer ?erneuern=1 erzwingt es), liest
+   * die tatsächlich gewährten Rechte aus der Token-Antwort, ruft Kampagne
+   * und eine Mitgliederseite ab und bestätigt jedes Feld einzeln. Liefert
+   * ausschließlich Auskünfte — Zähler, Ja/Nein, Fehlertexte — nie einen
+   * Token- oder Geheimniswert (siehe diagnoseLauf() in services/patreon.ts).
+   */
+  app.get('/api/verkauf/patreon/diagnose', async (req) => {
+    const userId = requireUser(req);
+    requirePermission(userId, 'verkauf.verwalten');
+    const q = req.query as { erneuern?: string };
+    return patreon.diagnoseLauf({ erneuernErzwingen: q.erneuern === '1' });
+  });
+
+  app.get('/api/verkauf/patreon/kennzahlen', async (req, reply) => {
+    const userId = requireUser(req);
+    requirePermission(userId, 'verkauf.sehen');
+    try {
+      return await patreon.patreonKennzahlen();
+    } catch (f) {
+      /* weiterreichen() statt fehler(): ein eigener Fehlertext bräuchte eine
+         neue Kennung in ALLEN 22 Wörterbüchern (scripts/e2e-fehlertexte.mjs
+         prüft das) — für einen seltenen 503 reicht der deutsche Rückfalltext,
+         den weiterreichen() ohne Kennung mitschickt. */
+      return weiterreichen(reply, 503, f);
+    }
+  });
+
+  /* ── Verkauf: die ausführliche Ansicht ───────────────────────
+   * Ein einziger Aufruf statt mehrerer — die Kachel UND ihre ausführliche
+   * Ansicht (VerkaufDetailPanel.tsx) teilen sich diesen einen Weg, damit
+   * beide immer denselben Stand zeigen. Gumroad und Patreon laufen dabei
+   * unabhängig voneinander: fehlt eine der beiden Anbindungen oder scheitert
+   * ihr Abruf gerade, bleibt das entsprechende Feld `null` und die andere
+   * Hälfte der Antwort steht trotzdem. Zwei getrennte Felder statt eines
+   * gemeinsamen Fehlers — sonst risse ein noch nicht eingerichtetes Patreon
+   * die (funktionierende) Gumroad-Übersicht mit in einen 503.
+   *
+   * `gumroad.gumroadKennzahlen()` wirft praktisch nie (siehe services/
+   * gumroad.ts: ein Sync-Fehlschlag wird dort selbst aufgefangen und liefert
+   * den letzten bekannten Datenbankstand zurück) — der try/catch ist trotzdem
+   * da, für den Fall eines unerwarteten Fehlers beim SQL-Lesen selbst.
+   */
+  app.get('/api/verkauf/uebersicht', async (req, reply) => {
+    const userId = requireUser(req);
+    requirePermission(userId, 'verkauf.sehen');
+
+    let gumroadWerte: Awaited<ReturnType<typeof gumroad.gumroadKennzahlen>> | null = null;
+    try {
+      gumroadWerte = await gumroad.gumroadKennzahlen();
+    } catch (f) {
+      console.error('[verkauf] Gumroad-Übersicht fehlgeschlagen:', (f as Error)?.message ?? f);
+    }
+
+    let patreonWerte: Awaited<ReturnType<typeof patreon.patreonKennzahlen>> | null = null;
+    try {
+      patreonWerte = await patreon.patreonKennzahlen();
+    } catch {
+      /* Nicht eingerichtet oder gerade nicht erreichbar — beides heißt hier
+         schlicht "kein Patreon-Block in der Antwort", kein Fehlerfall. */
+    }
+
+    if (!gumroadWerte && !patreonWerte) {
+      return weiterreichen(reply, 503, new Error('Weder Gumroad noch Patreon sind gerade erreichbar.'));
+    }
+    return {
+      gumroad: gumroadWerte,
+      patreon: patreonWerte,
+      patreonVerlauf: patreonWerte ? patreon.patreonVerlauf() : [],
+    };
   });
 
   /* ── Postfach: Zugangsdaten ──────────────────────────────────

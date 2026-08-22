@@ -552,6 +552,7 @@ function GeheimFeld({ label, stand, wert, setWert, platzhalter }: {
  */
 function SchluesselEinstellungen() {
   const t = useT();
+  const { toast } = useStore.getState();
   const [postStand, setPostStand] = useState<{ versandBereit: boolean; eingangBereit: boolean } | null>(null);
   const [verkaufStand, setVerkaufStand] = useState<{ hinterlegt: boolean } | null>(null);
   /* Vier Werte statt einem, siehe verkaufzugang.ts auf dem Server: Patreons
@@ -561,6 +562,12 @@ function SchluesselEinstellungen() {
   const [patreonStand, setPatreonStand] = useState<{
     hinterlegt: boolean; clientId: string | null; clientSecretHinterlegt: boolean;
     refreshTokenHinterlegt: boolean; ablaufAm: number | null;
+  } | null>(null);
+  /* Getrennt von patreonStand, weil es von einer eigenen Route kommt (siehe
+     api.patreonErneuerungsStand) — die automatische Erneuerung soll sichtbar
+     sein, ohne den Block oben anzufassen. */
+  const [patreonErneuerung, setPatreonErneuerung] = useState<{
+    letzterFehler: string | null;
   } | null>(null);
   const [fernStand, setFernStand] = useState<{ hinterlegt: boolean } | null>(null);
 
@@ -584,6 +591,7 @@ function SchluesselEinstellungen() {
       setPatreonStand(stand);
       setPatreonClientId(stand.clientId ?? '');
     }).catch(() => {});
+    void api.patreonErneuerungsStand().then(setPatreonErneuerung).catch(() => {});
     void api.fernStand().then(setFernStand).catch(() => {});
   }, []);
 
@@ -597,20 +605,32 @@ function SchluesselEinstellungen() {
 
   const speichern = async () => {
     setLaeuft(true);
+    /* Nur wenn wirklich etwas geschickt wurde, lohnt hinterher ein
+       "Gespeichert" — ein Klick auf lauter leere Felder soll nicht so tun,
+       als hätte er etwas bewirkt. */
+    let gespeichert = false;
     try {
       /* Nur schicken, was ausgefüllt wurde. Leere Felder lassen den
          bisherigen Wert stehen — sonst löschte ein Speichern alles, was man
          gerade nicht eingetippt hat. */
       if (versand || eingang) {
-        setPostStand(await api.postZugangSetzen({
+        await api.postZugangSetzen({
           versandSchluessel: versand.trim() || undefined,
           eingangGeheimnis: eingang.trim() || undefined,
-        }));
+        });
+        /* Nicht die Antwort des Setzens selbst übernehmen, sondern wie beim
+           Öffnen erneut fragen — nur der Server weiß, was jetzt wirklich
+           gilt. Sonst zeigt das Etikett den Stand vom Öffnen des Reiters
+           weiter, auch nachdem längst neu gespeichert wurde. */
+        setPostStand(await api.postZugang());
         setVersand(''); setEingang('');
+        gespeichert = true;
       }
       if (gumroad.trim()) {
-        setVerkaufStand(await api.verkaufZugangSetzen(gumroad.trim()));
+        await api.verkaufZugangSetzen(gumroad.trim());
+        setVerkaufStand(await api.verkaufZugang());
         setGumroad('');
+        gespeichert = true;
       }
       /* Die Client-ID ist kein Geheimnis und steht darum, anders als die
          drei echten Geheimnisse, dauerhaft im Feld. Mitgeschickt wird sie
@@ -621,15 +641,17 @@ function SchluesselEinstellungen() {
       const patreonClientIdWert = patreonClientId.trim();
       if (patreonClientIdWert !== patreonClientIdBisher || patreonClientSecret.trim()
           || patreonAccessToken.trim() || patreonRefreshToken.trim()) {
-        const neuerPatreonStand = await api.patreonZugangSetzen({
+        await api.patreonZugangSetzen({
           clientId: patreonClientIdWert !== patreonClientIdBisher ? patreonClientIdWert : undefined,
           clientSecret: patreonClientSecret.trim() || undefined,
           accessToken: patreonAccessToken.trim() || undefined,
           refreshToken: patreonRefreshToken.trim() || undefined,
         });
+        const neuerPatreonStand = await api.patreonZugang();
         setPatreonStand(neuerPatreonStand);
         setPatreonClientId(neuerPatreonStand.clientId ?? '');
         setPatreonClientSecret(''); setPatreonAccessToken(''); setPatreonRefreshToken('');
+        gespeichert = true;
       }
       if (fernAdresse.trim() || fernPasswort.trim()) {
         await api.fernZugangSetzen({
@@ -638,7 +660,16 @@ function SchluesselEinstellungen() {
         });
         setFernStand(await api.fernStand());
         setFernAdresse(''); setFernPasswort('');
+        gespeichert = true;
       }
+      if (gespeichert) toast({ kind: 'ok', title: t('schluessel.gespeichert') });
+    } catch (err) {
+      /* Ohne das hier verschwand ein Fehlschlag lautlos in einer verworfenen
+         Zusage: die Oberfläche zeigte nichts, wer gespeichert hatte, musste
+         raten, ob es geklappt hat — genau wie an dem Tag, als der Server
+         diese Route noch gar nicht kannte. Die Meldung des Servers geht
+         unverändert mit, statt hinter einem allgemeinen Satz zu verschwinden. */
+      toast({ kind: 'error', title: t('schluessel.speichernFehlgeschlagen'), body: (err as Error).message });
     } finally {
       setLaeuft(false);
     }
@@ -700,6 +731,15 @@ function SchluesselEinstellungen() {
       {patreonStand?.hinterlegt && (
         <p className="field__hint" style={patreonAblauf.warnung ? { color: 'var(--amber)' } : undefined}>
           {patreonAblauf.text}
+        </p>
+      )}
+      {/* Ohne das bliebe ein scheiternder Erneuerungslauf unsichtbar, bis der
+          Token wirklich abläuft — siehe Dateikopf von services/patreon.ts
+          auf dem Server. patreonErneuerung.letzterFehler steht nur, solange
+          der jüngste Versuch fehlschlug; ein Erfolg löscht ihn dort wieder. */}
+      {patreonStand?.hinterlegt && patreonErneuerung?.letzterFehler && (
+        <p className="field__hint" style={{ color: 'var(--amber)' }}>
+          {t('verkauf.patreonErneuerungFehler', { fehler: patreonErneuerung.letzterFehler })}
         </p>
       )}
 

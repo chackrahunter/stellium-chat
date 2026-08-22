@@ -42,6 +42,10 @@ export type Overlay =
   | 'channelSettings' | 'tour' | 'tasks' | 'calendar' | 'files' | 'taskExtract' | 'protocol' | 'ideas' | 'download'
   | 'fern' | 'system' | 'post' | 'notizen'
   | 'vorfall' | 'freigaben'
+  /** Der Reiter „Post-Sichtung" — was die KI aus eingegangener Firmenpost
+      gemacht hat, siehe PostMeldungen.tsx. Neben 'post' und nicht darin
+      verschachtelt: beide sind je ein eigener Rundgang durch dieselbe Post. */
+  | 'postMeldungen'
   /* Dieselbe Tafel wie 'search' (SearchOverlay), nur gleich auf dem Reiter
      „Gemerkt" statt auf dem Such-Reiter gestartet — siehe App.tsx, wo beide
      Werte dieselbe Komponente rendern, nur mit anderem `initialTab`. */
@@ -215,6 +219,12 @@ interface StoreState {
   profileUserId: string | null;
   /** Nachricht, die kurz hervorgehoben wird (nach Sprung aus der Suche). */
   highlightMessageId: string | null;
+  /** Welche Mail der Postfach-Reiter auswählen soll, nach einem Sprung aus
+      dem Reiter „Post-Sichtung" (siehe `jumpToPostMail`). PostPanel.tsx liest
+      dieses Feld einmal und meldet sich über `postJumpConsumed` wieder ab —
+      sonst wählte ein späteres, unabhängiges Öffnen von Postfach dieselbe
+      Mail noch einmal aus. */
+  postJumpMailId: string | null;
   /** Kanäle, in denen der Assistent gerade eine Antwort formuliert. */
   aiThinking: Record<string, boolean>;
   /** Was die letzte KI-Antwort je Kanal gekostet hat — Marken hinein/heraus. */
@@ -397,6 +407,12 @@ interface StoreState {
 
   setProfileUser: (userId: string | null) => void;
   jumpToMessage: (channelId: string, messageId: string) => void;
+  /** Postfach-Reiter öffnen und dort direkt diese Mail auswählen — der
+      Verweis aus einer Zeile im Reiter „Post-Sichtung". */
+  jumpToPostMail: (mailId: string) => void;
+  /** PostPanel.tsx meldet sich hiermit ab, nachdem es `postJumpMailId`
+      übernommen hat (siehe dort). */
+  postJumpConsumed: () => void;
   setOverlay: (overlay: Overlay) => void;
   setSidebarCollapsed: (collapsed: boolean) => void;
   setLightbox: (url: string | null) => void;
@@ -775,6 +791,7 @@ export const useStore = create<StoreState>((set, get) => ({
   remindingAbout: null,
   profileUserId: null,
   highlightMessageId: null,
+  postJumpMailId: null,
   aiThinking: {},
   aiVerbrauch: {},
 
@@ -1534,6 +1551,14 @@ export const useStore = create<StoreState>((set, get) => ({
       window.setTimeout(() => set({ highlightMessageId: null }), 2600);
     }, 450);
   },
+
+  /* Kein `openChannel()`-Gegenstück nötig wie bei jumpToMessage: das Postfach
+     ist kein Kanal, sondern ein einzelner Reiter mit eigener Auswahl in
+     PostPanel.tsx. `setOverlay` wechselt dahin, `postJumpMailId` trägt die
+     Auswahl — PostPanel liest es in einem eigenen Effekt und ruft danach
+     `postJumpConsumed()`. */
+  jumpToPostMail: (mailId) => set({ overlay: 'post', postJumpMailId: mailId }),
+  postJumpConsumed: () => set({ postJumpMailId: null }),
 
   setOverlay: (overlay) => set({ overlay }),
   setSidebarCollapsed: (sidebarCollapsed) => set({ sidebarCollapsed }),

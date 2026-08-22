@@ -6,6 +6,7 @@ import { config } from '../config.js';
 import { migrate } from './migrate.js';
 import { istE2EChiffrat } from '@stellium/shared';
 import { entschluesseln, suchWorte } from '../crypto/nachrichten.js';
+import { indexKennung, schluesselProbePruefen } from './schluesselprobe.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -69,6 +70,10 @@ export const placeholders = Db.placeholders;
 export function initDb(): void {
   const schema = fs.readFileSync(path.join(here, 'schema.sql'), 'utf8');
   db.exec(schema);
+  /* Vor jeder Nachrüstung: passt das Masterpasswort noch zu den Daten?
+     Steht die Prüfung dahinter, hat migrate() bei einem Schlüsselwechsel
+     schon den Übersetzungsspeicher geleert. */
+  schluesselProbePruefen();
   migrate();
   setupFts();
   indexAufFingerabdruckeUmstellen();
@@ -83,7 +88,7 @@ export function initDb(): void {
  * müsste neu gebaut werden. Eine feste Konstante hätte das verschwiegen, und
  * die Suche hätte den Altbestand nie wieder gefunden.
  */
-const INDEX_FORMAT = `fingerabdruck-v1:${suchWorte('stellium')}`;
+const INDEX_FORMAT = indexKennung();
 
 /**
  * Bis zur Verschlüsselung standen die Wörter selbst im Volltextindex. Sie

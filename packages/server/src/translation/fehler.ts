@@ -27,15 +27,18 @@ export function alsAbweisung(fehler: unknown): Abweisung {
   if (fehler instanceof ProviderError) {
     if (fehler.art === 'zuLang') {
       return abweisung('fehler.verlaufZuLang',
-        'Der Verlauf ist zu lang für das eingestellte Modell. Bitte einen kleineren Ausschnitt wählen.');
+        'Der Verlauf ist zu lang für das eingestellte Modell. Bitte einen kleineren Ausschnitt wählen.',
+        undefined, fehler);
     }
     if (fehler.art === 'zeit') {
       return abweisung('fehler.kiZeitueberschreitung',
-        'Die KI hat nicht rechtzeitig geantwortet. Bitte noch einmal versuchen.');
+        'Die KI hat nicht rechtzeitig geantwortet. Bitte noch einmal versuchen.',
+        undefined, fehler);
     }
     if (fehler.art === 'ueberlastet') {
       return abweisung('fehler.kiUeberlastet',
-        'Die KI ist gerade ausgelastet. Bitte gleich noch einmal versuchen.');
+        'Die KI ist gerade ausgelastet. Bitte gleich noch einmal versuchen.',
+        undefined, fehler);
     }
     if (fehler.art === 'unerreichbar') {
       /* Auch der Assistent meldet den Ausfall — sonst wüsste nur die
@@ -44,7 +47,8 @@ export function alsAbweisung(fehler: unknown): Abweisung {
          antwortet dann schon der Ersatzdienst. */
       ausfallMelden(fehler.message);
       return abweisung('fehler.kiUnerreichbar',
-        'Die KI ist gerade nicht erreichbar — läuft das Modell?');
+        'Die KI ist gerade nicht erreichbar — läuft das Modell?',
+        undefined, fehler);
     }
   }
 
@@ -69,7 +73,8 @@ export function alsAbweisung(fehler: unknown): Abweisung {
       .test(`${text} ${ursache}`)) {
     ausfallMelden(text);
     return abweisung('fehler.kiUnerreichbar',
-      'Die KI ist gerade nicht erreichbar — läuft das Modell?');
+      'Die KI ist gerade nicht erreichbar — läuft das Modell?',
+      undefined, fehler);
   }
 
   /* Der ursprüngliche Text geht nicht verloren — er steht im Protokoll des
@@ -81,7 +86,8 @@ export function alsAbweisung(fehler: unknown): Abweisung {
   const art = (fehler as { art?: string })?.art ?? '—';
   const klasse = (fehler as object)?.constructor?.name ?? typeof fehler;
   console.error(`[ai] nicht eingeordnet (${klasse}, art=${art}):`, text || fehler);
-  return abweisung('fehler.kiFehlgeschlagen', 'Die KI konnte das gerade nicht erledigen.');
+  return abweisung('fehler.kiFehlgeschlagen', 'Die KI konnte das gerade nicht erledigen.',
+    undefined, fehler);
 }
 
 /**

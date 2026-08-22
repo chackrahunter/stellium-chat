@@ -1,7 +1,8 @@
 import { db } from './index.js';
 import { blindIndex, encryptField, encryptionActive } from '../crypto/pii.js';
-import { abdruck, entschluesseln, istChiffrat, verschluesseln, verschluesselungAktiv } from '../crypto/nachrichten.js';
+import { entschluesseln, istChiffrat, verschluesseln, verschluesselungAktiv } from '../crypto/nachrichten.js';
 import { ECHO_MIN_WOERTER, woerter } from '../translation/echo.js';
+import { tmKennung } from './schluesselprobe.js';
 
 /**
  * Spalten nachrüsten, die in älteren Datenbanken fehlen.
@@ -141,6 +142,14 @@ const COLUMNS: { table: string; column: string; definition: string }[] = [
      timezone_auto für die ausführliche Begründung, und ws/gateway.ts
      (prefs:update) dafür, wie die Spalte wieder auf 0 fällt. */
   { table: 'users', column: 'timezone_auto', definition: 'INTEGER NOT NULL DEFAULT 1' },
+
+  /* Briefpartner-Gruppen (Kunden, Firmen, Bewerber, …) — mail_partner stand
+     schon vor diesem Feld, siehe schema.sql dort für die Begründung der
+     vier Spalten und services/post-partnergruppen.ts für ihre Verwendung. */
+  { table: 'mail_partner', column: 'gruppe',              definition: 'TEXT' },
+  { table: 'mail_partner', column: 'gruppe_von_ki',       definition: 'INTEGER NOT NULL DEFAULT 0' },
+  { table: 'mail_partner', column: 'gruppe_vorschlag_am', definition: 'INTEGER' },
+  { table: 'mail_partner', column: 'gruppe_begruendung',  definition: 'TEXT' },
 ];
 
 export function migrate(): void {
@@ -183,6 +192,12 @@ export function migrate(): void {
       einordnung   TEXT,
       zustand      TEXT NOT NULL DEFAULT 'gemeldet'
     )`);
+  /* Für den Reiter „Post-Sichtung" (PostMeldungen.tsx): die Liste dort blättert
+     rückwärts über `gesichtet_am`, neueste zuerst — ohne Index liefe das auf
+     einen vollen Tabellendurchlauf samt Sortierung bei jeder Seite. Hier und
+     nicht in schema.sql, aus demselben Grund wie bei der Tabelle selbst zwei
+     Zeilen darüber: schema.sql läuft nur beim ersten Anlegen. */
+  db.exec('CREATE INDEX IF NOT EXISTS idx_mail_sichtung_gesichtet ON mail_sichtung(gesichtet_am)');
   db.exec(`
     CREATE TABLE IF NOT EXISTS mail_entwuerfe (
       id              TEXT PRIMARY KEY,
@@ -284,8 +299,23 @@ export function migrate(): void {
   /* Wie sicher die Erkennung war, die zu dieser Sprache gefuehrt hat. Eine
      spaetere, unsicherere Messung soll eine sichere nicht umwerfen. */
   sicher       REAL NOT NULL DEFAULT 0,
-  seit         INTEGER NOT NULL
+  seit         INTEGER NOT NULL,
+  /* Siehe schema.sql beim selben Feld fuer die ausfuehrliche Begruendung. */
+  gruppe               TEXT,
+  gruppe_von_ki        INTEGER NOT NULL DEFAULT 0,
+  gruppe_vorschlag_am  INTEGER,
+  gruppe_begruendung   TEXT
 )`);
+  /* Filterung nach Gruppe in der Oberflaeche — siehe COLUMNS oben fuer die
+     Nachruestung auf einer Datenbank, die mail_partner schon vor diesem Feld
+     kannte. Erst hier und nicht in schema.sql, aus demselben Grund wie bei
+     idx_mail_zustell oben: die Spalte ist auf einer bestehenden Datenbank
+     bis zu dieser Stelle im Ablauf garantiert nachgeruestet. */
+  try {
+    db.exec('CREATE INDEX IF NOT EXISTS idx_mail_partner_gruppe ON mail_partner(gruppe)');
+  } catch (err) {
+    console.warn('[db] Index idx_mail_partner_gruppe:', (err as Error).message);
+  }
 
   /* Notizen — dieselben drei Tabellen wie in schema.sql, aus demselben Grund
      wie poll_participants und mail_partner oben: auf einer bestehenden
@@ -333,6 +363,89 @@ export function migrate(): void {
     db.exec('CREATE INDEX IF NOT EXISTS idx_notiz_pakete_user ON notiz_schluessel_pakete(user_id)');
   } catch (err) {
     console.warn('[db] Indizes für Notizen:', (err as Error).message);
+  }
+
+  /* Verkaufsstatistik — dieselben fünf Tabellen wie in schema.sql, aus
+     demselben Grund wie bei Notizen und Post oben: auf einer bestehenden
+     Datenbank bringt CREATE TABLE IF NOT EXISTS in schema.sql sie nicht
+     zuverlässig nach. Jede Tabelle für sich, unabhängig vom Rest von
+     schema.sql — siehe dort für die ausführliche Begründung der beiden
+     Entwurfsentscheidungen (roh speichern statt Summen, Momentaufnahmen für
+     Anbieter ohne eigene Historie). */
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS verkauf_gumroad_verkaeufe (
+      id                  TEXT PRIMARY KEY,
+      produkt_id          TEXT,
+      subscription_id     TEXT,
+      preis_cent          INTEGER NOT NULL DEFAULT 0,
+      gebuehr_cent        INTEGER NOT NULL DEFAULT 0,
+      waehrung            TEXT NOT NULL DEFAULT 'USD',
+      laufzeit            TEXT,
+      erstellt_am         INTEGER,
+      erstattet           INTEGER NOT NULL DEFAULT 0,
+      teilerstattet       INTEGER NOT NULL DEFAULT 0,
+      erstattbar_cent     INTEGER,
+      angefochten         INTEGER NOT NULL DEFAULT 0,
+      anfechtung_gewonnen INTEGER,
+      rueckgebucht        INTEGER NOT NULL DEFAULT 0,
+      kurs_eur_je_usd     REAL,
+      kurs_datum          TEXT,
+      zuletzt_gesehen_am  INTEGER NOT NULL
+    )`);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS verkauf_gumroad_abonnenten (
+      id                 TEXT PRIMARY KEY,
+      produkt_id         TEXT,
+      status             TEXT NOT NULL,
+      laufzeit           TEXT,
+      erstellt_am        INTEGER,
+      probe_bis          INTEGER,
+      gekuendigt_am      INTEGER,
+      beendet_am         INTEGER,
+      fehlgeschlagen_am  INTEGER,
+      zuletzt_gesehen_am INTEGER NOT NULL
+    )`);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS verkauf_gumroad_auszahlungen (
+      id                 TEXT PRIMARY KEY,
+      betrag             REAL,
+      waehrung           TEXT,
+      status             TEXT,
+      zahlungsart        TEXT,
+      rohdaten           TEXT,
+      zuletzt_gesehen_am INTEGER NOT NULL
+    )`);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS verkauf_momentaufnahmen (
+      anbieter          TEXT NOT NULL,
+      tag               TEXT NOT NULL,
+      erfasst_am        INTEGER NOT NULL,
+      aktive            INTEGER NOT NULL DEFAULT 0,
+      deklination       INTEGER NOT NULL DEFAULT 0,
+      ehemalig          INTEGER NOT NULL DEFAULT 0,
+      follower          INTEGER NOT NULL DEFAULT 0,
+      einnahmen_cent    INTEGER NOT NULL DEFAULT 0,
+      waehrung          TEXT,
+      neu_diesen_monat  INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (anbieter, tag)
+    )`);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS wechselkurse (
+      datum      TEXT NOT NULL,
+      basis      TEXT NOT NULL,
+      ziel       TEXT NOT NULL,
+      kurs       REAL NOT NULL,
+      quelldatum TEXT,
+      geholt_am  INTEGER NOT NULL,
+      PRIMARY KEY (datum, basis, ziel)
+    )`);
+  try {
+    db.exec('CREATE INDEX IF NOT EXISTS idx_verkauf_gr_verkaeufe_erstellt ON verkauf_gumroad_verkaeufe(erstellt_am)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_verkauf_gr_verkaeufe_abo ON verkauf_gumroad_verkaeufe(subscription_id)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_verkauf_gr_abo_status ON verkauf_gumroad_abonnenten(status)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_verkauf_gr_auszahl_status ON verkauf_gumroad_auszahlungen(status)');
+  } catch (err) {
+    console.warn('[db] Indizes für Verkaufsstatistik:', (err as Error).message);
   }
 
   /* Indizes auf nachgerüstete Spalten gehören hierher, nicht in schema.sql:
@@ -592,7 +705,12 @@ function bestehendeTexteVerschluesseln(): void {
 function uebersetzungsspeicherPruefen(): void {
   try {
     if (!db.all('PRAGMA table_info(translation_memory)').length) return;
-    const kennung = `tm-v2:${abdruck('stellium')}`;
+    /* Dieselbe Kennung, nur an einer Stelle: db/schluesselprobe.ts hält das
+       Rezept, weil dort die Prüfung sitzt, die einen Schlüsselwechsel MELDET,
+       statt nur den Übersetzungsspeicher zu leeren. Der Wert bleibt Zeichen
+       für Zeichen derselbe — sonst hielte jede bestehende Installation den
+       nächsten Start für einen Wechsel und würfe ihren Speicher weg. */
+    const kennung = tmKennung();
     const stand = db.get<{ value: string }>(
       "SELECT value FROM app_settings WHERE key = 'tm_format'",
     )?.value;

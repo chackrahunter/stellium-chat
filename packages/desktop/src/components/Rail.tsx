@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { Bell, Bookmark, Bot, CalendarDays, Download, FolderOpen, Gauge, Inbox, Lightbulb, ListChecks, Mail, MessageSquare, Monitor, NotebookPen, Settings, ShieldCheck, Sparkles, Star } from 'lucide-react';
+import { Bell, Bookmark, Bot, CalendarDays, Download, FolderOpen, Gauge, Inbox, Lightbulb, ListChecks, Mail, MailSearch, MessageSquare, Monitor, NotebookPen, Settings, ShieldCheck, Sparkles, Star, Users } from 'lucide-react';
 import { useStore } from '../state/store.js';
 import { useT } from '../i18n/index.js';
 import { imBrowser } from './DownloadPanel.jsx';
 import { StatusMenu } from './StatusMenu.jsx';
 import { useKiKanaele } from '../lib/ai-channels.js';
 import { useVorschlaege } from '../state/vorschlaege.js';
+import { usePartnerGruppenUi } from '../state/partnergruppen.js';
 import { counterLabel } from '../lib/format.js';
 
 /**
@@ -246,6 +247,15 @@ export function Rail() {
             tun: () => setOverlay('system') }] : []),
           ...(self?.permissions['user.manage'] ? [{ id: 'team', symbol: <ShieldCheck size={17} />, text: t('nav.team'),
             tun: () => setOverlay('team') }] : []),
+          /* Kunden, Firmen, Bewerber und so weiter einordnen — ein
+             gelegentliches, gezieltes Aufräumen, kein täglicher Reiter,
+             deshalb hier im Stern statt unten in der Leiste. Eigener Laden
+             (state/partnergruppen.ts) statt setOverlay(): dieselbe
+             Begründung wie bei useVorschlaege weiter oben — state/store.ts
+             wird gerade an anderer Stelle bearbeitet. Dieselbe Schwelle wie
+             beim Postfach selbst: `mail.lesen` genügt zum Ansehen. */
+          ...(self?.permissions['mail.lesen'] ? [{ id: 'partnerGruppen', symbol: <Users size={17} />,
+            text: t('partnerGruppen.nav'), tun: () => usePartnerGruppenUi.getState().oeffnen() }] : []),
           /* Umgekehrt: wer die App schon hat, braucht keinen Weg zum
              Herunterladen. */
           ...(imBrowser() ? [{ id: 'download', symbol: <Download size={17} />, text: t('download.nav'),
@@ -306,6 +316,16 @@ export function Rail() {
       {self?.permissions['mail.lesen'] && (
         <button className="rail-btn no-drag" onClick={() => setOverlay('post')} title={t('post.titel')}>
           <Mail size={20} />
+        </button>
+      )}
+
+      {/* Was die KI aus der Post oben gemacht hat — direkt daneben, weil beide
+          derselbe Rundgang durch dasselbe Postfach sind, nur mit anderem
+          Blick. Dieselbe Schwelle wie beim Postfach selbst: `mail.lesen`, kein
+          engeres Recht (siehe routes.ts, GET /api/post/meldungen). */}
+      {self?.permissions['mail.lesen'] && (
+        <button className="rail-btn no-drag" onClick={() => setOverlay('postMeldungen')} title={t('postSichtung.titel')}>
+          <MailSearch size={20} />
         </button>
       )}
 

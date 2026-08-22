@@ -203,3 +203,46 @@ export function kanalName(channel: { name: string; translation?: { name: string 
 export function kanalThema(channel: { topic: string | null; translation?: { topic: string | null } | null }): string | null {
   return channel.translation?.topic || channel.topic;
 }
+
+/**
+ * Ein Geldbetrag in Cent — lesbar, in der Sprache der Oberfläche.
+ *
+ * Vorher stand diese Funktion einzeln in SystemPanel.tsx, mit dem Kommentar
+ * "dieselbe Funktion wie überall sonst in der App, nur einmal richtig
+ * gemacht — nur eben nicht hier". Jetzt ist sie hier: die Verkaufskachel UND
+ * ihre ausführliche Ansicht (VerkaufDetailPanel.tsx) brauchen dieselbe
+ * Formatierung, und eine zweite, leicht andere Kopie wäre irgendwann eine
+ * Stelle, an der 25,00 $ und $25.00 für denselben Betrag nebeneinander
+ * ständen. Die Sprache ist die der Oberfläche, nicht die des Servers.
+ */
+export function geld(cent: number | null | undefined, waehrung: string | null | undefined): string {
+  if (cent === null || cent === undefined || !Number.isFinite(cent)) return '—';
+  try {
+    return new Intl.NumberFormat(sprache(), { style: 'currency', currency: waehrung || 'USD' }).format(cent / 100);
+  } catch {
+    /* Unbekanntes Kürzel: lieber die nackte Zahl als gar nichts. */
+    return `${(cent / 100).toFixed(2)} ${waehrung ?? ''}`.trim();
+  }
+}
+
+/** „1 Woche" statt „week: 1" — Intl kennt Tag, Woche, Monat und Jahr in
+ *  jeder Sprache, die hier vorkommt. `lang: 'short'` für „30 Tage" statt
+ *  „30 Tage" ausgeschrieben in engen Tabellenzeilen. */
+export function zeitspanne(anzahl: number | null | undefined, einheit: string | null | undefined,
+                            lang: 'long' | 'short' = 'long'): string {
+  if (!anzahl || !einheit) return '—';
+  try {
+    return new Intl.NumberFormat(sprache(), { style: 'unit', unit: einheit, unitDisplay: lang }).format(anzahl);
+  } catch {
+    return `${anzahl} ${einheit}`;
+  }
+}
+
+/** Ein Anteil als Prozentzahl — "12,3 %" statt eines von Hand
+ *  zusammengesetzten Strings mit fest verdrahtetem Punkt oder Komma. */
+export function prozent(anteil: number | null | undefined, nachkomma = 1): string {
+  if (anteil === null || anteil === undefined || !Number.isFinite(anteil)) return '—';
+  return new Intl.NumberFormat(sprache(), {
+    style: 'percent', minimumFractionDigits: nachkomma, maximumFractionDigits: nachkomma,
+  }).format(anteil);
+}

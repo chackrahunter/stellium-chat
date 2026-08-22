@@ -29,10 +29,13 @@ import { ProtocolPanel } from './components/ProtocolPanel.jsx';
 import { IdeaBoard } from './components/IdeaBoard.jsx';
 import { VorschlagPosteingang } from './components/VorschlagPosteingang.jsx';
 import { useVorschlaege } from './state/vorschlaege.js';
+import { PartnerGruppenPanel } from './components/PartnerGruppenPanel.jsx';
+import { usePartnerGruppenUi } from './state/partnergruppen.js';
 import { DownloadPanel } from './components/DownloadPanel.jsx';
 import { Fernsteuerung } from './components/Fernsteuerung.jsx';
 import { SystemPanel } from './components/SystemPanel.jsx';
 import { PostPanel } from './components/PostPanel.jsx';
+import { PostMeldungen } from './components/PostMeldungen.jsx';
 import { UpdateBanner, UpdateWillkommen, ServerWartung } from './components/UpdateBanner.jsx';
 import { MeldungBitte } from './components/MeldungBitte.jsx';
 import { DownloadHinweis } from './components/DownloadHinweis.jsx';
@@ -61,6 +64,10 @@ export function App() {
      `overlay`: er geht mit einem Filter auf, und eine Kennung allein hat dafür
      keinen Platz. Siehe state/vorschlaege.ts. */
   const vorschlagFilter = useVorschlaege((s) => s.offen);
+  /* Dieselbe Begründung wie bei vorschlagFilter direkt darüber: ein eigener,
+     winziger Laden statt `overlay`, weil state/store.ts gerade an anderer
+     Stelle bearbeitet wird. Siehe state/partnergruppen.ts. */
+  const partnerGruppenOffen = usePartnerGruppenUi((s) => s.offen);
   const lightbox = useStore((s) => s.lightbox);
   const forwarding = useStore((s) => s.forwarding);
   const remindingAbout = useStore((s) => s.remindingAbout);
@@ -252,6 +259,7 @@ export function App() {
         {overlay === 'fern' && <Fernsteuerung key="fern" onClose={closeOverlay} />}
         {overlay === 'system' && <SystemPanel key="system" onClose={closeOverlay} />}
         {overlay === 'post' && <PostPanel key="post" onClose={closeOverlay} />}
+        {overlay === 'postMeldungen' && <PostMeldungen key="postMeldungen" onClose={closeOverlay} />}
         {overlay === 'notizen' && <NotizenPanel key="notizen" onClose={closeOverlay} />}
         {vorschlagFilter && (
           <VorschlagPosteingang
@@ -259,6 +267,9 @@ export function App() {
             startFilter={vorschlagFilter}
             onClose={() => useVorschlaege.getState().schliessen()}
           />
+        )}
+        {partnerGruppenOffen && (
+          <PartnerGruppenPanel key="partnerGruppen" onClose={() => usePartnerGruppenUi.getState().schliessen()} />
         )}
       </AnimatePresence>
 

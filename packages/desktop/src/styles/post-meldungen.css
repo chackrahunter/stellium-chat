@@ -1,0 +1,196 @@
+/* ── Post-Sichtung — was die KI aus eingegangener Firmenpost gemacht hat ──
+   Nutzt ausschließlich Farbtoken, Radien und Abstände aus tokens.css sowie
+   allgemeine Klassen aus app.css (.empty-state, .btn, .muted, .spin,
+   .truncate — siehe dort). Diese Datei fügt nur hinzu, was für die Karten
+   dieses Reiters eigen ist; app.css und post.css bleiben unangetastet.
+
+   FARBE NACH BEDEUTUNG, NICHT ZUR DEKORATION — zwei Achsen, beide aus dem
+   vorhandenen Farbraum (tokens.css), keine neue Farbwelt:
+     · Der linke Rand einer Karte trägt die DRINGLICHKEIT — dieselbe Achse
+       wie PRIO_FARBE in TasksBoard.tsx (niedrig -> gedämpft, normal -> Blau,
+       hoch -> Rot). Ohne Einordnung (Sichtung läuft noch oder scheiterte)
+       bleibt der Rand neutral (--line-strong) — er zeigt NIE „niedrig" für
+       etwas, das die KI gar nicht bewertet hat.
+     · Der Punkt neben der Absenderart trägt, WER schreibt: Rosa für eine
+       Privatperson, Violett für eine Firma, Mintgrün für eine Behörde,
+       gedämpft für einen Automaten — bewusst ohne Rot/Blau/Amber, die schon
+       an Dringlichkeit bzw. Warnung vergeben sind (siehe .postsicht-warnung
+       unten), damit dieselbe Farbe nie zwei verschiedene Dinge bedeutet. */
+
+.postsicht__hinweis {
+  margin: 0 0 12px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--tx-lo);
+}
+
+.postsicht-leiste {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.postsicht-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  color: var(--tx-mid);
+  background: var(--bg-panel);
+  border: 1px solid var(--line);
+  transition: color var(--t-fast), border-color var(--t-fast), background var(--t-fast);
+}
+.postsicht-tab:hover { color: var(--tx-hi); border-color: var(--line-strong); }
+.postsicht-tab--on {
+  color: var(--tx-hi);
+  background: var(--bg-active);
+  border-color: var(--violet);
+}
+.postsicht-tab__n {
+  font-size: 10.5px;
+  font-weight: 600;
+  opacity: 0.7;
+}
+
+.postsicht-liste {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: min(58vh, 560px);
+  overflow-y: auto;
+  padding-inline-end: 4px;
+}
+
+/* Eine Zeile ist ein Knopf (Sprung ins Postfach) — dieselbe Bauart wie
+   .post-row in post.css, mit einem farbigen Rand statt eines Fett-Zustands,
+   weil hier die Bedeutung (Dringlichkeit) und nicht der Lesestatus zählt. */
+.postsicht-karte {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  width: 100%;
+  padding: 11px 13px;
+  border-radius: var(--r-md);
+  border: 1px solid var(--line);
+  border-inline-start: 3px solid var(--line-strong);
+  background: var(--bg-panel-2);
+  text-align: start;
+  color: var(--tx-mid);
+  transition: background var(--t-fast), border-color var(--t-fast);
+}
+.postsicht-karte:hover { background: var(--bg-hover); border-color: var(--line-strong); }
+
+.postsicht-karte__kopf {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.postsicht-karte__fach {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--tx-lo);
+}
+
+.postsicht-karte__zeit {
+  margin-inline-start: auto;
+  flex: none;
+  font-size: 11px;
+  color: var(--tx-lo);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Die Art des Absenders — Punkt plus Wort, nie Farbe allein (siehe
+   Farbenblindheit/Graustufen: der Punkt zusätzlich zum Text trägt die
+   Bedeutung nicht ausschließlich über Farbe). */
+.postsicht-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+.postsicht-badge__punkt {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex: none;
+}
+
+.postsicht-karte__von {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--tx-hi);
+}
+
+.postsicht-karte__betreff {
+  font-size: 12.5px;
+  color: var(--tx-mid);
+}
+
+.postsicht-karte__anliegen {
+  margin: 2px 0 0;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--tx-mid);
+  overflow-wrap: anywhere;
+}
+
+/* Die Dringlichkeit noch einmal als Wort, nicht nur als Rand: der Rand
+   sitzt am äußersten Kartenrand und ist leicht zu übersehen, gerade auf
+   einem schmalen Fenster, in dem die Liste selbst schon rollt. */
+.postsicht-karte__dringlichkeit {
+  align-self: flex-start;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.postsicht-karte__grund {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin: 2px 0 0;
+  font-size: 12px;
+  color: var(--tx-lo);
+}
+/* „Ein Antwortentwurf wartet auf Freigabe" — die einzige Zeile, die zum
+   Handeln auffordert, deshalb die einzige in der Markenfarbe statt gedämpft. */
+.postsicht-karte__grund--handeln {
+  color: var(--violet-soft);
+  font-weight: 600;
+}
+
+/* Der Warnsatz bei abweichender Reply-To-Domäne — Amber, dieselbe Farbe wie
+   jeder andere Warnhinweis im Haus (.post__html-hinweis in post.css,
+   .pill--warn in app.css). Ein eigener Kasten statt nur eingefärbter Text:
+   das ist die einzige Zeile hier, die vor einem tatsächlichen Risiko warnt
+   (eine Antwort ginge woandershin), und sie darf nicht wie die übrigen,
+   rein informativen Zeilen aussehen. */
+.postsicht-karte__warnung {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 4px 0 0;
+  padding: 7px 9px;
+  border-radius: var(--r-sm);
+  border: 1px solid color-mix(in srgb, var(--amber) 45%, transparent);
+  background: color-mix(in srgb, var(--amber) 12%, transparent);
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: var(--amber);
+}
+.postsicht-karte__warnung svg { flex: none; margin-top: 1px; }
+
+@media (max-width: 520px) {
+  .postsicht-liste { max-height: none; }
+}
