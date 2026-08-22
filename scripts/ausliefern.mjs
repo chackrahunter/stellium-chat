@@ -267,6 +267,34 @@ try {
   else ok('Kein fest verdrahteter Text');
 } catch { warn('Textprüfung nicht möglich'); }
 
+/*
+ * Die Wächter, die es im Haus gibt — und die hier bisher nicht liefen.
+ *
+ * Ein Prüflauf, den man von Hand aufrufen muss, ist keiner: er läuft genau
+ * so lange, wie sich jemand daran erinnert. Sie kosten zusammen ein paar
+ * Sekunden und stehen deshalb vor dem Bauen, nicht danach.
+ *
+ * ABBRUCH und nicht Warnung: jeder dieser Wächter bewacht einen Fehler, der
+ * schon einmal draußen war — ein verschluckter Sicherheitsabstand, ein
+ * schwarzer Streifen am Rand, ein Verweis auf einen Namen, den es nicht gibt,
+ * eine Linie, die fehlende Tage überspringt. Eine Warnung hätte keinen davon
+ * aufgehalten.
+ */
+for (const [datei, was] of [
+  ['scripts/mobil-pruefen.mjs', 'Handyansicht'],
+  ['scripts/randfarbe-pruefen.mjs', 'Rand'],
+  ['scripts/tokens-pruefen.mjs', 'Namen im Stylesheet'],
+  ['scripts/praesenz-pruefen.mjs', 'Online-Zeit'],
+]) {
+  if (!fs.existsSync(path.join(wurzel, datei))) continue;
+  try {
+    lauf('node', [datei]);
+    ok(was);
+  } catch (err) {
+    raus(`${was} (${datei}):\n${(err.stdout || err.stderr || err.message).slice(0, 800)}`);
+  }
+}
+
 /* ── Version setzen ──────────────────────────────────────────── */
 
 schritt('Version setzen');
