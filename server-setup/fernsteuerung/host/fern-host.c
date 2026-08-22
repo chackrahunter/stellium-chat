@@ -59,6 +59,7 @@
 #include <wayland-client.h>
 #include <x264.h>
 #include <libswscale/swscale.h>
+#include <libavutil/opt.h>
 #include <libavutil/pixfmt.h>
 
 #include <poll.h>
@@ -71,6 +72,9 @@
 #define ART_MELDUNG 3   /* Klartext fürs Protokoll */
 
 #define PUFFER_ANZAHL 3
+/* So viele Streifen darf die Farbwandlung höchstens teilen — mehr als Kerne
+   bringt nichts, und der Pi 5 hat vier. */
+#define FARB_FAEDEN 4
 
 /* Ein Puffer, in den der Compositor malt. Zwei davon im Wechsel: einer wird
    beschrieben, während der andere kodiert wird. */
@@ -110,6 +114,9 @@ static struct {
   x264_t            *x264;
   x264_picture_t     bild_ein, bild_aus;
   struct SwsContext *farbe;
+  struct SwsContext *farbe_je[FARB_FAEDEN];
+  int   farb_y[FARB_FAEDEN], farb_h[FARB_FAEDEN];
+  int   farb_streifen;
   int64_t            zaehler;
 
   int   ziel_bilder, rate_kbit, n_auftraege, x_faeden;
@@ -250,6 +257,117 @@ static bool kodierer_starten(int breite, int hoehe) {
   return x264_picture_alloc(&L.bild_ein, X264_CSP_I420, breite, hoehe) >= 0;
 }
 
+/* ── Farbwandlung in Streifen ─────────────────────────────────
+ *
+ * Warum überhaupt: Von den drei Stufen lief diese als einzige einfädrig.
+ * Auf dem Gerät gemessen (native 1920x917) kostete sie 10,9 ms, während
+ * Abgriff und Kodierer nebeneinander arbeiteten — und da die Decke der
+ * Kette bei max(Lesen, Farbe+Kodieren) liegt, zählte jede dieser
+ * Millisekunden doppelt: sie verlängerte die zweite Stufe UND nahm dem
+ * Abgriff einen Kern weg.
+ *
+ * libswscale kann Fäden, nutzt sie bei unskalierter Wandlung aber nicht:
+ * dort greift ein Sonderweg, der einfädrig bleibt. Nachgeprüft mit
+ * `threads` über av_opt — die Zeit blieb bei 10,7 ms. Also von Hand
+ * geteilt: jeder Faden bekommt einen eigenen Wandler für seinen Streifen
+ * und schreibt in seinen eigenen Bereich des Zielbildes. Sie berühren
+ * einander nirgends, deshalb braucht es zwischen ihnen kein Schloss —
+ * nur eines für das Verteilen und das Warten am Ende.
+ */
+static struct {
+  pthread_t       faden[FARB_FAEDEN];
+  pthread_mutex_t schloss;
+  pthread_cond_t  los, fertig;
+  const uint8_t  *ein[4];
+  int             schritt[4];
+  uint64_t        runde;          /* zählt je Bild hoch */
+  int             offen;          /* wie viele Streifen noch rechnen */
+  int             gestartet;
+  bool            ende;
+} FS;
+
+/* Einen Streifen wandeln. Quelle und Ziel werden auf den Anfang des
+   Streifens gerückt; der Wandler selbst kennt nur dessen Höhe.
+   Die Verschiebung der Quelle funktioniert auch bei negativer
+   Zeilenlänge (Bild auf dem Kopf) — dann läuft sie eben rückwärts. */
+static void streifen(int i) {
+  const int y = L.farb_y[i];
+  const uint8_t *ein[4] = {0};
+  int schritt[4] = {0};
+  for (int k = 0; k < 4; k++) {
+    schritt[k] = FS.schritt[k];
+    ein[k] = FS.ein[k] ? FS.ein[k] + (ptrdiff_t)y * FS.schritt[k] : NULL;
+  }
+  uint8_t *aus[4] = {
+    L.bild_ein.img.plane[0] + (ptrdiff_t)y * L.bild_ein.img.i_stride[0],
+    L.bild_ein.img.plane[1] + (ptrdiff_t)(y / 2) * L.bild_ein.img.i_stride[1],
+    L.bild_ein.img.plane[2] + (ptrdiff_t)(y / 2) * L.bild_ein.img.i_stride[2],
+    NULL,
+  };
+  sws_scale(L.farbe_je[i], ein, schritt, 0, L.farb_h[i], aus, L.bild_ein.img.i_stride);
+}
+
+static void *farb_faden(void *arg) {
+  const int i = (int)(intptr_t)arg;
+  uint64_t gesehen = 0;
+  for (;;) {
+    pthread_mutex_lock(&FS.schloss);
+    while (!FS.ende && FS.runde == gesehen) pthread_cond_wait(&FS.los, &FS.schloss);
+    if (FS.ende) { pthread_mutex_unlock(&FS.schloss); break; }
+    gesehen = FS.runde;
+    pthread_mutex_unlock(&FS.schloss);
+
+    if (i < L.farb_streifen) streifen(i);
+
+    pthread_mutex_lock(&FS.schloss);
+    if (--FS.offen == 0) pthread_cond_signal(&FS.fertig);
+    pthread_mutex_unlock(&FS.schloss);
+  }
+  return NULL;
+}
+
+static void streifen_wandeln(const uint8_t *const ein[4], const int schritt[4], int hoehe) {
+  (void)hoehe;
+  if (L.farb_streifen <= 1) {
+    /* Ein Streifen heißt: kein Verteilen, kein Warten. Genau der Fall beim
+       Skalieren — und der soll nichts von der Maschinerie bezahlen. */
+    uint8_t *aus[4] = { L.bild_ein.img.plane[0], L.bild_ein.img.plane[1],
+                        L.bild_ein.img.plane[2], NULL };
+    sws_scale(L.farbe_je[0], ein, schritt, 0, L.farb_h[0], aus, L.bild_ein.img.i_stride);
+    return;
+  }
+
+  /* Helfer erst beim ersten Bild starten: vorher steht nicht fest, in wie
+     viele Streifen geteilt wird. */
+  if (FS.gestartet == 0) {
+    pthread_mutex_init(&FS.schloss, NULL);
+    pthread_cond_init(&FS.los, NULL);
+    pthread_cond_init(&FS.fertig, NULL);
+    for (int i = 1; i < L.farb_streifen; i++) {
+      if (pthread_create(&FS.faden[i], NULL, farb_faden, (void *)(intptr_t)i) == 0)
+        FS.gestartet++;
+    }
+    /* Konnte kein Helfer starten, macht der aufrufende Faden alles allein —
+       langsamer, aber richtig. */
+    if (FS.gestartet == 0) L.farb_streifen = 1;
+  }
+
+  pthread_mutex_lock(&FS.schloss);
+  for (int k = 0; k < 4; k++) { FS.ein[k] = ein[k]; FS.schritt[k] = schritt[k]; }
+  FS.offen = FS.gestartet;
+  FS.runde++;
+  pthread_cond_broadcast(&FS.los);
+  pthread_mutex_unlock(&FS.schloss);
+
+  /* Der aufrufende Faden nimmt den ersten Streifen — sonst stünde er nur
+     herum, während vier andere rechnen. */
+  streifen(0);
+
+  pthread_mutex_lock(&FS.schloss);
+  while (FS.offen > 0) pthread_cond_wait(&FS.fertig, &FS.schloss);
+  pthread_mutex_unlock(&FS.schloss);
+}
+
 static void *kodier_faden(void *arg) {
   (void)arg;
   while (L.lauf) {
@@ -271,6 +389,22 @@ static void *kodier_faden(void *arg) {
     if (quelle != AV_PIX_FMT_NONE) {
       if (!L.ziel_breite) {
         L.ziel_breite = (int)b->breite; L.ziel_hoehe = (int)b->hoehe;
+      } else if (L.ziel_hoehe * (int)b->breite != L.ziel_breite * (int)b->hoehe) {
+        /* Seitenverhältnis der Quelle erzwingen. Der Schirm des Pi misst
+           1920x917 — das sind 2,09 und nicht die 1,78, die man beim Tippen
+           einer Zielgröße gewohnheitsmäßig hinschreibt. Wer 960x540 angibt,
+           bekommt sonst ein gestauchtes Bild, und das fällt am Schreibtisch
+           erst auf, wenn Kreise zu Ellipsen werden.
+           Die Breite gilt, die Höhe wird nachgezogen — gerade, weil 4:2:0
+           die Farbebenen halbiert. */
+        int passend = (int)((long long)L.ziel_breite * b->hoehe / b->breite) & ~1;
+        if (passend > 0 && passend != L.ziel_hoehe) {
+          char h[120];
+          snprintf(h, sizeof h, "Zielhöhe %d statt %d — Seitenverhältnis der Quelle %ux%u",
+                   passend, L.ziel_hoehe, b->breite, b->hoehe);
+          melden(h);
+          L.ziel_hoehe = passend;
+        }
       }
       /* H.264 mag gerade Kantenlängen (4:2:0 halbiert die Farbebenen). */
       L.ziel_breite &= ~1; L.ziel_hoehe &= ~1;
@@ -278,12 +412,41 @@ static void *kodier_faden(void *arg) {
         melden("Kodierer ließ sich nicht öffnen"); L.lauf = false;
       }
       if (L.lauf && !L.farbe) {
-        L.farbe = sws_getContext((int)b->breite, (int)b->hoehe, quelle,
-                                 L.ziel_breite, L.ziel_hoehe, AV_PIX_FMT_YUV420P,
-                                 L.ziel_breite == (int)b->breite ? SWS_POINT
-                                                                 : SWS_FAST_BILINEAR,
-                                 NULL, NULL, NULL);
-        if (!L.farbe) { melden("Farbwandler fehlt"); L.lauf = false; }
+        /* Ein Wandler je Streifen — siehe streifen_wandeln(). Bei gleicher
+           Größe wird nicht skaliert, dann genügt SWS_POINT. */
+        const int flaggen = L.ziel_breite == (int)b->breite ? SWS_POINT
+                                                            : SWS_FAST_BILINEAR;
+        /* In Streifen NUR, wenn nicht skaliert wird. Beim Skalieren hängen
+           die Ausgabezeilen nicht mehr eins zu eins an den Eingabezeilen —
+           ein Streifen wüsste dann nicht, wohin er schreiben darf. */
+        L.farb_streifen = (L.ziel_breite == (int)b->breite &&
+                           L.ziel_hoehe == (int)b->hoehe) ? L.x_faeden : 1;
+        if (L.farb_streifen > FARB_FAEDEN) L.farb_streifen = FARB_FAEDEN;
+
+        /* Streifengrenzen auf GERADE Zeilen legen: 4:2:0 fasst je zwei
+           Zeilen zu einer Farbzeile zusammen. Läge eine Grenze dazwischen,
+           schrieben zwei Streifen dieselbe Farbzeile — und je nachdem, wer
+           zuerst fertig ist, käme etwas anderes heraus. */
+        {
+          int rest = (int)b->hoehe, y = 0;
+          for (int i = 0; i < L.farb_streifen; i++) {
+            int h = (i == L.farb_streifen - 1)
+                  ? rest
+                  : ((rest / (L.farb_streifen - i)) + 1) & ~1;
+            if (h <= 0) h = rest;
+            L.farb_y[i] = y; L.farb_h[i] = h;
+            y += h; rest -= h;
+          }
+        }
+        for (int i = 0; i < L.farb_streifen; i++) {
+          /* Jeder Wandler kennt nur SEINEN Streifen — dadurch sind sie
+             voneinander unabhängig und dürfen gleichzeitig laufen. */
+          L.farbe_je[i] = sws_getContext((int)b->breite, L.farb_h[i], quelle,
+                                         L.ziel_breite, L.farb_h[i],
+                                         AV_PIX_FMT_YUV420P, flaggen, NULL, NULL, NULL);
+          if (!L.farbe_je[i]) { melden("Farbwandler fehlt"); L.lauf = false; break; }
+        }
+        L.farbe = L.farbe_je[0];
       }
       if (L.lauf) {
         /* Auf dem Kopf geliefert? Von unten nach oben lesen — mit negativer
@@ -296,8 +459,7 @@ static void *kodier_faden(void *arg) {
           ein[0] = b->speicher; schritt[0] = (int)b->zeilenlaenge;
         }
         int64_t t0 = jetzt_ns();
-        sws_scale(L.farbe, ein, schritt, 0, (int)b->hoehe,
-                  L.bild_ein.img.plane, L.bild_ein.img.i_stride);
+        streifen_wandeln(ein, schritt, (int)b->hoehe);
         int64_t t1 = jetzt_ns();
 
         L.bild_ein.i_pts = L.zaehler++;
@@ -555,10 +717,19 @@ int main(int argc, char **argv) {
      bei 1280x720:
        Aufträge 1 → 43,2 B/s bei 22,8 ms      Aufträge 3 → 54,8 B/s bei 47,5 ms
        Aufträge 2 → 51,1 B/s bei 36,5 ms
-     Zwei sind der Punkt, an dem es sich lohnt: gut ein Viertel mehr Durchsatz.
-     Drei bringen kaum noch etwas, kosten aber weitere elf Millisekunden
-     Verzögerung — und bei Fernsteuerung ist Verzögerung teurer als Durchsatz. */
-  L.n_auftraege = 2; L.x_faeden = 3;
+     Diese zweite Reihe war jedoch VERFÄLSCHT: sie lief, während ein Zuschauer
+     verbunden war, und beide Abgriffe stritten sich um denselben Compositor.
+     Ohne Konkurrenz nachgemessen, ganzer Schirm 1920x917:
+       Aufträge 1 → 59,4 B/s bei 16,6 ms, nichts verworfen
+       Aufträge 2 → 50,2 B/s bei 38,6 ms, 26 verworfen
+       Aufträge 3 → 60,1 B/s bei 35,6 ms, 48 verworfen
+     Damit gilt wieder der erste Befund, und er gilt deutlich: EINE
+     Anforderung ist die schnellste UND die mit der geringsten Verzögerung.
+     Der Compositor arbeitet sie ohnehin nacheinander ab; mehrere reihen sich
+     nur ein und altern in der Schlange.
+     Vier Fäden statt drei sind dagegen belegt: 34,3 gegen 27,9 B/s in der
+     vollen Kette. */
+  L.n_auftraege = 1; L.x_faeden = 4;
   for (int i = 1; i < argc; i++) {
     if (!strcmp(argv[i], "--bilder") && i + 1 < argc)     L.ziel_bilder = atoi(argv[++i]);
     else if (!strcmp(argv[i], "--rate") && i + 1 < argc)  L.rate_kbit   = atoi(argv[++i]);

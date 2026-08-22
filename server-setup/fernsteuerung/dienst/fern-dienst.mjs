@@ -111,19 +111,39 @@ function versuchGelungen(adresse) { fehlversuche.delete(adresse); }
 /* ── Der Abgreifer ───────────────────────────────────────────── */
 
 function hostStarten(sitzung, einstellungen) {
-  /* 960x540 bei 45 Bildern statt 1280x720 bei 30 — beides nachgemessen.
-     Die halbe Fläche kostet beim Lesen 22,7 statt 24,1 ms und beim Wandeln
-     und Kodieren rund die Hälfte; erst dadurch sind 45 überhaupt erreichbar.
-     Und sie passen in die Bitrate: 1280x720 in Bewegung braucht mehr, als
-     diese Leitung trägt.
-     Die Rate ist nur die OBERGRENZE — `rateNachziehen` regelt darunter. */
-  const rateMax = einstellungen.rate ?? 2500;
+  /* OHNE `--ausgabe`: der Host sendet dann in der Größe des Schirms, also
+     pixelgenau und ohne jede Skalierung (SWS_POINT statt Bilinear).
+
+     Verkleinern klingt nach dem naheliegenden Weg zu mehr Bildern, bringt
+     hier aber nichts. Auf dem Gerät abgelesen, während es lief:
+         lesen 55,1 ms · Farbe 5,3 ms · kodieren 2,5 ms
+     Der Abgriff holt IMMER den ganzen Schirm — was danach verkleinert wird,
+     ändert daran nichts. Und Farbe und Kodieren laufen auf einem eigenen
+     Faden; zusammen kosten sie 7,8 ms gegen 55,1 fürs Lesen. In voller
+     Größe werden daraus etwa 20 ms — immer noch weit unter dem Lesen, das
+     den Takt allein bestimmt. Volle Auflösung ist also praktisch gratis.
+     Sie kostet Bandbreite, nicht Bilder — und darum kümmert sich
+     `rateNachziehen`.
+
+     Die Rate ist nur die OBERGRENZE. Sie darf hoch stehen, seit die
+     Regelung den echten Rückstau sieht: gemessen trägt die Leitung
+     2,2–4,4 Mbit/s, und wo sie mehr hergibt, soll das Bild schärfer werden
+     statt Reserve zu verschenken. */
+  const rateMax = einstellungen.rate ?? 6000;
+  /* Weder `--auftraege` noch `--faeden`: der Host bringt die gemessenen
+     Werte selbst mit (1 Anforderung, 4 Fäden). Sie hier zu wiederholen hieße
+     nur, sie an zwei Stellen pflegen zu müssen — und beim nächsten Mal steht
+     an einer davon etwas Veraltetes. */
   const args = [
     '--bilder', String(einstellungen.bilder ?? 45),
     '--rate',   String(rateMax),
-    '--ausgabe', `${einstellungen.breite ?? 960}x${einstellungen.hoehe ?? 540}`,
-    '--auftraege', String(einstellungen.auftraege ?? 2),
   ];
+  if (einstellungen.auftraege) args.push('--auftraege', String(einstellungen.auftraege));
+  /* Nur wenn ausdrücklich gewünscht — sonst bleibt es bei der Schirmgröße.
+     Die Höhe zieht der Host am Seitenverhältnis nach, damit nichts staucht. */
+  if (einstellungen.breite) {
+    args.push('--ausgabe', `${einstellungen.breite}x${einstellungen.hoehe ?? 0}`);
+  }
   sitzung.rateMax = rateMax;
   sitzung.rateJetzt = rateMax;
   const kind = spawn(HOST_BIN, args, {
