@@ -1,7 +1,9 @@
 import {
-  nutzlastLesen, type Notiz, type SchluesselPaket,
+  nutzlastLesen, type KontoPaket, type Notiz, type SchluesselPaket,
 } from '@stellium/shared';
 import { db, placeholders } from '../db/index.js';
+import { Abweisung, abweisung } from '../util/abweisung.js';
+import { aktuelleFassung as kontoFassungVon } from './kontoschluessel.js';
 
 /**
  * Notizen — persönliche Schriftstücke, Ende-zu-Ende verschlüsselt wie ein
@@ -34,10 +36,10 @@ const CHIFFRAT_MAX = 2_000_000;
 
 function pruefeChiffrat(chiffrat: string, erwarteteFassung?: number): number {
   if (typeof chiffrat !== 'string' || chiffrat.length > CHIFFRAT_MAX) {
-    throw new Error('Die Notiz ist zu groß oder hat die falsche Form.');
+    throw abweisung('fehler.notizUngueltigeForm', 'Die Notiz ist zu groß oder hat die falsche Form.');
   }
   const nutzlast = nutzlastLesen(chiffrat);
-  if (!nutzlast) throw new Error('Das ist kein verschlüsselter Notizinhalt.');
+  if (!nutzlast) throw abweisung('fehler.notizKeinChiffrat', 'Das ist kein verschlüsselter Notizinhalt.');
   if (erwarteteFassung !== undefined && nutzlast.fassung !== erwarteteFassung) {
     /* Kommt vor, wenn die App noch mit der alten Schlüsselfassung
        verschlüsselt hat — meist, weil ein Wechsel gerade erst passiert ist
@@ -52,8 +54,8 @@ function pruefeChiffrat(chiffrat: string, erwarteteFassung?: number): number {
 
 /** Eigene, erkennbare Klasse — speichern() unterscheidet daran den stillen
  *  Fassungs-Konflikt von einem echten Inhaltskonflikt zwischen Menschen. */
-class FassungsKonflikt extends Error {
-  constructor() { super('Der Notizschlüssel wurde inzwischen gewechselt.'); }
+class FassungsKonflikt extends Abweisung {
+  constructor() { super('fehler.notizSchluesselGewechselt', 'Der Notizschlüssel wurde inzwischen gewechselt.'); }
 }
 
 function toNotiz(
@@ -161,13 +163,15 @@ const NOTIZ_ID_MUSTER = /^nz_[a-f0-9]{32}$/;
  * ein Zufallswert eine Kollisionsgefahr wäre, sondern damit hier nie eine
  * Kennung landet, die als etwas anderes gemeint war.
  */
-export function anlegen(input: { id: string; ownerId: string; chiffrat: string; paket: SchluesselPaket }): Notiz {
-  if (!NOTIZ_ID_MUSTER.test(input.id)) throw new Error('Ungültige Kennung für eine neue Notiz.');
+export function anlegen(input: {
+  id: string; ownerId: string; chiffrat: string; paket: SchluesselPaket; kontoPaket?: KontoPaket;
+}): Notiz {
+  if (!NOTIZ_ID_MUSTER.test(input.id)) throw abweisung('fehler.notizUngueltigeKennung', 'Ungültige Kennung für eine neue Notiz.');
   if (db.get('SELECT 1 AS x FROM notizen WHERE id = ?', input.id)) {
-    throw new Error('Diese Notiz gibt es schon.');
+    throw abweisung('fehler.notizExistiertBereits', 'Diese Notiz gibt es schon.');
   }
   const fassung = pruefeChiffrat(input.chiffrat, 1);
-  if (!input.paket?.iv || !input.paket?.daten) throw new Error('Das Schlüsselpaket ist unvollständig.');
+  if (!input.paket?.iv || !input.paket?.daten) throw abweisung('fehler.notizSchluesselpaketUnvollstaendig', 'Das Schlüsselpaket ist unvollständig.');
 
   const id = input.id;
   const jetzt = Date.now();
@@ -183,8 +187,123 @@ export function anlegen(input: { id: string; ownerId: string; chiffrat: string; 
       id, input.ownerId, fassung, input.paket.von || input.ownerId,
       input.paket.alg, input.paket.iv, input.paket.daten, jetzt,
     );
+    /* Der zweite Weg, gleich mit — sonst könnte ein zweites Gerät desselben
+       Kontos eine frisch angelegte Notiz erst nach dem nächsten Rundgang
+       öffnen (notiz:konto-fehlt). Genau dieser Augenblick war der gemeldete
+       Fehler: auf dem Mac angelegt, auf dem Handy nicht zu öffnen. */
+    if (input.kontoPaket) kontoPaketSchreiben(id, input.ownerId, fassung, input.kontoPaket, jetzt);
   });
   return getNotiz(id, input.ownerId)!;
+}
+
+/* ── Der Kontoweg ─────────────────────────────────────────────── */
+
+/**
+ * Eine Zeile in notiz_konto_pakete schreiben — die einzige Stelle, die das
+ * tut, und die einzige, die die Fassungen prüft.
+ *
+ * Zwei Zahlen müssen stimmen, nicht eine: `fassung` ist die Fassung des
+ * NOTIZSCHLÜSSELS (sie wechselt beim Entfernen eines Mitglieds),
+ * `kontoFassung` die des KONTOSCHLÜSSELS (sie wechselt, wenn ein Konto einen
+ * neuen bekommt). Passt eine von beiden nicht, entstünde eine Zeile, die
+ * richtig aussieht und sich nie öffnen lässt — deshalb hier abweisen statt
+ * schreiben.
+ *
+ * Ohne eigene db.transaction(): läuft immer innerhalb der Transaktion des
+ * Aufrufers.
+ */
+function kontoPaketSchreiben(
+  notizId: string, userId: string, fassung: number, paket: KontoPaket, jetzt: number,
+): void {
+  db.run(
+    `INSERT INTO notiz_konto_pakete (notiz_id, user_id, fassung, konto_fassung, alg, iv, daten, erstellt_am)
+     VALUES (?,?,?,?,?,?,?,?)
+     ON CONFLICT(notiz_id, user_id) DO UPDATE SET
+       fassung = excluded.fassung, konto_fassung = excluded.konto_fassung, alg = excluded.alg,
+       iv = excluded.iv, daten = excluded.daten, erstellt_am = excluded.erstellt_am`,
+    notizId, userId, fassung, paket.kontoFassung, paket.alg, paket.iv, paket.daten, jetzt,
+  );
+}
+
+/**
+ * Ein Kontopaket entgegennehmen — immer nur für sich selbst.
+ *
+ * Es gibt keinen Weg, ein Kontopaket für jemand anderen zu schreiben, und
+ * das ist kein Versehen: den Kontoschlüssel einer anderen Person hat
+ * niemand, ein Paket "für sie" wäre also zwangsläufig eines, das sie nie
+ * öffnen kann.
+ */
+export function kontoPaketSetzen(input: {
+  notizId: string; userId: string; fassung: number; paket: KontoPaket;
+}): void {
+  if (!sichtbar(input.notizId, input.userId)) throw abweisung('fehler.notizNichtGefunden', 'Notiz nicht gefunden.');
+  const p = input.paket;
+  if (!p?.iv || !p?.daten) throw abweisung('fehler.notizSchluesselpaketUnvollstaendig', 'Das Schlüsselpaket ist unvollständig.');
+
+  const notiz = db.get<{ schluessel_fassung: number }>(
+    'SELECT schluessel_fassung FROM notizen WHERE id = ?', input.notizId,
+  );
+  if (!notiz) throw abweisung('fehler.notizNichtGefunden', 'Notiz nicht gefunden.');
+  if (input.fassung !== notiz.schluessel_fassung) throw abweisung('fehler.schluesselfassungUnbekannt', 'Diese Schlüsselfassung gibt es nicht.');
+
+  const kontoFassung = kontoFassungVon(input.userId);
+  if (!kontoFassung || p.kontoFassung !== kontoFassung) {
+    throw abweisung('fehler.schluesselfassungUnbekannt', 'Diese Schlüsselfassung gibt es nicht.');
+  }
+
+  db.transaction(() => kontoPaketSchreiben(input.notizId, input.userId, input.fassung, p, Date.now()));
+}
+
+/**
+ * Die eigenen Kontopakete — nur die, die wirklich noch passen.
+ *
+ * Die beiden Fassungsvergleiche in der WHERE-Bedingung sind der Unterschied
+ * zwischen "es steht eine Zeile da" und "diese Zeile lässt sich öffnen". Ein
+ * Paket aus einer früheren Schlüsselfassung der Notiz oder aus einem
+ * früheren Kontoschlüssel wird hier gar nicht erst herausgegeben — es
+ * gehört zu notizenOhneKontoPaket() unten, damit es NEU geschrieben wird.
+ */
+export function kontoPaketeFuerAlle(userId: string): { notizId: string; fassung: number; paket: KontoPaket }[] {
+  const kontoFassung = kontoFassungVon(userId);
+  if (!kontoFassung) return [];
+  return db.all<any>(
+    `SELECT p.notiz_id, p.fassung, p.konto_fassung, p.alg, p.iv, p.daten
+     FROM notiz_konto_pakete p
+     JOIN notizen n ON n.id = p.notiz_id AND n.schluessel_fassung = p.fassung
+     WHERE p.user_id = ? AND p.konto_fassung = ?`,
+    userId, kontoFassung,
+  ).map((r) => ({
+    notizId: r.notiz_id, fassung: r.fassung,
+    paket: { alg: r.alg, kontoFassung: r.konto_fassung, iv: r.iv, daten: r.daten },
+  }));
+}
+
+/**
+ * Notizen, die diese Person sehen darf und für die ein gültiges Kontopaket
+ * fehlt — der Weg, auf dem der Altbestand nachwächst.
+ *
+ * Jede Notiz, die es vor dem Kontoschlüssel schon gab, steht hier drin. Das
+ * Gerät, das sie über den GERÄTEWEG öffnen kann, schreibt das fehlende
+ * Kontopaket nach — und zwar erst, nachdem es den Notizschlüssel am Chiffrat
+ * der Notiz selbst erprobt hat (siehe lib/notizen.ts). Deshalb ist diese
+ * Liste eine Aufforderung an ein Gerät, das den Schlüssel HAT, und nie eine
+ * Einladung, irgendetwas zu erfinden.
+ *
+ * Ohne Kontoschlüssel gibt die Funktion nichts zurück: dann gäbe es nichts,
+ * womit sich das fehlende Paket packen ließe, und eine Liste, der niemand
+ * nachkommen kann, ist nur Lärm.
+ */
+export function notizenOhneKontoPaket(userId: string): string[] {
+  const kontoFassung = kontoFassungVon(userId);
+  if (!kontoFassung) return [];
+  return db.all<{ id: string }>(
+    `SELECT n.id AS id FROM notizen n
+     LEFT JOIN notiz_mitglieder m ON m.notiz_id = n.id AND m.user_id = ? AND m.entfernt_am IS NULL
+     LEFT JOIN notiz_konto_pakete k ON k.notiz_id = n.id AND k.user_id = ?
+       AND k.fassung = n.schluessel_fassung AND k.konto_fassung = ?
+     WHERE (n.owner_id = ? OR m.user_id IS NOT NULL) AND k.notiz_id IS NULL`,
+    userId, userId, kontoFassung, userId,
+  ).map((r) => r.id);
 }
 
 /**
@@ -202,7 +321,7 @@ export function anlegen(input: { id: string; ownerId: string; chiffrat: string; 
 export function speichern(input: {
   notizId: string; userId: string; chiffrat: string; version: number; force?: boolean;
 }): { ok: true; notiz: Notiz } | { ok: false; notiz: Notiz } {
-  if (!sichtbar(input.notizId, input.userId)) throw new Error('Notiz nicht gefunden.');
+  if (!sichtbar(input.notizId, input.userId)) throw abweisung('fehler.notizNichtGefunden', 'Notiz nicht gefunden.');
   const aktuell = db.get<{ version: number; schluessel_fassung: number }>(
     'SELECT version, schluessel_fassung FROM notizen WHERE id = ?', input.notizId,
   )!;
@@ -248,15 +367,15 @@ export function mitgliedHinzufuegen(input: {
   notizId: string; ownerId: string; zielUserId: string; paket: SchluesselPaket;
 }): Notiz {
   if (!istBesitzer(input.notizId, input.ownerId)) {
-    throw new Error('Nur die besitzende Person fügt jemanden zu einer Notiz hinzu.');
+    throw abweisung('fehler.notizNurBesitzerHinzufuegen', 'Nur die besitzende Person fügt jemanden zu einer Notiz hinzu.');
   }
-  if (input.zielUserId === input.ownerId) throw new Error('Die besitzende Person steht schon dabei.');
-  if (!input.paket?.iv || !input.paket?.daten) throw new Error('Das Schlüsselpaket ist unvollständig.');
+  if (input.zielUserId === input.ownerId) throw abweisung('fehler.notizBesitzerBereitsMitglied', 'Die besitzende Person steht schon dabei.');
+  if (!input.paket?.iv || !input.paket?.daten) throw abweisung('fehler.notizSchluesselpaketUnvollstaendig', 'Das Schlüsselpaket ist unvollständig.');
 
   const notiz = db.get<{ schluessel_fassung: number }>(
     'SELECT schluessel_fassung FROM notizen WHERE id = ?', input.notizId,
   );
-  if (!notiz) throw new Error('Notiz nicht gefunden.');
+  if (!notiz) throw abweisung('fehler.notizNichtGefunden', 'Notiz nicht gefunden.');
 
   const jetzt = Date.now();
   db.transaction(() => {
@@ -299,12 +418,12 @@ export function mitgliedEntfernen(input: {
   pakete: { userId: string; paket: SchluesselPaket }[];
 }): Notiz {
   if (!istBesitzer(input.notizId, input.ownerId)) {
-    throw new Error('Nur die besitzende Person entfernt jemanden aus einer Notiz.');
+    throw abweisung('fehler.notizNurBesitzerEntfernen', 'Nur die besitzende Person entfernt jemanden aus einer Notiz.');
   }
   const notiz = db.get<{ version: number; schluessel_fassung: number }>(
     'SELECT version, schluessel_fassung FROM notizen WHERE id = ?', input.notizId,
   );
-  if (!notiz) throw new Error('Notiz nicht gefunden.');
+  if (!notiz) throw abweisung('fehler.notizNichtGefunden', 'Notiz nicht gefunden.');
   if (input.neueFassung !== notiz.schluessel_fassung + 1) {
     throw new FassungsKonflikt();
   }
@@ -360,6 +479,13 @@ export function mitgliedEntfernen(input: {
     // Die alte Fassung ist ab hier bedeutungslos — niemand braucht sie noch,
     // siehe Kopf dieser Datei. Aufräumen statt liegen lassen.
     db.run('DELETE FROM notiz_schluessel_pakete WHERE notiz_id = ?', input.notizId);
+    /* Und dasselbe für den Kontoweg: jedes Kontopaket dieser Notiz trägt die
+       ALTE Schlüsselfassung und ließe sich mit dem neuen Notizschlüssel nicht
+       mehr gebrauchen. Es kommt hier bewusst kein neues an: die verpackende
+       Person hat nur ihren EIGENEN Kontoschlüssel, für die anderen könnte sie
+       nichts packen. Ihr eigenes schickt ihre App gleich hinterher, die der
+       übrigen wachsen über notizenOhneKontoPaket() nach. */
+    db.run('DELETE FROM notiz_konto_pakete WHERE notiz_id = ?', input.notizId);
     for (const eintrag of input.pakete) {
       const p = eintrag.paket;
       if (!bleibenSollen.has(eintrag.userId) || !p?.iv || !p?.daten) continue;
@@ -375,7 +501,7 @@ export function mitgliedEntfernen(input: {
 }
 
 export function loeschen(notizId: string, userId: string): void {
-  if (!istBesitzer(notizId, userId)) throw new Error('Nur die besitzende Person löscht eine Notiz.');
+  if (!istBesitzer(notizId, userId)) throw abweisung('fehler.notizNurBesitzerLoescht', 'Nur die besitzende Person löscht eine Notiz.');
   db.run('DELETE FROM notizen WHERE id = ?', notizId);
 }
 
@@ -421,6 +547,40 @@ export function fehlendeMitgliedschaften(userId: string): { notizId: string; own
      LEFT JOIN notiz_schluessel_pakete p ON p.notiz_id = m.notiz_id AND p.user_id = m.user_id
      WHERE m.user_id = ? AND m.entfernt_am IS NULL AND p.user_id IS NULL`,
     userId,
+  );
+}
+
+/**
+ * Die eigenen Notizen, in denen ein noch aktives Mitglied kein Paket hat —
+ * für den Neuanmelde-Rutsch (ws/gateway.ts, `ready()`).
+ *
+ * fehlendeMitgliedschaften() oben deckt nur den Augenblick ab, in dem das
+ * MITGLIED gerade seinen Schlüssel meldet: der Anstoß geht an die
+ * besitzende Person, aber nur an die Sitzungen, die genau in dem Moment
+ * verbunden sind (sendToUser trifft niemanden sonst). Ist die besitzende
+ * Person zu dem Zeitpunkt offline — oder war ihre App zwar online, aber die
+ * Notizen-Tafel nie geöffnet und der Notizschlüssel deshalb nicht im
+ * Speicher —, verpufft der Anstoß, und niemand fragt je wieder nach: genau
+ * der stumme Kreisel aus dem Fehlerbericht.
+ *
+ * Diese Funktion holt denselben Zustand aus Sicht der BESITZENDEN Person
+ * ein, nicht des Mitglieds — sie läuft bei jedem Neuanmelden dieser Person
+ * selbst (siehe ready()), fragt also nicht mehr "wartet jemand gerade
+ * zufällig mit auf der Leitung", sondern "bin ICH gerade wieder da, und
+ * fehlt für eine meiner Notizen noch ein Paket". Damit heilt sich der Fall
+ * von selbst, sobald die besitzende Person das nächste Mal online ist —
+ * unabhängig davon, ob ihr eigener Notizschlüssel beim letzten Versuch im
+ * Speicher lag oder nicht (siehe lib/notizen.ts,
+ * eigenenNotizSchluesselNachladen für die Gegenseite dazu).
+ */
+export function eigeneUnverpackteMitglieder(ownerId: string): { notizId: string; userId: string }[] {
+  return db.all<any>(
+    `SELECT m.notiz_id AS notizId, m.user_id AS userId
+     FROM notiz_mitglieder m
+     JOIN notizen n ON n.id = m.notiz_id
+     LEFT JOIN notiz_schluessel_pakete p ON p.notiz_id = m.notiz_id AND p.user_id = m.user_id
+     WHERE n.owner_id = ? AND m.entfernt_am IS NULL AND p.user_id IS NULL`,
+    ownerId,
   );
 }
 
@@ -491,4 +651,12 @@ export function kontoBereinigen(userId: string): void {
      WHERE user_id = ? AND entfernt_am IS NULL`,
     Date.now(), userId,
   );
+
+  /* Der Kontoweg dieser Person fällt ganz weg. Anders als die Gerätepakete
+     (die stehen bleiben, siehe oben — sie gehören zu Notizen, die andere
+     weiterlesen) hilft ein Kontopaket nach dem Löschen niemandem mehr: den
+     Kontoschlüssel gibt es nicht mehr, und `verwerfen()` in
+     services/kontoschluessel.ts hat ihn ohnehin schon für ungültig
+     erklärt. */
+  db.run('DELETE FROM notiz_konto_pakete WHERE user_id = ?', userId);
 }

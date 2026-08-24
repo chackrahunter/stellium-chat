@@ -171,7 +171,7 @@ export function PostMeldungen({ onClose }: { onClose: () => void }) {
       onClose={onClose}
       width={720}
       actions={
-        <button className="icon-btn" title={t('post.aktualisieren')} onClick={() => void laden()}>
+        <button className="icon-btn" title={t('post.aktualisieren')} aria-label={t('post.aktualisieren')} onClick={() => void laden()}>
           <RefreshCw size={15} />
         </button>
       }
@@ -210,7 +210,7 @@ export function PostMeldungen({ onClose }: { onClose: () => void }) {
 
       {!!sichtbar.length && (
         <div className="postsicht-liste">
-          {sichtbar.map((m) => <Meldung key={m.mailId} m={m} t={t} onClose={onClose} />)}
+          {sichtbar.map((m) => <Meldung key={m.mailId} m={m} t={t} />)}
         </div>
       )}
 
@@ -235,8 +235,8 @@ export function PostMeldungen({ onClose }: { onClose: () => void }) {
  * aktualisieren. `t` kommt deshalb als Wert herein statt aus einem eigenen
  * `useT()`.
  */
-function Meldung({ m, t, onClose }: {
-  m: PostMeldung; onClose: () => void;
+function Meldung({ m, t }: {
+  m: PostMeldung;
   t: (key: TranslationKey, werte?: Record<string, string | number>) => string;
 }) {
   const dringlichkeit = m.einordnung?.dringlichkeit ?? null;
@@ -246,7 +246,42 @@ function Meldung({ m, t, onClose }: {
     <button
       className="postsicht-karte"
       style={{ borderInlineStartColor: randFarbe }}
-      onClick={() => { useStore.getState().jumpToPostMail(m.mailId); onClose(); }}
+      /* KEIN onClose() HIER — das ist schon einmal falsch gemacht und dann
+         richtig repariert worden; die Reparatur ging über einen
+         `git reset --hard` beim Ausliefern verloren, ohne dass die Änderung
+         committet war. Darum ausführlich, damit es nicht ein drittes Mal
+         passiert:
+
+         `jumpToPostMail()` (state/store.ts) wechselt den Überlagerungs-Reiter
+         SELBST — `set({ overlay: 'post', postJumpMailId: mailId })`. Ein
+         zusätzliches `onClose()` direkt danach ruft nur `setOverlay(null)`
+         auf und überschreibt `overlay: 'post'` in DERSELBEN synchronen
+         Zustandsaktualisierung wieder mit `null`. Der Sprung passiert und
+         wird im selben Tick rückgängig gemacht — die ganze Überlagerung
+         schließt sich, statt zur Mail im Postfach zu wechseln, und die
+         Person landet auf einem leeren Bildschirm.
+
+         Das ist NICHT dasselbe Muster wie die sonstigen "Sprung, dann
+         onClose()"-Stellen im Haus — Dialogs.tsx RemindersPanel und
+         VorschlagPosteingang.tsx (beide `jumpToMessage()`) sowie
+         Vertraulich.tsx FreigabenListe (`openChannel()`, dort sogar ganz
+         ohne die onClose-Prop, direkt `setOverlay(null)` danach). Keine
+         dieser drei Sprungfunktionen fasst `overlay` an — ihr `onClose()`
+         (bzw. `setOverlay(null)`) danach kommt also nie zu früh. Hier wurde
+         dieselbe Kurzform übernommen, ohne zu bemerken, dass `jumpToPostMail`
+         die Ausnahme ist, weil es den Überlagerungswechsel selbst übernimmt.
+         Bitte beim nächsten Mal nicht wieder kopieren.
+
+         Zweite, stille Folge desselben Fehlers: blieb die Überlagerung nie
+         auf 'post' stehen, mountete PostPanel.tsx nie, und dessen Effekt
+         (liest `postJumpMailId`, meldet sich mit `postJumpConsumed()` wieder
+         ab) lief nie mit — `postJumpMailId` blieb scharf im globalen Zustand
+         stehen und ließ das Postfach beim nächsten GANZ NORMALEN Öffnen
+         wortlos zu dieser alten Mail springen. Mit dem Sprung, der jetzt
+         tatsächlich stehen bleibt, mountet PostPanel wie vorgesehen und räumt
+         `postJumpMailId` selbst ab — dafür braucht es hier keinen weiteren
+         Code. */
+      onClick={() => useStore.getState().jumpToPostMail(m.mailId)}
     >
       <div className="postsicht-karte__kopf">
         {m.einordnung && (

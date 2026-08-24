@@ -24,10 +24,27 @@ import {
   dateiVerschluesseln, istE2EChiffrat, kanalSchluesselWechseln,
   kontoHuelle, nachrichtVerschluesseln,
 } from '../lib/vertraulich.js';
+import {
+  kontoSchluesselAufnehmen, kontoSchluesselEinrichten, kontoSchluesselVergessen,
+} from '../lib/kontoschluessel.js';
+import { anmelden, nachweisNachtragen } from '../lib/anmeldenachweis.js';
 /* Nur der Typ — die Selbstanbindung an den Draht (dieselbe Bauart wie bei
    lib/vertraulich.ts oben) übernimmt App.tsx, damit sie unabhängig davon
    aktiv ist, ob die Notizen-Tafel in dieser Sitzung je geöffnet wurde. */
 import type { NotizKlartext } from '../lib/notizen.js';
+/* Fünf eigene, winzige Laden für je eine Tafel (siehe deren Dateikopf: alle
+   aus demselben Grund entstanden, store.ts wurde an anderer Stelle
+   bearbeitet). logout() unten muss sie trotzdem kennen: ihr `offen` lebt
+   unabhängig vom Selbst und überlebt eine Abmeldung sonst unverändert —
+   meldet sich auf demselben Fenster gleich darauf ein anderes Konto an,
+   ginge dessen Tafel von selbst auf. verkaufMeldungen.ts bringt zusätzlich
+   einen laufenden Abruf-Takt und zwischengespeicherte Zeilen mit, die
+   genauso wenig zur nächsten Person gehören. */
+import { useEinmalcodeUi } from './einmalcode.js';
+import { usePaypalUi } from './paypal.js';
+import { useGedaechtnisUi } from './gedaechtnis.js';
+import { usePartnerGruppenUi } from './partnergruppen.js';
+import { useVerkaufMeldungenUi } from './verkaufMeldungen.js';
 
 export interface Toast {
   id: string;
@@ -80,6 +97,18 @@ interface StoreState {
   booted: boolean;
   self: SelfUser | null;
   ai: AiCapabilities | null;
+  /**
+   * Warten Notizen und Tresor auf eine Wiederherstellung über den Notzugang?
+   *
+   * Kommt vom Server (GET /api/konto/schluessel) und wird hier NICHT
+   * nachgerechnet: es ist dieselbe Tatsache, mit der der Server einen
+   * Ersatzschlüssel abweist (services/kontoschluessel.ts, notzugangWartet()).
+   * NotzugangHinweis.tsx zeigt daraufhin den Streifen, der die einzige
+   * sichtbare Spur dieses Zustands ist — ohne ihn steht eine gerade
+   * zurückgesetzte Person vor leeren Notizen und erfährt nie, dass drei von
+   * fünf Kolleginnen sie zurückholen können.
+   */
+  notzugangWartet: boolean;
   /** Stand, der auf dem Server läuft — für die Aktualisierungsansicht. */
   serverVersion: string | null;
   /** Fassung, die für den Server bereitliegt, aber noch nicht läuft. */
@@ -158,6 +187,15 @@ interface StoreState {
   notizenGeladen: boolean;
   /** Entschlüsselt, sobald der passende Schlüssel da ist — sonst null. */
   notizenKlartext: Record<string, NotizKlartext | null>;
+  /**
+   * Fehlt der Notizschlüssel länger als die kurze Anlaufzeit, die
+   * lib/notizen.ts jedem Entschlüsseln zubilligt? `true` heißt: kein
+   * anderes Gerät hat in dieser Zeit geantwortet — die Oberfläche zeigt
+   * dann eine erklärende Meldung statt eines endlosen Kreisels (siehe
+   * notizen.wirdEntschluesseltNichtMoeglich). Nie gesetzt für Notizen ohne
+   * Eintrag hier — nur der kurze Regelfall kurz nach dem Laden.
+   */
+  notizenSchluesselFehlt: Record<string, boolean>;
   /** Ein Speichern wurde abgelehnt, weil zwischenzeitlich woanders gespeichert wurde. */
   notizKonflikte: Record<string, Notiz>;
   /**
@@ -234,6 +272,9 @@ interface StoreState {
   boot: () => Promise<void>;
   login: (login: string, password: string) => Promise<void>;
   logout: () => void;
+  /** Beim Server nachfragen, ob eine Wiederherstellung aussteht — siehe
+   *  `notzugangWartet` oben. */
+  notzugangPruefen: () => Promise<void>;
   /**
    * Zeitzone einmalig vom Browser übernehmen, solange `self.timezoneAuto`
    * steht (siehe SelfUser in @stellium/shared). Ohne Wirkung, wenn schon
@@ -615,6 +656,54 @@ function upsertMessage(list: Message[] | undefined, msg: Message): Message[] {
   return arr;
 }
 
+/**
+ * Markiert die eigene, noch ausstehende Zeile zu einer `clientId` als
+ * gescheitert — egal ob sie im Kanalverlauf steht oder in einem Thread.
+ *
+ * Sucht statt einer Merkliste zu führen (siehe Git-Verlauf: eine solche Liste
+ * gab es hier einmal, `nachrichtenOhneEcho`, und sie hatte drei Fehler —
+ * falsche Zuordnung bei mehreren gleichzeitig ausstehenden Nachrichten, eine
+ * Lücke bei Thread-Antworten, die NIE in `s.messages` stehen, siehe
+ * `sendMessage` unten, und keinerlei Aufräumen bei Verbindungsabbruch oder
+ * Abmeldung). Der Server sagt inzwischen selbst, welche `clientId` er
+ * abgewiesen hat (`error`-Ereignis, packages/shared/src/protocol.ts) — eine
+ * Suche über den vorhandenen Zustand ist darum genau genug und kann nichts
+ * mehr vergessen: es gibt nichts mehr, das vergessen werden könnte.
+ *
+ * `m.pending` grenzt gegen die (seltene) Möglichkeit ab, dass eine längst
+ * bestätigte Nachricht noch dieselbe `clientId` trägt (der Server spiegelt
+ * sie dem eigenen Absender zur Wiedererkennung zurück, siehe `message:new`
+ * unten) — nur die vorläufige Zeile darf hier angefasst werden.
+ *
+ * Gibt zurück, ob überhaupt etwas gefunden wurde: ein alter Server ohne
+ * `clientId` auf dem Fehler ruft diese Funktion gar nicht erst auf (siehe
+ * `case 'error'`), und eine längst verschwundene Zeile (Kanal seither
+ * verlassen, Fenster neu geladen) ist kein Fehlschlag dieser Funktion.
+ */
+function markMessageFailed(clientId: string): boolean {
+  let gefunden = false;
+  const treffer = (m: Message) => m.pending && m.clientId === clientId;
+  const markiert = (m: Message): Message => (treffer(m)
+    ? { ...m, pending: false, failed: true, pendingAttachments: undefined }
+    : m);
+
+  useStore.setState((s) => {
+    const next: Partial<StoreState> = {};
+    for (const [channelId, list] of Object.entries(s.messages)) {
+      if (!list.some(treffer)) continue;
+      gefunden = true;
+      next.messages = { ...(next.messages ?? s.messages), [channelId]: list.map(markiert) };
+    }
+    for (const [parentId, list] of Object.entries(s.threads)) {
+      if (!list.some(treffer)) continue;
+      gefunden = true;
+      next.threads = { ...(next.threads ?? s.threads), [parentId]: list.map(markiert) };
+    }
+    return next;
+  });
+  return gefunden;
+}
+
 import {
   dokumentSpracheSetzen, translate, spracheDesSystems, type TranslationKey,
 } from '../i18n/kern.js';
@@ -729,6 +818,7 @@ export const useStore = create<StoreState>((set, get) => ({
   booted: false,
   self: null,
   ai: null,
+  notzugangWartet: false,
 
   users: {},
   channels: {},
@@ -766,6 +856,7 @@ export const useStore = create<StoreState>((set, get) => ({
   notizen: {},
   notizenGeladen: false,
   notizenKlartext: {},
+  notizenSchluesselFehlt: {},
   notizKonflikte: {},
   schubladeOffen: false,
   activeChannelId: null,
@@ -803,6 +894,18 @@ export const useStore = create<StoreState>((set, get) => ({
       const { user, ai } = await api.me();
       set({ self: user, ai });
       applyTheme(user.theme, user.density);
+      /* Den Kontoschlüssel von der letzten Anmeldung wieder aufnehmen — ohne
+         Passwort geht hier nichts Neues, das gibt es beim Start nicht (siehe
+         lib/kontoschluessel.ts). Findet sich keiner, bleibt es beim
+         Geräteweg, bis diese Person sich das nächste Mal anmeldet. */
+      kontoSchluesselAufnehmen(user.id);
+      /* Und nachfragen, ob eine Wiederherstellung aussteht. Nicht nur nach
+         einer Anmeldung: der schonende Zustand überlebt jeden Neustart der
+         App, und ein Streifen, der nur einmal nach dem Anmelden erscheint,
+         wäre beim zweiten Öffnen des Fensters wieder verschwunden — mitsamt
+         dem einzigen Hinweis darauf, dass die eigenen Notizen zu retten
+         sind. Ohne await: der Start soll darauf nicht warten. */
+      void get().notzugangPruefen();
       socket.connect();
       // Jeder App-Start ist auch ein "Anmelden" im Sinne der Zeitzone: gerade
       // bestehende Konten öffnen die App meist über ein gültiges Token, ohne
@@ -825,10 +928,48 @@ export const useStore = create<StoreState>((set, get) => ({
   },
 
   login: async (login, password) => {
-    const { token: t, user } = await api.login(login, password);
+    /* Über anmelden() statt api.login(): der Weg ohne Passwort zuerst, der
+       alte als Auffangnetz — siehe lib/anmeldenachweis.ts. Für alles, was
+       danach kommt, ändert sich dabei NICHTS. `password` ist unverändert
+       dasselbe Klartextpasswort aus dem Anmeldefeld; es geht nur nicht mehr
+       über die Leitung. */
+    const { token: t, user, ueberNachweis } = await anmelden(login, password);
     setToken(t);
     set({ self: user });
     applyTheme(user.theme, user.density);
+    /* HIER und nur an den drei Stellen mit Passwort im Klartext (Anmeldung,
+       Ersteinrichtung, Passwortwechsel) entsteht der Kontoschlüssel — der
+       Schlüssel, der einem KONTO gehört statt einem Gerät und der eine auf
+       dem Mac angelegte Notiz auf dem Handy aufgehen lässt.
+
+       DIESE ZEILE IST DIE GEFÄHRLICHSTE STELLE DES UMBAUS und sie steht
+       deshalb wortgleich da wie vorher: `password`, nicht der Nachweis.
+       Der Kontoschlüssel-KEK wird aus dem PASSWORT abgeleitet (PBKDF2 mit
+       eigenem Salz und 600.000 Runden, siehe lib/kontoschluessel.ts).
+       Käme hier statt des Passworts irgendetwas anderes an, ginge die
+       bestehende Hülle nicht mehr auf, die App legte einen NEUEN
+       Kontoschlüssel an, der Server zählte die Fassung hoch und räumte
+       dabei jedes Notiz-Kontopaket weg. Der Nachweis ist eine ANDERE
+       Ableitung aus demselben Passwort und darf hier nie hin.
+
+       Vor socket.connect(): der Draht bringt gleich nach `ready` die
+       Notizpakete mit, und der Kontoweg soll dann schon stehen. Das kostet
+       einen Augenblick (PBKDF2), aber genau einmal je Anmeldung.
+
+       Ein Fehlschlag hält die Anmeldung nicht auf — die Funktion fängt ihn
+       selbst und meldet nur, ob es geklappt hat. */
+    await kontoSchluesselEinrichten(user.id, password);
+    /* Steht die Passworthülle nicht mehr, aber ein Notzugang schon, dann
+       hat kontoSchluesselEinrichten() bewusst KEINEN neuen Schlüssel
+       gemintet (vierter Ausgang dort) — und genau dann muss der Streifen
+       erscheinen. */
+    void get().notzugangPruefen();
+    /* Ging die Anmeldung über den alten Weg, hat der Server das Passwort
+       gerade gesehen. Dann jetzt den Nachweis hinterlegen, damit es das
+       nächste Mal nicht mehr passiert — die Umstellung geschieht von selbst
+       und niemand muss davon wissen. Wirft nie und wird nicht abgewartet:
+       eine gelungene Anmeldung darf daran nicht mehr scheitern. */
+    if (!ueberNachweis) void nachweisNachtragen(login, password);
     socket.connect();
     get().zeitzoneNachtragen();
     // Ab jetzt darf der Hauptprozess nach neuen Versionen sehen.
@@ -865,14 +1006,46 @@ export const useStore = create<StoreState>((set, get) => ({
     get().updatePrefs({ timezone: erkannt });
   },
 
+  notzugangPruefen: async () => {
+    try {
+      const { notzugangWartet } = await api.kontoSchluessel();
+      set({ notzugangWartet: Boolean(notzugangWartet) });
+    } catch {
+      /* Kein Netz, oder der Einrichtungsriegel steht noch (ein Konto mit
+         offener Ersteinrichtung kommt an diesen Weg nicht heran, siehe
+         server/index.ts). Beides ist kein Grund, etwas zu behaupten — der
+         Streifen bleibt, wie er war, und die nächste Anmeldung fragt neu. */
+    }
+  },
+
   logout: () => {
     socket.disconnect();
     setToken(null);
+    /* Dieselbe Lücke wie bei `files` weiter unten, nur schwerer wiegend: der
+       Kontoschlüssel des sich abmeldenden Kontos hat auf diesem Gerät nichts
+       mehr verloren. */
+    kontoSchluesselVergessen();
+    /* Derselbe Grund, eine Ebene tiefer: der gesprochene Wiederherstellungs-
+       Code liegt NICHT hier im Renderer, sondern im Hauptprozess
+       (electron/main.ts, `notzugangCode`) — je Anfragekennung, nicht je
+       Konto. Ohne diesen Aufruf überlebte er die Abmeldung: meldet sich auf
+       demselben Fenster ein anderes Konto an, das zufällig einen Anteil an
+       DERSELBEN offenen Anfrage hält, bekäme `aufgaben` dieselbe
+       Anfragekennung genannt — und ein einziger Bridge-Aufruf läse den Code
+       der vorigen Person aus. Begrenzter Schaden (der Code allein öffnet
+       nichts, ein Anteil ist einer von dreien), aber ein Geheimnis, das
+       seine Sitzung überlebt, ist eines zu viel. Ohne Wirkung im Browser —
+       dort gibt es die Brücke nicht, und `vergessen` ist dann `undefined`. */
+    void window.stellium?.notzugangCode?.vergessen();
     void window.stellium?.updateSignOut?.();
     set({
       self: null, users: {}, channels: {}, states: {}, messages: {}, threads: {},
       activeChannelId: null, lastHumanChannelId: null, threadParentId: null, overlay: null, scheduled: [],
       catchup: null, smartReplies: [], searchHits: [], readReceipts: {},
+      /* Auch dieser: er gehört zum Kontoschlüssel des abgemeldeten Kontos.
+         Bliebe er stehen, zeigte das nächste Konto auf demselben Fenster
+         einen Streifen über fremde, wartende Notizen. */
+      notzugangWartet: false,
       /* Bis hierher fehlten die beiden: die Ablage blieb im Speicher stehen,
          mitsamt den privaten Dateien des Kontos, das sich gerade abmeldet.
          Meldet sich auf demselben Fenster gleich darauf ein anderes Konto an,
@@ -883,6 +1056,19 @@ export const useStore = create<StoreState>((set, get) => ({
          sollte. */
       files: [], storageUsage: null, libraryUploads: [],
     });
+    /* Dieselbe Lücke wie bei `files` oben, nur für die fünf Tafeln mit
+       eigenem Laden (Einmalcode, Bank, Gedächtnis, Briefpartner-Gruppen,
+       Verkaufsmeldungen): ihr `offen` steht in `set(...)` hier nicht drin,
+       weil es dort gar nicht lebt. Ohne diese Zeilen bliebe eine offen
+       gelassene Tafel offen, meldete sich auf demselben Fenster gleich
+       darauf ein anderes Konto an — dessen Bildschirm ginge fremd auf,
+       fehlt der Person das Recht dafür sogar mit einer Fehlermeldung für
+       eine Tafel, die sie im eigenen Menü nie zu sehen bekäme. */
+    useEinmalcodeUi.getState().schliessen();
+    usePaypalUi.getState().schliessen();
+    useGedaechtnisUi.getState().schliessen();
+    usePartnerGruppenUi.getState().schliessen();
+    useVerkaufMeldungenUi.getState().zuruecksetzen();
   },
 
   /* ── Kanäle ─────────────────────────────────────────────── */
@@ -967,17 +1153,15 @@ export const useStore = create<StoreState>((set, get) => ({
     void (async () => {
       const hinaus = await hinausText(channelId, text);
       if (hinaus === null) {
-        // Nicht verschlüsselbar: die Nachricht bleibt sichtbar stehen und ist
-        // als gescheitert markiert. Offen hinausschicken wäre das Gegenteil
-        // dessen, wofür jemand den Kanal vertraulich gestellt hat.
-        set((s) => ({
-          messages: {
-            ...s.messages,
-            [channelId]: (s.messages[channelId] ?? []).map(
-              (m) => (m.clientId === clientId ? { ...m, pending: false, failed: true } : m),
-            ),
-          },
-        }));
+        /* Nicht verschlüsselbar: die Nachricht bleibt sichtbar stehen und ist
+           als gescheitert markiert. Offen hinausschicken wäre das Gegenteil
+           dessen, wofür jemand den Kanal vertraulich gestellt hat.
+           `markMessageFailed` statt eines eigenen, auf `s.messages[channelId]`
+           begrenzten Updates: eine Thread-Antwort steht nie dort (siehe oben,
+           `imKanalverlauf`), sondern ausschließlich in `s.threads[parentId]`
+           — dieselbe Lücke, die die Fehlerbehandlung unten hatte, hätte sich
+           hier sonst ein zweites Mal eingeschlichen. */
+        markMessageFailed(clientId);
         return;
       }
       /* Ein vertraulicher Kanal bekommt keine Platzhalter-Namen zu sehen: die
@@ -1579,6 +1763,9 @@ function applyTheme(theme: SelfUser['theme'], density: SelfUser['density']): voi
   // Sprache und Leserichtung hängen am selben Ereignis wie das Aussehen:
   // beides gilt für das ganze Dokument und ändert sich zusammen.
   dokumentSpracheSetzen(useStore.getState().self?.uiLanguage || spracheDesSystems());
+  // Natives UI im Hauptprozess (Menü, Tray, Bestätigungsdialoge) kennt diese
+  // Sprache sonst nicht — siehe electron/i18n.ts.
+  void window.stellium?.setLanguage?.(useStore.getState().self?.uiLanguage || spracheDesSystems());
   const resolved = theme === 'system'
     ? (window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark')
     : theme;
@@ -2047,10 +2234,12 @@ socket.onEvent((ev: ServerEvent) => {
       useStore.setState((s) => ({ tasks: { ...s.tasks, [ev.task.id]: ev.task } }));
       const self = useStore.getState().self;
       if (self && ev.task.assigneeId === self.id && vorherigerEmpfaenger !== self.id) {
-        // TODO(i18n): fester deutscher Text, weil packages/desktop/src/i18n/
-        // in dieser Änderung nicht angefasst werden durfte. Vorschlag für
-        // einen Schlüssel: toast.taskAssigned = "Dir zugeteilt".
-        zeigen({ titel: 'Dir zugeteilt', text: ev.task.title, gruppe: `task:${ev.task.id}` });
+        /* Über das Wörterbuch statt fest verdrahtet — dieselbe Bauart wie
+           bei 'reminder:fire' weiter oben. Der Schlüssel steht jetzt in allen
+           22 Wörterbüchern, deshalb ist der Cast weg: ohne ihn prüft der
+           Übersetzer den Namen wieder mit, und ein Tippfehler fällt beim
+           Bauen auf statt erst auf dem Sperrbildschirm. */
+        zeigen({ titel: ts('toast.taskAssigned'), text: ev.task.title, gruppe: `task:${ev.task.id}` });
       }
       break;
     }
@@ -2243,12 +2432,30 @@ socket.onEvent((ev: ServerEvent) => {
     case 'error': {
       const { satz, roh } = serverMeldung(ev.code, ev.message, ev.werte);
       if (ev.requestId) { settle(ev.requestId, null, new Error(satz)); break; }
-      /* Ohne Kennung lässt sich der Fehler nur der Zeit nach zuordnen. Genau
-         ein Auftrag wartet ohne Kennung — das Protokoll. Wartet er gerade,
-         gibt er hier auf, statt sich weiterzudrehen. Die Meldung geht
-         trotzdem zusätzlich als Toast hinaus: verschluckt wird nichts. */
-      protokollBeenden(roh ? `${satz} ${roh}` : satz);
-      store.toast({ kind: 'error', title: ts('toast.serverError'), body: roh ? `${satz} ${roh}` : satz });
+      const meldung = roh ? `${satz} ${roh}` : satz;
+      /* `message:send` trägt keine `requestId`, aber seit Kurzem eine
+         `clientId` direkt auf dem Fehler (packages/shared/src/protocol.ts)
+         — der Server weiß, welche Nachricht er abgewiesen hat, und sagt es
+         jetzt. Das ersetzt die frühere Zeit-Heuristik über eine Merkliste
+         ausstehender Nachrichten (`nachrichtenOhneEcho`, siehe Git-Verlauf):
+         die ordnete jeden kennungslosen Fehler der einen ausstehenden
+         Nachricht zu, wenn GENAU eine anstand — auch dem Protokoll, wenn das
+         zufällig die einzige Sache war, die noch wartete, und blieb bei zwei
+         gleichzeitig ausstehenden Nachrichten (`flush()` nach einer
+         Verbindungspause) ganz ohne Zuordnung stehen.
+         Ein alter Server ohne das Feld liefert `ev.clientId` als `undefined`
+         — `markMessageFailed` wird dann gar nicht erst aufgerufen, und es
+         geht direkt zum alten Weg über die Zeit: das Protokoll aufgeben,
+         falls eins wartet. Das ist dieselbe Ungenauigkeit wie früher bei
+         mehreren ausstehenden Nachrichten, aber ohne die Fehlzuordnung, die
+         die alte Heuristik bei EINER ausstehenden hatte — nie schlechter als
+         vorher, oft genauer. */
+      if (ev.clientId && markMessageFailed(ev.clientId)) {
+        store.toast({ kind: 'error', title: ts('toast.serverError'), body: meldung });
+        break;
+      }
+      protokollBeenden(meldung);
+      store.toast({ kind: 'error', title: ts('toast.serverError'), body: meldung });
       break;
     }
   }

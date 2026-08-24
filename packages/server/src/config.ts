@@ -3,7 +3,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { Vault, redact, resolvePassphrase } from './secrets.js';
+import { Vault, resolvePassphrase } from './secrets.js';
 import { neuesSchluesselpaar } from './crypto/ec.js';
 
 /**
@@ -423,26 +423,9 @@ export function laufzeitSetzen(werte: {
   if (werte.fastModel !== undefined) laufzeit.fastModel = werte.fastModel.trim();
 }
 
-
-/** Woher der aktive Schlüssel stammt — nur für die Anzeige, nie der Wert selbst. */
-export function secretOrigin(): { quelle: 'umgebung' | 'tresor' | 'keiner'; tresor: typeof vaultStatus; hinweis: string } {
-  const key = config.ai.provider === 'groq' ? config.ai.groq.apiKey
-    : config.ai.provider === 'openai' ? config.ai.openai.apiKey
-    : config.ai.provider === 'deepl' ? config.ai.deepl.apiKey : '';
-
-  if (!key) return { quelle: 'keiner', tresor: vaultStatus, hinweis: 'Kein Schlüssel gefunden.' };
-
-  const ausUmgebung = Boolean(
-    (config.ai.provider === 'groq' && process.env.GROQ_API_KEY)
-    || (config.ai.provider === 'openai' && process.env.OPENAI_API_KEY)
-    || (config.ai.provider === 'deepl' && process.env.DEEPL_API_KEY),
-  );
-
-  return {
-    quelle: ausUmgebung ? 'umgebung' : 'tresor',
-    tresor: vaultStatus,
-    hinweis: ausUmgebung
-      ? `im Klartext aus der Umgebung — ${redact(key)}`
-      : `entschlüsselt aus dem Tresor — ${redact(key)}`,
-  };
-}
+/* secretOrigin() ist am 22.08.2026 ersatzlos entfallen: die Funktion hatte im
+   ganzen Haus keinen einzigen Aufrufer und schrieb redact(key) — die ersten
+   vier und letzten zwei Zeichen des API-Schlüssels samt genauer Länge — in ein
+   Feld, das wie eine HTTP-Antwort geformt war und damit nur darauf wartete,
+   ausgeliefert zu werden. Ein gekürzter Schlüssel ist immer noch ein Schlüssel.
+   Wer so eine Auskunft braucht: Herkunft ja, Wert nein, auch nicht in Teilen. */

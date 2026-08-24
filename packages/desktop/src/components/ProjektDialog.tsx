@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Archive, ArchiveRestore, FolderKanban, Plus, Trash2 } from 'lucide-react';
 import { PROJEKT_FARBEN } from '@stellium/shared';
 import { useStore } from '../state/store.js';
-import { useT } from '../i18n/index.js';
+import { useT, type TranslationKey } from '../i18n/index.js';
 import { Shell } from './Panels.jsx';
 import { clsx } from '../lib/format.js';
 
@@ -16,6 +16,31 @@ import { clsx } from '../lib/format.js';
  * Archivieren statt löschen ist der Normalweg. Löschen nimmt die Schublade
  * weg, nicht die Arbeit: die Aufgaben bleiben und liegen danach ohne Projekt.
  */
+
+/**
+ * Farbnamen für die Sprachausgabe — als Wörterbuchschlüssel, nicht als Tabelle
+ * im Bauteil.
+ *
+ * Ohne Namen las ein Screenreader den Hexwert vor („#3b82f6"), was niemandem
+ * hilft. Die erste Abhilfe waren drei fest eingebaute Listen (de, en, ar) mit
+ * Englisch als Rückfall für die übrigen 19 — richtig gedacht, aber am
+ * falschen Ort: Übersetzungen gehören in die Wörterbücher, sonst hört die
+ * Hälfte der Oberfläche in der eigenen Sprache und die andere Hälfte auf
+ * Englisch.
+ *
+ * Die Zuordnung bleibt über die POSITION, nicht über den Hexwert: PROJEKT_FARBEN
+ * ist eine feste Liste (shared/types.ts), und ihre Reihenfolge lässt sich
+ * ohnehin nicht ändern, ohne bestehende Projekte umzufärben.
+ */
+const FARB_SCHLUESSEL = [
+  'projekte.farbe.violett',
+  'projekte.farbe.cyan',
+  'projekte.farbe.gruen',
+  'projekte.farbe.amber',
+  'projekte.farbe.rot',
+  'projekte.farbe.magenta',
+] as const satisfies readonly TranslationKey[];
+
 export function ProjektDialog({ onClose }: { onClose: () => void }) {
   const t = useT();
   const projekte = useStore((s) => s.projekte);
@@ -61,13 +86,13 @@ export function ProjektDialog({ onClose }: { onClose: () => void }) {
       <div className="field">
         <label className="field__label">{t('projekte.color')}</label>
         <div className="farbwahl">
-          {PROJEKT_FARBEN.map((f) => (
+          {PROJEKT_FARBEN.map((f, idx) => (
             <button
               key={f}
               className={clsx('farbwahl__punkt', farbe === f && 'farbwahl__punkt--an')}
               style={{ background: f }}
               onClick={() => setFarbe(f)}
-              aria-label={f}
+              aria-label={FARB_SCHLUESSEL[idx] ? t(FARB_SCHLUESSEL[idx]) : t('projekte.color')}
             />
           ))}
         </div>
@@ -86,13 +111,14 @@ export function ProjektDialog({ onClose }: { onClose: () => void }) {
               <span className="projekt-zeile__name">{p.name}</span>
               <span className="projekt-zeile__zahl">
                 {t('projekte.progress', { done: p.fertig, total: p.aufgaben })}
-                {p.archiviert ? ` \u00b7 ${t('projekte.archived')}` : ''}
+                {p.archiviert ? ` · ${t('projekte.archived')}` : ''}
               </span>
             </div>
             <button
               className="icon-btn"
               onClick={() => updateProjekt(p.id, { archiviert: !p.archiviert })}
               title={p.archiviert ? t('projekte.unarchive') : t('projekte.archive')}
+              aria-label={p.archiviert ? t('projekte.unarchive') : t('projekte.archive')}
             >
               {p.archiviert ? <ArchiveRestore size={14} /> : <Archive size={14} />}
             </button>
@@ -100,6 +126,7 @@ export function ProjektDialog({ onClose }: { onClose: () => void }) {
               className="icon-btn"
               onClick={() => { if (confirm(t('projekte.deleteConfirm'))) deleteProjekt(p.id); }}
               title={t('projekte.delete')}
+              aria-label={t('projekte.delete')}
             >
               <Trash2 size={14} />
             </button>

@@ -133,7 +133,7 @@ export function PollCard({ poll }: { poll: Poll }) {
         <Users size={11} />
         {poll.totalVoters === 0
           ? t('poll.noVotes')
-          : t(poll.totalVoters === 1 ? 'poll.oneVote' : 'poll.votes', { n: poll.totalVoters })}
+          : t('poll.votes', { n: poll.totalVoters })}
         {gesperrt && <span>· {t('poll.votedAnonymous')}</span>}
         {poll.closesAt && !poll.closed && <span>· {t('poll.endsIn', { zeit: relativeTime(poll.closesAt) })}</span>}
         {canClose && !poll.closed && (

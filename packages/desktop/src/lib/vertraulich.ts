@@ -140,6 +140,21 @@ export function fremderOeffentlicherSchluessel(userId: string): string | null {
   return fremdeSchluessel.get(userId) ?? null;
 }
 
+/**
+ * Einen fremden öffentlichen Teil von Hand in die Karte legen — NUR für
+ * Prüfläufe (scripts/notzugang-pruefen.mjs, Teil 3).
+ *
+ * Im Betrieb füllt sie sich ausschließlich aus `vertraulich:schluessel` über
+ * den Draht. Ein Prüflauf lädt diese Datei aber ohne laufende Verbindung; ohne
+ * diesen Zugang müsste er die halbe Sockelschicht nachbauen, nur um an eine
+ * Karte zu kommen, die der geprüfte Code selbst gar nicht anzweifelt.
+ * Derselbe Gedanke und dieselbe Namensendung wie bei
+ * `_platzhalterAlternLassenFuerPruefung()` in ws/gateway.ts.
+ */
+export function _schluesselMerkenFuerPruefung(userId: string, jwk: string): void {
+  fremdeSchluessel.set(userId, jwk);
+}
+
 /** Kanalschlüssel, entpackt. Nur im Speicher; auf der Platte bleiben Pakete. */
 const kanalSchluessel = new Map<string, CryptoKey>();      // "<channelId>:<fassung>"
 
@@ -235,6 +250,23 @@ export function eigenerOeffentlicherSchluessel(): string | null {
   return oeffentlichJwk;
 }
 
+/**
+ * Der eigene PRIVATE Teil — ausschließlich für lib/notzugang.ts.
+ *
+ * Er wird sonst nirgends herausgegeben und soll es auch nicht; jede
+ * Verpackung in diesem Haus läuft über gemeinsamerSchluessel() weiter unten,
+ * ohne ihn je anzufassen. Der Notzugang ist die eine Ausnahme, und der Grund
+ * steht bei gemeinsamerSchluesselMit(): dort muss NEBEN dem ECDH-Geheimnis
+ * ein zweites (der mündlich weitergegebene Code) in dieselbe Ableitung, und
+ * dafür braucht diese Rechnung den privaten Teil als Argument. Ausgeführt
+ * wird er trotzdem nicht: er bleibt ein CryptoKey mit `extractable`, wie ihn
+ * privatEinlesen() anlegt — was hier herauskommt, ist ein Griff, kein
+ * Schlüsselmaterial zum Wegschreiben.
+ */
+export function eigenerPrivaterSchluessel(): CryptoKey | null {
+  return privatSchluessel;
+}
+
 /* ── Verpacken und Auspacken ──────────────────────────────────── */
 
 /**
@@ -255,13 +287,54 @@ export function eigenerOeffentlicherSchluessel(): string | null {
    Siehe Kommentar am Kopf von lib/notizen.ts. */
 export async function gemeinsamerSchluessel(fremdJwk: string, kontext: string): Promise<CryptoKey> {
   if (!privatSchluessel) throw new Error(txt('fehler.keinSchluesselpaar'));
+  return gemeinsamerSchluesselMit(privatSchluessel, fremdJwk, kontext, 'stellium/vertraulich/paket/v1');
+}
+
+/**
+ * Dieselbe Rechnung mit einem MITGEGEBENEN privaten Teil — und, wenn nötig,
+ * mit einem zweiten Geheimnis daneben.
+ *
+ * Zwei Gründe, warum es diese Fassung gibt, und beide kommen vom Notzugang
+ * (lib/notzugang.ts):
+ *
+ *   DER FLÜCHTIGE ABSENDER. Ein Anteil wird mit einem WEGWERF-Schlüsselpaar
+ *   verpackt, nicht mit dem eigenen dauerhaften. Der Grund ist die Lage, für
+ *   die der Notzugang da ist: wer sein Gerät verloren hat, hat ein neues
+ *   Schlüsselpaar — ein Anteil, der auf das alte rechnet, wäre genau dann
+ *   unbrauchbar, wenn er gebraucht wird. Dafür muss der private Teil von
+ *   außen hereinkommen; `privatSchluessel` ist er in diesem Fall nicht.
+ *
+ *   DAS ZWEITE SCHLOSS. `zusatz` sind weitere Bytes, die neben dem
+ *   ECDH-Geheimnis in dieselbe Ableitung gehen — beim Notzugang die aus dem
+ *   mündlich weitergegebenen Code abgeleiteten. Ergebnis: Öffnen kann nur,
+ *   wer BEIDES hat. Der Server hat keines von beiden, auch dann nicht, wenn
+ *   er einen falschen öffentlichen Teil untergeschoben hätte.
+ *
+ *   Bewusst EINE Ableitung aus beidem statt zwei Schichten übereinander
+ *   (so wie es vorfallMelden() weiter unten macht): zwei Schichten brauchen
+ *   zwei Zufallszahlen, zwei Formate und zwei Wege, an denen etwas
+ *   schiefgehen kann. „Beides oder nichts" leistet die gemeinsame Ableitung
+ *   genauso — HKDF bindet jedes Bit seines Eingabematerials.
+ */
+export async function gemeinsamerSchluesselMit(
+  privat: CryptoKey, fremdJwk: string, kontext: string, info: string,
+  zusatz?: Uint8Array<ArrayBuffer>,
+): Promise<CryptoKey> {
   const fremd = await oeffentlichEinlesen(fremdJwk);
-  const bits = await crypto.subtle.deriveBits({ name: 'ECDH', public: fremd }, privatSchluessel, 256);
-  const roh = await crypto.subtle.importKey('raw', bits, 'HKDF', false, ['deriveKey']);
-  return crypto.subtle.deriveKey(
-    { name: 'HKDF', hash: 'SHA-256', salt: await sha256(kontext), info: enc.encode('stellium/vertraulich/paket/v1') },
-    roh, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt'],
-  );
+  const bits = new Uint8Array(await crypto.subtle.deriveBits({ name: 'ECDH', public: fremd }, privat, 256));
+  const material = zusatz ? new Uint8Array(bits.length + zusatz.length) : bits;
+  if (zusatz) { material.set(bits, 0); material.set(zusatz, bits.length); }
+  try {
+    const roh = await crypto.subtle.importKey('raw', material, 'HKDF', false, ['deriveKey']);
+    return await crypto.subtle.deriveKey(
+      { name: 'HKDF', hash: 'SHA-256', salt: await sha256(kontext), info: enc.encode(info) },
+      roh, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt'],
+    );
+  } finally {
+    // Das gemeinsame Geheimnis ist so gut wie der Schlüssel daraus.
+    bits.fill(0);
+    if (zusatz) material.fill(0);
+  }
 }
 
 /** Kontext eines Pakets. Beide Seiten müssen ihn gleich bilden. */

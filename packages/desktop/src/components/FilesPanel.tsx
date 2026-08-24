@@ -120,6 +120,7 @@ export function FilesPanel({ onClose }: { onClose: () => void }) {
               <button
                 className="icon-btn icon-btn--sm"
                 title={t('toast.uploadFailed')}
+                aria-label={t('toast.uploadFailed')}
                 onClick={() => dismissLibraryUpload(u.id)}
               >
                 <X size={13} />
@@ -294,6 +295,7 @@ export function FilesPanel({ onClose }: { onClose: () => void }) {
           <button
             className="icon-btn"
             title={t('files.download')}
+            aria-label={t('files.download')}
             disabled={holt}
             onClick={() => void herunterladen(file)}
           >
@@ -315,6 +317,7 @@ export function FilesPanel({ onClose }: { onClose: () => void }) {
           <button
             className="icon-btn"
             title={t('files.rename')}
+            aria-label={t('files.rename')}
             onClick={() => {
               const name = prompt(t('files.rename'), file.name);
               if (name && name.trim() && name !== file.name) updateFile(file.id, { name: name.trim() });
@@ -328,6 +331,7 @@ export function FilesPanel({ onClose }: { onClose: () => void }) {
           <button
             className="icon-btn icon-btn--danger"
             title={t('files.delete')}
+            aria-label={t('files.delete')}
             onClick={() => { if (confirm(t('files.deleteConfirm'))) deleteFile(file.id); }}
           >
             <Trash2 size={15} />

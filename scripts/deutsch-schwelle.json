@@ -1,0 +1,85 @@
+{
+  "__hinweis": [
+    "Wird von scripts/deutsch-finden.mjs gelesen und mit --schwelle-aktualisieren geschrieben.",
+    "Zaehlt Funde und fehlende Woerterbuch-Schluessel je Datei, nicht global — ein neuer Fund in",
+    "Datei A darf sich nicht hinter einer Reparatur in Datei B verstecken. Darf je Datei nur",
+    "sinken; ein Anstieg ist im Gate ein Hardstop. Erhoehungen gehen nur per Hand-Edit dieser",
+    "Datei (sichtbar im Diff), nicht per Kommandozeile — siehe Kopf von deutsch-finden.mjs,",
+    "Abschnitt SCHWELLE."
+  ],
+  "erzeugtAm": "2026-08-23",
+  "dateien": {
+    "packages/desktop/src/components/Settings.tsx": {
+      "funde": 2,
+      "fehlendeSchluessel": 0
+    },
+    "packages/server/src/index.ts": {
+      "funde": 3,
+      "fehlendeSchluessel": 0
+    },
+    "packages/server/src/services/ablage.ts": {
+      "funde": 3,
+      "fehlendeSchluessel": 0
+    },
+    "packages/server/src/services/ai.ts": {
+      "funde": 3,
+      "fehlendeSchluessel": 0
+    },
+    "packages/server/src/services/assistant.ts": {
+      "funde": 3,
+      "fehlendeSchluessel": 0
+    },
+    "packages/server/src/services/bloecke.ts": {
+      "funde": 7,
+      "fehlendeSchluessel": 0
+    },
+    "packages/server/src/services/ideas.ts": {
+      "funde": 7,
+      "fehlendeSchluessel": 0
+    },
+    "packages/server/src/services/notizen.ts": {
+      "funde": 2,
+      "fehlendeSchluessel": 0
+    },
+    "packages/server/src/services/packen.ts": {
+      "funde": 2,
+      "fehlendeSchluessel": 0
+    },
+    "packages/server/src/services/patreon.ts": {
+      "funde": 2,
+      "fehlendeSchluessel": 0
+    },
+    "packages/server/src/services/polls.ts": {
+      "funde": 8,
+      "fehlendeSchluessel": 0
+    },
+    "packages/server/src/services/post-lernen.ts": {
+      "funde": 1,
+      "fehlendeSchluessel": 0
+    },
+    "packages/server/src/services/post-sichtung.ts": {
+      "funde": 4,
+      "fehlendeSchluessel": 0
+    },
+    "packages/server/src/services/projekte.ts": {
+      "funde": 3,
+      "fehlendeSchluessel": 0
+    },
+    "packages/server/src/services/push.ts": {
+      "funde": 2,
+      "fehlendeSchluessel": 0
+    },
+    "packages/server/src/services/releases.ts": {
+      "funde": 2,
+      "fehlendeSchluessel": 0
+    },
+    "packages/server/src/services/reminders.ts": {
+      "funde": 5,
+      "fehlendeSchluessel": 0
+    },
+    "packages/server/src/ws/gateway.ts": {
+      "funde": 1,
+      "fehlendeSchluessel": 0
+    }
+  }
+}

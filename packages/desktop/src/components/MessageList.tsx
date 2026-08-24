@@ -223,6 +223,7 @@ export function MessageList({ channelId }: Props) {
             className="icon-btn"
             onClick={jumpDown}
             title={t('chat.toBottom')}
+            aria-label={t('chat.toBottom')}
             /* Klebt am unteren Rand der Liste, nicht am Hauptbereich.
                Vorher maß `bottom: 130` vom Fuß des gesamten Bereichs — der
                Knopf lag damit über dem Eingabefeld und fing dort Klicks ab. */

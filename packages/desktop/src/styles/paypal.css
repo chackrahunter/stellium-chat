@@ -1,0 +1,104 @@
+/* ── Bank: PayPal-Kontostand (components/PaypalPanel.tsx) ─────────────
+ *
+ * Baut auf denselben Grundbausteinen auf wie SystemPanel.tsx und
+ * VerkaufDetailPanel.tsx — `.sys`, `.sys__block`, `.sys__titel`, `.syszeile`,
+ * `.sys__notiz`, `.sys__leer`. Das ist inhaltlich dieselbe Art Tafel, und
+ * eine zweite Kopie dieser Grundformen wäre irgendwann eine Stelle, an der
+ * zwei Tafeln unterschiedlich aussehen, ohne dass es jemand entschieden hat.
+ *
+ * Eigene Klassen gibt es nur für das, was es dort nicht gibt:
+ *
+ *   .bank__band       das Zustandsband ganz oben. Ohne es sähen „letzter
+ *                     Abruf fehlgeschlagen" und „alles in Ordnung" gleich
+ *                     aus, sobald man nicht auf die Uhrzeit achtet.
+ *   .bank__verlauf    ein Balken je Woche MIT MITTELLINIE. Die Balken der
+ *                     Verkaufsansicht (.verkauf__balken) wachsen nur nach
+ *                     rechts — hier kann eine Woche negativ sein, und ein
+ *                     Abfluss, der wie ein Zuwachs aussieht, ist schlimmer
+ *                     als gar kein Diagramm.
+ *
+ * Alle Farben kommen aus tokens.css; hier steht kein einziger Farbwert fest.
+ */
+
+/* Etwas mehr Luft zwischen den Blöcken als in der Systemtafel: hier stehen
+   Geldbeträge, und die dürfen nicht wie eine Messwertliste wirken. */
+.bank { grid-template-columns: 1fr; }
+
+/* ── Zustandsband ──────────────────────────────────────────────────── */
+
+.bank__band {
+  display: flex; align-items: flex-start; gap: 10px;
+  padding: 10px 12px; border-radius: var(--r-md, 10px);
+  background: var(--bg-hover);
+  border: 1px solid transparent;
+}
+.bank__band > svg { flex: none; margin-top: 1px; color: var(--tx-lo); }
+
+/* Der Fehlerfall ist der Grund für dieses Band. Er bekommt Rahmen UND Farbe,
+   damit er sich auch dann abhebt, wenn jemand die Tafel nur überfliegt. */
+.bank__band--fehler {
+  background: color-mix(in srgb, var(--amber) 12%, transparent);
+  border-color: color-mix(in srgb, var(--amber) 40%, transparent);
+}
+.bank__band--fehler > svg { color: var(--amber); }
+
+.bank__bandTitel { font-size: 13px; color: var(--tx-hi); font-weight: 600; }
+.bank__bandDetail {
+  font-size: 12px; color: var(--tx-lo); margin-top: 2px;
+  overflow-wrap: anywhere;
+}
+
+/* ── Kennzahlenkopf ────────────────────────────────────────────────── */
+
+.bank__kopf {
+  display: flex; gap: var(--sp-5); justify-content: space-around;
+  text-align: center; flex-wrap: wrap;
+}
+.bank__kennzahl { display: flex; flex-direction: column; gap: 2px; min-width: 92px; }
+.bank__kennzahlWert {
+  font-size: 20px; font-weight: 650; color: var(--tx-hi);
+  /* Tabellenziffern: nebeneinanderstehende Beträge sollen an derselben
+     Stelle ihr Komma haben, sonst liest sich die Reihe wie ein Zahlensalat. */
+  font-variant-numeric: tabular-nums;
+}
+.bank__kennzahlWert--warn { color: var(--amber); }
+.bank__kennzahlLabel { font-size: 11.5px; color: var(--tx-lo); }
+
+/* ── Verlauf mit Mittellinie ───────────────────────────────────────── */
+
+.bank__verlauf { display: grid; gap: 4px; }
+
+.bank__verlaufZeile {
+  display: grid; grid-template-columns: 64px 1fr auto; align-items: center;
+  gap: 8px; font-size: 12px;
+}
+.bank__verlaufLabel { color: var(--tx-lo); white-space: nowrap; }
+
+.bank__verlaufSpur {
+  position: relative; height: 10px; border-radius: 5px;
+  background: var(--bg-hover); overflow: hidden;
+}
+/* Die Null. Ohne sie wäre nicht zu sehen, wo ein Balken anfängt. */
+.bank__verlaufMitte {
+  position: absolute; inset-block: 0; inset-inline-start: 50%;
+  width: 1px; background: var(--tx-lo); opacity: 0.45;
+}
+.bank__verlaufBalken {
+  position: absolute; inset-block: 1px;
+  border-radius: 4px; background: var(--cyan);
+}
+.bank__verlaufBalken--minus { background: var(--amber); }
+
+.bank__verlaufWert {
+  color: var(--tx-hi); font-variant-numeric: tabular-nums;
+  text-align: end; white-space: nowrap;
+}
+
+/* ── Einrichtung ───────────────────────────────────────────────────── */
+
+.bank__knoepfe { flex-wrap: wrap; margin-top: 4px; }
+
+.bank__diagnose {
+  display: grid; gap: 2px; margin-top: 6px; padding-top: 8px;
+  border-top: 1px solid var(--bg-hover);
+}

@@ -31,6 +31,19 @@ import { VorschlagPosteingang } from './components/VorschlagPosteingang.jsx';
 import { useVorschlaege } from './state/vorschlaege.js';
 import { PartnerGruppenPanel } from './components/PartnerGruppenPanel.jsx';
 import { usePartnerGruppenUi } from './state/partnergruppen.js';
+import { useGedaechtnisUi } from './state/gedaechtnis.js';
+import { PostGedaechtnis } from './components/PostGedaechtnis.jsx';
+import { EinmalcodePanel } from './components/EinmalcodePanel.jsx';
+import { useEinmalcodeUi } from './state/einmalcode.js';
+import { PasswortPanel } from './components/PasswortPanel.jsx';
+import { NotzugangPanel } from './components/NotzugangPanel.jsx';
+import { NotzugangHinweis } from './components/NotzugangHinweis.jsx';
+import { usePasswortUi } from './state/passwort.js';
+import { useNotzugangUi } from './state/notzugang.js';
+import { PaypalPanel } from './components/PaypalPanel.jsx';
+import { usePaypalUi } from './state/paypal.js';
+import { VerkaufMeldungen } from './components/VerkaufMeldungen.jsx';
+import { useVerkaufMeldungenUi } from './state/verkaufMeldungen.js';
 import { DownloadPanel } from './components/DownloadPanel.jsx';
 import { Fernsteuerung } from './components/Fernsteuerung.jsx';
 import { SystemPanel } from './components/SystemPanel.jsx';
@@ -68,6 +81,12 @@ export function App() {
      winziger Laden statt `overlay`, weil state/store.ts gerade an anderer
      Stelle bearbeitet wird. Siehe state/partnergruppen.ts. */
   const partnerGruppenOffen = usePartnerGruppenUi((s) => s.offen);
+  const gedaechtnisOffen = useGedaechtnisUi((s) => s.offen);
+  const einmalcodeOffen = useEinmalcodeUi((s) => s.offen);
+  const passwortOffen = usePasswortUi((s) => s.offen);
+  const notzugangOffen = useNotzugangUi((s) => s.offen);
+  const bankOffen = usePaypalUi((s) => s.offen);
+  const verkaufOffen = useVerkaufMeldungenUi((s) => s.offen);
   const lightbox = useStore((s) => s.lightbox);
   const forwarding = useStore((s) => s.forwarding);
   const remindingAbout = useStore((s) => s.remindingAbout);
@@ -175,6 +194,72 @@ export function App() {
 
   const closeOverlay = () => useStore.getState().setOverlay(null);
 
+  /* Rücksetz-Schlüssel für den eingebetteten Fangkorb unten: er muss JEDES
+     Feld enthalten, das ein Panel darin schaltet -- sonst bleibt die
+     Fehlerkarte stehen, obwohl das auslösende Panel längst geschlossen oder
+     zu einem anderen gewechselt wurde (Fangkorb.tsx, getDerivedStateFromProps
+     vergleicht nur DIESEN Wert, nicht die Kinder). `overlay` deckt die
+     Dialoge ab, die direkt daran hängen; die übrigen Felder kommen aus
+     eigenen Laden (siehe deren Begründung weiter oben bei den `useState`-
+     Zeilen) und müssen darum von Hand dazu -- kommt ein siebtes Panel mit
+     eigenem Laden hinzu, gehört sein Offen-Feld HIER in die Liste -- und sein
+     `schliessen()` in `fangkorbEscape` direkt darunter. Beides zusammen, nie
+     nur eines: scripts/fangkorb-ausweg-pruefen.mjs verlangt jede
+     `useXUi((s) => s.offen)`-Anmeldung dieser Datei in BEIDEN Listen.
+     `activeChannelId` gehört ebenfalls dazu: ChannelSettings, PollDialog,
+     VorfallDialog und FreigabenDialog hängen weiter unten zusätzlich an
+     `overlay === 'x' && activeChannelId` bzw. direkt an `activeChannelId` --
+     ein Kanalwechsel bei GLEICHBLEIBENDEM `overlay` (z. B. ChannelSettings
+     für Kanal A wirft, dann Wechsel zu Kanal B) ließ die Fehlerkarte für A
+     sonst stehen, und B bekam sein eigenes ChannelSettings nie zu sehen --
+     derselbe Fehlerklasse wie ein fehlendes Laden-Feld, nur an `overlay`
+     vorbei.
+     JSON.stringify statt eines rohen Arrays: der Vergleich in Fangkorb.tsx
+     läuft über `!==`, und ein frisches Array wäre bei jedem Zeichnen ein
+     neuer Verweis -- also IMMER "anders", und die Fehlerkarte verschwände
+     sofort wieder, noch bevor sie irgendwer gelesen hätte. Ein String
+     vergleicht sich dagegen über seinen Inhalt. */
+  const fangkorbSchluessel = JSON.stringify([
+    overlay, activeChannelId, vorschlagFilter, partnerGruppenOffen, gedaechtnisOffen, einmalcodeOffen,
+    passwortOffen, notzugangOffen, bankOffen, verkaufOffen,
+  ]);
+
+  /* Rettungsanker für die Fehlerkarte selbst: sie liegt als
+     `scrim scrim--center` über der GANZEN Fensterschicht, inklusive Rail und
+     Sidebar. Für die vier `overlay`-gebundenen Dialoge (ChannelSettings,
+     PollDialog, VorfallDialog, FreigabenDialog) rettet App.tsx' globales
+     Escape (weiter oben) schon heraus, weil es `overlay` selbst löscht --
+     aber die laden-gestützten Tafeln (vorschlagFilter, partnerGruppenOffen und
+     Co.) hängen an eigenen Laden, die dieses Escape nicht anfasst (siehe
+     deren Begründung oben bei den `useXUi`-Zeilen). Für sie war die
+     Fehlerkarte bisher eine echte Sackgasse: "Erneut versuchen" zeichnet
+     dieselbe, deterministisch werfende Tafel einfach noch einmal. Dieser
+     Anker schließt darum ALLES, was der Fangkorb hier unten umschließt --
+     unabhängig davon, welches Panel geworfen hat, denn genau das weiß die
+     Fehlerkarte selbst nicht.
+
+     KEINE ZAHL IM TEXT, UND DAS MIT ABSICHT: hier stand "die fünf
+     laden-gestützten Tafeln", während es längst sieben waren. Genau in dieser
+     Lücke ist `usePasswortUi` zweimal hintereinander untergegangen -- der
+     Passwort-Tresor stand im Rücksetz-Schlüssel und hinter dem Fangkorb, aber
+     nicht hier, und "Schließen" führte für ihn zurück auf dieselbe werfende
+     Tafel, mit einem Schleier über Rail und Sidebar. Statt einer Zahl
+     bewacht scripts/fangkorb-ausweg-pruefen.mjs die Liste: der Lauf sucht
+     JEDE `useXUi((s) => s.offen)`-Anmeldung in dieser Datei und verlangt sie
+     in BEIDEN Listen -- im Schlüssel oben und im Ausweg hier. Ein achtes
+     Panel schlägt dort fehl, bevor es jemandem auffallen müsste. */
+  const fangkorbEscape = () => {
+    useStore.getState().setOverlay(null);
+    useVorschlaege.getState().schliessen();
+    usePartnerGruppenUi.getState().schliessen();
+    useGedaechtnisUi.getState().schliessen();
+    useEinmalcodeUi.getState().schliessen();
+    usePasswortUi.getState().schliessen();
+    useNotzugangUi.getState().schliessen();
+    usePaypalUi.getState().schliessen();
+    useVerkaufMeldungenUi.getState().schliessen();
+  };
+
   return (
     <>
       <Cosmos />
@@ -182,6 +267,7 @@ export function App() {
         <ServerWartung />
         <UpdateBanner />
         <MeldungBitte />
+        <NotzugangHinweis />
         <DownloadHinweis />
         <div className={clsx('app', threadParentId && 'app--thread', schubladeOffen && 'app--schublade')}>
         <Rail />
@@ -230,8 +316,10 @@ export function App() {
 
       {/* Eigener Fangkorb um die Fensterschicht: wirft ein Dialog beim
           Zeichnen, soll der Chat dahinter weiterlaufen statt mitzugehen.
-          Zurückgesetzt wird, sobald ein anderes Fenster drankommt. */}
-      <Fangkorb eingebettet zuruecksetzenBei={overlay}>
+          Zurückgesetzt über fangkorbSchluessel (siehe dort), sobald sich
+          eines der darin gerenderten Panels ändert -- nicht nur bei
+          `overlay`, das deckt nur einen Teil davon ab. */}
+      <Fangkorb eingebettet zuruecksetzenBei={fangkorbSchluessel} onEscape={fangkorbEscape}>
       <AnimatePresence>
         {overlay === 'quick' && <QuickSwitcher key="quick" onClose={closeOverlay} />}
         {(overlay === 'search' || overlay === 'saved') && (
@@ -268,8 +356,45 @@ export function App() {
             onClose={() => useVorschlaege.getState().schliessen()}
           />
         )}
-        {partnerGruppenOffen && (
+        {/* Jede der fünf Tafeln unten ist zusätzlich hinter demselben Recht
+            geschützt, das ihren Eintrag im Stern-Menü schaltet (Rail.tsx).
+            `xOffen` allein reicht nicht als Wächter: der Laden dahinter lebt
+            unabhängig von `self` (siehe deren Dateikopf) und übersteht darum
+            auch einen Wechsel des angemeldeten Kontos auf demselben Fenster
+            unverändert -- logout() setzt ihn zwar zurück (state/store.ts),
+            aber ein Recht hier zu prüfen kostet nichts und fängt jede Lücke
+            ab, die dieser Rücksetzung einmal entwischt. */}
+        {partnerGruppenOffen && self?.permissions['mail.lesen'] && (
           <PartnerGruppenPanel key="partnerGruppen" onClose={() => usePartnerGruppenUi.getState().schliessen()} />
+        )}
+        {gedaechtnisOffen && self?.permissions['mail.lesen'] && (
+          <PostGedaechtnis key="gedaechtnis" onClose={() => useGedaechtnisUi.getState().schliessen()} />
+        )}
+        {einmalcodeOffen && self?.permissions['einmalcode.nutzen'] && (
+          <EinmalcodePanel key="einmalcode" onClose={() => useEinmalcodeUi.getState().schliessen()} />
+        )}
+        {passwortOffen && self?.permissions['passwort.nutzen'] && (
+          <PasswortPanel key="passwort" onClose={() => usePasswortUi.getState().schliessen()} />
+        )}
+        {/* Bewusst OHNE Rechteprüfung, anders als alle Tafeln daneben: der
+            Notzugang schützt die EIGENEN Notizen und den EIGENEN Tresor, und
+            wer Anteile für andere hält, ist irgendwer im Team. Ein Recht
+            davorzusetzen hieße, dass eine Person ohne dieses Recht ihre
+            eigenen Daten nicht absichern und einem Kollegen nicht helfen
+            könnte — beides gehört niemandem sonst. */}
+        {notzugangOffen && (
+          <NotzugangPanel key="notzugang" onClose={() => useNotzugangUi.getState().schliessen()} />
+        )}
+        {bankOffen && (self?.permissions['bank.sehen'] || self?.permissions['bank.verwalten']) && (
+          <PaypalPanel key="bank" onClose={() => usePaypalUi.getState().schliessen()} />
+        )}
+        {/* "Ein Kauf ist passiert" — Öffnen-Knopf und Abzeichen sitzen im
+            Stern-Menü (Rail.tsx), die Tafel aber ausdrücklich HIER, im
+            eingebetteten Fangkorb: ein Fehler beim Zeichnen darf den Chat
+            dahinter nicht mitreißen (siehe Begründung in Rail.tsx bei
+            `verkaufJuengste`). */}
+        {verkaufOffen && self?.permissions['verkauf.sehen'] && (
+          <VerkaufMeldungen key="verkaufMeldungen" onClose={() => useVerkaufMeldungenUi.getState().schliessen()} />
         )}
       </AnimatePresence>
 

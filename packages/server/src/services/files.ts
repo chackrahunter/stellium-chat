@@ -119,6 +119,38 @@ export function listFiles(
   ).map(toFile);
 }
 
+/**
+ * Geht diese Datei WIRKLICH alle an?
+ *
+ * Dieselbe Regel wie `listFiles()` direkt darüber, nur als Ja-Nein-Frage
+ * statt als Verzeichnis — und aus demselben Grund hier und nicht beim
+ * Aufrufer: das Lesen wurde einmal abgedichtet (siehe der Kopf von
+ * `listFiles()`: „Name, Beschreibung, Größe und Urheber jeder Datei eines
+ * fremden privaten oder vertraulichen Kanals"), der Rundruf beim SCHREIBEN
+ * aber nicht. Dort stand nur „ist sie privat?", und privat heißt hier
+ * ausschließlich `huelle.art === 'konto'`. Eine Datei in einem privaten oder
+ * vertraulichen KANAL ist nicht privat in diesem Sinn — ihr Name, ihre
+ * Beschreibung und ihre Kanalkennung gingen also per `file:upsert` an jedes
+ * angemeldete Konto im Haus. Genau der Fall, gegen den das Lesen längst
+ * geschützt war. Eine Zusage, die beim Lesen gilt und beim Schreiben nicht,
+ * ist keine.
+ *
+ * Zwei Wahrheiten für dieselbe Frage wären eine zu viel — deshalb steht die
+ * Antwort in derselben Datei wie das Verzeichnis und nicht in der Route.
+ * Inhaltlich ist es dieselbe Grenze, die `empfaengerFuer()` im Gateway
+ * zieht: kein Kanal oder ein offener Kanal heißt „alle", alles andere heißt
+ * „nur dieser Kreis".
+ *
+ * Gibt es den Kanal nicht mehr, ist die Bindung fort und die Datei wieder
+ * für alle da — dieselbe Antwort wie dort.
+ */
+export function fuerAlleSichtbar(datei: StoredFile): boolean {
+  if (datei.privat) return false;
+  if (!datei.channelId) return true;
+  const kanal = db.get<{ kind: string }>('SELECT kind FROM channels WHERE id = ?', datei.channelId);
+  return !kanal || kanal.kind === 'public';
+}
+
 export function getFile(id: string): (StoredFile & { path: string; encoding: string | null }) | null {
   const r = db.get<any>('SELECT * FROM files WHERE id = ?', id);
   return r ? { ...toFile(r), path: r.path, encoding: r.encoding ?? null } : null;

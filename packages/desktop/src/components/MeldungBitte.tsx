@@ -76,6 +76,7 @@ export function MeldungBitte() {
             className="icon-btn icon-btn--sm"
             onClick={merken}
             title={t('meldung.spaeter')}
+            aria-label={t('meldung.spaeter')}
           >
             <X size={14} />
           </button>

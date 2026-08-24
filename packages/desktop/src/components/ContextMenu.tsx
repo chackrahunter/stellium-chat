@@ -55,6 +55,23 @@ export function ContextMenu({ position, eintraege, onClose }: {
     setOrt({ x, y });
   }, [position]);
 
+  /* Fokus rein, Fokus zurück: bislang öffnete dieses Menü nur per Rechtsklick,
+     wo die Maus schon "da" ist. Jetzt öffnet es auch die neue Spaltenwahl der
+     Aufgabenkarten (TasksBoard.tsx) per Tastatur — und ohne das hier bliebe
+     der Tastaturfokus stur auf dem Knopf stehen, während das Menü daneben
+     aufklappt. `document.body` als Portal-Ziel liegt zudem am ENDE des DOM,
+     also weit hinter dem öffnenden Knopf in der Tab-Reihenfolge; ohne
+     ausdrücklichen Fokuswechsel wäre das Menü nur über viele Tab-Schritte
+     querfeldein erreichbar. Beim Schließen geht der Fokus zurück dorthin, wo
+     er vor dem Öffnen stand — sonst fiele er auf den Anfang des Dokuments
+     zurück und der Weg zur Karte wäre wieder derselbe lange Umweg. */
+  useEffect(() => {
+    const vorher = document.activeElement as HTMLElement | null;
+    const ersterEintrag = ref.current?.querySelector<HTMLButtonElement>('button:not(:disabled)');
+    ersterEintrag?.focus();
+    return () => { vorher?.focus?.(); };
+  }, []);
+
   useEffect(() => {
     const schliessen = () => onClose();
     const beiTaste = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.stopPropagation(); onClose(); } };

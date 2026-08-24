@@ -9,13 +9,14 @@
  * „KI schreibt" und bekommt sofort einen Vorschlag ins Textfeld — nichts wird
  * in einer Tabelle abgelegt, nichts wird gemeldet, und nichts wird versendet.
  *
- * **Warum keine Funktion aus post-sichtung.ts importiert wird:** die Datei
- * ist gerade gesperrt (an ihr arbeitet ein anderer Auftrag), und die
- * Bausteine, die diese Datei bräuchte (`modellFragen()`, `anweisungMitSprache()`,
- * `kennzeichnungSichern()`), sind dort nicht exportiert. Diese Datei baut sie
- * deshalb aus denselben ÖFFENTLICHEN Bausteinen neu zusammen, die
- * post-sichtung.ts selbst auch verwendet — `anweisungFuerFach()` und
- * `mailAlsEingabe()` aus post-ki.ts unverändert, dieselbe Fensterrechnung aus
+ * **Warum keine Funktion aus post-sichtung.ts importiert wird:** die
+ * Bausteine, die diese Datei bräuchte (`modellFragen()`, `anweisungMitSprache()`),
+ * sind dort nicht exportiert. Diese Datei baut sie deshalb aus denselben
+ * ÖFFENTLICHEN Bausteinen neu zusammen, die post-sichtung.ts selbst auch
+ * verwendet — `anweisungFuerFach()`, `mailAlsEingabe()` und
+ * `teamNameFuerFach()` aus post-ki.ts unverändert (Letztere dieselbe Quelle,
+ * aus der auch services/post.ts den Anzeigenamen im "From"-Kopf eines
+ * gesendeten Briefs nimmt — siehe dort), dieselbe Fensterrechnung aus
  * translation/fenster.ts, dieselbe Fehlereinordnung aus translation/fehler.ts
  * (die post-sichtung.ts selbst NICHT nutzt — ihre eigene Fehlerbehandlung ist
  * schwächer, siehe unten). Für den Antwort-Fall (`modus: 'antwort'`) ist die
@@ -25,9 +26,18 @@
  * abweichende KI-Anbindung, sondern derselbe Weg für einen zweiten Anlass.
  * Für den Fall ohne Ursprungsmail (`modus: 'neu'`) gibt es in post-ki.ts
  * keine passende Vorlage — dafür steht unten eine eigene, kurze Anweisung,
- * die dieselbe Kennzeichnung (KENNZEICHNUNG_DE/EN) und dasselbe „nichts
- * erfinden" verlangt wie der Rest des Hauses (vergleiche TEIL_ANWEISUNG in
- * services/ai.ts).
+ * die dasselbe „nichts erfinden" verlangt wie der Rest des Hauses (vergleiche
+ * TEIL_ANWEISUNG in services/ai.ts).
+ *
+ * **Kennzeichnung:** `text` ist der reine Wortlaut des Modells, OHNE Hinweis
+ * auf maschinelle Erstellung — die Zeit, in der diese Datei sie selbst in
+ * den Text schrieb (`kennzeichnungSichern()`), ist vorbei. Wer diesen Text
+ * unverändert oder bearbeitet über `/api/post/senden` verschickt, muss ihn
+ * dafür als `textKi` in `Ausgang.textKi` mitgeben (services/post.ts) — erst
+ * dort, beim tatsächlichen Versand, entsteht die Fußzeile (services/
+ * post-fussnote.ts). Diese Datei selbst weiß nichts von Fußzeilen: sie liegt
+ * vor dem Punkt, an dem feststeht, ob und wie ein Mensch den Vorschlag noch
+ * verändert.
  *
  * **Die KI sendet nie.** Nachprüfbar wie in post-sichtung.ts: `post.js` ist
  * hier nur für `nachricht`, `spracheFuer` und `nurAdresse` eingebunden,
@@ -51,10 +61,11 @@ import {
   fensterFuer, fensterVerkleinern, markenSchaetzung, verlaufsBudget,
 } from '../translation/fenster.js';
 import {
-  anweisungFuerFach, mailAlsEingabe, KENNZEICHNUNG_DE, KENNZEICHNUNG_EN,
+  anweisungFuerFach, mailAlsEingabe, teamNameFuerFach,
   type EingehendeMailFuerKi,
 } from './post-ki.js';
-import { FAECHER, nachricht, spracheFuer, nurAdresse } from './post.js';
+import { nachricht, spracheFuer, nurAdresse } from './post.js';
+import { wissenFuerMail } from './post-wissen.js';
 
 /* ── Stellschrauben ───────────────────────────────────────────────
    Dieselben Größenordnungen wie in post-sichtung.ts: hier steht ein ganzer
@@ -72,21 +83,21 @@ export type EntwurfSchreibenInput =
   | { modus: 'neu'; fach: string; an: string; thema: string };
 
 export interface EntwurfSchreibenErgebnis {
-  /** Der vollständige Text, mit Unterschrift und Kennzeichnung — fertig fürs Textfeld. */
+  /**
+   * Der vollständige Text mit Unterschrift, fertig fürs Textfeld — OHNE
+   * Hinweis auf maschinelle Erstellung (siehe Dateikopf, Abschnitt
+   * „Kennzeichnung"). Die Oberfläche muss sich genau diesen Wortlaut
+   * merken, bevor ein Mensch am Text weiterschreibt: schickt sie ihn später
+   * unverändert oder bearbeitet über `/api/post/senden`, gehört er dort als
+   * `textKi` ins Anfrage-JSON, sonst bekommt die Mail beim Versand keine
+   * Fußzeile, obwohl eine KI mitgeschrieben hat (services/post.ts,
+   * `Ausgang.textKi`).
+   */
   text: string;
   /** In welcher Sprache geschrieben wurde. */
   sprache: string;
   /** Welches Modell geantwortet hat, für die Anzeige. */
   modell: string | null;
-  /**
-   * Der genaue Wortlaut der Kennzeichnung, bytegleich wie er in `text` steht.
-   *
-   * Für die Oberfläche: bearbeitet ein Mensch den Text danach frei und
-   * entfernt dabei diesen Wortlaut, lässt sich das an dieser Zeichenkette
-   * erkennen — ohne sie müsste die Oberfläche raten, ob „von Hand gekürzt"
-   * oder „Kennzeichnung verschwunden" vorliegt.
-   */
-  kennzeichnung: string;
 }
 
 /* ── Das Modell fragen ────────────────────────────────────────────
@@ -128,42 +139,10 @@ async function modellFragenRoh<T>(system: string, user: string): Promise<{ data:
   });
 }
 
-/* ── Die Kennzeichnung ─────────────────────────────────────────────
-   Einfacher als kennzeichnungSichern() in post-sichtung.ts (die auch eine
-   bloße Erwähnung von "StelliumAI" in einer dritten Sprache gelten lässt):
-   hier MUSS der Wortlaut bytegleich mit dem sein, was `kennzeichnung` im
-   Ergebnis zurückgibt, weil die Oberfläche genau danach sucht (siehe
-   EntwurfSchreibenErgebnis.kennzeichnung oben). Deutsch bekommt den
-   deutschen Satz, jede andere Sprache — auch Englisch — den englischen. */
-function kennzeichnungFuer(sprache: string): string {
-  return sprache === 'de' ? KENNZEICHNUNG_DE : KENNZEICHNUNG_EN;
-}
-
-function kennzeichnungSichern(text: string, sprache: string): string {
-  const marke = kennzeichnungFuer(sprache);
-  const rumpf = text.trimEnd();
-  return rumpf.includes(marke) ? rumpf : `${rumpf}\n\n${marke}`;
-}
-
 function kuerzen(text: string): string {
   const sauber = text.trim();
   if (!sauber) return '[Diese Nachricht hat keinen Textteil.]';
   return sauber.length > TEXT_GRENZE ? `${sauber.slice(0, TEXT_GRENZE)}\n[… gekürzt]` : sauber;
-}
-
-/**
- * "Stellium Support Team" aus "support" — mechanisch aus den acht Fächern
- * abgeleitet, statt aus den Text-Anweisungen in post-ki.ts herausgelöst: dort
- * stehen die Unterschriften nur eingebettet in mehrzeilige, fachspezifische
- * Anweisungsblöcke (siehe SUPPORT_ANWEISUNG & Co.), aus denen sich eine
- * einzelne Zeile nicht sauber herausschälen lässt, ohne diese Datei doch
- * anzufassen. Alle acht folgen exakt diesem Muster ("Stellium X Team"); für
- * ein unbekanntes Fach bleibt es beim neutralen "Stellium Team".
- */
-function teamName(fach: string): string {
-  const lokal = fach.trim().toLowerCase().split('@')[0].split('+')[0];
-  if (!(FAECHER as readonly string[]).includes(lokal)) return 'Stellium Team';
-  return `Stellium ${lokal.charAt(0).toUpperCase()}${lokal.slice(1)} Team`;
 }
 
 /**
@@ -184,7 +163,7 @@ function teamName(fach: string): string {
  * Team-statt-Personenname.
  */
 function anweisungFuerNeu(fach: string, sprache: string): string {
-  const team = teamName(fach);
+  const team = teamNameFuerFach(fach);
   const s = languageInfo(sprache);
   return [
     'Du bist ein Teammitglied von Stellium und schreibst im Auftrag einer Kollegin oder eines Kollegen eine neue Firmenmail an eine externe Adresse.',
@@ -193,9 +172,9 @@ function anweisungFuerNeu(fach: string, sprache: string): string {
     'Schreibe AUSSCHLIESSLICH auf Grundlage dieser Angabe. Erfinde keine Fakten, Zahlen, Preise, Zusagen, Fristen, Namen oder Einzelheiten, die dort nicht stehen — steht etwas nicht in der Angabe, steht es auch nicht in deinem Text. Ist die Angabe knapp, bleibt dein Text entsprechend knapp und allgemein, statt Lücken zu füllen.',
     `Ton: im Namen von Stellium, höflich, klar, ohne Markdown, mit Anrede. Unterschreibe mit "${team}" — nie mit einem Personennamen, auch nicht, wenn die Themenangabe danach fragt.`,
     `Schreibe auf ${s.name} (${s.native}).`,
-    `Unter die Unterschrift gehört, in einer eigenen, durch eine Leerzeile abgesetzten Zeile, der Hinweis auf maschinelle Erstellung: Deutsch "${KENNZEICHNUNG_DE}", Englisch "${KENNZEICHNUNG_EN}", in jeder anderen Sprache derselbe Hinweis in der Sprache des Textes. Das ist Pflicht — nie weggelassen, gekürzt oder umformuliert.`,
+    'Schreibe OHNE einen Hinweis auf maschinelle Erstellung — der wird nicht mehr von dir geschrieben, sondern automatisch am Ende der tatsächlich versendeten Mail ergänzt.',
     'Antworte NUR mit diesem JSON, ohne Text davor oder danach, ohne Codeblock:',
-    '{"text": "<vollständiger Mailtext mit Anrede, Unterschrift und Kennzeichnung, ohne Betreffzeile>"}',
+    '{"text": "<vollständiger Mailtext mit Anrede und Unterschrift, ohne Betreffzeile>"}',
   ].join('\n');
 }
 
@@ -214,9 +193,16 @@ export async function entwurfSchreiben(input: EntwurfSchreibenInput): Promise<En
     const empfaenger = nurAdresse(mail.richtung === 'ein' ? mail.von : mail.an);
     const sprache = spracheFuer(empfaenger);
 
+    /* Derselbe Wissensblock wie in der automatischen Sichtung
+       (post-sichtung.ts::anweisungMitSprache) — ein Entwurf auf Knopfdruck
+       darf nicht weniger wissen und nicht mehr erfinden dürfen als einer aus
+       dem Hintergrundlauf. Er trägt immer mindestens die Regel gegen
+       erfundene Auskünfte, auch wenn gar nichts gespeichert ist. */
+    const wissen = wissenFuerMail({ fach: mail.fach, betreff: mail.betreff, text: mail.text });
     const system = `${anweisungFuerFach(mail.fach)}\n`
       + `Die Antwort in \`entwurf\` schreibst du auf ${languageInfo(sprache).name} (${languageInfo(sprache).native}) — `
-      + 'das ist die Sprache dieses Briefpartners, unabhängig davon, in welcher Sprache diese eine Nachricht verfasst ist.';
+      + 'das ist die Sprache dieses Briefpartners, unabhängig davon, in welcher Sprache diese eine Nachricht verfasst ist.\n'
+      + wissen.block;
     const eingabe: EingehendeMailFuerKi = {
       von: mail.richtung === 'ein' ? mail.von : mail.an,
       betreff: mail.betreff,
@@ -235,8 +221,8 @@ export async function entwurfSchreiben(input: EntwurfSchreibenInput): Promise<En
         'Die KI hält hier keine Antwort für nötig oder hat keinen Text geliefert — bitte von Hand schreiben.');
     }
 
-    const text = kennzeichnungSichern(entwurfstext.slice(0, ENTWURF_MAX), sprache);
-    return { text, sprache, modell: roh.modell, kennzeichnung: kennzeichnungFuer(sprache) };
+    const text = entwurfstext.slice(0, ENTWURF_MAX);
+    return { text, sprache, modell: roh.modell };
   }
 
   const thema = input.thema.trim().slice(0, THEMA_MAX);
@@ -246,7 +232,12 @@ export async function entwurfSchreiben(input: EntwurfSchreibenInput): Promise<En
   }
   const empfaenger = nurAdresse(input.an);
   const sprache = spracheFuer(empfaenger);
-  const system = anweisungFuerNeu(input.fach, sprache);
+  /* Auch hier das Firmenwissen — ausgewählt nach der Themenangabe der
+     Kollegin oder des Kollegen, denn eine Ursprungsmail gibt es in diesem
+     Zweig nicht. Wer „Angebot für Triton" eintippt, soll nicht erklären
+     müssen, was Triton ist. */
+  const wissen = wissenFuerMail({ fach: input.fach, betreff: '', text: thema });
+  const system = `${anweisungFuerNeu(input.fach, sprache)}\n${wissen.block}`;
   const user = [`Empfänger: ${empfaenger}`, `Worum es gehen soll: ${thema}`].join('\n');
 
   const roh = await modellFragenRoh<{ text?: unknown }>(system, user);
@@ -255,6 +246,6 @@ export async function entwurfSchreiben(input: EntwurfSchreibenInput): Promise<En
     throw abweisung('post.kiOhneEntwurf', 'Die KI hat keinen Text geliefert — bitte von Hand schreiben.');
   }
 
-  const text = kennzeichnungSichern(rohtext.slice(0, ENTWURF_MAX), sprache);
-  return { text, sprache, modell: roh.modell, kennzeichnung: kennzeichnungFuer(sprache) };
+  const text = rohtext.slice(0, ENTWURF_MAX);
+  return { text, sprache, modell: roh.modell };
 }

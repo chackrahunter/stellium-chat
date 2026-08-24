@@ -209,6 +209,7 @@ export function IdeaBoard({ onClose }: { onClose: () => void }) {
           className={clsx('idea-vote__btn', idea.myVote === 1 && 'idea-vote__btn--on')}
           disabled={!darf}
           title={t('ideas.voteUp')}
+          aria-label={t('ideas.voteUp')}
           onClick={() => voteIdea(idea.id, 1)}
         >
           <ThumbsUp size={14} />
@@ -227,6 +228,7 @@ export function IdeaBoard({ onClose }: { onClose: () => void }) {
           className={clsx('idea-vote__btn', idea.myVote === -1 && 'idea-vote__btn--off')}
           disabled={!darf}
           title={t('ideas.voteDown')}
+          aria-label={t('ideas.voteDown')}
           onClick={() => voteIdea(idea.id, -1)}
         >
           <ThumbsDown size={14} />
@@ -334,6 +336,7 @@ function IdeaDetail({ idea, onClose }: { idea: Idea; onClose: () => void }) {
         <button
           className="icon-btn icon-btn--danger"
           title={t('ideas.delete')}
+          aria-label={t('ideas.delete')}
           onClick={() => {
             if (confirm(t('ideas.deleteConfirm'))) { deleteIdea(idea.id); onClose(); }
           }}
@@ -410,6 +413,7 @@ function IdeaDetail({ idea, onClose }: { idea: Idea; onClose: () => void }) {
                   <button
                     className="icon-btn icon-btn--danger"
                     title={t('ideas.deleteComment')}
+                    aria-label={t('ideas.deleteComment')}
                     onClick={() => deleteIdeaComment(idea.id, k.id)}
                   >
                     <X size={13} />
@@ -434,6 +438,7 @@ function IdeaDetail({ idea, onClose }: { idea: Idea; onClose: () => void }) {
           className="btn btn--primary"
           disabled={!text.trim()}
           onClick={() => { commentIdea(idea.id, text.trim()); setText(''); }}
+          aria-label={t('post.senden')}
         >
           <Send size={14} />
         </button>

@@ -64,7 +64,7 @@ export function VoiceMessage({ voice, messageId, translatedText, showOriginal }:
       <audio ref={audioRef} src={fileUrl(voice.url)} preload="metadata" />
 
       <div className="voice__player">
-        <button className="voice__play" onClick={toggle} title={playing ? t('voice.pause') : t('voice.play')}>
+        <button className="voice__play" onClick={toggle} title={playing ? t('voice.pause') : t('voice.play')} aria-label={playing ? t('voice.pause') : t('voice.play')}>
           {playing ? <Pause size={15} fill="currentColor" /> : <Play size={15} fill="currentColor" style={{ marginLeft: 2 }} />}
         </button>
 

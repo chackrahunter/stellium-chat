@@ -43,6 +43,7 @@ import {
 } from './verkaufzugang.js';
 import { getSetting, setSetting } from './settings.js';
 import { db } from '../db/index.js';
+import { ereignisseVerarbeiten, type VerkaufEreignisEingabe } from './verkaufBenachrichtigung.js';
 
 const TOKEN_URL = 'https://www.patreon.com/api/oauth2/token';
 const API_BASE = 'https://www.patreon.com/api/oauth2/v2';
@@ -53,6 +54,17 @@ const ANFRAGE_TIMEOUT_MS = 15_000;
    app_settings-Tabelle wie dort, nur mit eigenem Namensraum. */
 const SCHLUESSEL_SCOPE = 'verkauf.patreon.scope';
 const SCHLUESSEL_LETZTER_FEHLER = 'verkauf.patreon.letzterFehler';
+/**
+ * Kennung zu `SCHLUESSEL_LETZTER_FEHLER`, eigener Schlüssel statt eines
+ * gemeinsamen JSON-Werts — `getSetting`/`setSetting` (services/settings.ts)
+ * kennen nur Zeichenketten. Steht nur, wenn der zuletzt hinterlegte Fehler
+ * ein selbst geschriebener Satz war (siehe `code` in `ErneuerungErgebnis`);
+ * bei Netzwerkdiagnosen und Patreons eigenem Antworttext bleibt er leer —
+ * und muss darum bei JEDER Stelle, die `SCHLUESSEL_LETZTER_FEHLER` ohne
+ * Kennung setzt, ausdrücklich mitgeleert werden, sonst zeigt die Oberfläche
+ * irgendwann eine Kennung zu einem längst anderen Fehlertext.
+ */
+const SCHLUESSEL_LETZTER_FEHLER_CODE = 'verkauf.patreon.letzterFehlerCode';
 const SCHLUESSEL_LETZTER_VERSUCH = 'verkauf.patreon.letzterVersuchAm';
 const SCHLUESSEL_LETZTER_ERFOLG = 'verkauf.patreon.letzteErneuerungAm';
 
@@ -158,6 +170,14 @@ export interface ErneuerungErgebnis {
   ok: boolean;
   /** 'nichtEingerichtet' | 'anfrageFehlgeschlagen' | Fehlertext von Patreon */
   grund?: string;
+  /**
+   * Kennung aus dem Wörterbuch der Oberfläche, wenn `grund` ein selbst
+   * geschriebener Satz ist (nicht: Netzwerkdiagnose oder Patreons eigener
+   * Antworttext — die bleiben unübersetzt, wie überall sonst in dieser
+   * Datei). Dieselbe Bauart wie bei `fail()`/`abweisung()`: Kennung hin,
+   * `grund` bleibt der deutsche Rückfall.
+   */
+  code?: string;
   scope?: string;
   ablaufAm?: number;
 }
@@ -196,6 +216,10 @@ export async function patreonErneuern(): Promise<ErneuerungErgebnis> {
   } catch (err) {
     const grund = `Anfrage fehlgeschlagen: ${(err as Error).message}`;
     setSetting(SCHLUESSEL_LETZTER_FEHLER, grund, SYSTEM);
+    // Netzwerkdiagnose, kein selbst geschriebener Satz — keine Kennung dafür,
+    // siehe Dateikopf von SCHLUESSEL_LETZTER_FEHLER_CODE. Ausdrücklich leeren,
+    // sonst überlebt eine ältere Kennung diesen neuen, uncodierten Fehler.
+    setSetting(SCHLUESSEL_LETZTER_FEHLER_CODE, null, SYSTEM);
     console.error('[patreon] Erneuerung:', grund);
     return { ok: false, grund };
   }
@@ -207,6 +231,8 @@ export async function patreonErneuern(): Promise<ErneuerungErgebnis> {
     const text = await res.text().catch(() => '');
     const grund = `Patreon antwortet ${res.status}: ${text.slice(0, 300)}`;
     setSetting(SCHLUESSEL_LETZTER_FEHLER, grund, SYSTEM);
+    // Patreons eigener Antworttext — dieselbe Begründung wie im Zweig oben.
+    setSetting(SCHLUESSEL_LETZTER_FEHLER_CODE, null, SYSTEM);
     console.error('[patreon] Erneuerung fehlgeschlagen —', grund);
     return { ok: false, grund };
   }
@@ -216,8 +242,10 @@ export async function patreonErneuern(): Promise<ErneuerungErgebnis> {
     daten = await res.json() as TokenAntwort;
   } catch {
     const grund = 'Antwort von Patreon war kein gültiges JSON.';
+    const code = 'fehler.patreonUngueltigesJson';
     setSetting(SCHLUESSEL_LETZTER_FEHLER, grund, SYSTEM);
-    return { ok: false, grund };
+    setSetting(SCHLUESSEL_LETZTER_FEHLER_CODE, code, SYSTEM);
+    return { ok: false, grund, code };
   }
 
   const ablaufAm = Date.now() + daten.expires_in * 1000;
@@ -225,6 +253,7 @@ export async function patreonErneuern(): Promise<ErneuerungErgebnis> {
   patreonAblaufSetzen(ablaufAm, SYSTEM);
   setSetting(SCHLUESSEL_SCOPE, daten.scope ?? '', SYSTEM);
   setSetting(SCHLUESSEL_LETZTER_FEHLER, null, SYSTEM);
+  setSetting(SCHLUESSEL_LETZTER_FEHLER_CODE, null, SYSTEM);
   setSetting(SCHLUESSEL_LETZTER_ERFOLG, String(Date.now()), SYSTEM);
   console.log(`[patreon] Zugriffstoken erneuert, gültig bis ${new Date(ablaufAm).toISOString()}.`);
   return { ok: true, scope: daten.scope, ablaufAm };
@@ -233,12 +262,13 @@ export async function patreonErneuern(): Promise<ErneuerungErgebnis> {
 /** Was der Einstellungsreiter zusätzlich zu verkaufzugang.patreonStand()
  *  zeigen kann — Erneuerungsstand, ohne die vier Werte selbst zu berühren. */
 export function patreonErneuerungsStand(): {
-  scope: string | null; letzterFehler: string | null;
+  scope: string | null; letzterFehler: string | null; letzterFehlerCode: string | null;
   letzterVersuchAm: number | null; letzteErneuerungAm: number | null;
 } {
   return {
     scope: getSetting(SCHLUESSEL_SCOPE),
     letzterFehler: getSetting(SCHLUESSEL_LETZTER_FEHLER),
+    letzterFehlerCode: getSetting(SCHLUESSEL_LETZTER_FEHLER_CODE),
     letzterVersuchAm: (() => { const v = getSetting(SCHLUESSEL_LETZTER_VERSUCH); return v ? Number(v) : null; })(),
     letzteErneuerungAm: (() => { const v = getSetting(SCHLUESSEL_LETZTER_ERFOLG); return v ? Number(v) : null; })(),
   };
@@ -324,7 +354,7 @@ async function sondeFelder(
 
 export interface PatreonDiagnose {
   eingerichtet: boolean;
-  erneuerung: { versucht: boolean; ok: boolean; grund?: string };
+  erneuerung: { versucht: boolean; ok: boolean; grund?: string; code?: string };
   scope: { roh: string | null; vorhanden: Record<string, boolean>; pflichtFehlt: string[] };
   kampagnen: {
     anzahl: number;
@@ -389,7 +419,11 @@ export async function diagnoseLauf(opts: { erneuernErzwingen?: boolean } = {}): 
   if (mussErneuern && !erneuerung.ok) {
     return {
       eingerichtet: true,
-      erneuerung: { versucht: true, ok: false, grund: 'grund' in erneuerung ? erneuerung.grund : undefined },
+      erneuerung: {
+        versucht: true, ok: false,
+        grund: 'grund' in erneuerung ? erneuerung.grund : undefined,
+        code: 'code' in erneuerung ? erneuerung.code : undefined,
+      },
       scope: { roh: scopeRoh, vorhanden: scopeVorhanden, pflichtFehlt },
       kampagnen: null, mitglieder: null, stillerAusfallVerdacht: false,
       fehler: 'Erneuerung ist gescheitert, der bisherige Zugriffstoken wird trotzdem geprüft.',
@@ -553,6 +587,13 @@ async function kennzahlenHolen(): Promise<PatreonKennzahlen> {
   let aktiv = 0; let deklination = 0; let ehemalig = 0; let follower = 0;
   let einnahmenCents = 0; let neuDiesenMonat = 0;
   let seiten = 0;
+  /* Für die Verkaufsmeldung ("ein Kauf ist passiert") gesammelt, unten in
+     EINEM Aufruf verarbeitet — siehe services/verkaufBenachrichtigung.ts.
+     `art` ist immer 'neu': Patreons Mitgliederliste ist ein STAND JETZT,
+     keine Kette einzelner Abbuchungen, eine Verlängerung ließe sich nur
+     raten (siehe Dateikopf dort für die ausführliche Begründung, warum das
+     hier bewusst NICHT versucht wird). */
+  const verkaufEingaben: VerkaufEreignisEingabe[] = [];
 
   let url: URL | null = new URL(`${API_BASE}/campaigns/${kampagneId}/members`);
   url.searchParams.set('page[count]', '200');
@@ -571,14 +612,26 @@ async function kennzahlenHolen(): Promise<PatreonKennzahlen> {
         `Mitglieder-Abruf fehlgeschlagen (${res.status}, Seite ${seiten})`);
     }
     const json = await res.json() as {
-      data: { attributes: Record<string, unknown> }[];
+      /* `id` steht auf jeder JSON:API-Ressource neben `attributes` — dasselbe
+         Feld, das diese Datei an anderer Stelle schon für die Kampagne selbst
+         liest (`kampagnenJson.data[0]?.id` oben). */
+      data: { id: string; attributes: Record<string, unknown> }[];
       links?: { next?: string | null };
     };
     for (const m of json.data) {
       const status = m.attributes.patron_status;
       if (status === 'active_patron') {
         aktiv += 1;
-        einnahmenCents += Number(m.attributes.currently_entitled_amount_cents ?? 0);
+        const betragCent = Number(m.attributes.currently_entitled_amount_cents ?? 0);
+        einnahmenCents += betragCent;
+        verkaufEingaben.push({
+          fingerabdruck: `patreon:mitglied:${m.id}`,
+          art: 'neu',
+          produktName: null,
+          betragCent: Number.isFinite(betragCent) ? betragCent : null,
+          waehrung,
+          inProbe: null,
+        });
       } else if (status === 'declined_patron') deklination += 1;
       else if (status === 'former_patron') ehemalig += 1;
       if (m.attributes.is_follower) follower += 1;
@@ -587,6 +640,16 @@ async function kennzahlenHolen(): Promise<PatreonKennzahlen> {
       if (typeof beginn === 'string' && Date.parse(beginn) >= monatsanfang) neuDiesenMonat += 1;
     }
     url = json.links?.next ? new URL(json.links.next) : null;
+  }
+
+  /* Siehe Kommentar bei verkaufEingaben oben. In try/catch: ein Fehler in der
+     Meldung über Unterstützer:innen darf die Kennzahlen selbst nicht mit sich
+     reißen — dieselbe Abwägung wie beim gleichnamigen Block in
+     gumroad.ts, gumroadSyncLauf(). */
+  try {
+    ereignisseVerarbeiten('patreon', verkaufEingaben);
+  } catch (err) {
+    console.error('[patreon] Verkaufsmeldung:', (err as Error)?.message ?? err);
   }
 
   const werte: PatreonKennzahlen = {

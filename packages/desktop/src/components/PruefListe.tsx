@@ -63,7 +63,7 @@ export function PruefListe({ eintraege, onOeffnen, onPasst, onWeg }: {
             <button className="btn btn--primary btn--sm" onClick={() => onPasst(e.id)}>
               <Check size={13} /> {t('pruefen.ok')}
             </button>
-            <button className="icon-btn" onClick={() => onWeg(e.id)} title={t('msg.delete')}>
+            <button className="icon-btn" onClick={() => onWeg(e.id)} title={t('msg.delete')} aria-label={t('msg.delete')}>
               <Trash2 size={14} />
             </button>
           </div>

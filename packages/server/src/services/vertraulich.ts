@@ -4,6 +4,7 @@ import {
 } from '@stellium/shared';
 import { db, placeholders } from '../db/index.js';
 import { newId } from '../util/id.js';
+import { abweisung } from '../util/abweisung.js';
 import { entschluesseln, verschluesseln } from '../crypto/nachrichten.js';
 import { freigabeAbdruck, gleich } from '../crypto/vertraulich.js';
 import { may } from './users.js';
@@ -70,6 +71,49 @@ export function schluesselMelden(input: {
          fragen. */
       db.run('DELETE FROM kanal_schluessel_pakete WHERE user_id = ?', input.userId);
       db.run('DELETE FROM vertraulich_freigabe_pakete WHERE user_id = ?', input.userId);
+      /* Dieselbe Überlegung gilt für Notizen (services/notizen.ts), aber nur
+         zur Hälfte — und der Unterschied ist wichtig genug, um ihn
+         auszuschreiben statt ihn stillschweigend zu übergehen:
+         notiz_schluessel_pakete enthält zwei grundverschiedene Sorten Zeile
+         unter derselben user_id. Die eine: ein MITGLIED, für das die
+         besitzende Person (eine andere Person, mit einem eigenen,
+         inzwischen veralteten Blick auf DIESEN Schlüssel hier) verpackt hat
+         — genau wie bei kanal_schluessel_pakete oben, und genauso heilbar:
+         fehlendeMitgliedschaften() sieht die Lücke, stößt die besitzende
+         Person an, die verpackt mit dem jetzt gültigen öffentlichen Teil
+         neu. Die andere: das eigene Paket der besitzenden Person selbst zu
+         ihrer eigenen Notiz (angelegt bei notiz:anlegen, "ECDH mit sich
+         selbst" — siehe dort). Das lässt sich NICHT heilen, und zwar aus
+         einem tieferen Grund als bloß "niemand ist gerade online": dieses
+         Paket ist mit dem PRIVATEN Teil verpackt, den genau dieses Konto vor
+         dem Wechsel hatte. Meldet ein anderes Gerät DESSELBEN Kontos jetzt
+         einen anderen öffentlichen Teil, besitzt es einen ANDEREN privaten
+         Schlüssel — es kann das alte Paket so wenig neu verpacken wie ein
+         Mitglied, dem der Schlüssel fehlt: es hat ihn ja gar nicht, selbst
+         wenn die Kennung dieselbe ist. Es gibt keine dritte Partei, die für
+         "sich selbst" einspringen könnte. Das Paket zu löschen brächte hier
+         also keine Heilung, sondern nur einen Verlust: ein zweites, noch
+         verbundenes Gerät DESSELBEN Kontos, das seinen alten Schlüssel noch
+         besitzt (und dieselbe Notiz bislang klaglos liest), verlöre mit
+         einem Schlag den Zugriff, nur weil irgendwo ein drittes Gerät sich
+         neu gemeldet hat — für einen Nutzen, den niemand einlösen kann.
+         Deshalb bleibt das eigene Paket der besitzenden Person hier
+         ausdrücklich unangetastet (owner_id != Bedingung unten); nur
+         Mitgliedspakete werden gelöscht. Was auf einem Gerät ohne den
+         richtigen alten Schlüssel damit weiterhin liegen bleibt, meldet sich
+         beim Öffnen ehrlich als "Schlüssel nicht verfügbar" statt endlos zu
+         kreiseln (siehe lib/notizen.ts, notizenSchluesselFehlt) — das ist die
+         Grenze der Ende-zu-Ende-Verschlüsselung selbst, keine Lücke, die
+         sich hier noch schließen ließe. */
+      db.run(
+        `DELETE FROM notiz_schluessel_pakete
+         WHERE user_id = ?
+           AND EXISTS (
+             SELECT 1 FROM notizen n
+             WHERE n.id = notiz_schluessel_pakete.notiz_id AND n.owner_id != ?
+           )`,
+        input.userId, input.userId,
+      );
     }
     if (input.sicherung) {
       db.run(
@@ -163,10 +207,10 @@ export function einschalten(input: {
   const kanal = db.get<{ kind: string; vertraulich: number }>(
     'SELECT kind, vertraulich FROM channels WHERE id = ?', input.channelId,
   );
-  if (!kanal) throw new Error('Kanal nicht gefunden');
-  if (kanal.vertraulich) throw new Error('Dieser Kanal ist bereits vertraulich.');
+  if (!kanal) throw abweisung('fehler.kanalNichtGefunden', 'Kanal nicht gefunden');
+  if (kanal.vertraulich) throw abweisung('fehler.kanalBereitsVertraulich', 'Dieser Kanal ist bereits vertraulich.');
   if (kanal.kind === 'public') {
-    throw new Error('Offene Kanäle lassen sich nicht vertraulich stellen. Lege dafür einen privaten Kanal an.');
+    throw abweisung('fehler.kanalOeffentlichNichtVertraulich', 'Offene Kanäle lassen sich nicht vertraulich stellen. Lege dafür einen privaten Kanal an.');
   }
 
   const fassung = 1;
@@ -242,13 +286,13 @@ export function paketeNachreichen(input: {
   pakete: { userId: string; paket: SchluesselPaket }[];
 }): number {
   if (!memberIds(input.channelId).includes(input.vonUserId)) {
-    throw new Error('Nur Mitglieder können den Kanalschlüssel weitergeben.');
+    throw abweisung('fehler.vertraulichNurMitgliederWeitergeben', 'Nur Mitglieder können den Kanalschlüssel weitergeben.');
   }
   const bekannt = db.get(
     'SELECT 1 AS x FROM kanal_schluessel WHERE channel_id = ? AND fassung = ?',
     input.channelId, input.fassung,
   );
-  if (!bekannt) throw new Error('Diese Schlüsselfassung gibt es nicht.');
+  if (!bekannt) throw abweisung('fehler.schluesselfassungUnbekannt', 'Diese Schlüsselfassung gibt es nicht.');
 
   // Nur an Mitglieder. Sonst ließe sich der Kanalschlüssel an Außenstehende
   // verteilen, ohne dass es jemandem auffiele.
@@ -272,7 +316,7 @@ export function wechseln(input: {
   pakete: { userId: string; paket: SchluesselPaket }[];
 }): number {
   if (!memberIds(input.channelId).includes(input.userId)) {
-    throw new Error('Nur Mitglieder können den Kanalschlüssel wechseln.');
+    throw abweisung('fehler.vertraulichNurMitgliederWechseln', 'Nur Mitglieder können den Kanalschlüssel wechseln.');
   }
   const neueFassung = aktuelleFassung(input.channelId) + 1;
   const mitglieder = new Set(memberIds(input.channelId));
@@ -367,17 +411,17 @@ export function freigabeAnlegen(input: {
   tage?: number; pakete: { userId: string; paket: SchluesselPaket }[];
 }): Freigabe {
   if (!memberIds(input.channelId).includes(input.melderId)) {
-    throw new Error('Nur Mitglieder können einen Vorfall in diesem Kanal melden.');
+    throw abweisung('fehler.vertraulichNurMitgliederMelden', 'Nur Mitglieder können einen Vorfall in diesem Kanal melden.');
   }
   const grund = input.grund.trim();
-  if (!grund) throw new Error('Bitte gib einen Grund an.');
-  if (grund.length > 500) throw new Error('Der Grund ist zu lang (höchstens 500 Zeichen).');
-  if (!input.codeAbdruck) throw new Error('Zur Freigabe fehlt der Abdruck des Codes.');
+  if (!grund) throw abweisung('fehler.freigabeGrundFehlt', 'Bitte gib einen Grund an.');
+  if (grund.length > 500) throw abweisung('fehler.freigabeGrundZuLang', 'Der Grund ist zu lang (höchstens 500 Zeichen).');
+  if (!input.codeAbdruck) throw abweisung('fehler.freigabeCodeAbdruckFehlt', 'Zur Freigabe fehlt der Abdruck des Codes.');
 
   const empfaenger = new Set(verwaltungIds());
   const brauchbar = input.pakete.filter((p) => empfaenger.has(p.userId));
   if (!brauchbar.length) {
-    throw new Error('Es gibt niemanden in der Verwaltung, für den sich der Schlüssel verpacken ließe.');
+    throw abweisung('fehler.freigabeKeineVerwaltung', 'Es gibt niemanden in der Verwaltung, für den sich der Schlüssel verpacken ließe.');
   }
 
   const tage = Math.min(
@@ -465,22 +509,27 @@ export function freigabeOeffnen(input: {
      der Prüfung, und wer Kennungen durchprobiert, hätte daran ablesen können,
      in welchen Kanälen es einen Vorfall gab. */
   if (!may(input.userId, 'vertraulich.freigabe_lesen')) {
-    throw new Error('Freigaben öffnet nur die Verwaltung.');
+    throw abweisung('fehler.freigabeNurVerwaltung', 'Freigaben öffnet nur die Verwaltung.');
   }
   const r = db.get<any>('SELECT * FROM vertraulich_freigaben WHERE id = ?', input.freigabeId);
-  if (!r) throw new Error('Diese Freigabe gibt es nicht.');
-  if (r.zurueckgenommen_am) throw new Error('Diese Freigabe wurde zurückgenommen.');
-  if (r.laeuft_ab <= Date.now()) throw new Error('Diese Freigabe ist abgelaufen.');
+  if (!r) throw abweisung('fehler.freigabeNichtGefunden', 'Diese Freigabe gibt es nicht.');
+  if (r.zurueckgenommen_am) throw abweisung('fehler.freigabeZurueckgenommen', 'Diese Freigabe wurde zurückgenommen.');
+  if (r.laeuft_ab <= Date.now()) throw abweisung('fehler.freigabeAbgelaufen', 'Diese Freigabe ist abgelaufen.');
   if (r.fehlversuche >= FREIGABE_VERSUCHE) {
-    throw new Error('Zu viele Fehlversuche. Diese Freigabe muss neu erteilt werden.');
+    throw abweisung('fehler.freigabeZuVieleVersuche', 'Zu viele Fehlversuche. Diese Freigabe muss neu erteilt werden.');
   }
 
   if (!gleich(r.code_abdruck, freigabeAbdruck(input.codeAbdruck))) {
     db.run('UPDATE vertraulich_freigaben SET fehlversuche = fehlversuche + 1 WHERE id = ?', input.freigabeId);
     const uebrig = FREIGABE_VERSUCHE - (r.fehlversuche + 1);
-    throw new Error(uebrig > 0
-      ? `Der Code stimmt nicht. Noch ${uebrig} Versuche.`
-      : 'Der Code stimmt nicht. Diese Freigabe ist damit verbraucht.');
+    if (uebrig > 0) {
+      throw abweisung(
+        'fehler.freigabeCodeFalschVersucheUebrig',
+        `Der Code stimmt nicht. Noch ${uebrig} Versuche.`,
+        { uebrig: String(uebrig) },
+      );
+    }
+    throw abweisung('fehler.freigabeCodeFalschVerbraucht', 'Der Code stimmt nicht. Diese Freigabe ist damit verbraucht.');
   }
 
   const paket = db.get<any>(
@@ -488,7 +537,7 @@ export function freigabeOeffnen(input: {
     input.freigabeId, input.userId,
   );
   if (!paket) {
-    throw new Error('Für dein Konto wurde bei dieser Freigabe nichts verpackt — vermutlich kam dein Schlüssel später dazu.');
+    throw abweisung('fehler.freigabeKeinPaketFuerKonto', 'Für dein Konto wurde bei dieser Freigabe nichts verpackt — vermutlich kam dein Schlüssel später dazu.');
   }
 
   // Ein richtiger Code setzt die Zählung zurück: sonst summierten sich
@@ -513,10 +562,10 @@ export function freigabeOeffnen(input: {
  */
 export function freigabeZuruecknehmen(freigabeId: string, userId: string): Freigabe {
   const r = db.get<any>('SELECT * FROM vertraulich_freigaben WHERE id = ?', freigabeId);
-  if (!r) throw new Error('Diese Freigabe gibt es nicht.');
+  if (!r) throw abweisung('fehler.freigabeNichtGefunden', 'Diese Freigabe gibt es nicht.');
   const istOwner = db.get<{ role: string }>('SELECT role FROM users WHERE id = ?', userId)?.role === 'owner';
   if (r.melder_id !== userId && !istOwner) {
-    throw new Error('Zurücknehmen kann die Freigabe nur, wer sie erteilt hat.');
+    throw abweisung('fehler.freigabeNurEigeneZuruecknehmen', 'Zurücknehmen kann die Freigabe nur, wer sie erteilt hat.');
   }
   if (r.zurueckgenommen_am) return toFreigabe(r);
 

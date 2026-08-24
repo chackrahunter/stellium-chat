@@ -31,6 +31,16 @@ interface Props {
   eingebettet?: boolean;
   /** Wechselt dieser Wert, wird ein neuer Versuch unternommen. */
   zuruecksetzenBei?: unknown;
+  /**
+   * Schließt das Fenster, das gerade geworfen hat — für Tafeln, die an einem
+   * eigenen Laden hängen statt an `overlay` (App.tsx kennt die Begründung).
+   * Ohne das ist "Erneut versuchen" für sie eine Sackgasse: es zeichnet
+   * dieselbe, deterministisch werfende Tafel einfach noch einmal, und die
+   * Fehlerkarte kommt sofort zurück. `onEscape` gibt es nur, wenn ein
+   * Aufrufer wirklich etwas zu schließen hat — ohne die Eigenschaft bleibt
+   * es bei "Erneut versuchen" allein (siehe unten).
+   */
+  onEscape?: () => void;
 }
 
 interface State {
@@ -97,9 +107,21 @@ export class Fangkorb extends Component<Props, State> {
               margin: '0 0 14px', maxHeight: 120, overflow: 'auto', fontSize: 11.5,
               whiteSpace: 'pre-wrap', wordBreak: 'break-word', opacity: 0.7,
             }}>{einzelheiten}</pre>
-            <button className="btn btn--primary" onClick={() => this.setState({ fehler: null })}>
-              {text('common.retry')}
-            </button>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button className="btn btn--primary" onClick={() => this.setState({ fehler: null })}>
+                {text('common.retry')}
+              </button>
+              {/* Nur sichtbar, wenn der Aufrufer wirklich etwas schließen kann
+                  — sonst wäre der Knopf da, ohne dass er etwas täte. */}
+              {this.props.onEscape && (
+                <button
+                  className="btn"
+                  onClick={() => { this.props.onEscape?.(); this.setState({ fehler: null }); }}
+                >
+                  {text('fangkorb.schliessen')}
+                </button>
+              )}
+            </div>
           </div>
         </div>
       );

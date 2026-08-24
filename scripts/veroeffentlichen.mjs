@@ -249,7 +249,6 @@ if (!anmeldung.ok) raus(`Anmeldung fehlgeschlagen (${anmeldung.status}).`);
 const { token } = await anmeldung.json();
 ok(`als ${login}`);
 
-schritt('Hochladen');
 const hochzuladen = Object.entries(dateien)
   .filter(([, d]) => d)
   .map(([system, datei]) => [system, path.join(ordner, datei)]);
@@ -259,6 +258,80 @@ if (nurZiele) {
     if (!nurZiele.includes(hochzuladen[i][0])) hochzuladen.splice(i, 1);
   }
 }
+
+/**
+ * Lädt Pakete mit Filterung hoch — gleiche Versuche, Retry-Logik und
+ * Sha256-Prüfung wie immer, aber nutzbar auf zwei Phasen verteilt.
+ * shouldUpload(system) → true/false für dieses Paket.
+ */
+async function hochladenMit(shouldUpload) {
+  for (const [system, pfad] of hochzuladen) {
+    if (!shouldUpload(system)) continue;
+
+    const datei = path.basename(pfad);
+    const groesse = fs.statSync(pfad).size;
+    sag(`  ${F.grau}${system} · ${(groesse / 1024 / 1024).toFixed(0)} MB …${F.aus}`);
+
+    /* Über eine Hausleitung bricht eine Übertragung von 170 MB schon mal ab.
+       Deshalb drei Versuche — und die Datei als Datenstrom statt am Stück im
+       Speicher, sonst schiebt Node den ganzen Puffer in einem Rutsch in den
+       Socket und scheitert daran (ERANGE). */
+    let release = null;
+    for (let versuch = 1; versuch <= 3; versuch++) {
+      try {
+        /* Hat der Tunnel einmal abgelehnt, lehnt er wieder ab — die weiteren
+           Pakete nehmen gleich den SSH-Weg. */
+        if (sshBereit) {
+          release = ueberSsh(system, pfad, datei);
+          break;
+        }
+        const form = new FormData();
+        form.append('version', version);
+        if (text) form.append('notes', text);
+        form.append('file', await fs.openAsBlob(pfad), datei);
+
+        const antwort = await fetch(`${server}/api/releases/${system}`, {
+          method: 'POST', headers: { authorization: `Bearer ${token}` }, body: form,
+        });
+        if (antwort.status === 413) {
+          sag(`  ${F.grau}Tunnel deckelt bei 100 MB — Umweg über SSH (${sshZiel}) …${F.aus}`);
+          try {
+            release = ueberSsh(system, pfad, datei);
+          } catch (err) {
+            raus(`${system}: auch der SSH-Weg scheiterte (${(err.stderr || err.message || '').toString().slice(0, 200)}).\n` +
+                 `  Von Hand: Paket per scp nach ${sshZiel}:~/fassung-${version}/ und dort\n` +
+                 `  bash ~/fassung-${version}/einspielen.sh ${system} ${datei} ${version}`);
+          }
+          break;
+        }
+        if (!antwort.ok) {
+          const fehler = await antwort.text();
+          raus(`${system}: ${fehler.slice(0, 200)}`);
+        }
+        ({ release } = await antwort.json());
+        break;
+      } catch (err) {
+        const grund = err?.cause?.code ?? err?.message ?? 'unbekannt';
+        if (versuch === 3) raus(`${system}: Übertragung dreimal abgebrochen (${grund}).`);
+        sag(`  ${F.grau}Versuch ${versuch} abgebrochen (${grund}) — neuer Anlauf …${F.aus}`);
+        await new Promise((f) => setTimeout(f, versuch * 4000));
+      }
+    }
+    /* Der Abgleich, der aus „angekommen" ein „unversehrt angekommen" macht.
+       Weicht die Summe ab, liegt draußen ein Paket, das sich nicht auspacken
+       lässt — und die Clients hätten es sich schon geholt. Lieber hier laut
+       scheitern. */
+    const hier = pruefsumme(pfad);
+    if (release.sha256 && release.sha256 !== hier) {
+      raus(`${system}: Das Paket ist unterwegs beschädigt worden.\n`
+        + `  hier  ${hier}\n  dort  ${release.sha256}\n`
+        + '  Noch einmal ausliefern; die Übertragung setzt an der Bruchstelle auf.');
+    }
+    ok(`${system} · ${release.version} · ${release.sha256.slice(0, 12)}…`);
+  }
+}
+
+schritt('Hochladen');
 
 /* ── Der Weg am Tunnel vorbei ────────────────────────────────────
    Cloudflare deckelt Uploads durch den Tunnel bei 100 MB — das DMG hat gut
@@ -429,79 +502,24 @@ if (!sshErreichbar()) {
   } catch { /* Kein df, kein Urteil — dann eben ohne. */ }
 }
 
-for (const [system, pfad] of hochzuladen) {
-  const datei = path.basename(pfad);
-  const groesse = fs.statSync(pfad).size;
-  sag(`  ${F.grau}${system} · ${(groesse / 1024 / 1024).toFixed(0)} MB …${F.aus}`);
+/* ── Phase 1: Server-Tarball hochladen ──────────────────────────────────
+   Der Selbstupdate-Dienst sucht nach einer neueren .tar.gz bei /api/releases/server.
+   Sie muss HIER hochgeladen werden, bevor der Dienst startet. */
+if (mitServer && !nurHochladen && !nurZiele) {
+  await hochladenMit((sys) => sys === 'server');
 
-  /* Über eine Hausleitung bricht eine Übertragung von 170 MB schon mal ab.
-     Deshalb drei Versuche — und die Datei als Datenstrom statt am Stück im
-     Speicher, sonst schiebt Node den ganzen Puffer in einem Rutsch in den
-     Socket und scheitert daran (ERANGE). */
-  let release = null;
-  for (let versuch = 1; versuch <= 3; versuch++) {
-    try {
-      /* Hat der Tunnel einmal abgelehnt, lehnt er wieder ab — die weiteren
-         Pakete nehmen gleich den SSH-Weg. */
-      if (sshBereit) {
-        release = ueberSsh(system, pfad, datei);
-        break;
-      }
-      const form = new FormData();
-      form.append('version', version);
-      if (text) form.append('notes', text);
-      form.append('file', await fs.openAsBlob(pfad), datei);
+  /* ── Phase 2: Server einspielen ─────────────────────────────────────
+     1.0.31: Clients aktualisieren sich innerhalb einer Minute nach Upload,
+     aber der Server braucht mehrere Minuten zum Neubau und Neustart.
+     Während dieser Zeit läuft ein NEUER Client gegen einen ALTEN Server.
+     Route /api/post/meldungen z.B. gibt 404 und zeigt "Nicht gefunden" dem
+     Benutzer.
 
-      const antwort = await fetch(`${server}/api/releases/${system}`, {
-        method: 'POST', headers: { authorization: `Bearer ${token}` }, body: form,
-      });
-      if (antwort.status === 413) {
-        sag(`  ${F.grau}Tunnel deckelt bei 100 MB — Umweg über SSH (${sshZiel}) …${F.aus}`);
-        try {
-          release = ueberSsh(system, pfad, datei);
-        } catch (err) {
-          raus(`${system}: auch der SSH-Weg scheiterte (${(err.stderr || err.message || '').toString().slice(0, 200)}).\n` +
-               `  Von Hand: Paket per scp nach ${sshZiel}:~/fassung-${version}/ und dort\n` +
-               `  bash ~/fassung-${version}/einspielen.sh ${system} ${datei} ${version}`);
-        }
-        break;
-      }
-      if (!antwort.ok) {
-        const fehler = await antwort.text();
-        raus(`${system}: ${fehler.slice(0, 200)}`);
-      }
-      ({ release } = await antwort.json());
-      break;
-    } catch (err) {
-      const grund = err?.cause?.code ?? err?.message ?? 'unbekannt';
-      if (versuch === 3) raus(`${system}: Übertragung dreimal abgebrochen (${grund}).`);
-      sag(`  ${F.grau}Versuch ${versuch} abgebrochen (${grund}) — neuer Anlauf …${F.aus}`);
-      await new Promise((f) => setTimeout(f, versuch * 4000));
-    }
-  }
-  /* Der Abgleich, der aus „angekommen" ein „unversehrt angekommen" macht.
-     Weicht die Summe ab, liegt draußen ein Paket, das sich nicht auspacken
-     lässt — und die Clients hätten es sich schon geholt. Lieber hier laut
-     scheitern. */
-  const hier = pruefsumme(pfad);
-  if (release.sha256 && release.sha256 !== hier) {
-    raus(`${system}: Das Paket ist unterwegs beschädigt worden.\n`
-      + `  hier  ${hier}\n  dort  ${release.sha256}\n`
-      + '  Noch einmal ausliefern; die Übertragung setzt an der Bruchstelle auf.');
-  }
-  ok(`${system} · ${release.version} · ${release.sha256.slice(0, 12)}…`);
-}
+     Neuer Server + alte Clients sind sicher (neue Routes sind additiv).
+     Neue Clients + alter Server sind nicht sicher (neue Routes geben 404).
+     Der Server muss zuerst fertig sein, bevor Clients hochgeladen werden.
 
-/* ── Kommt der Server wirklich hoch? ─────────────────────────────
-   Bisher endete das Ausliefern mit „veröffentlicht" — was der Server damit
-   macht, sah niemand. Fassung 1.0.17 lief genau so: hochgeladen, gemeldet,
-   fertig; der Pi versuchte einzuspielen, kam nicht hoch, legte den alten
-   Stand zurück, und wir haben es erst eine halbe Stunde später zufällig im
-   Journal gefunden.
-
-   Jetzt wird das Einspielen angestoßen und zugesehen. Scheitert es, steht
-   der Grund hier — und der Rückweg des Servers hat ohnehin schon gegriffen. */
-if (mitServer && !nurZiele) {
+     Diese Reihenfolge ist ABSICHT und muss bleiben — nicht später "räumen". */
   schritt('Server einspielen');
   try {
     /* Der Dienst blockiert bis zum Ende (Ankündigung, Sicherung, Bauen,
@@ -515,25 +533,54 @@ if (mitServer && !nurZiele) {
       const log = lauf('ssh', [sshZiel, 'journalctl -u stellium-selbstupdate -n 60 --no-pager']);
       grund = (log.match(/Start fehlgeschlagen: .*/) ?? log.match(/✗ .*/) ?? [])[0] ?? '';
     } catch { /* kein Journal erreichbar */ }
-    warn('Der Server hat die neue Fassung NICHT übernommen — der alte Stand läuft weiter.'
-      + (grund ? `\n    ${grund}` : '')
-      + '\n    Die Apps haben ihre Fassung trotzdem bekommen.'
-      + '\n    Nachsehen:  ssh ' + sshZiel + ' journalctl -u stellium-selbstupdate -n 60 --no-pager');
+    raus('Der Server konnte nicht aktualisiert werden.\n'
+      + (grund ? `  ${grund}\n` : '')
+      + '  NICHTS wurde veröffentlicht — der alte Stand läuft weiter.\n'
+      + `  Nachsehen:  ssh ${sshZiel} journalctl -u stellium-selbstupdate -n 60 --no-pager`);
   }
 
-  /* Und die Gegenprobe: Was läuft dort jetzt wirklich? Eine Meldung „läuft"
-     ohne Nachfrage wäre dieselbe Sorte Vertrauen, die uns 1.0.17 gekostet
-     hat. */
-  try {
-    const antwort = lauf('ssh', [sshZiel,
-      'curl -s --max-time 10 http://127.0.0.1:8787/api/health']).trim();
-    const laeuft = JSON.parse(antwort).version ?? '?';
-    if (laeuft === version) ok(`Server läuft auf ${laeuft}`);
-    /* Ältere Server kennen die Auskunft noch nicht — das ist kein Fehlschlag,
-       nur eine Auskunft, die es erst ab dieser Fassung gibt. */
-    else if (laeuft === '?') sag(`  ${F.grau}Server meldet seine Fassung noch nicht${F.aus}`);
-    else warn(`Der Server läuft auf ${laeuft}, nicht auf ${version}.`);
-  } catch { /* Auskunft ist Beiwerk, kein Grund zu scheitern. */ }
+  /* Verifizierungsschranke: Ist der neue Server wirklich hoch?
+     Nur dann werden Clients hochgeladen. Scheitert dies, sind alle noch
+     auf der alten, funktionierenden Kombination. Ein Pi braucht auch nach
+     dem systemctl-Rückgabewert noch Zeit zum Starten — bis zu 20 Sekunden
+     sind realistisch. 180 Sekunden Geduld bedeutet echten Fehler, nicht
+     Ungeduld. */
+  schritt('Server-Fassung verifizieren');
+  let serverBereit = false;
+  const pruefdauer = 180;  // Sekunden — lange genug für Pi-Boot
+  const anfang = Date.now();
+  while ((Date.now() - anfang) / 1000 < pruefdauer) {
+    try {
+      const antwort = lauf('ssh', [sshZiel,
+        'curl -s --max-time 10 http://127.0.0.1:8787/api/health']).trim();
+      const laeuft = JSON.parse(antwort).version ?? '?';
+      if (laeuft === version) {
+        ok(`Server läuft auf ${laeuft}`);
+        serverBereit = true;
+        break;
+      } else if (laeuft !== '?') {
+        const vergang = ((Date.now() - anfang) / 1000).toFixed(0);
+        sag(`  ${F.grau}[${vergang}s] Server meldet ${laeuft}, nicht ${version} — wartet noch…${F.aus}`);
+      }
+    } catch {
+      // Auskunft nicht erreichbar — Wartezeit nutzen
+    }
+    await new Promise((f) => setTimeout(f, 2000));
+  }
+
+  if (!serverBereit) {
+    raus(`Server wurde nach ${pruefdauer} Sekunden nicht mit Version ${version} erreicht.\n`
+      + '  NICHTS wurde veröffentlicht — der alte Stand läuft weiter.\n'
+      + `  Nachsehen:  ssh ${sshZiel} journalctl -u stellium-selbstupdate -n 60 --no-pager`);
+  }
+
+  /* ── Phase 3: Clients hochladen ─────────────────────────────────────
+     Der Server läuft jetzt auf der neuen Version. Clients können nach der
+     neuen Version fragen und auto-updaten — gegen einen neuen Server. */
+  await hochladenMit((sys) => sys !== 'server');
+} else {
+  /* Normal: alle Pakete hochladen (kein Server-Deployment). */
+  await hochladenMit((sys) => true);
 }
 
 sag(`

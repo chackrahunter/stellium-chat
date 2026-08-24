@@ -725,6 +725,7 @@ function FreigabenListe({ channelId }: { channelId: string | null }) {
 function Rahmen({ titel, symbol, onClose, children }: {
   titel: string; symbol: React.ReactNode; onClose: () => void; children: React.ReactNode;
 }) {
+  const t = useT();
   const kasten = useRef<HTMLDivElement>(null);
   useFokusfalle(kasten, true, onClose);
   return (
@@ -745,7 +746,7 @@ function Rahmen({ titel, symbol, onClose, children }: {
         <div className="panel__head">
           {symbol}
           <h2>{titel}</h2>
-          <button className="icon-btn" style={{ marginLeft: 'auto' }} onClick={onClose}><X size={17} /></button>
+          <button className="icon-btn" style={{ marginLeft: 'auto' }} onClick={onClose} aria-label={t('common.close')}><X size={17} /></button>
         </div>
         <div className="panel__body">{children}</div>
       </motion.div>

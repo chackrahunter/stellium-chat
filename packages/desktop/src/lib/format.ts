@@ -86,6 +86,96 @@ export function relativeTime(ts: number): string {
   return rtf.format(Math.round(seconds / 86_400), 'day');
 }
 
+/** Mitternacht des Kalendertags, in dem `ms` liegt — dieselbe Grenze wie im
+ *  lokalen `startOf` von dayLabel() oben: zwei Zeitpunkte am selben
+ *  Kalendertag gelten als „heute", ganz gleich, wie viele Stunden seit
+ *  Mitternacht vergangen sind. Modul-privat, weil tageBis() unten und
+ *  verfaelltIn() weiter unten beide an genau dieser einen Kalendergrenze
+ *  hängen müssen. */
+function startOfDay(ms: number): number {
+  const d = new Date(ms);
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+}
+
+/** Ganze Kalendertage von heute bis `ts`, negativ für die Vergangenheit.
+ *  Exportiert, weil restfristFarbe() (lib/post-farben.ts) an DERSELBEN Zahl
+ *  hängen muss wie verfaelltIn() unten — sonst zeigt eine Mail „in 3
+ *  Wochen" in der falschen Farbe, weil Text und Farbe an zwei
+ *  unterschiedlichen Schwellen kippen. */
+export function tageBis(ts: number): number {
+  return Math.round((startOfDay(ts) - startOfDay(Date.now())) / 86_400_000);
+}
+
+/** Ganze Kalendermonate zwischen zwei Zeitpunkten, auf den nächsten Monat
+ *  gerundet — nicht per Tage/30: ein Monat hat 28 bis 31 Tage, ein fester
+ *  Durchschnitt rundet nahe der Monatsgrenze irgendwann in die falsche
+ *  Richtung. Die Schleifen zählen erst, wie viele Monate ganz vergangen
+ *  sind (`von` + n Monate liegt noch nicht hinter `bis`); der angebrochene
+ *  Rest rundet danach an SEINER eigenen echten Länge (28–31 Tage, je
+ *  nachdem welcher Monat gerade läuft), nicht an 30. Für verfaelltIn()
+ *  unten, das Monate braucht, sobald tageBis() über die Wochen-Grenze
+ *  hinaus ist. */
+function monateGerundet(von: number, bis: number): number {
+  const start = new Date(von);
+  const ziel = new Date(bis);
+  let monate = (ziel.getFullYear() - start.getFullYear()) * 12 + (ziel.getMonth() - start.getMonth());
+  // Der Jahr/Monat-Überschlag oben kann daneben liegen (unterschiedliche
+  // Kalendertage) — höchstens ein, zwei Schritte Korrektur in die passende
+  // Richtung, dann steht der exakte Floor-Wert fest.
+  while (new Date(start.getFullYear(), start.getMonth() + monate, start.getDate()).getTime() > bis) monate -= 1;
+  while (new Date(start.getFullYear(), start.getMonth() + monate + 1, start.getDate()).getTime() <= bis) monate += 1;
+  const unten = new Date(start.getFullYear(), start.getMonth() + monate, start.getDate()).getTime();
+  const oben = new Date(start.getFullYear(), start.getMonth() + monate + 1, start.getDate()).getTime();
+  const anteil = oben > unten ? (bis - unten) / (oben - unten) : 0;
+  return monate + (anteil >= 0.5 ? 1 : 0);
+}
+
+/**
+ * „Wird [in 5 Jahren|in 3 Monaten|in 2 Wochen|in 4 Tagen|morgen|heute]
+ * gelöscht" — für `Nachricht.verfaelltAm` (Aufbewahrungsfrist je Fach,
+ * services/post.ts). Die Einheit wählt sich nach der Restzeit selbst, so
+ * wie ein Mensch es sagen würde: niemand sagt „in 2921 Tagen", wenn acht
+ * Jahre gemeint sind — und relativeTime() oben deckt das nicht ab, die
+ * bleibt ab einem Tag durchgehend bei der Einheit „Tag".
+ *
+ * GRENZEN (bewusst gewählt, keine amtliche Norm):
+ *   0–13 Tage   → Tag     ("heute"/"morgen" kommen dabei von selbst aus
+ *                 `numeric: 'auto'`, siehe unten)
+ *   14–60 Tage  → Woche   (60 Tage, weil erst danach sicher mindestens
+ *                 2 ganze Kalendermonate vergangen sind, siehe
+ *                 monateGerundet())
+ *   ab 61 Tagen → Monat, ab 24 gerundeten Monaten → Jahr
+ *
+ * RUNDUNG: Wochen sind immer exakt 7 Tage — Math.round() rundet da ehrlich,
+ * ohne jede Näherung. Monate/Jahre rundet monateGerundet() an echten
+ * Kalendergrenzen (siehe dort), nicht an einem Schnitt von 30 bzw. 365
+ * Tagen: „in 2 Jahren" heißt damit wirklich näher an 2 als an 3 Jahren, nie
+ * „eigentlich schon 2 Jahre und 11 Monate". Der Jahreswert rundet den
+ * (bereits ehrlich gerundeten) Monatswert noch einmal durch 12 — der
+ * Fehler daraus liegt bei höchstens einem halben Monat auf mehrere Jahre,
+ * deutlich unter der Schaltjahr-Unschärfe von ein paar Tagen über acht
+ * Jahre, die für eine Anzeige ohnehin nichts ausmacht (siehe Auftrag).
+ *
+ * `numeric: 'auto'` lässt Intl außerdem „heute"/„morgen" (Tag-Einheit,
+ * Werte 0/1) von selbst wählen statt „in 0 Tagen"/„in 1 Tagen" — genau die
+ * auffällig andere Formulierung, die eine unmittelbar bevorstehende
+ * Löschung von einer in ferner Zukunft unterscheidet. Negative Werte
+ * (Frist bereits verstrichen, aber noch nicht aufgeräumt) ergeben ebenso
+ * automatisch „gestern"/„vor N Tagen" — kein Absturz, nur eine ehrliche
+ * Auskunft über einen Sonderfall, der im Alltag nicht vorkommen sollte.
+ */
+export function verfaelltIn(ts: number): string {
+  const rtf = new Intl.RelativeTimeFormat(sprache(), { numeric: 'auto' });
+  const diffTage = tageBis(ts);
+
+  if (diffTage <= 13) return rtf.format(diffTage, 'day');
+  if (diffTage <= 60) return rtf.format(Math.round(diffTage / 7), 'week');
+
+  const monate = monateGerundet(startOfDay(Date.now()), startOfDay(ts));
+  if (monate < 24) return rtf.format(monate, 'month');
+  return rtf.format(Math.round(monate / 12), 'year');
+}
+
 /** Datum und Uhrzeit zusammen — für Verläufe und Termine. */
 export function dateTime(ts: number): string {
   return new Intl.DateTimeFormat(sprache(), { dateStyle: 'medium', timeStyle: 'short' }).format(ts);

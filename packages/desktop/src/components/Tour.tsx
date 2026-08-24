@@ -292,7 +292,7 @@ export function Tour({ onClose }: { onClose: () => void }) {
           exit={{ opacity: 0, scale: 0.97, y: -6 }}
           transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
         >
-          <button className="tour__close" onClick={beenden} title={t('tour.skip')}>
+          <button className="tour__close" onClick={beenden} title={t('tour.skip')} aria-label={t('tour.skip')}>
             <X size={15} />
           </button>
 

@@ -59,7 +59,14 @@
 .partnergruppen__select { min-width: 150px; }
 
 /* Ein Vorschlag ist eine Vermutung, keine Tatsache — deshalb eigens
-   markiert statt unauffällig wie eine bestätigte Gruppe zu wirken. */
+   markiert statt unauffällig wie eine bestätigte Gruppe zu wirken. Trägt
+   diese Zeile stattdessen eine ungeprüfte, automatische "intern"-Zuordnung
+   (`gruppeBeleg: 'ungeprueft'`, siehe PartnerGruppenPanel.tsx/belegBadge()),
+   ist das kein bloßer Vorschlag mehr, sondern eine Warnung: Bestätigen
+   bedeutet, für eine unauthentifizierte Adresse zu bürgen. Deshalb eine
+   eigene Modifizierklasse statt `.pill--warn` aus app.css — diese Datei lädt
+   NACH app.css (siehe main.tsx), ihre eigene `color`-Regel würde eine dort
+   gesetzte sonst wieder überschreiben. */
 .partnergruppen__vorschlag {
   height: 24px;
   padding: 0 9px;
@@ -67,6 +74,10 @@
   border-style: dashed;
   color: var(--violet-soft, var(--tx-mid));
   cursor: help;
+}
+.partnergruppen__vorschlag--warnung {
+  border-color: color-mix(in srgb, var(--amber) 45%, transparent);
+  color: var(--amber);
 }
 
 .partnergruppen__badge-inline {

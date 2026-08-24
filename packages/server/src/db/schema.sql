@@ -52,6 +52,23 @@ CREATE TABLE IF NOT EXISTS users (
   density               TEXT NOT NULL DEFAULT 'comfortable',
   created_at            INTEGER NOT NULL
 );
+/* 23 Fremdschlüssel im Haus tragen `... REFERENCES users(id) ON DELETE
+   CASCADE` — das liest sich wie eine Garantie, ist aber keine: eine Kaskade
+   feuert nur bei einem echten `DELETE FROM users WHERE id = ?`, und den gibt
+   es im Anwendungscode nicht. deleteAccount() (services/users.ts) löscht ein
+   Konto nie wirklich, sondern anonymisiert die Zeile per UPDATE — mit
+   Absicht, damit Nachrichten und ihr Verlauf ein gelöschtes Konto überleben
+   (siehe Kommentar dort). Jede der 23 Kaskaden bleibt damit toter Text im
+   Schema: eine neue Tabelle mit `... ON DELETE CASCADE` hier verlässt sich
+   also NICHT von selbst darauf, dass eine Kontolöschung sie leert. Was bei
+   deleteAccount() wirklich verschwindet — und was bewusst stehen bleibt, mit
+   Begründung je Tabelle — steht nicht hier, sondern im ausführlichen
+   Kommentar über genau diese Funktion: das ist die Stelle, die
+   tatsächlich entscheidet.
+   NICHT entfernen: die Klauseln sind korrektes SQL für den Tag, an dem
+   irgendwo ein echtes DELETE auf users steht, und für jedes Werkzeug, das
+   direkt gegen die Datei arbeitet statt über den Server — nur verlassen
+   sollte sich niemand darauf, dass sie heute schon etwas aufräumen. */
 
 CREATE TABLE IF NOT EXISTS channels (
   id               TEXT PRIMARY KEY,
@@ -321,6 +338,10 @@ CREATE TABLE IF NOT EXISTS reminders (
   created_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_reminders_due ON reminders(remind_at, done);
+-- Ohne Fremdschlüssel auf channels(id) (siehe Kommentar oben) räumt
+-- deleteChannel() (services/channels.ts) diese Zeilen von Hand ab — dafür
+-- diesen Index, sonst liefe die Löschung über einen vollen Tabellenscan.
+CREATE INDEX IF NOT EXISTS idx_reminders_channel ON reminders(channel_id);
 
 -- Web-Push-Abonnements: ein Gerät, ein Datensatz. `endpoint` ist eindeutig
 -- über alle Konten hinweg (die URL kommt vom Push-Dienst des Browsers und
@@ -588,6 +609,22 @@ CREATE TABLE IF NOT EXISTS channel_translations (
   PRIMARY KEY (channel_id, lang)
 );
 
+-- Übersetzte Änderungslisten von Fassungen ("was ist neu"). Wer eine Version
+-- veröffentlicht, tippt frei — nicht zwingend Deutsch, siehe translate() und
+-- translateReleaseNotes() in translation/index.ts. Wie bei channel_translations
+-- macht ON DELETE CASCADE eine entfernte Fassung (removeRelease()) auch hier
+-- sauber; ändert sich der Text bei einer neuen Veröffentlichung, verwirft
+-- source_hash den alten Eintrag von selbst.
+CREATE TABLE IF NOT EXISTS release_translations (
+  platform    TEXT NOT NULL REFERENCES releases(platform) ON DELETE CASCADE,
+  lang        TEXT NOT NULL,
+  payload     TEXT NOT NULL,
+  source_hash TEXT NOT NULL,
+  provider    TEXT NOT NULL,
+  created_at  INTEGER NOT NULL,
+  PRIMARY KEY (platform, lang)
+);
+
 /* Blockspeicher: derselbe Inhalt wird nur einmal abgelegt.
    `groesse` ist die Länge des Blocks, `belegt` was er nach dem Packen auf der
    Platte kostet, `verweise` wie viele Dateien ihn benutzen. */
@@ -668,6 +705,10 @@ CREATE TABLE IF NOT EXISTS kanal_schluessel_pakete (
   PRIMARY KEY (channel_id, fassung, user_id)
 );
 CREATE INDEX IF NOT EXISTS idx_kanal_pakete_user ON kanal_schluessel_pakete(user_id);
+-- Ohne Fremdschlüssel auf channels(id) (siehe Kommentar oben) räumt
+-- deleteChannel() (services/channels.ts) diese Zeilen von Hand ab — dafür
+-- diesen Index, sonst liefe die Löschung über einen vollen Tabellenscan.
+CREATE INDEX IF NOT EXISTS idx_kanal_pakete_channel ON kanal_schluessel_pakete(channel_id);
 
 /* Eine Freigabe nach einem Vorfall.
    `code_abdruck` ist der Abdruck des Codes, nicht der Code: der Server soll
@@ -785,6 +826,125 @@ CREATE TABLE IF NOT EXISTS notiz_schluessel_pakete (
 );
 CREATE INDEX IF NOT EXISTS idx_notiz_pakete_user ON notiz_schluessel_pakete(user_id);
 
+/* Der Kontoschlüssel — ein zufälliger AES-Schlüssel, der dem KONTO gehört
+   statt einem Gerät.
+
+   WARUM ES IHN BRAUCHT: notiz_schluessel_pakete oben hat den
+   Primärschlüssel (notiz_id, user_id) — eine Zeile je KONTO. Gerechnet
+   wurde diese Zeile aber mit dem privaten ECDH-Teil EINES BESTIMMTEN
+   Geräts. Ein zweites Gerät desselben Kontos kann sie nie öffnen: es
+   schlägt beim Auspacken den öffentlichen Teil "des Kontos" nach und
+   bekommt seinen eigenen. Genau das war der gemeldete Fehler ("auf dem Mac
+   angelegt, auf dem Handy nie entschlüsselt").
+
+   WAS HIER STEHT UND WAS NICHT: `daten` ist der Kontoschlüssel, verschlossen
+   mit einem Schlüssel, den die App aus dem Passwort ableitet (PBKDF2, siehe
+   shared/vertraulich.ts). Dieser abgeleitete Schlüssel erreicht den Server
+   NIE — weder hier noch sonst irgendwo. `salz` und `runden` sind keine
+   Geheimnisse, sondern die Wegbeschreibung, ohne die ein zweites Gerät aus
+   demselben Passwort nicht denselben Schlüssel bekäme.
+
+   ZUM ANMELDE-HASH (users.password_hash): getrennte Wege aus demselben
+   Passwort. Dort scrypt mit eigenem Zufallssalz auf dem SERVER, hier PBKDF2
+   mit eigenem Zufallssalz auf dem GERÄT. Aus dem einen lässt sich das andere
+   nicht herleiten; wer eines hat, hat nur ein Ziel zum Durchprobieren, kein
+   Stück des anderen.
+
+   `fassung` zählt bei jedem ERSATZ des Kontoschlüssels hoch, nicht beim
+   Umschließen nach einem Passwortwechsel (dort bleibt derselbe Schlüssel).
+   `abdruck` ist SHA-256 über den rohen Schlüssel mit eigenem Vorspann — er
+   verrät ihn nicht, erlaubt dem Server aber zu prüfen, dass beim Umschließen
+   wirklich derselbe Schlüssel neu verpackt wurde.
+
+   Eine leere `daten`-Spalte heißt: es gibt gerade keinen brauchbaren
+   Kontoschlüssel (etwa nach einem Zurücksetzen des Passworts durch die
+   Verwaltung). Die Zeile bleibt trotzdem stehen, damit `fassung` weiter
+   steigt und eine spätere nie versehentlich mit einer früheren zusammenfällt. */
+CREATE TABLE IF NOT EXISTS konto_schluessel (
+  user_id      TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  kdf          TEXT NOT NULL,
+  salz         TEXT NOT NULL,
+  runden       INTEGER NOT NULL,
+  alg          TEXT NOT NULL,
+  iv           TEXT NOT NULL,
+  daten        TEXT NOT NULL,
+  abdruck      TEXT NOT NULL,
+  fassung      INTEGER NOT NULL,
+  erstellt_am  INTEGER NOT NULL,
+  geaendert_am INTEGER NOT NULL
+);
+
+/* Der zweite Weg zu genau demselben Notizschlüssel — verpackt mit dem
+   Kontoschlüssel oben statt mit ECDH.
+
+   Eigene Tabelle und keine zweite Zeile in notiz_schluessel_pakete: dort ist
+   (notiz_id, user_id) der Primärschlüssel, eine zweite Zeile je Person gäbe
+   es dort also gar nicht, und ein Ausweichen auf eine erfundene
+   Platzhalter-Kennung in user_id hätte den Fremdschlüssel auf users(id)
+   gebrochen.
+
+   `konto_fassung` ist die Sicherung gegen das gefährlichste Missgeschick
+   dieses Entwurfs: ein Gerät mit einem veralteten Kontoschlüssel darf keine
+   Zeile schreiben, die richtig aussieht und sich nie öffnen lässt. Der
+   Server nimmt nur an, was zur aktuellen Fassung passt, und räumt beim
+   Ersetzen des Kontoschlüssels alles Alte weg.
+
+   Der Geräteweg bleibt daneben vollständig bestehen. Zwei unabhängige Wege
+   zu einem Schlüssel heißen: ein Ausfall auf einem Weg kostet keine Notiz. */
+CREATE TABLE IF NOT EXISTS notiz_konto_pakete (
+  notiz_id      TEXT NOT NULL REFERENCES notizen(id) ON DELETE CASCADE,
+  user_id       TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  fassung       INTEGER NOT NULL,
+  konto_fassung INTEGER NOT NULL,
+  alg           TEXT NOT NULL,
+  iv            TEXT NOT NULL,
+  daten         TEXT NOT NULL,
+  erstellt_am   INTEGER NOT NULL,
+  PRIMARY KEY (notiz_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_notiz_konto_pakete_user ON notiz_konto_pakete(user_id);
+
+/* Der Anmeldenachweis — damit das Passwort den Server gar nicht erst erreicht.
+
+   WARUM ES DIESE TABELLE GIBT: `konto_schluessel` darüber ruht darauf, dass
+   nur die Geräte das Passwort kennen. Solange die Anmeldung es im Klartext
+   hinschickt, gilt das nicht — ein Server, der in diesem Augenblick
+   mitschriebe, könnte denselben Kontoschlüssel herleiten wie jedes Gerät.
+   Diese Tabelle nimmt der Anmeldung das Passwort weg: ein Gerät schickt
+   PBKDF2(Passwort, salz) statt des Passworts, und hier steht davon nur der
+   scrypt-Abdruck.
+
+   `nachweis` hat GENAU DIE FORM von users.password_hash — dieselbe
+   scrypt-Zeichenkette aus auth.ts, gerechnet mit denselben Parametern.
+   Absicht: der Server bekommt keine neue Kryptografie, er hasht und
+   vergleicht mit dem Code, der das seit jeher tut, einschließlich seines
+   zeitgleichen Nein-Wegs.
+
+   `salz` wählt das GERÄT und nicht der Server. Ein Server, der das Salz
+   vorgäbe, könnte allen Konten dasselbe zuteilen und sich damit eine
+   vorgerechnete Tabelle bauen.
+
+   users.password_hash BLEIBT DANEBEN STEHEN und wird nicht ersetzt. Das ist
+   die ganze Sicherung dieses Umbaus: ein Gerät mit alter App, ein Browser
+   mit altem Bündel und jede Person, die nicht aktualisiert hat, meldet sich
+   weiter über den alten Weg an. Fehlt hier eine Zeile, heißt das nur "diese
+   Person hat sich noch nicht mit einer neuen App angemeldet" — nie
+   "ausgesperrt".
+
+   Die Zeile FÄLLT bei jedem Passwortwechsel (auch beim Zurücksetzen durch
+   die Verwaltung und bei der Ersteinrichtung): der Nachweis gehört zum alten
+   Passwort. Auch das sperrt niemanden aus — ohne Zeile nimmt die Anmeldung
+   wieder den alten Weg und das Gerät hinterlegt danach einen neuen. */
+CREATE TABLE IF NOT EXISTS anmelde_nachweise (
+  user_id      TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  kdf          TEXT NOT NULL,
+  salz         TEXT NOT NULL,
+  runden       INTEGER NOT NULL,
+  nachweis     TEXT NOT NULL,
+  erstellt_am  INTEGER NOT NULL,
+  geaendert_am INTEGER NOT NULL
+);
+
 -- ─────────────────────────────────────────────────────────────────
 -- Vorschläge der KI, bevor sie etwas werden
 -- ─────────────────────────────────────────────────────────────────
@@ -882,6 +1042,20 @@ CREATE TABLE IF NOT EXISTS mail_entwuerfe (
   an        TEXT NOT NULL,
   betreff   TEXT NOT NULL,
   text  TEXT NOT NULL,
+  /* Der Wortlaut, wie die KI ihn geschrieben hat — verschluesselt wie `text`.
+ `text` wird beim Freigeben mit dem ueberschrieben, was ein Mensch
+ tatsaechlich hinausschickt (entwurfBearbeiten()); ohne diese zweite Spalte
+ waere der Unterschied zwischen beiden fuer immer weg. Zwei Dinge haengen an
+ diesem Unterschied: services/post.ts::senden() vergleicht `text_ki` gegen
+ den tatsaechlich gesendeten Text, um am Fuss der Mail die richtige
+ Kennzeichnung zu setzen (unveraendert = "von StelliumAI erstellt",
+ veraendert = "mit Unterstuetzung von StelliumAI bearbeitet") UND um
+ mail_nachrichten.ki_art zu setzen, an dem services/post-lernen.ts erkennt,
+ dass an dieser Mail eine KI mitgeschrieben hat — genau DESHALB (nicht mehr
+ als Lernquelle: post-lernen.ts lernt nie aus einem Entwurf, den eine KI
+ mitgeschrieben hat, gleich ob unveraendert oder bearbeitet, siehe dort).
+ Wird NIE ueberschrieben. */
+  text_ki   TEXT,
   /* Warum die KI meint, dass geantwortet werden sollte — steht neben dem
  Entwurf, damit man nicht raten muss, worauf er antwortet. */
   begruendung   TEXT,
@@ -894,6 +1068,84 @@ CREATE TABLE IF NOT EXISTS mail_entwuerfe (
   gesendet_id   TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_mail_entwurf_zustand ON mail_entwuerfe(zustand, erstellt_am);
+-- Der Index auf gesendet_id entsteht in migrate.ts, nicht hier: er wird erst
+-- vom Lernlauf gebraucht (services/post-lernen.ts sucht den Entwurf zu einer
+-- gesendeten Mail), und auf einer bestehenden Datenbank legt migrate.ts diese
+-- Tabelle ohnehin selbst an. Zwei Stellen fuer denselben Index waeren zwei
+-- Stellen, die auseinanderlaufen koennen.
+
+/* ── Das Gedaechtnis der Firmenpost ──────────────────────────────
+   Was die KI ueber das Unternehmen weiss (`mail_wissen`) und was sie sich
+   merken MOECHTE (`mail_wissen_vorschlaege`). Der Unterschied zwischen den
+   beiden Tabellen ist die ganze Sperre: nur die erste geht in eine Anweisung
+   ans Modell, und der einzige Weg von der zweiten in die erste fuehrt ueber
+   einen Menschen mit `mail.verwalten` (services/post-wissen.ts).
+   Texte verschluesselt wie jeder andere Schriftwechsel — hier stehen Preise,
+   Zustaendigkeiten und Wortlaute aus echter Kundenpost. */
+CREATE TABLE IF NOT EXISTS mail_wissen (
+  id           TEXT PRIMARY KEY,
+  /* 'wissen' = eine Tatsache ueber die Firma, 'stil' = eine Schreibgewohnheit.
+ Zwei Arten, weil sie unterschiedlich ausgewaehlt werden: Wissen nach dem
+ Thema der Mail, Stil immer (services/post-wissen-ki.ts). */
+  art          TEXT NOT NULL DEFAULT 'wissen',
+  thema        TEXT NOT NULL,
+  inhalt       TEXT NOT NULL,
+  /* Kommaliste. Faengt, was im Thema nicht woertlich vorkommt ("Abo", "Pi"). */
+  stichworte   TEXT,
+  /* Grundwissen: geht mit, auch wenn die Mail das Thema nicht erwaehnt.
+ Ohne mindestens einen solchen Eintrag beantwortet die KI keine einzige
+ Frage, egal wie gut die Auswahl ist. */
+  immer        INTEGER NOT NULL DEFAULT 0,
+  /* Nur fuer dieses Fach gueltig (lokaler Teil, etwa 'billing'), NULL = alle. */
+  fach         TEXT,
+  /* Woher der Eintrag stammt, im Klartext lesbar: "von Hand angelegt" oder
+ ein Hinweis auf die gesendete Mail, aus der gelernt wurde. Ohne Herkunft
+ kann niemand beurteilen, ob eine Aussage stimmt. */
+  quelle       TEXT,
+  angelegt_von TEXT REFERENCES users(id) ON DELETE SET NULL,
+  angelegt_am  INTEGER NOT NULL,
+  geaendert_am INTEGER,
+  /* Widerspruch statt stillem Ueberschreiben: `ersetzt_id` sagt, welchen
+ Eintrag dieser hier abgeloest hat; `ersetzt_am`/`ersetzt_durch` sagen, dass
+ DIESER abgeloest wurde und nicht mehr gilt. Er bleibt lesbar — sonst liesse
+ sich nicht nachvollziehen, warum die KI seit gestern etwas anderes schreibt. */
+  ersetzt_id    TEXT,
+  ersetzt_am    INTEGER,
+  ersetzt_durch TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_mail_wissen_aktiv ON mail_wissen(ersetzt_am, art);
+
+CREATE TABLE IF NOT EXISTS mail_wissen_vorschlaege (
+  id           TEXT PRIMARY KEY,
+  /* Fingerabdruck (HMAC) ueber die Wortmenge von Thema und Inhalt — der
+ Vermerk "schon vorgelegt". Bleibt stehen, wie auch immer entschieden wurde:
+ genau das verhindert, dass dieselbe Beobachtung bei jeder aehnlichen Mail
+ erneut auf den Tisch kommt. Dieselbe Idee wie `gruppe_vorschlag_am` bei den
+ Briefpartner-Gruppen. */
+  abdruck      TEXT NOT NULL,
+  art          TEXT NOT NULL DEFAULT 'wissen',
+  thema        TEXT NOT NULL,
+  inhalt       TEXT NOT NULL,
+  /* Warum die KI das fuer merkenswert haelt — ein Satz. */
+  begruendung  TEXT,
+  /* JSON: welche Mail, welcher Entwurf, was die KI geschrieben hatte und was
+ tatsaechlich hinausging. Ohne Herkunft laesst sich ein Vorschlag nicht
+ beurteilen, und die Karte im Reiter waere eine Behauptung. */
+  herkunft     TEXT,
+  /* Die Kennung eines GELTENDEN Eintrags zum selben Thema. Gesetzt heisst:
+ hier widerspricht sich etwas, und beide Wortlaute gehoeren nebeneinander
+ vor den Menschen, der entscheidet. */
+  widerspruch_zu TEXT,
+  zustand      TEXT NOT NULL DEFAULT 'offen',   -- offen | angenommen | abgelehnt
+  erstellt_am  INTEGER NOT NULL,
+  entschieden_am  INTEGER,
+  entschieden_von TEXT REFERENCES users(id) ON DELETE SET NULL,
+  /* Bei 'angenommen': der Eintrag, der daraus entstanden ist. */
+  eintrag_id   TEXT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_mail_wissen_abdruck ON mail_wissen_vorschlaege(abdruck);
+CREATE INDEX IF NOT EXISTS idx_mail_wissen_vorschlag ON mail_wissen_vorschlaege(zustand, erstellt_am);
+
 CREATE TABLE IF NOT EXISTS mail_nachrichten (
   id           TEXT PRIMARY KEY,
   /* An welche Adresse sie ging — daraus entstehen die Ordner in der
@@ -950,6 +1202,21 @@ CREATE TABLE IF NOT EXISTS mail_partner (
      spaetere, unsicherere Messung soll eine sichere nicht umwerfen. */
   sicher       REAL NOT NULL DEFAULT 0,
   seit         INTEGER NOT NULL,
+  /* listePartner() (services/post-partnergruppen.ts) sortiert danach
+     (ORDER BY seit DESC LIMIT 500) ohne eigenen Index -- ueberlegt, nicht
+     vergessen. Die Zeilenzahl bleibt klein: adresse_bidx ist der
+     Primaerschluessel, es entsteht also hoechstens eine Zeile je
+     UNTERSCHIEDLICHER Adresse, nicht je Mail wie bei mail_nachrichten.
+     Nachgemessen bei 8000 Zeilen (grosszuegig fuer die meisten Haeuser):
+     SCAN + eigene Sortierung (TEMP B-TREE), rund 1 ms -- fuer eine Abfrage,
+     die kein Nutzer im Alltag mehrfach pro Sekunde ausloest, nicht der Rede
+     wert. Dagegen steht: `seit` wird bei JEDEM ausreichend langen, sicher
+     erkannten Kontakt neu geschrieben, nicht nur beim allerersten
+     (spracheLernen() in services/post.ts, ON CONFLICT DO UPDATE) -- ein
+     Index haette hier also einen echten Pflegeaufwand bei aktiven
+     Briefpartnern, fuer einen Lesevorteil, der bei dieser Groessenordnung
+     noch nicht ins Gewicht faellt. Waechst mail_partner deutlich ueber
+     diese Groessenordnung hinaus, gehoert die Abwaegung neu gemacht. */
   /* Die Gruppe des Briefpartners (siehe PARTNER_GRUPPEN in
      packages/shared/src/types.ts) -- dieselbe Art Merkmal wie sprache oben,
      deshalb dieselbe Zeile und keine eigene Tabelle. NULL heisst: noch nicht
@@ -968,15 +1235,49 @@ CREATE TABLE IF NOT EXISTS mail_partner (
      Bleibt stehen, wenn ein Mensch genau diesen Wert bestaetigt (er erklaert
      dann weiterhin, warum die Zeile so steht) -- wird NULL, sobald ein
      Mensch eine ANDERE Gruppe waehlt, denn dann erklaert der Satz eine
-     Entscheidung, die nicht mehr gilt. */
+     Entscheidung, die nicht mehr gilt.
+     gruppe_beleg: worauf eine AUTOMATISCHE "intern"-Einordnung beruht --
+     'dmarc' (die ausloesende Mail trug ein bestandenes DMARC fuer genau
+     diese Absenderdomaene: Tatsache), 'ungeprueft' (die Domaene stimmt, der
+     Beleg fehlt oder fiel durch: nur ein Vorschlag) oder 'altbestand' (Zeile
+     aus der Zeit vor dieser Pruefung, Beleg nicht mehr feststellbar: ebenso
+     nur ein Vorschlag). NULL heisst "kam nicht ueber den Domaenenweg".
+     WARUM DIESE SPALTE UEBERHAUPT: verglichen wird mail_nachrichten.von, und
+     das ist der "From:"-Kopf -- den schreibt der Absender selbst (siehe
+     dort). Ohne Beleg saehe eine gefaelschte Adresse auf der eigenen Domaene
+     genauso aus wie eine echte Kollegin. Ein Mensch (und die KI-freie
+     Durchsicht) soll den Unterschied sehen koennen. Siehe
+     services/post-partnergruppen.ts und util/absenderbeleg.ts. */
   gruppe               TEXT,
   gruppe_von_ki        INTEGER NOT NULL DEFAULT 0,
   gruppe_vorschlag_am  INTEGER,
-  gruppe_begruendung   TEXT
+  gruppe_begruendung   TEXT,
+  gruppe_beleg         TEXT
 );
 -- Der Index auf gruppe (fuer die Filterung nach Gruppe) entsteht in
 -- migrate.ts, nicht hier -- aus demselben Grund wie bei zustell_schluessel
 -- oben: diese Spalte ist auf einer bestehenden Datenbank erst nachgeruestet.
+
+-- Benutzerdefinierte Briefpartner-Gruppen -- siehe PARTNER_GRUPPEN in
+-- packages/shared/src/types.ts fuer den Unterschied zu den EINGEBAUTEN
+-- Gruppen (kunden/firmen/.../intern), die absichtlich NIE als Zeile hier
+-- stehen: ihr Name kommt aus dem Woerterbuch, nicht aus dieser Tabelle.
+-- Diese Tabelle ist brandneu (keine Vorgaengerform, anders als mail_partner
+-- oben) -- deshalb genuegt ein einfaches CREATE TABLE IF NOT EXISTS ohne
+-- Spalten-Nachruestung ueber die COLUMNS-Liste in migrate.ts.
+CREATE TABLE IF NOT EXISTS post_partnergruppen (
+  id         TEXT PRIMARY KEY,
+  -- Der Wortlaut, wie die Person ihn eingegeben hat -- unuebersetzt, siehe
+  -- packages/shared/src/types.ts.
+  name       TEXT NOT NULL,
+  created_by TEXT NOT NULL REFERENCES users(id),
+  created_at INTEGER NOT NULL
+);
+-- COLLATE NOCASE wie bei idx_projekte_offen: "Nachbarn" und "nachbarn"
+-- duerfen nicht als zwei verschiedene Gruppen nebeneinander entstehen.
+-- Fuehrende/folgende Leerzeichen faengt der Dienst selbst ab (Trim vor dem
+-- Schreiben), nicht der Index -- COLLATE NOCASE hilft dabei nicht.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_post_partnergruppen_name ON post_partnergruppen(name COLLATE NOCASE);
 
 /* Die Bytes eines Mailanhangs -- eingegangen oder ausgehend.
    `mail_nachrichten.anhaenge` bleibt die Übersicht (Name/Typ/Größe/Ort als
@@ -1166,3 +1467,382 @@ CREATE TABLE IF NOT EXISTS wechselkurse (
   geholt_am  INTEGER NOT NULL,
   PRIMARY KEY (datum, basis, ziel)
 );
+
+/* Einzelne Verkaufsereignisse für die Benachrichtigung "ein Kauf ist
+ * passiert" — siehe services/verkaufBenachrichtigung.ts für die ausführliche
+ * Begründung. Getrennt von verkauf_gumroad_verkaeufe/verkauf_momentaufnahmen
+ * oben: jene sind die Kennzahlen-Rohdaten ("wie hoch ist der Umsatz"), diese
+ * Tabelle hier ist der Meldungs-Verlauf ("wurde schon gemeldet, dass DAS
+ * passiert ist") — eine andere Frage, mit einer anderen Lebensdauer.
+ *
+ * `fingerabdruck` trägt die Dublettensperre, genau wie `abdruck` bei
+ * mail_wissen_vorschlaege oben — als UNIQUE-Bedingung in der Datenbank, nicht
+ * als Merker im Arbeitsspeicher, damit ein Serverneustart oder ein erneuter
+ * Sync-Lauf (beide Anbindungen fragen bei jedem Lauf den vollen Bestand ab,
+ * nicht nur "seit dem letzten Mal", siehe Dateikopf von services/gumroad.ts)
+ * dasselbe Ereignis nie zweimal meldet. Anders als dort muss der Fingerabdruck
+ * hier nicht per HMAC verborgen werden: eine Gumroad-Verkaufs-ID oder eine
+ * Patreon-Mitglieds-ID ist selbst schon eine bedeutungslose, fremdvergebene
+ * Kennung, kein Klartext, aus dem sich etwas ablesen ließe (siehe auch die
+ * Kundendaten-Enthaltsamkeit bei verkauf_gumroad_verkaeufe oben).
+ */
+CREATE TABLE IF NOT EXISTS verkauf_ereignisse (
+  id            TEXT PRIMARY KEY,
+  fingerabdruck TEXT NOT NULL,
+  anbieter      TEXT NOT NULL,               -- 'gumroad' | 'patreon'
+  art           TEXT NOT NULL,               -- 'einmalig' | 'neu' | 'verlaengerung'
+  produkt_name  TEXT,
+  betrag_cent   INTEGER,
+  waehrung      TEXT,
+  in_probe      INTEGER,                     -- 0/1, NULL = nicht zutreffend (kein Abo oder Anbieter ohne Probezeit)
+  /* 1 = beim allerersten Lauf dieser Anbindung erfasst, also VOR Einführung
+     dieser Funktion schon vorhanden. Trägt die Dublettensperre mit, taucht
+     aber nie in der Liste auf und löst nie eine Meldung aus — ohne dieses
+     Feld sähe die Einführung selbst wie ein Schwall aus Altverkäufen aus. */
+  stumm         INTEGER NOT NULL DEFAULT 0,
+  erkannt_am    INTEGER NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_verkauf_ereignisse_abdruck ON verkauf_ereignisse(fingerabdruck);
+CREATE INDEX IF NOT EXISTS idx_verkauf_ereignisse_liste ON verkauf_ereignisse(stumm, erkannt_am);
+
+-- ─────────────────────────────────────────────────────────────────
+-- Einmalcodes — zweiter Faktor fürs Firmenkonto (TOTP)
+-- ─────────────────────────────────────────────────────────────────
+
+/* Konten, für die Einmalcodes gerechnet werden — meist genau eins: das
+   Firmenkonto bei Google. Was hier steht, ist der ZWEITE FAKTOR des
+   Unternehmens; wer die Zeile lesen könnte, käme mit dem Passwort ins Konto.
+   Deshalb liegt `geheimnis` verschlüsselt (crypto/pii.ts, encryptField) und
+   wird durch keinen Weg je wieder herausgegeben — siehe
+   services/einmalcode.ts. Auch Etikett, Aussteller und Kontoname sind
+   verschlüsselt: der Kontoname ist in aller Regel eine Mailadresse, und die
+   sind im Haus personenbezogen.
+   Algorithmus, Stellenzahl und Periode bleiben im Klartext — sie sind
+   Kennzahlen aus RFC 6238, kein Geheimnis, und ohne das Geheimnis nützt
+   niemandem, sie zu kennen. */
+CREATE TABLE IF NOT EXISTS einmalcode_konten (
+  id            TEXT PRIMARY KEY,
+  bezeichnung   TEXT NOT NULL,
+  aussteller    TEXT,
+  konto         TEXT,
+  geheimnis     TEXT NOT NULL,
+  algorithmus   TEXT NOT NULL DEFAULT 'SHA1',
+  stellen       INTEGER NOT NULL DEFAULT 6,
+  periode       INTEGER NOT NULL DEFAULT 30,
+  angelegt_von  TEXT NOT NULL REFERENCES users(id),
+  angelegt_am   INTEGER NOT NULL,
+  geaendert_von TEXT REFERENCES users(id),
+  geaendert_am  INTEGER
+);
+
+/* Wer wann einen Code geholt hat. WELCHER Code es war, steht bewusst nicht
+   dabei — er wäre nach dreißig Sekunden wertlos und vorher ein Nachschlüssel
+   im Klartext.
+   `bezeichnung` ist eine verschlüsselte KOPIE des Etiketts, kein Verweis:
+   der Nachweis muss lesbar bleiben, wenn jemand das Konto löscht. Aus
+   demselben Grund trägt `konto_id` KEIN "REFERENCES … ON DELETE CASCADE" —
+   gerade das Löschen wäre der Griff, mit dem jemand Spuren verwischen
+   würde. */
+CREATE TABLE IF NOT EXISTS einmalcode_abrufe (
+  id          TEXT PRIMARY KEY,
+  konto_id    TEXT NOT NULL,
+  bezeichnung TEXT NOT NULL,
+  user_id     TEXT NOT NULL REFERENCES users(id),
+  am          INTEGER NOT NULL
+);
+-- Beide Tabellen stehen wortgleich noch einmal in migrate.ts, für eine
+-- bestehende Datenbank (pruefungen/tabellen-abgleich.mts prüft das) — wie bei
+-- notizen/mail_wissen oben im selben Muster. Die Indizes hier sind
+-- unbedenklich: `am` und `konto_id` sind Teil dieser CREATE-TABLE-Anweisung
+-- selbst, keine später nachgerüsteten Spalten (anders als sha256/projekt_id
+-- weiter oben) — es gibt hier also keine Reihenfolge zu wahren.
+CREATE INDEX IF NOT EXISTS idx_einmalcode_abrufe_am ON einmalcode_abrufe(am DESC);
+CREATE INDEX IF NOT EXISTS idx_einmalcode_abrufe_konto ON einmalcode_abrufe(konto_id);
+
+-- ─────────────────────────────────────────────────────────────────
+-- Passwort-Tresor — Ende-zu-Ende verschlüsselt wie Notizen, dieselbe Bauart
+-- ─────────────────────────────────────────────────────────────────
+/* Vier Tabellen, wortgleich im Aufbau zu notizen/notiz_mitglieder/
+   notiz_schluessel_pakete/notiz_konto_pakete weiter oben — dieselbe
+   Kryptografie, derselbe Server, der `chiffrat` nie im Klartext sieht, nur
+   für Zugangsdaten statt Titel/Text. Der ausführliche Grund für genau diese
+   vier Tabellen (statt einer einzigen mit allem drin) steht dort; er gilt
+   hier unverändert. Ein eigener Satz Tabellen statt Wiederverwendung der
+   Notiz-Tabellen: ein Tresoreintrag ist kein Sonderfall einer Notiz, und
+   beide in einer Tabelle zu führen würde jede künftige Notiz-Änderung
+   (Suche, Exportformat, Aufbewahrungsfristen) ungefragt auf den Tresor
+   mitanwenden, und umgekehrt. */
+CREATE TABLE IF NOT EXISTS passwort_eintraege (
+  id                 TEXT PRIMARY KEY,
+  owner_id           TEXT NOT NULL REFERENCES users(id),
+  /* "e1:<fassung>:<iv>:<daten>" — JSON mit Etikett, Benutzername, Passwort,
+     Notiz, URL und der optionalen Verknüpfung zu einem Einmalcode-Konto.
+     Dieselbe Nutzlast-Form wie bei einer Notiz (siehe dort) — ein eigenes
+     Chiffratformat hätte hier nichts gewonnen. */
+  chiffrat           TEXT NOT NULL,
+  version            INTEGER NOT NULL DEFAULT 1,
+  schluessel_fassung INTEGER NOT NULL DEFAULT 1,
+  geaendert_von      TEXT NOT NULL REFERENCES users(id),
+  geaendert_am       INTEGER NOT NULL,
+  erstellt_am        INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_passwort_eintraege_owner ON passwort_eintraege(owner_id);
+
+/* DAS GEHEIMNIS — getrennt vom Rest, und nur über einen einzigen Weg zu haben.
+
+   WARUM ÜBERHAUPT ZWEI HÜLLEN
+
+   Vorher lag alles in EINER Hülle: Etikett, Benutzername, Passwort, Notiz,
+   Adresse. Die Liste in der Tafel zeigt Etiketten — also musste sie genau die
+   Hülle aufmachen, in der das Passwort steckt. Beim bloßen Öffnen der Tafel
+   stand danach jedes sichtbare Passwort im verdeckten Eingabefeld und war von
+   dort mit den Entwicklerwerkzeugen oder einem Vorleseprogramm zu lesen, ohne
+   dass irgendwo eine Zeile entstanden wäre. Ein „Aufdecken"-Vermerk, der erst
+   beim Knopfdruck geschrieben wird, bezeugt in dieser Lage nichts.
+
+   Jetzt trägt `passwort_eintraege.chiffrat` das SCHAUFENSTER (Etikett,
+   Benutzername, Notiz, Adresse, Einmalcode-Verknüpfung — kein Passwort), und
+   diese Tabelle trägt das GEHEIMNIS (nur das Passwort). Die Liste kommt mit
+   dem Schaufenster aus; wer das Geheimnis will, muss es einzeln holen, und
+   genau dieses Holen schreibt die Zeile in passwort_offenlegungen — vom
+   Server, aus der AUSLIEFERUNG heraus, nicht vom Client aus der Anzeige.
+
+   BEIDE HÜLLEN, DERSELBE SCHLÜSSEL. `fassung` ist dieselbe Zahl wie
+   passwort_eintraege.schluessel_fassung; sie steht hier mit, damit ein
+   Mitgliederwechsel, der das Geheimnis zu erneuern vergisst, auffällt statt
+   ein unlesbares Chiffrat zu hinterlassen. Der Server hat nach wie vor keinen
+   der beteiligten Schlüssel und sieht auch hier nur „e1:<fassung>:<iv>:<daten>".
+
+   WAS DIE TRENNUNG NICHT VERRATEN DARF: DIE LÄNGE. Eine Hülle um nur das
+   Passwort wäre so lang wie das Passwort — der Server hätte damit etwas
+   erfahren, das er aus der einen gemeinsamen Hülle nie herauslesen konnte.
+   Deshalb füllt der Client den Klartext vor dem Verschlüsseln auf ein
+   Vielfaches von 256 Byte auf (lib/passwoerter.ts, GEHEIM_BLOCK). Diese
+   Tabelle sieht dadurch für jedes Passwort gleich aus.
+
+   KEIN `ON DELETE CASCADE`-Verzicht wie bei den Offenlegungen: ein gelöschter
+   Eintrag SOLL sein Geheimnis mitnehmen — es ist der Wert selbst, nicht die
+   Spur darüber. */
+CREATE TABLE IF NOT EXISTS passwort_geheimnisse (
+  eintrag_id   TEXT PRIMARY KEY REFERENCES passwort_eintraege(id) ON DELETE CASCADE,
+  chiffrat     TEXT NOT NULL,
+  fassung      INTEGER NOT NULL,
+  geaendert_am INTEGER NOT NULL
+);
+
+/* Wer zusätzlich zur besitzenden Person lesen und bearbeiten darf — nie
+   "alle im Team", immer einzeln ausgewählt. entfernt_am bleibt stehen statt
+   die Zeile zu löschen, aus demselben Grund wie bei notiz_mitglieder. */
+CREATE TABLE IF NOT EXISTS passwort_mitglieder (
+  eintrag_id       TEXT NOT NULL REFERENCES passwort_eintraege(id) ON DELETE CASCADE,
+  user_id          TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  hinzugefuegt_von TEXT NOT NULL REFERENCES users(id),
+  hinzugefuegt_am  INTEGER NOT NULL,
+  entfernt_am      INTEGER,
+  entfernt_grund   TEXT,
+  PRIMARY KEY (eintrag_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_passwort_mitglieder_user ON passwort_mitglieder(user_id);
+
+/* Der Geräteweg: der Eintragsschlüssel, verpackt für genau ein Konto per
+   ECDH — dieselbe Form wie notiz_schluessel_pakete. */
+CREATE TABLE IF NOT EXISTS passwort_schluessel_pakete (
+  eintrag_id  TEXT NOT NULL REFERENCES passwort_eintraege(id) ON DELETE CASCADE,
+  user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  fassung     INTEGER NOT NULL,
+  von_user_id TEXT NOT NULL,
+  alg         TEXT NOT NULL,
+  iv          TEXT NOT NULL,
+  daten       TEXT NOT NULL,
+  erstellt_am INTEGER NOT NULL,
+  PRIMARY KEY (eintrag_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_passwort_pakete_user ON passwort_schluessel_pakete(user_id);
+
+/* Der Kontoweg: derselbe Eintragsschlüssel, zusätzlich mit dem Kontoschlüssel
+   verpackt (services/kontoschluessel.ts) — dieselbe Form wie
+   notiz_konto_pakete, aus demselben Grund: ein zweites Gerät desselben
+   Kontos kann sonst nie öffnen, was das erste angelegt hat. */
+CREATE TABLE IF NOT EXISTS passwort_konto_pakete (
+  eintrag_id    TEXT NOT NULL REFERENCES passwort_eintraege(id) ON DELETE CASCADE,
+  user_id       TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  fassung       INTEGER NOT NULL,
+  konto_fassung INTEGER NOT NULL,
+  alg           TEXT NOT NULL,
+  iv            TEXT NOT NULL,
+  daten         TEXT NOT NULL,
+  erstellt_am   INTEGER NOT NULL,
+  PRIMARY KEY (eintrag_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_passwort_konto_pakete_user ON passwort_konto_pakete(user_id);
+
+/* Dass jemand auf „aufdecken" oder „kopieren" gedrückt hat — nie, bei welchem
+   Wert. Eine SPUR, kein Nachweis: der Klartext liegt auf dem Gerät schon vor
+   dem Knopfdruck bereit, und geschrieben wird die Zeile vom Client nebenbei.
+   Die vollständige Aufzählung, was sie belegt und was nicht, steht im Kopf
+   von services/passwoerter.ts — wer nach einem Vorfall hierauf baut, ohne
+   sie gelesen zu haben, baut auf zu viel. Derselbe
+   Gedanke wie einmalcode_abrufe weiter oben, mit demselben Grund für das
+   fehlende `ON DELETE CASCADE` auf `eintrag_id`: ein gelöschter Eintrag darf
+   seine eigene Offenlegungsspur nicht mitreißen — genau das Löschen wäre
+   sonst der Griff, mit dem sich Spuren verwischen ließen. Aus demselben
+   Grund steht hier auch kein Fremdschlüssel auf `user_id` mit CASCADE: ein
+   gelöschtes Konto soll seine vergangenen Offenlegungen nicht ungeschehen
+   machen (users.id bleibt nach deleteAccount() ohnehin für immer stehen,
+   siehe services/users.ts). */
+CREATE TABLE IF NOT EXISTS passwort_offenlegungen (
+  id         TEXT PRIMARY KEY,
+  eintrag_id TEXT NOT NULL,
+  user_id    TEXT NOT NULL REFERENCES users(id),
+  am         INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_passwort_offenlegungen_eintrag ON passwort_offenlegungen(eintrag_id, am DESC);
+CREATE INDEX IF NOT EXISTS idx_passwort_offenlegungen_am ON passwort_offenlegungen(am DESC);
+
+-- ─────────────────────────────────────────────────────────────────
+-- Notzugang — „3 von 5", damit niemand allein wiederherstellen kann
+-- ─────────────────────────────────────────────────────────────────
+/* WOFÜR DAS DA IST
+
+   Wer sein Passwort vergisst und kein angemeldetes Gerät mehr hat, verliert
+   heute jede Notiz und jeden Tresoreintrag: das Zurücksetzen durch die
+   Verwaltung wirft den Kontoschlüssel weg (services/kontoschluessel.ts,
+   verwerfen()), und ohne ihn ist alles, was mit ihm verpackt war, zu. Das
+   soll es geben — sonst könnte, wer Passwörter zurücksetzen darf, auch
+   mitlesen.
+
+   Der Ausweg ist keine Hintertür für die Verwaltung, sondern eine, die
+   NIEMAND allein aufmacht: ein zufälliger Notschlüssel verschließt den
+   Kontoschlüssel ein zweites Mal, und dieser Notschlüssel wird in fünf
+   Anteile zerlegt (shared/geheimnisteilung.ts). Drei setzen ihn zusammen,
+   zwei ergeben nichts. Ein gestohlenes Verwaltungskonto, eine gestohlene
+   Platte, eine einzelne unehrliche Person — jedes davon ergibt genau einen
+   Anteil.
+
+   WAS DER SERVER HIER HAT: den mit dem Notschlüssel verschlossenen
+   Kontoschlüssel und fünf einzeln verschlossene Anteile. Den Notschlüssel
+   nie, drei offene Anteile nie, den Kontoschlüssel nie. Alles Verschließen
+   und Öffnen passiert in lib/notzugang.ts auf einem Gerät. */
+
+/* Der Kontoschlüssel, ein zweites Mal verschlossen — mit einem Schlüssel, der
+   aus dem NOTSCHLÜSSEL abgeleitet ist statt aus dem Passwort.
+
+   `konto_abdruck` ist derselbe Wert wie konto_schluessel.abdruck. Daran hängt
+   die ganze Sicherung: der Server nimmt eine Hülle nur an, wenn sie zum heute
+   gültigen Kontoschlüssel gehört, und `verwerfen()` erkennt daran, dass es
+   einen Weg zurück gibt. Er verrät den Schlüssel nicht — SHA-256 über 256 Bit
+   Zufall lässt sich nicht zurückrechnen.
+
+   `konto_fassung` steht daneben und wird NIE hochgezählt, wenn eine
+   Wiederherstellung läuft: das ist der Unterschied zwischen „retten" und
+   „wegräumen". Eine Fassung, die sich bewegt, nimmt jedes Notiz- und
+   Tresorpaket mit (siehe notiz_konto_pakete). */
+CREATE TABLE IF NOT EXISTS konto_notzugang (
+  user_id       TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  alg           TEXT NOT NULL,
+  iv            TEXT NOT NULL,
+  daten         TEXT NOT NULL,
+  konto_abdruck TEXT NOT NULL,
+  konto_fassung INTEGER NOT NULL,
+  schwelle      INTEGER NOT NULL,
+  anteile       INTEGER NOT NULL,
+  erstellt_am   INTEGER NOT NULL,
+  geaendert_am  INTEGER NOT NULL
+);
+
+/* Ein Anteil, verschlossen für genau eine haltende Person.
+
+   `eph` statt `von_user_id`: verpackt wird mit einem WEGWERF-Schlüsselpaar,
+   dessen öffentlicher Teil hier steht. Der Grund ist die Lage selbst — wer
+   sein Gerät verloren hat, hat ein neues Schlüsselpaar, und ein Anteil, der
+   auf den öffentlichen Teil der besitzenden Person rechnet, wäre genau dann
+   unbrauchbar, wenn er gebraucht wird (shared/vertraulich.ts,
+   FluechtigesPaket).
+
+   `halter_abdruck` ist der Abdruck des öffentlichen Teils, für den verpackt
+   wurde. Wechselt die haltende Person ihr Schlüsselpaar, passt der Anteil
+   nicht mehr — und das muss AUFFALLEN statt still die Schwelle zu senken:
+   services/notzugang.ts zählt nur Anteile mit, deren Abdruck heute noch
+   stimmt und deren Konto noch aktiv ist. */
+CREATE TABLE IF NOT EXISTS notzugang_anteile (
+  user_id        TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  halter_id      TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  stelle         INTEGER NOT NULL,
+  alg            TEXT NOT NULL,
+  eph            TEXT NOT NULL,
+  iv             TEXT NOT NULL,
+  daten          TEXT NOT NULL,
+  halter_abdruck TEXT NOT NULL,
+  erstellt_am    INTEGER NOT NULL,
+  PRIMARY KEY (user_id, halter_id)
+);
+CREATE INDEX IF NOT EXISTS idx_notzugang_anteile_halter ON notzugang_anteile(halter_id);
+
+/* Eine laufende Wiederherstellung.
+
+   `code_abdruck` ist SHA-256 über einen Code, den die anfragende Person auf
+   ihrem Gerät würfelt und den Beitragenden mündlich weitergibt. Der Code
+   selbst erreicht den Server nie. Er ist das ZWEITE Schloss über jedem
+   Beitrag — ohne ihn wäre die Vertraulichkeit der Beiträge eine Hausregel,
+   an die sich der Server halten müsste: er könnte einen falschen
+   öffentlichen Teil für die anfragende Person ausgeben und die Beiträge dann
+   selbst öffnen. Dieselbe Überlegung und derselbe Aufbau wie bei den
+   Freigaben in freigaben/vorfaelle (lib/vertraulich.ts, vorfallMelden()).
+
+   `laeuft_ab` ist kurz bemessen: in diesem Fenster können drei Menschen
+   gemeinsam einen Kontoschlüssel aufschließen. */
+CREATE TABLE IF NOT EXISTS notzugang_anfragen (
+  id            TEXT PRIMARY KEY,
+  user_id       TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  code_abdruck  TEXT NOT NULL,
+  stand         TEXT NOT NULL,
+  laeuft_ab     INTEGER NOT NULL,
+  erstellt_am   INTEGER NOT NULL,
+  eingeloest_am INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_notzugang_anfragen_user ON notzugang_anfragen(user_id, erstellt_am DESC);
+
+/* Was eine haltende Person zu einer Anfrage beigesteuert hat — doppelt
+   verschlossen: innen für die anfragende Person (flüchtiges ECDH), außen mit
+   dem Code. Der Server kann keine der beiden Schichten öffnen.
+
+   Die Zeile fällt mit der Anfrage. Ein Beitrag aus einer früheren
+   Wiederherstellung darf in einer späteren nie mitzählen — deshalb steht die
+   Anfragekennung auch im Ableitungskontext (shared/vertraulich.ts,
+   notzugangBeitragKontext()). */
+CREATE TABLE IF NOT EXISTS notzugang_beitraege (
+  anfrage_id  TEXT NOT NULL REFERENCES notzugang_anfragen(id) ON DELETE CASCADE,
+  halter_id   TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  stelle      INTEGER NOT NULL,
+  alg         TEXT NOT NULL,
+  eph         TEXT NOT NULL,
+  iv          TEXT NOT NULL,
+  daten       TEXT NOT NULL,
+  erstellt_am INTEGER NOT NULL,
+  PRIMARY KEY (anfrage_id, halter_id)
+);
+
+/* Die Spur: wer wann was getan hat.
+
+   Sie ist der Preis dafür, dass es diesen Weg überhaupt gibt. Wer drei
+   Anteile zusammenträgt, hält für einen Augenblick den Kontoschlüssel — das
+   lässt sich nicht wegbauen, also muss es wenigstens sichtbar sein. Jede
+   Zeile nennt die Art und, wo es eine gibt, die beteiligte Person; die
+   besitzende Person sieht die vollständige Liste in ihrer eigenen Tafel und
+   bekommt beim Einlösen zusätzlich eine Meldung.
+
+   KEIN `ON DELETE CASCADE` auf user_id — aus demselben Grund wie bei
+   passwort_offenlegungen: das Löschen eines Kontos wäre sonst der Griff, mit
+   dem sich die eigene Spur verwischen ließe.
+
+   HIER STEHT KEIN GEHEIMNIS. Kein Anteil, kein Abdruck eines Codes, kein
+   Schlüssel — nur Kennungen, eine Art und eine Uhrzeit. */
+CREATE TABLE IF NOT EXISTS notzugang_protokoll (
+  id         TEXT PRIMARY KEY,
+  user_id    TEXT NOT NULL,
+  anfrage_id TEXT,
+  art        TEXT NOT NULL,
+  halter_id  TEXT,
+  am         INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_notzugang_protokoll_user ON notzugang_protokoll(user_id, am DESC);

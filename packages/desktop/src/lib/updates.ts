@@ -72,7 +72,7 @@ export function updatesVerbinden(): () => void {
         useStore.getState().toast({
           kind: 'info',
           title: t('update.retrying', { versuch: d.versuch ?? 1 }),
-          body: d.message ?? undefined,
+          body: d.key ? t(d.key, d.params) : d.message,
         });
         break;
       case 'installing':

@@ -1,0 +1,113 @@
+/* Die Tafel zum Notzugang.
+   Eigene Klassen statt Mitbenutzung von .passwort__* — dieselbe Überlegung
+   wie bei verkauf-meldungen.css: der Anblick ähnelt sich, aber eine spätere
+   Änderung am Tresor darf den Notzugang nicht mitverändern. */
+
+.notzugang__block {
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.notzugang__block h3 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.notzugang__leute {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.notzugang__leute li,
+.notzugang__leute label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  width: 100%;
+}
+
+.notzugang__leute .muted { margin-left: auto; font-size: 12px; }
+
+/* Der Code steht groß und einmal da — er wird vorgelesen, nicht kopiert. */
+.notzugang__code {
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 16px;
+  letter-spacing: 0.08em;
+  text-align: center;
+  padding: 10px;
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  user-select: all;
+  word-break: break-all;
+}
+
+.notzugang__gut {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--ok, #4ade80);
+}
+
+.notzugang__aufgabe {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-size: 13px;
+}
+
+.notzugang__spur {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.notzugang__spur li { display: flex; gap: 8px; }
+.notzugang__spur li .muted { margin-left: auto; white-space: nowrap; }
+
+/* Der Streifen ganz oben, wenn Notizen und Tresor auf eine Wiederherstellung
+   warten (NotzugangHinweis.tsx).
+
+   Machart wie .download-hinweis, aber ausdrücklich OHNE Wegklicken und in
+   den warnenden Farben: der Streifen ist der einzige Ort, an dem diese
+   Person erfährt, dass ihr Kontoschlüssel noch da ist und wie sie ihn
+   zurückbekommt. Er verschwindet, wenn die Wiederherstellung durch ist —
+   nicht, wenn jemand ihn wegwischt. */
+.notzugang-hinweis {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 14px;
+  border-bottom: 1px solid var(--line);
+  background: var(--bg-panel-2);
+  color: var(--tx-mid);
+  border-inline-start: 3px solid var(--amber);
+  font-size: 13px;
+  overflow: hidden;
+}
+
+.notzugang-hinweis__text { flex: 1 1 auto; min-width: 0; }

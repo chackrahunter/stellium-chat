@@ -173,6 +173,7 @@ export function PollDialog({ channelId, onClose }: { channelId: string; onClose:
                   className="icon-btn icon-btn--sm"
                   onClick={() => setOptions((prev) => prev.filter((_, n) => n !== i))}
                   title={t('common.remove')}
+                  aria-label={t('common.remove')}
                 ><Trash2 size={14} /></button>
               )}
             </div>
@@ -235,7 +236,7 @@ export function RemindersPanel({ onClose }: { onClose: () => void }) {
               {t('reminder.show')}
             </button>
           )}
-          <button className="icon-btn" onClick={() => cancelReminder(r.id)} title={t('reminder.delete')}><Trash2 size={15} /></button>
+          <button className="icon-btn" onClick={() => cancelReminder(r.id)} title={t('reminder.delete')} aria-label={t('reminder.delete')}><Trash2 size={15} /></button>
         </div>
       ))}
     </Frame>

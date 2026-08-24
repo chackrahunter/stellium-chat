@@ -1,8 +1,10 @@
 import type { Channel } from '@stellium/shared';
 import { db, removeChannelFromIndex } from '../db/index.js';
 import { newId } from '../util/id.js';
+import { abweisung } from '../util/abweisung.js';
 import { getChannel, isMember, toChannel } from './store.js';
 import { assistantUserId } from './assistant.js';
+import { tmVerweiseNachrechnen } from '../translation/index.js';
 import * as ablage from './ablage.js';
 
 export function createChannel(input: {
@@ -14,12 +16,12 @@ export function createChannel(input: {
   memberIds?: string[];
 }): Channel {
   const name = normalizeChannelName(input.name);
-  if (!name) throw new Error('Kanalname fehlt');
+  if (!name) throw abweisung('fehler.nameLeer', 'Kanalname fehlt');
 
   const existing = db.get<{ id: string }>(
     "SELECT id FROM channels WHERE kind <> 'dm' AND lower(name) = lower(?)", name,
   );
-  if (existing) throw new Error(`Kanal #${name} existiert bereits`);
+  if (existing) throw abweisung('fehler.kanalNameVergeben', `Kanal #${name} existiert bereits`, { name });
 
   const id = newId('ch_');
   const at = Date.now();
@@ -80,9 +82,9 @@ export function ensureMember(channelId: string, userId: string): void {
 
 export function joinChannel(channelId: string, userId: string): Channel {
   const ch = getChannel(channelId, userId);
-  if (!ch) throw new Error('Kanal nicht gefunden');
-  if (ch.kind === 'private' && !isMember(channelId, userId)) throw new Error('Privater Kanal — Einladung nötig');
-  if (ch.kind === 'dm') throw new Error('DMs kann man nicht betreten');
+  if (!ch) throw abweisung('fehler.kanalNichtGefunden', 'Kanal nicht gefunden');
+  if (ch.kind === 'private' && !isMember(channelId, userId)) throw abweisung('fehler.kanalPrivatEinladungNoetig', 'Privater Kanal — Einladung nötig');
+  if (ch.kind === 'dm') throw abweisung('fehler.dmNichtBetretbar', 'DMs kann man nicht betreten');
   ensureMember(channelId, userId);
   return getChannel(channelId, userId)!;
 }
@@ -90,7 +92,7 @@ export function joinChannel(channelId: string, userId: string): Channel {
 export function leaveChannel(channelId: string, userId: string): void {
   const ch = getChannel(channelId, userId);
   if (!ch) return;
-  if (ch.kind === 'dm') throw new Error('DMs kann man nicht verlassen');
+  if (ch.kind === 'dm') throw abweisung('fehler.dmNichtVerlassbar', 'DMs kann man nicht verlassen');
   db.run('DELETE FROM channel_members WHERE channel_id = ? AND user_id = ?', channelId, userId);
 }
 
@@ -103,13 +105,13 @@ export function updateChannel(channelId: string, patch: {
 
   if (patch.name !== undefined) {
     const ch = getChannel(channelId);
-    if (ch?.kind === 'dm') throw new Error('Direktnachrichten haben keinen Namen.');
+    if (ch?.kind === 'dm') throw abweisung('fehler.dmOhneName', 'Direktnachrichten haben keinen Namen.');
     const name = normalizeChannelName(patch.name);
-    if (!name) throw new Error('Der Name darf nicht leer sein.');
+    if (!name) throw abweisung('fehler.nameLeer', 'Der Name darf nicht leer sein.');
     const belegt = db.get<{ id: string }>(
       "SELECT id FROM channels WHERE kind <> 'dm' AND lower(name) = lower(?) AND id <> ?", name, channelId,
     );
-    if (belegt) throw new Error(`Der Name #${name} ist schon vergeben.`);
+    if (belegt) throw abweisung('fehler.kanalNameVergeben', `Der Name #${name} ist schon vergeben.`, { name });
     sets.push('name = ?'); vals.push(name);
   }
   if (patch.readOnly !== undefined) { sets.push('read_only = ?'); vals.push(patch.readOnly ? 1 : 0); }
@@ -149,8 +151,8 @@ export function channelLabel(channel: Channel, viewerId: string, nameOf: (id: st
  */
 export function deleteChannel(channelId: string): { name: string; messages: number } {
   const ch = getChannel(channelId);
-  if (!ch) throw new Error('Kanal nicht gefunden');
-  if (ch.kind === 'dm') throw new Error('Direktnachrichten lassen sich nicht löschen, nur ausblenden.');
+  if (!ch) throw abweisung('fehler.kanalNichtGefunden', 'Kanal nicht gefunden');
+  if (ch.kind === 'dm') throw abweisung('fehler.dmNichtLoeschbar', 'Direktnachrichten lassen sich nicht löschen, nur ausblenden.');
 
   const anzahl = db.get<{ n: number }>('SELECT COUNT(*) n FROM messages WHERE channel_id = ?', channelId)?.n ?? 0;
 
@@ -168,13 +170,89 @@ export function deleteChannel(channelId: string): { name: string; messages: numb
     ...db.all<{ path: string }>('SELECT path FROM files WHERE channel_id = ?', channelId),
   ].map((r) => r.path);
 
+  /* Derselbe Fund wie bei deleteMessage() (messages.ts), nur eine Etage
+     höher: message_translations hängt per Fremdschlüssel an messages(id) und
+     räumt sich über die Kaskade gleich mit ab — aber translation_memory hängt
+     an GAR NICHTS (schema.sql). Ohne diesen Schritt bliebe dort Quelle UND
+     Übersetzung jeder Nachricht dieses Kanals stehen, mit einem Verweiszähler,
+     der auf nichts mehr zeigt: „der einzige Ort, an dem der Inhalt einer
+     gelöschten Nachricht überlebt“ (Kommentar auf translation_memory.verweise,
+     schema.sql) — ein Kanal zu löschen hinterließe damit MEHR als seine
+     Nachrichten einzeln zu löschen, obwohl perm.channel.delete.hint
+     ("Unwiderruflich, samt aller Nachrichten.") genau das Gegenteil
+     verspricht. deleteMessage() und editMessage() rufen tmVerweiseNachrechnen()
+     dafür schon auf; deleteChannel() war der einzige der vier Löschwege, der
+     es nicht tat.
+
+     Die Schlüssel müssen — wie die Pfade oben — VOR der Kaskade gelesen
+     werden: ist die Zeile erst weg, weiß niemand mehr, welchen Eintrag im
+     Übersetzungsspeicher sie getragen hat. */
+  const tmSchluessel = db.all<{ tm_key: string | null }>(
+    `SELECT mt.tm_key FROM message_translations mt
+       JOIN messages m ON m.id = mt.message_id
+      WHERE m.channel_id = ?`,
+    channelId,
+  ).map((r) => r.tm_key);
+
   /* Zeilen und Index in einem Zug. Der Volltextindex hängt an keiner
      Fremdschlüsselbeziehung — was ON DELETE CASCADE hier abräumt, muss dort
      von Hand nach. Beides in einer Transaktion, damit nicht der eine Teil
-     verschwindet und der andere bleibt. */
+     verschwindet und der andere bleibt.
+
+     Vier Handgriffe ohne Kaskade, aus demselben Grund wie oben bei
+     translation_memory — alle vier tragen channel_id, aber KEINEN
+     Fremdschlüssel auf channels(id) (schema.sql):
+       drafts                 der eigene, verschlüsselte Entwurfstext einer
+                               Person für diesen Kanal. Ohne Kanal kann er nie
+                               mehr abgeschickt werden — anders als eine
+                               Erinnerung hat er keinen Zweck, der den Kanal
+                               überlebt (deleteAccount() in users.ts löscht
+                               Entwürfe aus genau diesem Grund schon je Person).
+       ai_summaries           eine verschlüsselte KI-Zusammenfassung aus bis zu
+                               300 Nachrichten (services/ai.ts). Ohne diese
+                               Zeile bliebe sie für immer stehen, unerreichbar
+                               über die App, aber vollständig in der Datenbank.
+       kanal_schluessel_pakete  der für jedes Mitglied verpackte Kanalschlüssel
+                               eines vertraulichen Kanals (services/
+                               vertraulich.ts). deleteAccount() (users.ts) lässt
+                               diese Tabelle bewusst unangetastet — begründet
+                               dort mit "ein bestehender Kanal bleibt für die
+                               übrigen Mitglieder nutzbar". Dieser Kanal besteht
+                               nach dieser Funktion aber nicht mehr; ohne diese
+                               Zeile bliebe das Schlüsselmaterial eines toten
+                               Kanals auf unbestimmte Zeit liegen.
+       reminders              eine Erinnerung an eine Nachricht in diesem
+                               Kanal. Die Nachricht ist über die Kaskade auf
+                               messages(id) schon weg, aber reminders trägt
+                               channel_id zusätzlich NUR lose (services/
+                               reminders.ts liest sie ohne Verknüpfung zu
+                               channels), und message_id ist NULLable — eine
+                               Erinnerung ohne Nachrichtenbezug hinge sonst
+                               weiter an einem Kanal, den niemand mehr öffnen
+                               kann, und würde trotzdem zugestellt. */
   db.transaction(() => {
     removeChannelFromIndex(channelId);
+    db.run('DELETE FROM drafts WHERE channel_id = ?', channelId);
+    db.run('DELETE FROM ai_summaries WHERE channel_id = ?', channelId);
+    db.run('DELETE FROM kanal_schluessel_pakete WHERE channel_id = ?', channelId);
+    db.run('DELETE FROM reminders WHERE channel_id = ?', channelId);
     db.run('DELETE FROM channels WHERE id = ?', channelId);
+    /* Erst NACH dem DELETE aufrufen: tmVerweiseNachrechnen() zählt die
+       verbliebenen Zeilen in message_translations aus der Wahrheit nach,
+       statt herunterzuzählen — für einen Schlüssel, den auch eine Nachricht
+       in einem ANDEREN, weiter bestehenden Kanal trägt, bleibt der Zähler
+       dadurch korrekt über 0 stehen, und die Zeile in translation_memory
+       überlebt zu Recht. Vor dem DELETE gerufen, zählte die Funktion die
+       gleich verschwindenden Zeilen dieses Kanals noch mit — zu hoch, und
+       eine Phrase, die sonst NIEMAND mehr braucht, bliebe fälschlich stehen.
+       tmVerweiseNachrechnen() öffnet selbst keine eigene Transaktion (siehe
+       translation/index.ts) — diese Db-Hülle kennt kein SAVEPOINT
+       (db/index.ts, transaction() ist nur BEGIN/COMMIT/ROLLBACK), ein
+       zweites BEGIN mitten in einem offenen würde reißen. Der Aufruf läuft
+       darum als einfacher Funktionsaufruf innerhalb der bestehenden
+       Transaktion, genau wie dropMessageTranslations() es in deleteMessage()
+       schon vormacht. */
+    tmVerweiseNachrechnen(tmSchluessel);
   });
 
   /* Was der Kanal hinterlässt, liegt in zwei Formen da: Blöcke für alles, was
@@ -193,7 +271,7 @@ export function deleteChannel(channelId: string): { name: string; messages: numb
  */
 export function hideChannel(channelId: string, userId: string): void {
   const ch = getChannel(channelId, userId);
-  if (!ch) throw new Error('Kanal nicht gefunden');
+  if (!ch) throw abweisung('fehler.kanalNichtGefunden', 'Kanal nicht gefunden');
   if (ch.kind === 'dm') {
     db.run('UPDATE channel_members SET hidden = 1 WHERE channel_id = ? AND user_id = ?', channelId, userId);
     return;
@@ -213,8 +291,8 @@ export function unhideForAll(channelId: string): void {
 
 export function setMembers(channelId: string, add: string[] = [], remove: string[] = []): Channel {
   const ch = getChannel(channelId);
-  if (!ch) throw new Error('Kanal nicht gefunden');
-  if (ch.kind === 'dm') throw new Error('Bei Direktnachrichten stehen die Teilnehmenden fest.');
+  if (!ch) throw abweisung('fehler.kanalNichtGefunden', 'Kanal nicht gefunden');
+  if (ch.kind === 'dm') throw abweisung('fehler.dmTeilnehmerFest', 'Bei Direktnachrichten stehen die Teilnehmenden fest.');
 
   db.transaction(() => {
     for (const uid of add) {

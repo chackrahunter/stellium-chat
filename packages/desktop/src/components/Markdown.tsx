@@ -98,9 +98,19 @@ const INLINE_RE = new RegExp(
     '(~~[^~\\n]+~~)',                                   // 4 durchgestrichen
     '(\\[[^\\]\\n]+\\]\\([^)\\s]+\\))',                 // 5 [Text](url)
     '(https?://[^\\s<]+)',                              // 6 nackte URL
-    '(@[a-zA-Z0-9_.-]{2,32})',                          // 7 Erwähnung
-    '(#[\\p{L}\\p{N}_-]{2,48})',                        // 8 Kanal — \p{L}\p{N} statt a-zA-Z0-9äöüß:
-                                                         // #продажи, #売上, #satış brauchten sonst rohen Text.
+    // 7 Erwähnung — nur an einer echten Wortgrenze davor: Zeilenanfang,
+    // Leerraum oder ein öffnendes Klammer-/Anführungszeichen. NIE ein
+    // Buchstabe, eine Ziffer oder ein "_", denn dann steckt das "@" MITTEN
+    // in einem Wort — genau der Fall bei einer E-Mail-Adresse
+    // ("nutzer@beispiel.test", das "n" davor ist ein Buchstabe) oder einem
+    // Passwort-Fragment ("…9@R6…", die "9" davor ist eine Ziffer). Ein
+    // Lookbehind statt einer eigenen Gruppe, damit `raw` weiter exakt beim
+    // "@" beginnt und die Index-Buchhaltung darunter unverändert bleibt.
+    '(?<![\\p{L}\\p{N}_])(@[a-zA-Z0-9_.-]{2,32})',      // 7 Erwähnung
+    // 8 Kanal — dieselbe Wortgrenze wie bei der Erwähnung, aus demselben
+    // Grund. \p{L}\p{N} statt a-zA-Z0-9äöüß: #продажи, #売上, #satış
+    // brauchten sonst rohen Text.
+    '(?<![\\p{L}\\p{N}_])(#[\\p{L}\\p{N}_-]{2,48})',    // 8 Kanal
   ].join('|'),
   'gu',
 );

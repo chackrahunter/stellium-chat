@@ -4,6 +4,7 @@ import { Check, Loader2, ShieldCheck, Star } from 'lucide-react';
 import { LANGUAGES } from '@stellium/shared';
 import { useStore } from '../state/store.js';
 import { api } from '../net/api.js';
+import { kontoSchluesselEinrichten } from '../lib/kontoschluessel.js';
 import { useT, spracheDesSystems } from '../i18n/index.js';
 
 /**
@@ -38,6 +39,23 @@ export function Setup() {
         displayName: displayName.trim(),
         newPassword: passwort,
       });
+      /* Die zweite der drei Stellen mit Passwort im Klartext (siehe
+         lib/kontoschluessel.ts). Der Server hat beim Einrichten einen etwaigen
+         alten Kontoschlüssel für ungültig erklärt — das bisherige Passwort war
+         hier ja nicht bekannt —, hier entsteht der neue. Ohne diese Zeile
+         käme diese Person erst bei der NÄCHSTEN Anmeldung zu einem
+         Kontoschlüssel, und jede Notiz, die sie bis dahin anlegt, wäre auf
+         einem zweiten Gerät zunächst nicht zu öffnen. */
+      await kontoSchluesselEinrichten(user.id, passwort);
+      /* DER WEG EINER AUSGESPERRTEN PERSON ENDET NICHT HIER. Wer nach einem
+         Zurücksetzen durch die Verwaltung hierherkommt, hat einen Notzugang
+         auf seinen alten Kontoschlüssel — dann mintet die Zeile darüber
+         bewusst KEINEN neuen (vierter Ausgang in lib/kontoschluessel.ts),
+         und Notizen wie Tresor warten auf drei von fünf Anteilen. Ohne diese
+         Nachfrage stünde die Person gleich danach vor einer leeren Liste,
+         ohne einen einzigen Hinweis darauf, dass ihre Daten noch da sind:
+         der Streifen aus NotzugangHinweis.tsx hängt an genau diesem Feld. */
+      void useStore.getState().notzugangPruefen();
       /* Dieser Bildschirm fragt nur EIN Sprachfeld ab, nicht zwei — die
          Wahl hier legt deshalb sowohl die Lesesprache (in welche Sprache
          Nachrichten übersetzt werden) als auch die Oberflächensprache fest.

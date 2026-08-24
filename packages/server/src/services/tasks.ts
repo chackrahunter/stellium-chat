@@ -4,6 +4,7 @@ import {
 } from '@stellium/shared';
 import { db, nurSichtbareKanaele } from '../db/index.js';
 import { newId } from '../util/id.js';
+import { abweisung } from '../util/abweisung.js';
 
 /**
  * Aufgabenverteilung.
@@ -148,13 +149,13 @@ export function createTask(input: {
 }): Task {
   // Ohne Grenze ließe sich die Datenbank mit einer einzigen Aufgabe fluten.
   const title = input.title.trim().slice(0, TITEL_MAX);
-  if (title.length < 2) throw new Error('Die Aufgabe braucht einen Titel.');
+  if (title.length < 2) throw abweisung('fehler.aufgabeTitelFehlt', 'Die Aufgabe braucht einen Titel.');
 
   const status = input.status && TASK_STATUSES.includes(input.status) ? input.status : 'pending';
   const priority = input.priority && TASK_PRIORITIES.includes(input.priority) ? input.priority : 'normal';
 
   if (input.assigneeId && !db.get('SELECT 1 AS x FROM users WHERE id = ?', input.assigneeId)) {
-    throw new Error('Die zugewiesene Person existiert nicht.');
+    throw abweisung('fehler.aufgabeZustaendigeUnbekannt', 'Die zugewiesene Person existiert nicht.');
   }
 
   const id = newId('tk_');
@@ -201,7 +202,7 @@ export interface TaskPatch {
 
 export function updateTask(id: string, patch: TaskPatch, userId: string): Task {
   const alt = getTask(id);
-  if (!alt) throw new Error('Aufgabe nicht gefunden.');
+  if (!alt) throw abweisung('fehler.aufgabeNichtGefunden', 'Aufgabe nicht gefunden.');
 
   const sets: string[] = [];
   const werte: any[] = [];
@@ -209,7 +210,7 @@ export function updateTask(id: string, patch: TaskPatch, userId: string): Task {
 
   if (patch.title !== undefined) {
     const titel = patch.title.trim().slice(0, TITEL_MAX);
-    if (titel.length < 2) throw new Error('Die Aufgabe braucht einen Titel.');
+    if (titel.length < 2) throw abweisung('fehler.aufgabeTitelFehlt', 'Die Aufgabe braucht einen Titel.');
     sets.push('title = ?'); werte.push(titel);
     notieren.push(() => protokoll(id, userId, 'title', alt.title, titel));
   }
@@ -220,19 +221,19 @@ export function updateTask(id: string, patch: TaskPatch, userId: string): Task {
     sets.push('description = ?'); werte.push(patch.description?.trim().slice(0, BESCHREIBUNG_MAX) || null);
   }
   if (patch.status !== undefined) {
-    if (!TASK_STATUSES.includes(patch.status)) throw new Error('Unbekannter Status.');
+    if (!TASK_STATUSES.includes(patch.status)) throw abweisung('fehler.aufgabeStatusUnbekannt', 'Unbekannter Status.');
     sets.push('status = ?'); werte.push(patch.status);
     sets.push('finished_at = ?'); werte.push(patch.status === 'finished' ? Date.now() : null);
     notieren.push(() => protokoll(id, userId, 'status', alt.status, patch.status!));
   }
   if (patch.priority !== undefined) {
-    if (!TASK_PRIORITIES.includes(patch.priority)) throw new Error('Unbekannte Priorität.');
+    if (!TASK_PRIORITIES.includes(patch.priority)) throw abweisung('fehler.aufgabePrioritaetUnbekannt', 'Unbekannte Priorität.');
     sets.push('priority = ?'); werte.push(patch.priority);
     notieren.push(() => protokoll(id, userId, 'priority', alt.priority, patch.priority!));
   }
   if (patch.assigneeId !== undefined) {
     if (patch.assigneeId && !db.get('SELECT 1 AS x FROM users WHERE id = ?', patch.assigneeId)) {
-      throw new Error('Die zugewiesene Person existiert nicht.');
+      throw abweisung('fehler.aufgabeZustaendigeUnbekannt', 'Die zugewiesene Person existiert nicht.');
     }
     sets.push('assignee_id = ?'); werte.push(patch.assigneeId);
     notieren.push(() => protokoll(id, userId, 'assignee', alt.assigneeId, patch.assigneeId ?? null));
@@ -240,7 +241,7 @@ export function updateTask(id: string, patch: TaskPatch, userId: string): Task {
   if (patch.dueAt !== undefined) {
     // Eine Fälligkeit, die keine Zahl ist, landete bisher als Zeichenkette in
     // einer INTEGER-Spalte — SQLite nimmt das an, jede Sortierung danach nicht.
-    if (patch.dueAt !== null && !Number.isFinite(patch.dueAt)) throw new Error('Ungültige Fälligkeit.');
+    if (patch.dueAt !== null && !Number.isFinite(patch.dueAt)) throw abweisung('fehler.aufgabeFaelligkeitUngueltig', 'Ungültige Fälligkeit.');
     sets.push('due_at = ?'); werte.push(patch.dueAt);
     notieren.push(() => protokoll(id, userId, 'due',
       alt.dueAt ? String(alt.dueAt) : null, patch.dueAt ? String(patch.dueAt) : null));
@@ -270,7 +271,7 @@ export function updateTask(id: string, patch: TaskPatch, userId: string): Task {
 /** Neu einsortieren, z.B. beim Ziehen zwischen Spalten. */
 export function reorder(id: string, status: TaskStatus, vorherId: string | null, userId: string): Task {
   const alt = getTask(id);
-  if (!alt) throw new Error('Aufgabe nicht gefunden.');
+  if (!alt) throw abweisung('fehler.aufgabeNichtGefunden', 'Aufgabe nicht gefunden.');
 
   const nachbar = vorherId
     ? db.get<{ position: number }>('SELECT position FROM tasks WHERE id = ?', vorherId)?.position ?? 0
@@ -286,8 +287,8 @@ export function reorder(id: string, status: TaskStatus, vorherId: string | null,
 
 export function addComment(id: string, userId: string, text: string): TaskEvent[] {
   const sauber = text.trim();
-  if (!sauber) throw new Error('Leerer Kommentar.');
-  if (!getTask(id)) throw new Error('Aufgabe nicht gefunden.');
+  if (!sauber) throw abweisung('fehler.aufgabeKommentarLeer', 'Leerer Kommentar.');
+  if (!getTask(id)) throw abweisung('fehler.aufgabeNichtGefunden', 'Aufgabe nicht gefunden.');
   protokoll(id, userId, 'comment', null, null, sauber.slice(0, 2000));
   db.run('INSERT OR IGNORE INTO task_watchers (task_id, user_id) VALUES (?,?)', id, userId);
   return historyOf(id);
@@ -297,7 +298,7 @@ export function setWatching(id: string, userId: string, watching: boolean): Task
   if (watching) db.run('INSERT OR IGNORE INTO task_watchers (task_id, user_id) VALUES (?,?)', id, userId);
   else db.run('DELETE FROM task_watchers WHERE task_id = ? AND user_id = ?', id, userId);
   const t = getTask(id);
-  if (!t) throw new Error('Aufgabe nicht gefunden.');
+  if (!t) throw abweisung('fehler.aufgabeNichtGefunden', 'Aufgabe nicht gefunden.');
   return t;
 }
 

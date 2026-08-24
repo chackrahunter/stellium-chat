@@ -215,9 +215,24 @@ export function saveTranscript(attachmentId: string, result: TranscriptResult): 
   );
 }
 
+/**
+ * `deleted_at IS NULL` ist hier bewusst dazugekommen: ohne den Join gegen
+ * `messages` lieferte diese Funktion Anhang UND Transkript unverändert
+ * weiter, auch wenn die Nachricht längst gelöscht war. hydrateMessages()
+ * (services/store.ts) redigiert `text` für eine gelöschte Nachricht zwar
+ * korrekt, ruft dieses `voice`-Feld bei kind === 'voice' aber unbedingt auf —
+ * ohne die Prüfung hier lag das Transkript trotzdem im Klartext in der
+ * Antwort. Denselben Weg nimmt ws/gateway.ts::runTranscription() über das
+ * eigene {t:'voice:transcript', voice: voiceNoteFor(id)}-Ereignis, das an
+ * hydrateMessages() ganz vorbei geht — auch dort greift die Sperre jetzt,
+ * weil sie an der einen gemeinsamen Quelle sitzt statt an zwei Stellen
+ * einzeln nachgebildet zu sein.
+ */
 export function voiceNoteFor(messageId: string): VoiceNote | null {
   const attachment = db.get<{ id: string }>(
-    `SELECT a.id FROM attachments a WHERE a.message_id = ? AND a.mime LIKE 'audio/%' LIMIT 1`, messageId,
+    `SELECT a.id FROM attachments a
+     JOIN messages m ON m.id = a.message_id
+     WHERE a.message_id = ? AND a.mime LIKE 'audio/%' AND m.deleted_at IS NULL LIMIT 1`, messageId,
   );
   if (!attachment) return null;
   const transcript = db.get<{ text: string; lang: string | null; duration_ms: number | null }>(

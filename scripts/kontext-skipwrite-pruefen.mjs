@@ -1,0 +1,26 @@
+#!/usr/bin/env node
+/**
+ * Prüft, dass eine kontextabhängige Übersetzung nicht ungeschützt im
+ * geteilten translation_memory landet — und dass translation_memory nicht
+ * mehr verliert, als für diese Garantie nötig ist (siehe Fund 7, Auftrag).
+ * Gegen eine WEGWERFBARE Datenbank. Siehe
+ * scripts/kanal-loeschen-uebersetzungsspeicher-pruefen.mjs für dasselbe
+ * Muster.
+ */
+import { execFileSync } from 'node:child_process';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const wurzel = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const ordner = fs.mkdtempSync(path.join(os.tmpdir(), 'stellium-kontext-skipwrite-'));
+try {
+  execFileSync('npx', ['tsx', 'src/pruefungen/kontext-skipwrite.mts'], {
+    cwd: path.join(wurzel, 'packages/server'),
+    env: { ...process.env, DATA_DIR: ordner, JWT_SECRET: 'pruefunglaeuftmitfestemgeheimnis' },
+    stdio: 'inherit',
+  });
+} finally {
+  fs.rmSync(ordner, { recursive: true, force: true });
+}

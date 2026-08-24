@@ -25,6 +25,15 @@ export interface LokaleLage {
   modelle: string[];
   /** Klartext-Grund, wenn es klemmt. */
   fehler: string | null;
+  /**
+   * Kennung aus dem Wörterbuch der Oberfläche zu `fehler`, wenn dieser ein
+   * selbst geschriebener Satz ist (nicht: `${status} ${statusText}` oder eine
+   * fremde Ausnahme-Nachricht — die bleiben unübersetzt, dieselbe Grenze wie
+   * überall sonst in dieser Datei). null, wenn `fehler` selbst schon null ist
+   * oder keine Kennung dazu existiert. Diese Datei läuft auf dem Server, ohne
+   * Wörterbuch-Kontext — übersetzt wird erst in der Oberfläche.
+   */
+  fehlerCode: string | null;
   geprueftAm: number;
   /** Wann zuletzt wirklich jemand geantwortet hat — auch wenn er es jetzt nicht tut. */
   letzterErfolgAm: number | null;
@@ -53,22 +62,38 @@ let laufend: Promise<LokaleLage> | null = null;
  * Zwischenspeicher, für die Prüfung einer Adresse, die noch nicht gilt.
  */
 export async function modelleAbfragen(baseUrl: string): Promise<{
-  erreichbar: boolean; modelle: string[]; fehler: string | null;
+  erreichbar: boolean; modelle: string[]; fehler: string | null; fehlerCode: string | null;
 }> {
   const adresse = baseUrl.replace(/\/+$/, '');
-  if (!adresse) return { erreichbar: false, modelle: [], fehler: 'Keine Adresse eingetragen.' };
+  // Kein eigener Satz aus dem Wörterbuch: eine leere Adresse ist eine
+  // Bedienungsfrage, kein Zustand des fremden Diensts — deshalb ohne
+  // fehlerCode, wie schon vor dieser Umstellung.
+  if (!adresse) return { erreichbar: false, modelle: [], fehler: 'Keine Adresse eingetragen.', fehlerCode: null };
 
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), PRUEF_TIMEOUT);
   try {
     const res = await fetch(`${adresse}/models`, { signal: ctrl.signal });
-    if (!res.ok) return { erreichbar: false, modelle: [], fehler: `${res.status} ${res.statusText}` };
+    // `${status} ${statusText}` ist Protokoll-Diagnose, kein eigener Satz —
+    // bleibt unübersetzt, wie die Ausnahme-Nachricht im catch-Zweig unten.
+    if (!res.ok) return { erreichbar: false, modelle: [], fehler: `${res.status} ${res.statusText}`, fehlerCode: null };
     const body = await res.json() as { data?: { id?: string }[] };
     const modelle = (body.data ?? []).map((m) => String(m.id ?? '')).filter(Boolean);
-    return { erreichbar: true, modelle, fehler: modelle.length ? null : 'Dort ist kein Modell geladen.' };
+    return {
+      erreichbar: true, modelle,
+      fehler: modelle.length ? null : 'Dort ist kein Modell geladen.',
+      fehlerCode: modelle.length ? null : 'fehler.lokalOhneModell',
+    };
   } catch (err) {
-    const grund = (err as Error).name === 'AbortError' ? 'keine Antwort' : (err as Error).message;
-    return { erreichbar: false, modelle: [], fehler: grund };
+    const abgebrochen = (err as Error).name === 'AbortError';
+    // Nur der eigene, feste Satz ("keine Antwort") bekommt eine Kennung —
+    // eine fremde Ausnahme-Nachricht bleibt unübersetzt, dieselbe Grenze wie
+    // bei den beiden anderen fehler-Zweigen oben.
+    const grund = abgebrochen ? 'keine Antwort' : (err as Error).message;
+    return {
+      erreichbar: false, modelle: [], fehler: grund,
+      fehlerCode: abgebrochen ? 'fehler.lokalKeineAntwort' : null,
+    };
   } finally {
     clearTimeout(timer);
   }
@@ -85,18 +110,21 @@ function nachsehen(): Promise<LokaleLage> {
     const antwort = await modelleAbfragen(lokaleEinstellung().baseUrl);
     const zustand: LokalerZustand = !antwort.erreichbar ? 'antwortet-nicht'
       : antwort.modelle.length ? 'erreichbar' : 'kein-modell';
-    festhalten(zustand, antwort.modelle, antwort.fehler);
+    festhalten(zustand, antwort.modelle, antwort.fehler, antwort.fehlerCode);
     return lage!;
   })().finally(() => { laufend = null; });
   return laufend;
 }
 
-function festhalten(zustand: LokalerZustand, modelle: string[], fehler: string | null): void {
+function festhalten(
+  zustand: LokalerZustand, modelle: string[], fehler: string | null, fehlerCode: string | null,
+): void {
   const vorher = lage;
   lage = {
     zustand,
     modelle: modelle.length ? modelle : vorher?.modelle ?? [],
     fehler,
+    fehlerCode,
     geprueftAm: Date.now(),
     letzterErfolgAm: zustand === 'erreichbar' ? Date.now() : vorher?.letzterErfolgAm ?? null,
   };
@@ -105,6 +133,36 @@ function festhalten(zustand: LokalerZustand, modelle: string[], fehler: string |
     const wo = lokaleEinstellung().baseUrl;
     if (zustand === 'erreichbar') console.log(`[ai] ${wo} antwortet wieder (${lage.modelle.join(', ')}).`);
     else console.warn(`[ai] ${wo}: ${zustand === 'kein-modell' ? 'kein Modell geladen' : fehler ?? 'antwortet nicht'}.`);
+  }
+  /*
+   * Hier, und nur hier, steht fest, dass das EIGENE Modell geantwortet hat —
+   * unabhängig davon, ob eine Vertretung gerade übersetzt. Zwei Wege führen
+   * hierher:
+   *
+   *   1. nachsehen() fragt direkt die hinterlegte Adresse des eigenen
+   *      Modells ab (modelleAbfragen gegen lokaleEinstellung().baseUrl) —
+   *      läuft eine Vertretung gerade, übersetzt die zwar jede Nachricht,
+   *      aber lokaleLageJetzt()/lokaleLage() prüfen bei jeder Anfrage bzw.
+   *      alle paar Minuten trotzdem weiter das EIGENE Modell (siehe
+   *      translation/index.ts, wo lokaleLageJetzt() vor jeder Übersetzung
+   *      und aiCapabilities() bei jeder Auskunft gerufen wird) — das ist der
+   *      einzige Kanal, über den eine laufende Vertretung je erfährt, dass
+   *      der Rechner mit dem eigenen Modell zurück ist.
+   *   2. erfolgMelden() — aber die ruft translation/index.ts nur, wenn
+   *      wirklich das eigene Modell geantwortet hat (antwortendeStelle ===
+   *      aktiv, siehe dort); solange eine Vertretung läuft, liefert derzeit()
+   *      die Vertretung statt aktiv, und dieser Zweig bleibt unerreichbar.
+   *      Ein Erfolg der Vertretung selbst kommt also nie hier vorbei.
+   *
+   * Der Rücktritt der Vertretung hängt deshalb bewusst an diesem Übergang
+   * und nicht an einer geglückten Übersetzung: eine geglückte Übersetzung
+   * über die Vertretung sagt nichts über das eigene Modell aus, ein
+   * geglückter Test der hinterlegten Adresse schon.
+   */
+  if (vorher?.zustand !== 'erreichbar' && zustand === 'erreichbar') {
+    /* Spät geladen, weil index.ts diese Datei bereits einbindet und ein Ring
+       aus zwei Modulen beim Laden an der unerwartetsten Stelle bricht. */
+    void import('./index.js').then((m) => m.ersatzTrittAb()).catch(() => { /* egal */ });
   }
 }
 
@@ -136,11 +194,9 @@ export async function lokaleLageJetzt(): Promise<LokaleLage | null> {
  */
 export function erfolgMelden(): void {
   if (!istLokal()) return;
-  festhalten('erreichbar', lage?.modelle ?? [], null);
-  /* Das eigene Modell ist zurück — eine eingesprungene Vertretung tritt ab.
-     Spät geladen, weil index.ts diese Datei bereits einbindet und ein Ring
-     aus zwei Modulen beim Laden an der unerwartetsten Stelle bricht. */
-  void import('./index.js').then((m) => m.ersatzTrittAb()).catch(() => { /* egal */ });
+  // Der Rücktritt einer laufenden Vertretung hängt an festhalten() selbst,
+  // nicht an diesem Aufruf hier — Begründung dort.
+  festhalten('erreichbar', lage?.modelle ?? [], null, null);
 }
 
 /**
@@ -150,7 +206,9 @@ export function erfolgMelden(): void {
  */
 export function ausfallMelden(grund: string): void {
   if (!istLokal()) return;
-  festhalten('antwortet-nicht', [], grund);
+  // Kommt von außen (translation/fehler.ts) als freie Ausnahme-Nachricht,
+  // nie als einer der eigenen, festen Sätze oben — deshalb ohne fehlerCode.
+  festhalten('antwortet-nicht', [], grund, null);
   /* Und jemanden einspringen lassen, statt die KI ganz ausfallen zu lassen. */
   void import('./index.js').then((m) => m.ersatzUebernimmt(grund)).catch(() => { /* egal */ });
 }

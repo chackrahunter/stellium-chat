@@ -74,7 +74,7 @@ export function ChannelSettings({ channelId, onClose }: { channelId: string; onC
           {istDm ? <Avatar user={users[channel.dmPeerId ?? '']} size={24} />
             : channel.kind === 'private' ? <Lock size={18} /> : <Hash size={18} />}
           <h2>{istDm ? users[channel.dmPeerId ?? '']?.displayName ?? t('nav.directMessages') : `#${channel.name}`}</h2>
-          <button className="icon-btn" style={{ marginLeft: 'auto' }} onClick={onClose}><X size={17} /></button>
+          <button className="icon-btn" style={{ marginLeft: 'auto' }} onClick={onClose} aria-label={t('common.close')}><X size={17} /></button>
         </div>
 
         <div className="panel__body">
@@ -181,7 +181,7 @@ export function ChannelSettings({ channelId, onClose }: { channelId: string; onC
                     <div className="row__sub">@{u.handle} · {languageInfo(u.language).flag}</div>
                   </div>
                   {darfMitglieder && u.id !== channel.createdBy && (
-                    <button className="icon-btn" title={t('channel.remove')}
+                    <button className="icon-btn" title={t('channel.remove')} aria-label={t('channel.remove')}
                       onClick={() => setChannelMembers(channelId, [], [u.id])}>
                       <UserMinus size={15} />
                     </button>

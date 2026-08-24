@@ -4,6 +4,8 @@ import { db } from '../db/index.js';
 import { newId } from '../util/id.js';
 import { config, pushConfigured } from '../config.js';
 import { oeffentlichAusRoh, rohOeffentlich, schluesselpaarAusRoh } from '../crypto/ec.js';
+import { uiLanguageOf } from './store.js';
+import { WOERTERBUECHER as PUSH_WOERTERBUECHER, type PushKey } from './push-i18n.js';
 
 /**
  * Web Push — Benachrichtigungen, die ankommen, ohne dass die App läuft.
@@ -41,6 +43,52 @@ import { oeffentlichAusRoh, rohOeffentlich, schluesselpaarAusRoh } from '../cryp
  * beantwortet zwei Fragen — "soll diese Person gerade etwas hören?" und
  * "dann schick es ihr" — und lässt offen, WELCHES Ereignis das war. Das
  * Gateway entscheidet, wann er gerufen wird.
+ *
+ * SPRACHE VON TITEL UND TEXT — WARUM HIER UND NICHT IM SERVICE WORKER
+ *
+ * `sendenAn()` nimmt für `titel` und `text` kein fertiges `string` mehr
+ * entgegen, sondern ein `PushTextfeld` — ein deutscher Rückfalltext, plus
+ * optional ein `code` aus dem kleinen Wörterbuch in push-i18n.ts, plus
+ * optionale Platzhalterwerte. Genau die Form, die `fail()` in ws/gateway.ts
+ * für Server→Client-Fehlertexte schon vorlebt (`code`, `message`, `werte`).
+ *
+ * Zwei Stellen kämen für die Auflösung infrage: hier (der Server kennt die
+ * Sprache über `uiLanguageOf()` und verschickt fertigen Text) oder im
+ * Service Worker (der Server verschickt nur `code`+`werte`, `public/sw.js`
+ * löst über ein eigenes kleines Wörterbuch auf). Entschieden für HIER, aus
+ * drei Gründen:
+ *
+ * 1. STILLSTAND EINES SERVICE WORKERS. `public/sw.js` wird per
+ *    `skipWaiting()`/`clients.claim()` zwar zügig ersetzt, aber "zügig" ist
+ *    nicht "sofort" — zwischen zwei Besuchen kann ein Gerät mit einem
+ *    Service-Worker-Stand unterwegs sein, der einen neueren `code` (aus
+ *    einer künftigen Auslieferung) nicht kennt. Löst DER SERVER auf, ist das
+ *    ohne Bedeutung — er schickt in jedem Fall fertigen Text, egal wie alt
+ *    der Service Worker ist, der ihn nur noch anzeigt. Löst der Service
+ *    Worker auf, fiele ein unbekannter `code` auf den deutschen Rückfall
+ *    zurück — für niemanden falsch, aber für alle außer deutschsprachigen
+ *    Personen schlechter, als es sein müsste, und zwar genau in der Zeit
+ *    kurz nach jeder Auslieferung, in der neue Schlüssel am ehesten
+ *    vorkommen.
+ * 2. KEIN drittes Sprachfeld nötig. Der Service-Worker-Weg bräuchte neben
+ *    `code`/`werte` zusätzlich die Zielsprache selbst in der Nutzlast (der
+ *    Worker kennt sie sonst nicht) — noch ein Feld, noch ein Fall, in dem es
+ *    fehlen oder falsch sein kann. Löst der Server auf, bleibt die Nutzlast
+ *    bei genau den Feldern, die es vorher schon gab: `{ titel, text,
+ *    kanalId, gruppe }` — `public/sw.js` braucht dafür keine einzige
+ *    Änderung.
+ * 3. PRÜFBARKEIT OHNE BROWSER. Die Auflösung lässt sich mit einem einzigen
+ *    Node-Aufruf für alle 22 Sprachen nachvollziehen (`textAufloesen()`
+ *    unten) — kein Service-Worker-Kontext nötig, um zu sehen, was auf einem
+ *    Sperrbildschirm stünde.
+ *
+ * Der oft genannte Einwand gegen eine Sprachänderung ZWISCHEN Absenden und
+ * Zustellung trifft beide Wege GLEICH: die Sprache wird so oder so beim
+ * Absenden festgelegt (hier direkt als Text, beim anderen Weg als
+ * `code`+Sprachkennung) — kein Entwurf kann eine Nachricht nachträglich
+ * umschreiben, die der Push-Dienst schon angenommen hat. Das ist kein
+ * Nachteil dieser Entscheidung, sondern eine Eigenschaft von Push
+ * überhaupt.
  */
 
 interface Abo { id: string; endpoint: string; p256dh: string; auth: string }
@@ -233,29 +281,117 @@ function verschluesseln(klartext: Buffer, p256dhB64: string, authB64: string): B
 /** Ein Tag — länger liegen gebliebene Chat-Ereignisse sind meist ohnehin überholt. */
 const TTL_SEKUNDEN = 24 * 3600;
 
+/**
+ * Die einzige ausgehende Anfrage im ganzen Server ohne eigenes Zeitlimit war
+ * die hier — jede andere (KI-Anbieter, DeepL, LibreTranslate, Patreon,
+ * Gumroad, Link-Vorschau, Wechselkurse, Transkription) trägt einen
+ * AbortController. Ohne ihn hält ein Push-Dienst, der die Verbindung
+ * annimmt und dann einfach schweigt, Socket UND das nie erwartete Promise
+ * offen — und weil sendenAn() bewusst mit `void` aufgerufen wird (siehe
+ * ws/gateway.ts), merkt das niemand von selbst.
+ *
+ * 8 Sekunden: großzügiger als die Link-Vorschau (6s, dort ein beliebiges,
+ * nicht vertrauenswürdiges Ziel) — ein verlorenes Push ist eine verpasste
+ * Benachrichtigung, das soll nicht an einer kurzen Verzögerung bei FCM,
+ * Mozilla oder Apple scheitern. Aber weit unter dem, was ungebremst
+ * passieren könnte: die Nutzlast ist klein (höchstens 4096 Byte
+ * verschlüsselt, siehe RecordSize weiter oben), ein gesunder Push-Dienst
+ * antwortet in der Praxis in Millisekunden.
+ */
+const ZEITLIMIT_MS = 8_000;
+
 async function anEinGeraet(abo: Abo, nutzlast: Buffer): Promise<void> {
   const ziel = new URL(abo.endpoint);
-  const antwort = await fetch(abo.endpoint, {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/octet-stream',
-      'content-encoding': 'aes128gcm',
-      ttl: String(TTL_SEKUNDEN),
-      authorization: `vapid t=${vapidJwt(ziel.origin)}, k=${config.push.publicKey}`,
-    },
-    body: nutzlast,
-  });
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), ZEITLIMIT_MS);
+  try {
+    const antwort = await fetch(abo.endpoint, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/octet-stream',
+        'content-encoding': 'aes128gcm',
+        ttl: String(TTL_SEKUNDEN),
+        authorization: `vapid t=${vapidJwt(ziel.origin)}, k=${config.push.publicKey}`,
+      },
+      body: nutzlast,
+      signal: ctrl.signal,
+    });
 
-  if (antwort.status === 404 || antwort.status === 410) {
-    // Der Push-Dienst kennt das Gerät nicht mehr — abgemeldet, Browserdaten
-    // gelöscht, oder es war nie ein gültiges Abonnement. Aufräumen statt bei
-    // jeder künftigen Nachricht erneut daran zu scheitern.
-    abbestellen(abo.endpoint);
-    return;
+    if (antwort.status === 404 || antwort.status === 410) {
+      // Der Push-Dienst kennt das Gerät nicht mehr — abgemeldet, Browserdaten
+      // gelöscht, oder es war nie ein gültiges Abonnement. Aufräumen statt bei
+      // jeder künftigen Nachricht erneut daran zu scheitern.
+      //
+      // Dieser Zweig sieht ausschließlich eine tatsächlich eingegangene
+      // Antwort mit diesem Statuscode. Ein Abbruch durchs Zeitlimit läuft nie
+      // hier durch — fetch() wirft dann direkt (siehe catch unten), bevor
+      // "antwort" überhaupt existiert. Ein bloß hängender Dienst darf also
+      // nie als "kennt das Gerät nicht mehr" missverstanden und ein
+      // eigentlich gültiges Abonnement dafür abbestellt werden.
+      abbestellen(abo.endpoint);
+      return;
+    }
+    if (!antwort.ok) {
+      throw new Error(`Push-Dienst antwortete ${antwort.status} ${antwort.statusText}`);
+    }
+  } catch (err) {
+    // Dieselbe Unterscheidung wie überall sonst im Haus (siehe etwa
+    // services/voice.ts, services/links.ts): ein Abbruch durchs Zeitlimit
+    // trägt den Namen "AbortError" und ist kein HTTP-Fehler. Ohne diese
+    // Umbenennung liefe er als anonyme Ausnahme bei sendenAn() auf und ließe
+    // sich von einem echten Serverfehler beim Fehlersuchen nicht mehr
+    // unterscheiden.
+    if ((err as Error).name === 'AbortError') {
+      throw new Error(`Push-Dienst antwortete nicht innerhalb von ${ZEITLIMIT_MS / 1000}s (${ziel.origin}).`);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
   }
-  if (!antwort.ok) {
-    throw new Error(`Push-Dienst antwortete ${antwort.status} ${antwort.statusText}`);
-  }
+}
+
+/* ── Sprache von Titel und Text ──────────────────────────────────
+   Siehe Dateikopf, Abschnitt "SPRACHE VON TITEL UND TEXT". */
+
+/**
+ * Ein Titel- oder Textfeld für `sendenAn()`.
+ *
+ * `text` ist der deutsche Text — für echten Nachrichteninhalt (eine
+ * Chatnachricht, ein Aufgabentitel, ein Mailbetreff) OHNE `code` der EINZIGE
+ * Text, den es je gibt: so etwas darf nie durch eine Übersetzung ersetzt
+ * werden. Mit `code` ist er der Rückfall, falls für die Zielsprache (noch)
+ * kein Eintrag in push-i18n.ts besteht, oder ganz ohne Bedeutung, wenn die
+ * Auflösung gelingt — dann gewinnt IMMER push-i18n.ts, auch für Deutsch
+ * selbst, damit es nicht zwei leicht verschiedene deutsche Fassungen
+ * desselben Satzes gibt (eine hier, eine in push-i18n.ts).
+ */
+export interface PushTextfeld {
+  /** Deutscher Text — Rückfall (`code` fehlt/unbekannt) oder, ohne `code`, der einzige Text. */
+  text: string;
+  /** Schlüssel aus push-i18n.ts. Fehlt er, bleibt es beim deutschen Text aus `text`. */
+  code?: PushKey;
+  /** Platzhalterwerte für `code`, z. B. `{ fach: 'billing' }`. */
+  werte?: Record<string, string>;
+}
+
+/**
+ * `feld` in `sprache` auflösen.
+ *
+ * Rückfallkette wie `translate()` in packages/desktop/src/i18n/kern.ts:
+ * eigene Sprache → Deutsch → der deutsche Rückfalltext aus `feld.text` selbst
+ * (praktisch nie nötig — push-i18n.ts trägt alle neun Schlüssel für alle 22
+ * Sprachen, geprüft von scripts/push-woerterbuch-pruefen.mjs). Platzhalter
+ * `{name}` — derselbe reguläre Ausdruck wie in kern.ts, damit ein Text ohne
+ * Änderung zwischen beiden Wörterbüchern wandern kann.
+ */
+export function textAufloesen(sprache: string, feld: PushTextfeld): string {
+  if (!feld.code) return feld.text;
+  const kurz = sprache.toLowerCase().split(/[-_]/)[0];
+  const wb = PUSH_WOERTERBUECHER[kurz] ?? PUSH_WOERTERBUECHER.de;
+  const roh = wb[feld.code] ?? PUSH_WOERTERBUECHER.de[feld.code] ?? feld.text;
+  if (!feld.werte) return roh;
+  const werte = feld.werte;
+  return roh.replace(/\{\{?(\w+)\}?\}/g, (ganz, name) => werte[name] ?? ganz);
 }
 
 /**
@@ -265,18 +401,23 @@ async function anEinGeraet(abo: Abo, nutzlast: Buffer): Promise<void> {
  * Abonnement darf weder das Absenden einer Chat-Nachricht verzögern noch die
  * Zustellung an die anderen Geräte derselben Person verhindern. Der Aufrufer
  * ruft das bewusst ohne `await` auf (siehe ws/gateway.ts).
+ *
+ * `titel`/`text` lösen sich hier auf, nicht erst in `public/sw.js` — siehe
+ * Dateikopf. `uiLanguageOf()` ist ein einfacher, synchroner DB-Read und
+ * kennt die Zielsprache unabhängig davon, ob gerade ein Fenster offen ist.
  */
 export async function sendenAn(
   userId: string,
-  nachricht: { titel: string; text: string; kanalId?: string | null; gruppe?: string },
+  nachricht: { titel: PushTextfeld; text: PushTextfeld; kanalId?: string | null; gruppe?: string },
 ): Promise<void> {
   if (!pushConfigured()) return;
   const abos = abosFuer(userId);
   if (!abos.length) return;
 
+  const sprache = uiLanguageOf(userId);
   const nutzlast = Buffer.from(JSON.stringify({
-    titel: nachricht.titel.slice(0, 200),
-    text: nachricht.text.slice(0, 500),
+    titel: textAufloesen(sprache, nachricht.titel).slice(0, 200),
+    text: textAufloesen(sprache, nachricht.text).slice(0, 500),
     kanalId: nachricht.kanalId ?? null,
     gruppe: nachricht.gruppe ?? null,
   }));

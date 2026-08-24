@@ -1,6 +1,7 @@
 import { aktiverAnbieter, config, lokaleEinstellung } from '../../config.js';
 import { ModelRegistry } from './model-registry.js';
 import { translationBudget, uebersetzungsRegeln, uebersetzungsTemperatur } from '../prompt.js';
+import { fensterFuer, fensterVerkleinern, verlaufsBudget } from '../fenster.js';
 import { uebersetzungAusAntwort } from '../antwort.js';
 import {
   type AssistantProvider, type ChatMessage, type ChatOptions,
@@ -181,25 +182,66 @@ export class OpenAICompatibleProvider implements TranslationProvider, AssistantP
 
   async translate(req: TranslateRequest): Promise<TranslateResult> {
     const rules = uebersetzungsRegeln(req);
+    const system = rules.join('\n');
 
-    /* Roh entgegennehmen statt über json() gehen: llama.cpp hält sich nicht
-       zuverlässig an response_format und antwortet mitunter mit der blanken
-       Übersetzung. Über json() flöge die weg, obwohl sie brauchbar ist. */
-    const roh = await this.chat(
-      [
-        { role: 'system', content: rules.join('\n') },
-        { role: 'user', content: req.text },
-      ],
-      {
-        json: true,
-        temperature: uebersetzungsTemperatur(req),
-        // Großzügig rechnen: Denkmodelle wie gpt-oss verbrauchen Tokens, bevor
-        // das erste Zeichen der Antwort kommt. Zu knapp bemessen bricht die
-        // Ausgabe mitten im JSON ab und Groq antwortet mit 400.
-        maxTokens: translationBudget(req.text),
-        reasoning: 'low',
-      },
-    );
+    /* Wie viel Antwort-Platz translationBudget() sich WÜNSCHT, ohne Rücksicht
+       auf ein Fenster — das war früher schon alles, was hier zählte, und
+       genau das ist der Fehler: bei rund 4300 Zeichen reservierte die
+       Faustregel mehr Antwort-Marken, als nach Abzug von System-Anweisung und
+       Anfrage überhaupt noch im Fenster des Modells übrig blieben. Deshalb
+       hier dieselbe Rechnung wie bei Zusammenfassung und Assistent
+       (services/ai.ts, services/post-entwurf-ki.ts): gelerntes statt
+       behauptetes Fenster (fensterFuer/fensterVerkleinern, translation/
+       fenster.ts — Ollama bedient ein Modell mitunter kleiner, als es
+       könnte), und der tatsächlich freie Platz danach (verlaufsBudget) statt
+       der bloßen Faustregel. */
+    let fenster = fensterFuer(this.kennung, this.kontextfenster());
+    let roh: string | null = null;
+
+    while (roh === null) {
+      const verfuegbar = verlaufsBudget({ fenster, fest: `${system}\n${req.text}`, antwort: 0 });
+      if (verfuegbar <= 0) {
+        /* Passt schon die Anfrage selbst nicht mehr neben die
+           System-Anweisung ins Fenster — kein Grund, es trotzdem zu
+           versuchen: das Modell lehnte ohnehin ab, nur langsamer und mit
+           einer Meldung, die nichts über den wahren Grund sagt. Sichtbar
+           statt still: 'zuLang' läuft in translate() (index.ts) auf
+           `unuebersetzt: true`, nicht auf ein stilles Original-Echo. */
+        throw new ProviderError(
+          `${this.ep.name}: Text zu lang für das Kontextfenster des Modells (${fenster} Marken)`,
+          undefined, false, 'zuLang',
+        );
+      }
+      // Was die Übersetzung selbst braucht, aber gedeckelt auf das, was neben
+      // Anweisung und Anfrage tatsächlich noch frei ist.
+      const maxTokens = Math.min(translationBudget(req.text), verfuegbar);
+
+      try {
+        /* Roh entgegennehmen statt über json() gehen: llama.cpp hält sich
+           nicht zuverlässig an response_format und antwortet mitunter mit
+           der blanken Übersetzung. Über json() flöge die weg, obwohl sie
+           brauchbar ist. */
+        roh = await this.chat(
+          [
+            { role: 'system', content: system },
+            { role: 'user', content: req.text },
+          ],
+          {
+            json: true,
+            temperature: uebersetzungsTemperatur(req),
+            maxTokens,
+            reasoning: 'low',
+          },
+        );
+      } catch (err) {
+        // Nur eine Absage wegen Länge wird kleiner versucht — ein Netzfehler
+        // bleibt ein Netzfehler, den kleiner zu wiederholen hilft niemandem.
+        if ((err as { art?: string })?.art !== 'zuLang') throw err;
+        const kleiner = fensterVerkleinern(this.kennung, fenster);
+        if (!kleiner) throw err;
+        fenster = kleiner;
+      }
+    }
 
     const feld = uebersetzungAusAntwort(roh, req.text);
     if (!feld) throw new ProviderError(`${this.ep.name}: Antwort enthielt keine Übersetzung`);

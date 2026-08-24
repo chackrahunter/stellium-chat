@@ -4,7 +4,8 @@ import {
   withinDeleteWindow, withinEditWindow, type DeleteScope, type Message, type ReadReceipt,
 } from '@stellium/shared';
 import { db, placeholders, reindexMessage, removeFromIndex } from '../db/index.js';
-import { newId } from '../util/id.js';
+import { newId, newIdMitZeit } from '../util/id.js';
+import { abweisung } from '../util/abweisung.js';
 import { dropMessageTranslations } from '../translation/index.js';
 import { getMessage, getUserByHandle, hydrateMessages } from './store.js';
 import { entschluesseln, verschluesseln } from '../crypto/nachrichten.js';
@@ -76,28 +77,61 @@ function anhaengePruefen(channelId: string, attachmentIds: string[] | undefined)
 
     if (!vertraulich) {
       if (huelle) {
-        throw new Error(
+        throw abweisung(
+          'fehler.anhangFalscherKanal',
           'Ein verschlüsselter Anhang gehört in den Kanal, für den er verschlüsselt wurde.',
         );
       }
       continue;
     }
     if (!huelle) {
-      throw new Error(
+      throw abweisung(
+        'fehler.anhangVerschluesselungNoetig',
         'Dieser Kanal ist vertraulich — ein Anhang muss verschlüsselt ankommen. '
         + 'Diese App kann das noch nicht; bitte aktualisieren.',
       );
     }
     if (huelle.art !== 'kanal' || huelle.channelId !== channelId) {
-      throw new Error('Dieser Anhang wurde für einen anderen Kreis verschlüsselt.');
+      throw abweisung('fehler.anhangFalscherKreis', 'Dieser Anhang wurde für einen anderen Kreis verschlüsselt.');
     }
   }
 }
 
+/**
+ * Höchstzahl an Platzhaltern für noch hochladende Anhänge, in einer einzigen
+ * Nachricht.
+ *
+ * Ohne diese Grenze reichte `pendingAttachments.length` allein, um die
+ * "Nachricht ist nicht leer"-Prüfung oben zu erfüllen — eine angemeldete
+ * Person könnte damit ein `message:send` mit zehntausenden Platzhaltern in
+ * einer einzigen Nachricht schicken (der WebSocket erlaubt bis zu 4 MB pro
+ * Nachricht, siehe maxPayload in index.ts) und alle blieben unbegrenzt in
+ * `ausstehendeAnhaenge` (ws/gateway.ts) hängen, an jede Person im Kanal
+ * gesendet — auf einem Pi ein billiger Weg, den Speicher zu füllen. Der
+ * echte Client (Composer.tsx) kennt heute keine eigene Obergrenze — wer
+ * tatsächlich mehrere Dateien auf einmal zieht, tut das in der Praxis nie in
+ * dreistelliger Zahl. 30 liegt spürbar über jedem plausiblen Gebrauch (ein
+ * ganzer Ordner Urlaubsfotos passt locker darunter) und weit unter dem, was
+ * eine einzelne Nachricht an Speicher kosten darf.
+ */
+const PENDING_ANHAENGE_MAX = 30;
+
+/**
+ * Höchstlänge des Dateinamens eines Platzhalter-Anhangs.
+ *
+ * 255 Zeichen ist die klassische Namensobergrenze gängiger Dateisysteme
+ * (NTFS, APFS, ext4) — kein echter Dateiauswahldialog liefert je einen
+ * längeren Namen. Ohne diese Prüfung könnte derselbe unbegrenzte
+ * `pendingAttachments`-Eintrag zusätzlich beliebig lange Namen tragen, die
+ * bei jedem `message:updated`-Rundruf an alle Mitglieder mitgeschickt
+ * würden.
+ */
+const PENDING_ANHANG_NAME_MAX = 255;
+
 export function createMessage(input: CreateMessageInput): Message {
   const text = input.text.trim();
   if (!text && !(input.attachmentIds?.length) && !(input.pendingAttachments?.length)) {
-    throw new Error('Leere Nachricht');
+    throw abweisung('fehler.nachrichtLeer', 'Leere Nachricht');
   }
 
   /* Ende-zu-Ende verschlüsselte Nachrichten sind länger als ihr Klartext:
@@ -110,15 +144,43 @@ export function createMessage(input: CreateMessageInput): Message {
     /* Die beiden Zweige waren vertauscht: in einem vertraulichen Kanal wurde
        bei 20.000 Zeichen abgewiesen und dazu „max. 12.000" gemeldet. Wer die
        Nachricht kürzte, kürzte auf einen Wert, der gar nicht galt. */
-    throw new Error(`Nachricht zu lang (max. ${grenze / 1000}.000 Zeichen)`);
+    throw abweisung('fehler.nachrichtZuLang', `Nachricht zu lang (max. ${grenze / 1000}.000 Zeichen)`, { max: String(grenze / 1000) });
+  }
+
+  /* Siehe PENDING_ANHAENGE_MAX / PENDING_ANHANG_NAME_MAX oben: Anzahl und
+     Namenslänge sind die beiden Stellen, an denen `pendingAttachments`
+     bislang unbegrenzt war. Vor dem Anlegen geprüft, aus demselben Grund wie
+     bei anhaengePruefen() gleich danach — eine abgewiesene Nachricht soll gar
+     nicht erst entstehen. */
+  if (input.pendingAttachments && input.pendingAttachments.length > PENDING_ANHAENGE_MAX) {
+    throw abweisung(
+      'fehler.anhangPlatzhalterObergrenze',
+      `Eine Nachricht kann höchstens ${PENDING_ANHAENGE_MAX} gleichzeitig hochladende Anhänge tragen.`,
+      { max: String(PENDING_ANHAENGE_MAX) },
+    );
+  }
+  for (const p of input.pendingAttachments ?? []) {
+    if (p.name.length > PENDING_ANHANG_NAME_MAX) {
+      throw abweisung(
+        'fehler.anhangNameZuLang',
+        `Ein Dateiname ist zu lang (höchstens ${PENDING_ANHANG_NAME_MAX} Zeichen).`,
+        { max: String(PENDING_ANHANG_NAME_MAX) },
+      );
+    }
   }
 
   /* Vor dem Anlegen und nicht mittendrin: eine abgewiesene Nachricht soll gar
      nicht erst entstehen, statt zurückgerollt zu werden. */
   anhaengePruefen(input.channelId, input.attachmentIds);
 
-  const id = newId('m_');
-  const at = Date.now();
+  /* id UND at aus DERSELBEN Vergabe (newIdMitZeit(), util/id.ts) — nicht id
+     hier und `at = Date.now()` daneben: channelHistory() (store.ts)
+     vergleicht `id < before` und `ORDER BY created_at DESC` in derselben
+     Abfrage, ein zweiter, unabhängiger Zeitstempel könnte in den Sekunden
+     nach einem Neustart mit hinterherhinkender Uhr von der geklemmten
+     Wasserlinie abweichen, die schon in `id` steckt, und die Blätterei
+     durcheinanderbringen. */
+  const { id, zeit: at } = newIdMitZeit('m_');
   /* Bei unsicherer Erkennung lieber nichts eintragen: das Übersetzungsmodell
      erkennt die Sprache zuverlässiger und das Ergebnis wird zurückgeschrieben.
 
@@ -141,8 +203,8 @@ export function createMessage(input: CreateMessageInput): Message {
     // Rückabwicklungspfad hängt.
     if (input.parentId) {
       const parent = db.get<{ channel_id: string }>('SELECT channel_id FROM messages WHERE id = ?', input.parentId);
-      if (!parent) throw new Error('Thread-Wurzel nicht gefunden');
-      if (parent.channel_id !== input.channelId) throw new Error('Thread-Wurzel gehört zu einem anderen Kanal');
+      if (!parent) throw abweisung('fehler.threadWurzelFehlt', 'Thread-Wurzel nicht gefunden');
+      if (parent.channel_id !== input.channelId) throw abweisung('fehler.threadWurzelFalscherKanal', 'Thread-Wurzel gehört zu einem anderen Kanal');
     }
 
     db.run(
@@ -247,18 +309,18 @@ export function editMessage(messageId: string, userId: string, text: string, may
   const row = db.get<{ user_id: string; deleted_at: number | null; created_at: number; kind: string }>(
     'SELECT user_id, deleted_at, created_at, kind FROM messages WHERE id = ?', messageId,
   );
-  if (!row) throw new Error('Nachricht nicht gefunden');
-  if (row.user_id !== userId) throw new Error('Nur eigene Nachrichten lassen sich bearbeiten');
-  if (row.deleted_at) throw new Error('Nachricht wurde gelöscht');
-  if (row.kind === 'poll') throw new Error('Umfragen lassen sich nicht nachträglich ändern.');
+  if (!row) throw abweisung('fehler.nachrichtNichtGefunden', 'Nachricht nicht gefunden');
+  if (row.user_id !== userId) throw abweisung('fehler.nachrichtNichtEigen', 'Nur eigene Nachrichten lassen sich bearbeiten');
+  if (row.deleted_at) throw abweisung('fehler.nachrichtGeloescht', 'Nachricht wurde gelöscht');
+  if (row.kind === 'poll') throw abweisung('fehler.umfrageNichtBearbeitbar', 'Umfragen lassen sich nicht nachträglich ändern.');
   // Nach dem Zeitfenster ist die Nachricht Teil des Verlaufs, auf den sich
   // andere schon bezogen haben.
   if (!withinEditWindow(row.created_at)) {
-    throw new Error('Bearbeiten geht nur in den ersten zwei Stunden nach dem Senden.');
+    throw abweisung('fehler.nachrichtBearbeitenFrist', 'Bearbeiten geht nur in den ersten zwei Stunden nach dem Senden.');
   }
 
   const clean = text.trim();
-  if (!clean) throw new Error('Leere Nachricht');
+  if (!clean) throw abweisung('fehler.nachrichtLeer', 'Leere Nachricht');
 
   const verschlossen = istE2EChiffrat(clean);
   const detected = verschlossen ? 'unknown' : detectLanguage(clean).lang;
@@ -300,7 +362,7 @@ export function deleteMessage(
   const row = db.get<{ user_id: string; channel_id: string; created_at: number }>(
     'SELECT user_id, channel_id, created_at FROM messages WHERE id = ?', messageId,
   );
-  if (!row) throw new Error('Nachricht nicht gefunden');
+  if (!row) throw abweisung('fehler.nachrichtNichtGefunden', 'Nachricht nicht gefunden');
 
   if (scope === 'me') {
     db.run('INSERT OR IGNORE INTO hidden_messages (user_id, message_id, created_at) VALUES (?,?,?)',
@@ -309,10 +371,17 @@ export function deleteMessage(
   }
 
   const eigene = row.user_id === userId;
-  if (!eigene && !canDeleteAny) throw new Error('Fremde Nachrichten darf nur die Moderation löschen.');
+  if (!eigene && !canDeleteAny) throw abweisung('fehler.nachrichtLoeschenFremdrecht', 'Fremde Nachrichten darf nur die Moderation löschen.');
   if (eigene && !canDeleteAny && !withinDeleteWindow(row.created_at)) {
-    throw new Error('Für alle zurücknehmen geht nur in den ersten zwei Stunden. Du kannst sie noch für dich ausblenden.');
+    throw abweisung('fehler.nachrichtLoeschenFrist', 'Für alle zurücknehmen geht nur in den ersten zwei Stunden. Du kannst sie noch für dich ausblenden.');
   }
+
+  /* Anhangspfade vor dem Löschen lesen — dieselbe Reihenfolge wie in
+     deleteChannel() (channels.ts): ist die Zeile erst weg, weiß niemand mehr,
+     welche Datei zu ihr gehörte. */
+  const pfade = db.all<{ path: string }>(
+    'SELECT path FROM attachments WHERE message_id = ?', messageId,
+  ).map((r) => r.path);
 
   /* Auch hier alles auf einmal: eine Nachricht, deren Text weg ist, die aber
      noch im Index steht, wäre über die Suche weiter auffindbar — und ihre
@@ -320,12 +389,91 @@ export function deleteMessage(
      entfernt hat. dropMessageTranslations() nimmt dabei auch den
      Übersetzungsspeicher mit (translation_memory) — sonst überlebte Quelle
      und Übersetzung dort weiter, unter einem Schlüssel statt unter dem Namen
-     der Nachricht, aber genauso lesbar. */
+     der Nachricht, aber genauso lesbar.
+
+     Das UPDATE unten bleibt ein SOFT delete (siehe Funktionskopf): die Zeile
+     steht weiter, weil channelHistory() gelöschte Nachrichten ABSICHTLICH
+     mitliefert, damit die Oberfläche einen Löschvermerk zeichnen kann statt
+     einer Lücke (store.hydrateMessages() — dort bleibt `kind` aus demselben
+     Grund stehen: „Sprachnachricht gelöscht“ statt nur „Nachricht gelöscht“).
+     Weil die Zeile bleibt, feuert kein ON DELETE CASCADE: jede Tabelle mit
+     einem Fremdschlüssel auf messages(id) behält ihre Zeilen einfach weiter.
+     editMessage() (oben) räumt message_mentions deshalb schon bei jeder
+     Bearbeitung ab — deleteMessage() tat das bisher NICHT, und mentionsFor()
+     (store.ts) las die Tabelle ungeprüft: eine gelöschte Nachricht verriet
+     über mentionUserIds weiter, wen sie erwähnt hatte. hydrateMessages()
+     redigiert das Feld inzwischen in der Ausgabe (siehe dortiger Kommentar),
+     aber die Zeile selbst blieb bis eben stehen — genau dieselbe Lücke wie
+     bei translation_memory (siehe deleteChannel() in channels.ts), nur eine
+     Tabelle weiter.
+
+     Bei der Gelegenheit der Rest durchgegangen, der an einer Nachricht hängt:
+
+       message_mentions  DELETE, s.o. — editMessage() macht es bei jeder
+                          Bearbeitung schon richtig, deleteMessage() jetzt auch.
+       polls              DELETE (poll_options/poll_votes/poll_participants
+                          hängen an polls(id) mit ON DELETE CASCADE und gehen
+                          mit). Frage, Antworten und wer wie abgestimmt hat
+                          sind Inhalt der Nachricht wie ihr Text — und
+                          getPoll() (services/polls.ts) liest eine Umfrage
+                          über ihre eigene ID, ohne deleted_at der Nachricht
+                          zu prüfen. Bliebe die Zeile stehen, wäre eine
+                          gelöschte Umfrage über diesen Weg weiter lesbar.
+       attachments        DELETE, samt Datei (ablage.verwaisteAufraeumen() +
+                          ablage.dateienAufraeumen() unten, dasselbe Paar wie
+                          in deleteChannel()). /files/:id (http/routes.ts)
+                          prüft beim Ausliefern nur, ob die Nachricht noch
+                          existiert und die anfragende Person Mitglied des
+                          Kanals ist — nicht, ob sie gelöscht ist. Bliebe die
+                          Zeile stehen, bliebe die Datei über die alte URL
+                          abrufbar, obwohl der Chat sie nicht mehr zeigt.
+       voice_transcripts  kein Extra — hängt an attachments(id) mit
+                          ON DELETE CASCADE und geht mit den Anhängen mit.
+       message_links      DELETE — dieselbe Randtabelle wie message_mentions,
+                          nur für Links: hält fest, welche URL in DIESER
+                          Nachricht stand.
+       link_previews      KEEP — anders als message_links ein globaler,
+                          über die URL adressierter Cache ohne Bezug zu einer
+                          bestimmten Nachricht; dieselbe Rolle wie
+                          translation_memory für Übersetzungen, und genauso
+                          wenig zu räumen, nur weil EINE Nachricht mit dieser
+                          URL verschwindet.
+       reactions          KEEP — fremder Inhalt (wer reagiert hat), nicht der
+                          Inhalt der gelöschten Nachricht; siehe die
+                          Begründung in store.hydrateMessages(), der hier
+                          nicht ohne triftigen Grund widersprochen wird.
+       saved_messages,
+       hidden_messages    KEEP — reine Zeiger ohne eigenen Inhalt.
+                          savedMessages() filtert deleted_at IS NULL schon
+                          selbst heraus, zeigt nach diesem Löschen also
+                          ohnehin nichts mehr.
+       reminders          KEEP — message_id ist dort nur ein Zeiger, `note`
+                          eine frei getippte, eigene Notiz der erinnerten
+                          Person, kein Auszug aus der Nachricht. Die
+                          Erinnerung feuert später gegen die (dann
+                          redigierte) Nachricht, statt sie eigenmächtig zu
+                          verlieren — das wäre der schlechtere Fehler.
+       pins               kein Extra — `messages.pinned` ist eine Spalte
+                          dieser Zeile und steht im UPDATE unten schon auf 0.
+       message_fts, message_translations/translation_memory
+                          bereits erledigt — removeFromIndex() und
+                          dropMessageTranslations() liefen hier schon vorher
+                          richtig.
+       scheduled_messages nicht betroffen — hat gar kein message_id, sondern
+                          ist eine eigenständige, noch nicht verschickte Zeile. */
   db.transaction(() => {
     db.run("UPDATE messages SET deleted_at = ?, text = '', pinned = 0 WHERE id = ?", Date.now(), messageId);
+    db.run('DELETE FROM message_mentions WHERE message_id = ?', messageId);
+    db.run('DELETE FROM polls WHERE message_id = ?', messageId);
+    db.run('DELETE FROM message_links WHERE message_id = ?', messageId);
+    db.run('DELETE FROM attachments WHERE message_id = ?', messageId);
     dropMessageTranslations(messageId);
     removeFromIndex(messageId);
   });
+
+  ablage.verwaisteAufraeumen();
+  ablage.dateienAufraeumen(pfade);
+
   return { channelId: row.channel_id, scope: 'all' };
 }
 
@@ -352,10 +500,10 @@ const REAKTIONSARTEN_MAX = 50;
 
 export function toggleReaction(messageId: string, userId: string, emoji: string): { channelId: string } {
   const row = db.get<{ channel_id: string }>('SELECT channel_id FROM messages WHERE id = ?', messageId);
-  if (!row) throw new Error('Nachricht nicht gefunden');
+  if (!row) throw abweisung('fehler.nachrichtNichtGefunden', 'Nachricht nicht gefunden');
 
   const clean = emoji.trim().slice(0, 32);
-  if (!clean) throw new Error('Emoji fehlt');
+  if (!clean) throw abweisung('fehler.emojiFehlt', 'Emoji fehlt');
 
   const existing = db.get('SELECT 1 AS x FROM reactions WHERE message_id = ? AND user_id = ? AND emoji = ?', messageId, userId, clean);
   if (!existing) {
@@ -364,7 +512,7 @@ export function toggleReaction(messageId: string, userId: string, emoji: string)
       'SELECT COUNT(DISTINCT emoji) AS n FROM reactions WHERE message_id = ?', messageId,
     )?.n ?? 0;
     if (arten >= REAKTIONSARTEN_MAX) {
-      throw new Error(`An einer Nachricht sind höchstens ${REAKTIONSARTEN_MAX} verschiedene Reaktionen möglich.`);
+      throw abweisung('fehler.reaktionenObergrenze', `An einer Nachricht sind höchstens ${REAKTIONSARTEN_MAX} verschiedene Reaktionen möglich.`, { max: String(REAKTIONSARTEN_MAX) });
     }
   }
   if (existing) {
@@ -487,21 +635,21 @@ export function scheduleMessage(input: {
   channelId: string; userId: string; text: string; sendAt: number; parentId?: string | null;
 }) {
   const text = input.text.trim();
-  if (!text) throw new Error('Leere Nachricht');
-  if (!Number.isFinite(input.sendAt)) throw new Error('Sendezeitpunkt muss ein Zeitpunkt sein');
-  if (input.sendAt < Date.now() + 10_000) throw new Error('Sendezeitpunkt muss mindestens 10 Sekunden in der Zukunft liegen');
+  if (!text) throw abweisung('fehler.nachrichtLeer', 'Leere Nachricht');
+  if (!Number.isFinite(input.sendAt)) throw abweisung('fehler.sendezeitpunktUngueltig', 'Sendezeitpunkt muss ein Zeitpunkt sein');
+  if (input.sendAt < Date.now() + 10_000) throw abweisung('fehler.sendezeitpunktZuBald', 'Sendezeitpunkt muss mindestens 10 Sekunden in der Zukunft liegen');
   /* Nach oben fehlte die Grenze ganz. Eine geplante Nachricht in fünfhundert
      Jahren wäre für immer im Speicher der Sitzung und in jeder Antwort auf
      'ready' — und der Zeitgeber sähe sie nie wieder an. */
-  if (input.sendAt > Date.now() + PLANUNG_MAX_MS) throw new Error('Später als ein Jahr im Voraus geht nicht');
+  if (input.sendAt > Date.now() + PLANUNG_MAX_MS) throw abweisung('fehler.sendezeitpunktZuSpaet', 'Später als ein Jahr im Voraus geht nicht');
 
   // Dieselbe Prüfung wie beim sofortigen Senden, nur früher: fiele sie erst
   // beim Absetzen im Ticker auf, verschwände die geplante Nachricht dort
   // kommentarlos — hier merkt es wenigstens die Person, die sie plant.
   if (input.parentId) {
     const parent = db.get<{ channel_id: string }>('SELECT channel_id FROM messages WHERE id = ?', input.parentId);
-    if (!parent) throw new Error('Thread-Wurzel nicht gefunden');
-    if (parent.channel_id !== input.channelId) throw new Error('Thread-Wurzel gehört zu einem anderen Kanal');
+    if (!parent) throw abweisung('fehler.threadWurzelFehlt', 'Thread-Wurzel nicht gefunden');
+    if (parent.channel_id !== input.channelId) throw abweisung('fehler.threadWurzelFalscherKanal', 'Thread-Wurzel gehört zu einem anderen Kanal');
   }
 
   const id = newId('sc_');

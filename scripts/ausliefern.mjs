@@ -260,12 +260,55 @@ try {
   raus(`Nachrüstung der Datenbank fehlgeschlagen:\n${(err.stdout || err.message).slice(0, 1200)}`);
 }
 
+/*
+ * Fest verdrahtete Texte — kein Eintrag in der Wächter-Liste unten (die
+ * schneidet ihre Meldung nach 800 Zeichen ab, und für einen vollen
+ * Fund-Bericht ist das zu wenig) und mit einem eigenen Fluchtweg, weil
+ * dieser Wächter anders als die anderen dort nicht "geht" oder "geht nicht"
+ * meldet, sondern eine SCHWELLE durchsetzt, die bestehenden Rückstand mit
+ * Absicht duldet (siehe Kopf von deutsch-finden.mjs, Abschnitt SCHWELLE) —
+ * blockierend ist nur ein NEUER Fund.
+ *
+ * Früher gab dieser Lauf IMMER Exit-Code 0 zurück; die Zeilen hier lasen nur
+ * die Zahl hinter "Gesamt:" aus dem Text und WARNTEN, wenn sie über 0 lag —
+ * ausliefern.mjs lief in jedem Fall weiter. Seit deutsch-finden.mjs seine
+ * Schwelle wirklich durchsetzt, wirft lauf() (execFileSync) hier stattdessen
+ * eine Exception, sobald irgendeine Datei mehr Funde hat als in
+ * scripts/deutsch-schwelle.json hinterlegt — es gibt keinen normalen
+ * Rückgabewert mehr, an dem "zahl > 0" hätte vorbeilesen können.
+ *
+ * Ein bloßes catch { warn(...) } HÄTTE diese Exception zwar abgefangen, aber
+ * damit auch jede echte Regression stumm durchgewunken UND den eigentlichen
+ * Bericht verschluckt — die ausliefernde Person hätte nur "Textprüfung
+ * nicht möglich" gesehen, ganz gleich ob es um einen neuen hartcodierten
+ * Satz oder ein kaputtes Node ging. Deshalb jetzt: den Bericht ausgeben,
+ * WIRKLICH abbrechen — mit demselben Fluchtweg-Prinzip wie beim schwachen
+ * Masterpasswort (cli/secret.ts), für den Tag, an dem trotzdem ausgeliefert
+ * werden muss.
+ */
+const DEUTSCH_SCHWELLE_UEBERGEHEN_WERT = 'ja-ich-weiss-was-ich-tue';
+const deutschSchwelleUebergehen = () => (process.env.STELLIUM_DEUTSCH_SCHWELLE_UEBERGEHEN ?? '').trim().toLowerCase()
+  === DEUTSCH_SCHWELLE_UEBERGEHEN_WERT;
+
 try {
-  const bericht = lauf('node', ['scripts/deutsch-finden.mjs']);
-  const zahl = Number((bericht.match(/Gesamt: (\d+)/) ?? [])[1] ?? 0);
-  if (zahl > 0) warn(`${zahl} Texte stehen noch fest im Code — nicht übersetzt (scripts/deutsch-finden.mjs)`);
-  else ok('Kein fest verdrahteter Text');
-} catch { warn('Textprüfung nicht möglich'); }
+  lauf('node', ['scripts/deutsch-finden.mjs']);
+  ok('Innerhalb der Schwelle (scripts/deutsch-finden.mjs)');
+} catch (err) {
+  const bericht = (String(err.stdout || '') + String(err.stderr || '')).trim() || err.message;
+  sag(`\n${bericht}\n`);
+  if (deutschSchwelleUebergehen()) {
+    warn('STELLIUM_DEUTSCH_SCHWELLE_UEBERGEHEN gesetzt — Schwelle ausdrücklich übergangen.');
+    warn('Was oben im Bericht steht, geht so an alle Sprachen raus. Das fällige Aufräumen holt');
+    warn('niemand automatisch nach — es bleibt eine offene Aufgabe, bis sie jemand erledigt.');
+  } else {
+    raus('Fest verdrahtete Texte über der Schwelle (voller Bericht steht oben) — Auslieferung gestoppt.\n\n'
+      + '  Entweder den/die neuen Fund/Funde beheben, oder — nur wenn es wirklich keine Anzeigestelle\n'
+      + '  ist — eine begründete Ausnahme in scripts/deutsch-ausnahmen.mjs eintragen. Datei und Zeile\n'
+      + '  stehen im Bericht oben.\n\n'
+      + '  Nur für einen wirklich dringenden Fall lässt sich das ausdrücklich übergehen:\n'
+      + `    STELLIUM_DEUTSCH_SCHWELLE_UEBERGEHEN=${DEUTSCH_SCHWELLE_UEBERGEHEN_WERT}`);
+  }
+}
 
 /*
  * Die Wächter, die es im Haus gibt — und die hier bisher nicht liefen.
@@ -280,12 +323,38 @@ try {
  * eine Linie, die fehlende Tage überspringt. Eine Warnung hätte keinen davon
  * aufgehalten.
  */
-for (const [datei, was] of [
-  ['scripts/mobil-pruefen.mjs', 'Handyansicht'],
-  ['scripts/randfarbe-pruefen.mjs', 'Rand'],
-  ['scripts/tokens-pruefen.mjs', 'Namen im Stylesheet'],
-  ['scripts/praesenz-pruefen.mjs', 'Online-Zeit'],
-]) {
+/* Hier stand bis zum 24.08. eine Liste von fünf Dateien — von Hand gepflegt,
+   während im Haus zweiundsechzig Wächter standen. Der Kommentar darüber sagt,
+   ein Prüflauf, den man von Hand aufrufen muss, sei keiner; eine Liste, die
+   man von Hand erweitern muss, ist derselbe Fehler eine Ebene höher. Sie
+   verfehlte alles, was an Kryptografie, Tresor, Notzugang und Anmeldung
+   entstanden war, weil niemand daran gedacht hatte, fünf Zeilen nachzutragen.
+
+   Deshalb wird die Liste jetzt aus dem Baum abgeleitet: JEDER scripts/
+   *-pruefen.mjs läuft, und ein neuer läuft mit, sobald er da ist — ohne dass
+   ihn jemand hier einträgt. Ausgenommen sind nur die browsergestützten: die
+   brauchen Playwright und eine Anzeige und gehören in einen eigenen Lauf.
+   Erkannt werden sie am Inhalt, nicht am Namen — ein Name lügt irgendwann. */
+const BESCHREIBUNG = {
+  'mobil-pruefen.mjs': 'Handyansicht',
+  'randfarbe-pruefen.mjs': 'Rand',
+  'tokens-pruefen.mjs': 'Namen im Stylesheet',
+  'praesenz-pruefen.mjs': 'Online-Zeit',
+  'push-woerterbuch-pruefen.mjs': 'Push-Wörterbuch (push-i18n.ts deckungsgleich mit den 22 Wörterbüchern)',
+};
+const brauchtBrowser = (p) => /playwright|chromium|probeserver/.test(fs.readFileSync(p, 'utf8'));
+const waechter = fs.readdirSync(path.join(wurzel, 'scripts'))
+  .filter((n) => n.endsWith('-pruefen.mjs'))
+  .filter((n) => !brauchtBrowser(path.join(wurzel, 'scripts', n)))
+  .sort()
+  .map((n) => [`scripts/${n}`, BESCHREIBUNG[n] ?? n.replace(/-pruefen\.mjs$/, '')]);
+/* Eine Ableitung, die nichts findet, wäre eine stille Auslieferung ohne
+   Wächter — genau die Lage, die dieser Umbau beendet. Also lieber laut. */
+if (waechter.length < 20) {
+  raus(`Nur ${waechter.length} Wächter gefunden — das kann nicht stimmen. Läuft das Skript aus dem Projektverzeichnis?`);
+}
+info(`${waechter.length} Wächter gefunden (abgeleitet, nicht aufgezählt)`);
+for (const [datei, was] of waechter) {
   if (!fs.existsSync(path.join(wurzel, datei))) continue;
   try {
     lauf('node', [datei]);

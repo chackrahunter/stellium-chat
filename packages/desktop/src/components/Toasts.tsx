@@ -1,13 +1,20 @@
 import { AnimatePresence, motion } from 'framer-motion';
 import { AlertCircle, CheckCircle2, Info, X } from 'lucide-react';
 import { useStore } from '../state/store.js';
+import { useT } from '../i18n/index.js';
 
 export function Toasts() {
+  const t = useT();
   const toasts = useStore((s) => s.toasts);
   const { dismissToast } = useStore.getState();
 
   return (
-    <div className="toasts">
+    <div
+      className="toasts"
+      aria-live="polite"
+      aria-atomic="true"
+      role="status"
+    >
       <AnimatePresence initial={false}>
         {toasts.map((toast) => (
           <motion.div
@@ -26,7 +33,14 @@ export function Toasts() {
               <div className="toast__title">{toast.title}</div>
               {toast.body && <div className="toast__body">{toast.body}</div>}
             </div>
-            <button className="icon-btn icon-btn--sm" onClick={() => dismissToast(toast.id)}><X size={13} /></button>
+            <button
+              className="icon-btn icon-btn--sm"
+              onClick={() => dismissToast(toast.id)}
+              aria-label={t('common.close')}
+              title={t('common.close')}
+            >
+              <X size={13} />
+            </button>
           </motion.div>
         ))}
       </AnimatePresence>

@@ -152,6 +152,7 @@ export function ChannelHeader({ channelId }: { channelId: string }) {
             onClick={() => loadSmartReplies(channelId)}
             disabled={smartRepliesLoading}
             title={smartRepliesLoading ? t('header.smartRepliesLoading') : t('header.smartReplies')}
+            aria-label={smartRepliesLoading ? t('header.smartRepliesLoading') : t('header.smartReplies')}
           >
             {smartRepliesLoading
               ? <Loader2 size={17} className="spin" />
@@ -160,7 +161,7 @@ export function ChannelHeader({ channelId }: { channelId: string }) {
         )}
 
         {ai?.assistant && !kiPrivat && !channel.vertraulich && (
-          <button className="icon-btn" onClick={() => setOverlay('protocol')} title={t('header.protocol')}>
+          <button className="icon-btn" onClick={() => setOverlay('protocol')} title={t('header.protocol')} aria-label={t('header.protocol')}>
             <ClipboardList size={17} />
           </button>
         )}
@@ -177,6 +178,7 @@ export function ChannelHeader({ channelId }: { channelId: string }) {
                 setExtractOffen(true);
               }}
               title={t('ai.extractTasks')}
+              aria-label={t('ai.extractTasks')}
             >
               <ListChecks size={17} />
             </button>
@@ -195,13 +197,13 @@ export function ChannelHeader({ channelId }: { channelId: string }) {
         )}
 
         {!kiPrivat && (
-          <button className="icon-btn" onClick={() => setOverlay('people')} title={t('header.members')}>
+          <button className="icon-btn" onClick={() => setOverlay('people')} title={t('header.members')} aria-label={t('header.members')}>
             <Users size={17} />
           </button>
         )}
 
         {!kiPrivat && (
-          <button className="icon-btn" onClick={() => setOverlay('channelSettings')} title={t('channel.settingsTitle')}>
+          <button className="icon-btn" onClick={() => setOverlay('channelSettings')} title={t('channel.settingsTitle')} aria-label={t('channel.settingsTitle')}>
             <Settings2 size={17} />
           </button>
         )}

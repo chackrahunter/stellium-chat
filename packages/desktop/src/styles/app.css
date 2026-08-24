@@ -340,7 +340,7 @@ a:hover { text-decoration: underline; }
 [data-platform='darwin'] .rail::before {
   content: '';
   position: absolute;
-  top: 0; left: 0; right: 0;
+  top: 0; inset-inline: 0;
   height: 58px;
   -webkit-app-region: drag;
 }
@@ -357,7 +357,7 @@ a:hover { text-decoration: underline; }
 .rail-btn:hover { background: var(--bg-hover); color: var(--tx-hi); transform: translateY(-1px); }
 .rail-btn[aria-pressed='true'] { background: var(--bg-active); color: var(--violet-soft); }
 .rail-btn__dot {
-  position: absolute; top: 7px; right: 7px;
+  position: absolute; top: 7px; inset-inline-end: 7px;
   min-width: 17px; height: 17px; padding: 0 4px;
   display: grid; place-items: center;
   border-radius: 99px;
@@ -452,7 +452,7 @@ a:hover { text-decoration: underline; }
 .chan:hover { background: var(--bg-hover); color: var(--tx-hi); }
 .chan[aria-current='true'] { background: var(--bg-active); color: var(--tx-hi); font-weight: 600; }
 .chan[aria-current='true']::before {
-  content: ''; position: absolute; left: -2px; top: 50%;
+  content: ''; position: absolute; inset-inline-start: -2px; top: 50%;
   width: 3px; height: 18px; margin-top: -9px;
   border-radius: 99px; background: var(--grad-nebula);
 }
@@ -615,7 +615,7 @@ a:hover { text-decoration: underline; }
 
 .msg__actions {
   position: absolute;
-  top: -14px; right: var(--sp-5);
+  top: -14px; inset-inline-end: var(--sp-5);
   display: flex; align-items: center; gap: 1px;
   padding: 3px;
   border-radius: var(--r-sm);
@@ -886,7 +886,25 @@ button.msg__read-receipt:hover { color: var(--tx-mid); }
 }
 .composer > .composer__reply:first-child { border-radius: var(--r-lg) var(--r-lg) 0 0; }
 .composer > .composer__bar:last-child { border-radius: 0 0 var(--r-lg) var(--r-lg); }
-.composer--focus { border-color: rgba(124, 92, 255, 0.55); box-shadow: var(--glow); }
+/* NICHT var(--glow): dessen zweite Ebene setzt 8px nach unten ab und reicht
+   mit 34px Weichzeichnung bis in die unterste Bildpunktzeile der Seite. Der
+   Composer sitzt seit dem Umbau der Handyansicht nur noch 4px ueber dem
+   wirklichen Bildschirmrand (--sicher-unten faellt jetzt auf 0, siehe
+   tokens.css) — frueher hielt dort Sicherheitsabstand die Leuchtschicht vom
+   Rand fern, jetzt reicht ihre Weichzeichnung ungebremst hinein.
+   Gemessen: die unterste Zeile lag bei rgb(39,47,85) statt rgb(23,39,54)
+   von --grund-rand — Abstand 11, randfarben-pruefen.mjs und
+   streifen-pruefen.mjs schlugen deshalb fehl.
+   NICHT die Regression sind --grund-rand/theme-color/manifest: alle vier
+   sind gleich und seit je auf den gemessenen Bildpunkt der Aurora kalibriert
+   (siehe die html-Regel weiter oben) — dieser Leuchtring uebermalt sie nur.
+   Und zwar unrettbar: .composer liegt in .app (z-index 1) ueber dem
+   html-Hintergrund, --rand-blende kann nichts zuruecknehmen, was eine
+   Ebene darueber bereits gemalt hat.
+   Deshalb hier ohne Versatz nach unten und schwaecher statt versetzt:
+   derselbe Leuchtring beim Fokussieren, nur nicht mehr bis in den Rand
+   hinein. */
+.composer--focus { border-color: rgba(124, 92, 255, 0.32); box-shadow: 0 0 0 1px rgba(124, 92, 255, 0.28), 0 0 24px -10px rgba(124, 92, 255, 0.34); }
 .composer--drag { border-color: var(--cyan); border-style: dashed; background: rgba(34, 211, 238, 0.07); }
 
 .composer__reply {
@@ -957,6 +975,33 @@ button.msg__read-receipt:hover { color: var(--tx-mid); }
 .typing__dots i:nth-child(3) { animation-delay: 0.32s; }
 @keyframes bounce { 0%, 60%, 100% { transform: translateY(0); opacity: 0.45; } 30% { transform: translateY(-4px); opacity: 1; } }
 
+/* Derselbe Hinweis, klein, neben dem Namen einer Direktnachricht in der
+   Seitenleiste (Sidebar.tsx, DmTypingHint). Der Platz steht immer da — nur
+   die Sichtbarkeit wechselt; ohne den festen Platz sprang der Name (und mit
+   ihm die Ungelesen-Marke am Zeilenende) bei jedem Start und Ende des
+   Tippens zur Seite. Die Punkte animieren nur, während sie sichtbar sind:
+   animation-play-state statt eines bedingt eingehängten Elements, sonst
+   liefe die Animation in jeder Zeile ununterbrochen mit, auch wenn gerade
+   niemand tippt. */
+.chan__typing {
+  flex: none;
+  display: inline-flex; align-items: center;
+  width: 20px; height: 14px;
+  opacity: 0;
+  transition: opacity var(--t-fast);
+}
+.chan__typing--active { opacity: 1; }
+.chan__typing-dots { display: inline-flex; gap: 3px; }
+.chan__typing-dots i {
+  width: 4px; height: 4px; border-radius: 50%;
+  background: var(--violet-soft);
+  animation: bounce 1.15s ease-in-out infinite;
+  animation-play-state: paused;
+}
+.chan__typing--active .chan__typing-dots i { animation-play-state: running; }
+.chan__typing-dots i:nth-child(2) { animation-delay: 0.16s; }
+.chan__typing-dots i:nth-child(3) { animation-delay: 0.32s; }
+
 /* ── Smart Replies ──────────────────────────────────────────── */
 
 .smart-replies { display: flex; flex-wrap: wrap; gap: 7px; padding: 0 var(--sp-5) var(--sp-2); }
@@ -988,7 +1033,7 @@ button.msg__read-receipt:hover { color: var(--tx-mid); }
 }
 .avatar img { width: 100%; height: 100%; border-radius: inherit; object-fit: cover; }
 .avatar__presence {
-  position: absolute; right: -3px; bottom: -3px;
+  position: absolute; inset-inline-end: -3px; bottom: -3px;
   border-radius: 50%;
   /* Kräftiger Rand: ohne ihn verschwimmt der Punkt mit dem Bild darunter. */
   border: 2.5px solid var(--bg-deep);
@@ -1095,10 +1140,15 @@ button.msg__read-receipt:hover { color: var(--tx-mid); }
 .omni-input {
   width: 100%;
   padding: var(--sp-4) var(--sp-5);
-  border: 0; outline: 0;
+  border: 0;
   background: transparent;
   font-size: 17px;
 }
+/* Kein `outline: 0` mehr — das nahm den Fokusring, ohne dass irgendwo ein
+   Ersatz stand (QuickSwitcher.tsx, SearchOverlay.tsx: dieses Feld bleibt beim
+   Blättern durch die Treffer die ganze Zeit fokussiert, der Pfeiltasten-
+   Auswahl bewegt nur `.result[data-active]`). Der globale `:focus-visible`-
+   Ring greift jetzt von selbst. */
 .omni-input::placeholder { color: var(--tx-lo); }
 
 .result {
@@ -1181,13 +1231,18 @@ button.msg__read-receipt:hover { color: var(--tx-mid); }
   transition: background var(--t-base), border-color var(--t-base);
 }
 .switch::after {
-  content: ''; position: absolute; top: 2px; left: 2px;
+  content: ''; position: absolute; top: 2px; inset-inline-start: 2px;
   width: 18px; height: 18px; border-radius: 50%;
   background: var(--tx-mid);
   transition: transform var(--t-base) var(--ease-spring), background var(--t-base);
 }
 .switch[aria-checked='true'] { background: var(--grad-nebula); border-color: transparent; }
 .switch[aria-checked='true']::after { transform: translateX(18px); background: #fff; }
+
+/* Toggle-Knopf in RTL: translateX muss die Richtung umkehren, da die
+   Komponente bereits inset-inline-start nutzt. Im physischen translateX
+   kann CSS logical properties nicht verwenden. */
+[dir='rtl'] .switch[aria-checked='true']::after { transform: translateX(-18px); }
 
 .row {
   display: flex; align-items: center; gap: var(--sp-3);
@@ -1290,7 +1345,7 @@ button.msg__read-receipt:hover { color: var(--tx-mid); }
   /* Fixiert am Viewport: ohne die Sicherheitsabstände läge der Hinweis in
      der Wischzone der Home-Leiste bzw. im Querformat unter der Kamera. */
   bottom: calc(var(--sp-5) + var(--sicher-unten));
-  right: calc(var(--sp-5) + var(--sicher-rechts));
+  inset-inline-end: calc(var(--sp-5) + var(--sicher-rechts));
   display: flex; flex-direction: column; gap: var(--sp-2);
   pointer-events: none;
 }
@@ -1680,7 +1735,7 @@ button.msg__author:hover { color: var(--violet-soft); text-decoration: underline
   height: 92px;
   background: var(--grad-aurora);
 }
-.profile__close { position: absolute; top: 10px; right: 10px; color: #fff; }
+.profile__close { position: absolute; top: 10px; inset-inline-end: 10px; color: #fff; }
 .profile__avatar { margin: -46px 0 0 24px; }
 .profile__avatar .avatar { box-shadow: 0 0 0 4px var(--bg-elevated); }
 .profile__body { padding: 14px 24px 24px; }
@@ -1749,7 +1804,7 @@ button.msg__author:hover { color: var(--violet-soft); text-decoration: underline
   content: attr(data-tip);
   position: absolute;
   bottom: calc(100% + 7px);
-  left: 50%;
+  inset-inline-start: 50%;
   transform: translateX(-50%) translateY(3px);
   padding: 4px 9px;
   border-radius: var(--r-xs);
@@ -2046,7 +2101,7 @@ button.msg__author:hover { color: var(--violet-soft); text-decoration: underline
 
 .tour__close {
   position: absolute;
-  top: 9px; right: 9px;
+  top: 9px; inset-inline-end: 9px;
   display: grid;
   place-items: center;
   width: 26px; height: 26px;
@@ -2265,9 +2320,19 @@ button.msg__author:hover { color: var(--violet-soft); text-decoration: underline
   min-height: 40px;
 }
 
+/* `.task-card` ist nur noch die Hülle (positioniert, sonst formlos) — den
+   Zuschnitt trägt `.task-card__open`, der eigentliche Öffnen-Knopf darin.
+   Aufgeteilt, seit ein zweiter Knopf (`.task-card__movebtn`, das
+   Spalten-Menü) daneben liegen muss: ein Knopf darf keinen zweiten
+   enthalten, siehe TaskCard in TasksBoard.tsx. */
 .task-card {
   position: relative;
+}
+
+.task-card__open {
+  position: relative;
   display: grid;
+  width: 100%;
   gap: 6px;
   padding: 9px 10px 8px 13px;
   text-align: start;
@@ -2278,17 +2343,46 @@ button.msg__author:hover { color: var(--violet-soft); text-decoration: underline
   transition: transform 0.14s, box-shadow 0.14s, border-color 0.14s;
 }
 
-.task-card:hover {
+.task-card:hover .task-card__open {
   transform: translateY(-1px);
   border-color: var(--line-strong);
   box-shadow: var(--shadow-sm);
 }
 
-.task-card:active { cursor: grabbing; }
+.task-card__open:active { cursor: grabbing; }
+
+/* Das Spalten-Menü — der Tastaturweg zum Verschieben (siehe TaskCard). Ruht
+   in der oberen rechten Ecke, unsichtbar bis die Karte Hover ODER Fokus
+   trägt: `:focus-within` fängt auch den Fall ab, dass der Knopf selbst schon
+   fokussiert ist, ohne dass die Karte zuvor gehovert wurde. Der Ring von
+   `:focus-visible` (app.css, oben) bleibt unverändert wirksam — hier wird
+   nur die SICHTBARKEIT geregelt, nicht der Fokusstil selbst. */
+.task-card__movebtn {
+  position: absolute;
+  top: 6px;
+  inset-inline-end: 6px;
+  z-index: 1;
+  width: 22px; height: 22px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--bg-elevated);
+  border: 1px solid var(--line);
+  color: var(--tx-mid);
+  opacity: 0;
+  transition: opacity 0.12s, background var(--t-fast), color var(--t-fast);
+}
+
+.task-card:hover .task-card__movebtn,
+.task-card:focus-within .task-card__movebtn {
+  opacity: 1;
+}
+
+.task-card__movebtn:hover { background: var(--bg-hover); color: var(--tx-hi); }
 
 .task-card__prio {
   position: absolute;
-  left: 0; top: 8px; bottom: 8px;
+  inset-inline-start: 0; top: 8px; bottom: 8px;
   width: 3px;
   border-radius: 0 3px 3px 0;
 }
@@ -2382,7 +2476,7 @@ button.msg__author:hover { color: var(--violet-soft); text-decoration: underline
 .extract-pop__liste li::before {
   content: '';
   position: absolute;
-  left: -11px;
+  inset-inline-start: -11px;
   top: 7px;
   width: 4px; height: 4px;
   border-radius: 50%;
@@ -2455,7 +2549,7 @@ button.msg__author:hover { color: var(--violet-soft); text-decoration: underline
 
 .week__add {
   position: absolute;
-  right: 5px; bottom: 5px;
+  inset-inline-end: 5px; bottom: 5px;
   display: grid;
   place-items: center;
   width: 22px; height: 22px;
@@ -2521,8 +2615,13 @@ button.msg__author:hover { color: var(--violet-soft); text-decoration: underline
   border: 1px solid var(--line);
 }
 
+/* Kein eigener Rahmen — der liegt am `.files-search`-Kasten drumherum. Vorher
+   stand hier zusätzlich `:focus:` outline:none; box-shadow:none, ohne
+   irgendwo einen Ersatz: wer diese Suchfelder (FilesPanel.tsx,
+   NotizenPanel.tsx) per Tastatur ansteuerte, sah beim Fokussieren gar nichts.
+   Jetzt einfach nichts mehr überschreiben — der globale `:focus-visible`-Ring
+   (oben in dieser Datei) greift dann von selbst, wie überall sonst. */
 .input--bare { background: none; border: none; padding: 8px 0; }
-.input--bare:focus { outline: none; box-shadow: none; }
 
 .dropzone {
   border: 1.5px dashed transparent;
@@ -2901,7 +3000,7 @@ button.msg__author:hover { color: var(--violet-soft); text-decoration: underline
 .neu__liste li::before {
   content: '';
   position: absolute;
-  left: 14px; top: 16px;
+  inset-inline-start: 14px; top: 16px;
   width: 6px; height: 6px;
   border-radius: 50%;
   background: var(--violet);
@@ -3136,7 +3235,7 @@ button.msg__author:hover { color: var(--violet-soft); text-decoration: underline
   padding: 8px 10px;
   border-radius: var(--r-sm);
   background: var(--bg-panel-2);
-  border-left: 2px solid var(--line-strong);
+  border-inline-start: 2px solid var(--line-strong);
 }
 .vorschlag__quelle-kopf {
   display: inline-flex;
@@ -3412,8 +3511,8 @@ button.msg__author:hover { color: var(--violet-soft); text-decoration: underline
   font-size: 12.5px; line-height: 1.5;
   color: var(--tx-lo);
   margin: 14px 0 0;
-  padding-left: 10px;
-  border-left: 2px solid var(--line);
+  padding-inline-start: 10px;
+  border-inline-start: 2px solid var(--line);
 }
 .einrichten__fuss {
   font-size: 12.5px; line-height: 1.5;
@@ -3598,7 +3697,7 @@ button.msg__author:hover { color: var(--violet-soft); text-decoration: underline
   background: var(--cyan);
 }
 .verkauf__balkenwert {
-  color: var(--tx-hi); font-variant-numeric: tabular-nums; text-align: right;
+  color: var(--tx-hi); font-variant-numeric: tabular-nums; text-align: end;
   white-space: nowrap;
 }
 

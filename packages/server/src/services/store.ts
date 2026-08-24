@@ -12,6 +12,7 @@ import { hiddenFor } from './messages.js';
 import { pollForMessage } from './polls.js';
 import { cachedPollView, cachedChannelView } from '../translation/index.js';
 import { voiceNoteFor } from './voice.js';
+import { kontenBeiDenenAufhebenVerbrennt, kontenMitNotzugang } from './notzugang.js';
 
 /* ── Nutzer ───────────────────────────────────────────────────── */
 
@@ -104,6 +105,16 @@ export function toSelf(r: any): SelfUser {
 
 /** Kontenliste für die Verwaltung — E-Mails nur angedeutet. */
 export function listManagedUsers(): ManagedUser[] {
+  /* Einmal für die ganze Liste, nicht einmal je Zeile. Herausgegeben wird
+     nur das OB (siehe `hatNotzugang` in @stellium/shared): die Verwaltung
+     muss beim Zurücksetzen wissen, dass der Kontoschlüssel dabei GESCHONT
+     wird — wer Anteile hält, geht sie nichts an. */
+  const mitNotzugang = kontenMitNotzugang();
+  /* Und die zweite, engere Auskunft: was der Knopf „Notzugang aufheben"
+     JETZT für dieses eine Konto bedeutet (siehe
+     kontenBeiDenenAufhebenVerbrennt() in services/notzugang.ts). */
+  const aufhebenVerbrennt = kontenBeiDenenAufhebenVerbrennt();
+
   /* Gelöschte ans Ende: sie bleiben nur bestehen, damit ihre Nachrichten
      einen Urheber behalten — vorn stehen die, um die es geht. */
   return db.all(
@@ -119,6 +130,8 @@ export function listManagedUsers(): ManagedUser[] {
     deletedAt: r.deleted_at ?? null,
     kategorie: r.kategorie ?? null,
     mustChangePassword: Boolean(r.must_change_password),
+    hatNotzugang: mitNotzugang.has(r.id),
+    notzugangAufhebenVerbrennt: mitNotzugang.has(r.id) && aufhebenVerbrennt.has(r.id),
     lastSeenAt: r.last_seen_at ?? null,
     createdAt: r.created_at,
     createdBy: r.created_by ?? null,
@@ -172,6 +185,17 @@ export function uiLanguageOf(userId: string): string {
 
 export function userLanguage(id: string): string {
   return db.get<{ language: string }>('SELECT language FROM users WHERE id = ?', id)?.language ?? 'en';
+}
+
+/**
+ * Zeitzone eines Kontos — für Daten, die serverseitig ohne offene Verbindung
+ * entstehen (z. B. http/download/seite.ts) und deshalb nicht die Zeitzone
+ * DIESES Rechners tragen dürfen: der Pi läuft in Alaska, die Leute nicht.
+ * `timezone` ist NOT NULL mit Standardwert (siehe schema.sql) — der Rückfall
+ * unten greift nur, falls das Konto selbst nicht (mehr) existiert.
+ */
+export function timezoneOf(userId: string): string {
+  return db.get<{ timezone: string }>('SELECT timezone FROM users WHERE id = ?', userId)?.timezone || 'UTC';
 }
 
 /* ── Kanäle ───────────────────────────────────────────────────── */
@@ -368,29 +392,63 @@ export function hydrateMessages(rows: any[], viewerId = ''): Message[] {
   return rows.map((r) => {
     const thread = threads.get(r.id);
     const kind = r.kind ?? 'text';
+
+    /* channelHistory() gibt gelöschte Zeilen ABSICHTLICH mit zurück, statt sie
+       herauszufiltern — nur so kann die Oberfläche an ihrer Stelle einen
+       Löschvermerk zeichnen, statt eine Lücke in den Verlauf zu reißen. Im
+       Gegenzug muss HIER wirklich jedes inhaltstragende Feld redigiert
+       werden, nicht nur `text`. Genau das ist bisher schiefgegangen: `text`,
+       `attachments` und `links` prüften deleted_at, `poll` und `voice`
+       nicht — eine gelöschte Sprachnachricht ging mit vollem
+       Whisper-Transkript hinaus, eine gelöschte Umfrage mit Frage und allen
+       Optionen, an jedes Kanalmitglied, bei jedem Laden des Verlaufs, obwohl
+       der Text direkt daneben schon leer war. `mentionUserIds` hatte
+       dieselbe Lücke, nur unauffälliger: message_mentions hängt an der
+       Nachricht, aber deleteMessage() (services/messages.ts) räumt diese
+       Tabelle nicht mit auf — das Feld verriet bis eben noch, WEN eine
+       gelöschte Nachricht angesprochen hatte, ein Bruchstück ihres Inhalts.
+       Fünf/sechs einzelne deleted_at-Prüfungen quer über die Rückgabe
+       verteilt sind genau die Form, die das Vergessen einlädt. Deshalb jetzt
+       EIN Bündel: jedes inhaltstragende Feld steht hier hinter EINER
+       Prüfung — ein neues gehört in dieses `inhalt`-Objekt, nicht lose
+       irgendwo unten in die Rückgabe gestreut. */
+    const inhalt: Pick<Message, 'text' | 'attachments' | 'poll' | 'voice' | 'links' | 'mentionUserIds'> = r.deleted_at
+      ? { text: '', attachments: [], poll: null, voice: null, links: [], mentionUserIds: [] }
+      : {
+          text: entschluesseln(r.text),
+          attachments: atts.get(r.id) ?? [],
+          poll: kind === 'poll' ? mitUebersetzung(pollForMessage(r.id, viewerId), viewerId) : null,
+          voice: kind === 'voice' ? voiceNoteFor(r.id) : null,
+          links: linkPreviewsFor(r.id),
+          mentionUserIds: mentions.get(r.id) ?? [],
+        };
+
+    // Bewusst NICHT im inhalt-Bündel, weil kein Bruchstück des gelöschten
+    // Textes: `kind` bleibt stehen, weil der Löschvermerk selbst ihn braucht
+    // („Sprachnachricht gelöscht" statt nur „Nachricht gelöscht") — ohne ihn
+    // ginge genau die Tombstone-Darstellung kaputt, die channelHistory() mit
+    // dem Zurückgeben gelöschter Zeilen erst ermöglicht. `reactions` bleibt
+    // ebenfalls stehen: Emoji-Reaktionen sind fremder Inhalt (wer reagiert
+    // hat), nicht der Inhalt der gelöschten Nachricht selbst — sie verraten
+    // nichts davon, was dort stand.
     return {
       id: r.id,
       channelId: r.channel_id,
       userId: r.user_id,
       parentId: r.parent_id ?? null,
-      text: r.deleted_at ? '' : entschluesseln(r.text),
       sourceLang: r.source_lang ?? null,
       createdAt: r.created_at,
       editedAt: r.edited_at ?? null,
       deletedAt: r.deleted_at ?? null,
       systemKind: r.system_kind ?? null,
-      attachments: r.deleted_at ? [] : (atts.get(r.id) ?? []),
+      ...inhalt,
       reactions: reacts.get(r.id) ?? [],
       replyCount: thread?.count ?? 0,
       lastReplyAt: thread?.lastAt ?? null,
       threadParticipantIds: thread?.participants ?? [],
-      mentionUserIds: mentions.get(r.id) ?? [],
       pinned: Boolean(r.pinned),
       kind,
       forwardedFrom: r.forwarded_from ? parseForward(r.forwarded_from) : null,
-      poll: kind === 'poll' ? mitUebersetzung(pollForMessage(r.id, viewerId), viewerId) : null,
-      voice: kind === 'voice' ? voiceNoteFor(r.id) : null,
-      links: r.deleted_at ? [] : linkPreviewsFor(r.id),
       hiddenForMe: versteckt.has(r.id),
       translation: null,
     } satisfies Message;

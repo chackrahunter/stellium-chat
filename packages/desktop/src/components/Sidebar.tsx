@@ -4,7 +4,7 @@ import {
   Archive, Bell, BellOff, Bot, ChevronDown, EyeOff, Hash, KeyRound, Lock, LogOut,
   Plus, Search, Settings2, ShieldAlert, Sparkles, Star, StarOff, Trash2, Users, UsersRound,
 } from 'lucide-react';
-import type { Channel } from '@stellium/shared';
+import type { Channel, User } from '@stellium/shared';
 import { useStore } from '../state/store.js';
 import { currentUiLanguage, useT } from '../i18n/index.js';
 import { Avatar } from './Avatar.jsx';
@@ -74,6 +74,7 @@ export function Sidebar() {
             ? <Lock size={15} className="chan__icon" />
             : <Hash size={15} className="chan__icon" />}
         <span className="chan__name">{channel.kind === 'dm' ? peer?.displayName ?? t('chat.directMessage') : kanalName(channel)}</span>
+        {channel.kind === 'dm' && <DmTypingHint channelId={channel.id} peer={peer} selfId={self?.id} />}
         {channel.kind !== 'dm' && channel.primaryLanguage && (
           <span className="chan__lang" title={`${t('channel.language')}: ${languageInfo(channel.primaryLanguage).native}`}>
             {languageInfo(channel.primaryLanguage).flag}
@@ -284,6 +285,57 @@ export function Sidebar() {
   );
 }
 
+/**
+ * Tipp-Hinweis für eine einzelne Direktnachrichten-Zeile.
+ *
+ * Eigene Komponente statt eines Hooks mitten in renderChannel(): renderChannel
+ * ist eine gewöhnliche Funktion, die pro Kanal in einer Schleife aufgerufen
+ * wird (dms.map(renderChannel)) — ein Hook direkt darin verletzte die Regeln
+ * der Hooks, weil die Zahl der Aufrufe mit der Länge der Liste schwankt. Als
+ * eigene Komponente hängt sich der Hook stattdessen an eine feste Stelle im
+ * Baum, genau wie überall sonst im Haus.
+ *
+ * Fragt gezielt nur `typing[channelId]` ab statt des ganzen Zustands: tippt
+ * jemand in einem Kanal, rendert dadurch nur diese eine Zeile neu — nicht
+ * die ganze Seitenleiste und nicht die anderen Direktnachrichten. Der
+ * Zeitstempel selbst räumt sich von allein weg: derselbe Kehraus wie überall
+ * sonst, wo `typing` gelesen wird (state/store.ts, alle 2s, älter als 5s
+ * fällt raus) — hier entsteht kein zweiter Verfall mit eigener Frist.
+ *
+ * Zeigt nichts, solange peer.status 'offline' ist: bricht die Verbindung
+ * mitten im Tippen ab, steht der Zeitstempel bis zum nächsten Kehraus noch
+ * bis zu 5 Sekunden da, während die Präsenz sofort auf offline springt. Ohne
+ * diese Zeile stünden „offline" und „schreibt gerade" nebeneinander — das
+ * eine sagt „nicht erreichbar", das andere „gerade aktiv". Die Präsenzmarke
+ * am Bild bleibt unberührt, nur dieser zusätzliche Hinweis unterbleibt.
+ */
+function DmTypingHint({
+  channelId, peer, selfId,
+}: {
+  channelId: string;
+  peer: User | null;
+  selfId?: string;
+}) {
+  const t = useT();
+  const seit = useStore((s) => (peer ? s.typing[channelId]?.[peer.id] : undefined));
+  const active = seit != null && !!peer && peer.id !== selfId && peer.status !== 'offline';
+
+  if (!peer) return null;
+
+  return (
+    <span className={clsx('chan__typing', active && 'chan__typing--active')}>
+      <span className="chan__typing-dots" aria-hidden="true"><i /><i /><i /></span>
+      {/* Derselbe Aufbau wie bei den Toasts (Toasts.tsx): die Ansage steckt in
+          einer Region, die immer im Baum steht — nur ihr Text wechselt.
+          Entstünde die Region erst zusammen mit dem Text, verpassten manche
+          Sprachausgaben die Änderung, weil sie die Stelle vorher nie sahen. */}
+      <span className="sr-only" role="status" aria-live="polite" aria-atomic="true">
+        {active ? t('typing.one', { name: peer.displayName }) : ''}
+      </span>
+    </span>
+  );
+}
+
 interface GroupProps {
   title: string;
   count: number;
@@ -304,7 +356,12 @@ function Group({ title, count, collapsed, onToggle, onAdd, children }: GroupProp
           <span style={{ opacity: 0.6, fontWeight: 600 }}>{count}</span>
         </button>
         {onAdd && (
-          <button className="icon-btn icon-btn--sm group__add" onClick={onAdd} title={t('nav.addTo', { name: title })}>
+          <button
+            className="icon-btn icon-btn--sm group__add"
+            onClick={onAdd}
+            title={t('nav.addTo', { name: title })}
+            aria-label={t('nav.addTo', { name: title })}
+          >
             <Plus size={14} />
           </button>
         )}

@@ -5,6 +5,11 @@ import type {
 import { socket } from '../net/socket.js';
 import { anfrage } from './store.js';
 import { zeigen } from '../lib/benachrichtigung.js';
+/* t() statt translate() aus dem Kern: nur die Form t('…') mit unmittelbarem
+   Literal finden scripts/sprachen-vollstaendig.mjs und scripts/deutsch-finden.mjs
+   im Quelltext wieder. Kein Ringschluss — i18n/index.js lädt state/store.js,
+   das diese Datei nicht kennt. */
+import { t } from '../i18n/index.js';
 
 /**
  * Der Eingang für Vorschläge der KI — Zustand in der Oberfläche.
@@ -131,12 +136,25 @@ export const useVorschlaege = create<VorschlagState>((set, get) => ({
         /* Nur bei echt Neuem — 'vorschlag:upsert' feuert auch für jede
            spätere Änderung an einem längst bekannten Vorschlag, und dafür
            soll es kein zweites Mal klingeln.
-           TODO(i18n): fester deutscher Text — i18n/ durfte in dieser
-           Änderung nicht angefasst werden. Vorschlag für Schlüssel:
-           toast.vorschlagNeuAufgabe / toast.vorschlagNeuTermin / toast.vorschlagNeuIdee. */
-        const artText = v.art === 'aufgabe' ? 'Neue Aufgabe vorgeschlagen'
-          : v.art === 'termin' ? 'Neuer Termin vorgeschlagen' : 'Neue Idee vorgeschlagen';
-        zeigen({ titel: artText, text: v.titel, kanalId: v.channelId, gruppe: `vorschlag:${v.id}` });
+
+           Drei ausgeschriebene t()-Aufrufe statt eines zusammengesetzten
+           Schlüssels (`'toast.vorschlagNeu' + v.art`): nur so bleibt jeder
+           Name ein Literal. Der Übersetzer prüft ihn dann gegen
+           TranslationKey, und beide Prüfläufe sehen ihn im Quelltext —
+           zusammengesetzt fände ihn keiner von beiden.
+
+           Der Titel steht außerdem unmittelbar an der Eigenschaft statt
+           erst in einer Zwischenvariablen: genau diese Umleitung ist der
+           Grund, warum scripts/deutsch-finden.mjs den festen deutschen
+           Text hier nie gemeldet hat. */
+        zeigen({
+          titel: v.art === 'aufgabe' ? t('toast.vorschlagNeuAufgabe')
+            : v.art === 'termin' ? t('toast.vorschlagNeuTermin')
+              : t('toast.vorschlagNeuIdee'),
+          text: v.titel,
+          kanalId: v.channelId,
+          gruppe: `vorschlag:${v.id}`,
+        });
       }
       const ohne = get().liste.filter((x) => x.id !== v.id);
       set({

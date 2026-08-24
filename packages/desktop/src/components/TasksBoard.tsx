@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
-  AlarmClock, CalendarDays, Check, Eye, EyeOff, FolderKanban, Hash, Inbox, ListChecks, Loader2,
-  MessageSquare, Pencil, Plus, Sparkles, Trash2, User as UserIcon, X,
+  AlarmClock, ArrowRightLeft, CalendarDays, Check, Eye, EyeOff, FolderKanban, Hash, Inbox, ListChecks,
+  Loader2, MessageSquare, Pencil, Plus, Sparkles, Trash2, User as UserIcon, X,
 } from 'lucide-react';
 import {
   TASK_STATUSES, TASK_PRIORITIES, type Task, type TaskPriority, type TaskStatus,
@@ -14,6 +14,7 @@ import { Avatar } from './Avatar.jsx';
 import { Shell } from './Panels.jsx';
 import { PruefListe } from './PruefListe.jsx';
 import { ProjektDialog } from './ProjektDialog.jsx';
+import { ContextMenu, type MenuEintrag, type MenuPosition } from './ContextMenu.jsx';
 import { clsx, dateTime, dayLabel, relativeTime } from '../lib/format.js';
 
 const SPALTEN_FARBE: Record<TaskStatus, string> = {
@@ -49,9 +50,15 @@ export function TasksBoard({ onClose }: { onClose: () => void }) {
 
   const tasks = useStore((s) => s.tasks);
   const projekte = useStore((s) => s.projekte);
+  /* Für den Reiter „Prüfen" unten (users/channels von Zuständigkeit und
+     Kanal einer Aufgabe) — die Karten selbst holen sich das seit Kurzem
+     JEDE FÜR SICH (siehe TaskCard weiter unten), damit ein Präsenz-Update
+     nicht mehr das ganze Brett neu aufbaut. */
   const users = useStore((s) => s.users);
   const channels = useStore((s) => s.channels);
-  const self = useStore((s) => s.self);
+  /* Nur die id, nicht das ganze self-Objekt: sonst rendert das Brett bei
+     jeder Theme- oder Status-Änderung mit — hier zählt einzig, WER man ist. */
+  const selfId = useStore((s) => s.self?.id);
   const ai = useStore((s) => s.ai);
   const activeChannelId = useStore((s) => s.activeChannelId);
   const { loadTasks, loadProjekte, moveTask, deleteTask, setOverlay, aufgabeGeprueft } = useStore.getState();
@@ -66,8 +73,35 @@ export function TasksBoard({ onClose }: { onClose: () => void }) {
   const [offeneAufgabe, setOffeneAufgabe] = useState<string | null>(null);
   const [gezogen, setGezogen] = useState<string | null>(null);
   const [ueberSpalte, setUeberSpalte] = useState<TaskStatus | null>(null);
+  /* Für die Tastatur-Ansage einer Spaltenverschiebung (siehe TaskCard): hier
+     steht, welche Verschiebung gerade unterwegs ist, bis der Server sie
+     bestätigt — angesagt wird erst DANN, nicht schon beim Klick. */
+  const [erwarteteVerschiebung, setErwarteteVerschiebung] = useState<
+    { taskId: string; status: TaskStatus; titel: string } | null
+  >(null);
+  const [ansage, setAnsage] = useState('');
 
   useEffect(() => { loadTasks(); loadProjekte(); }, [loadTasks, loadProjekte]);
+
+  /* Bestätigt der Bestand die erwartete Verschiebung (derselbe Weg, über den
+     auch das Ziehen mit der Maus ankommt — task:move und dieser Knopf landen
+     serverseitig ohnehin am selben Dienst), wird EINMAL angesagt, danach
+     verstummt die Region wieder bis zur nächsten Verschiebung. Ohne diese
+     Bestätigung stünde in der Ansage etwas, das der Server am Ende ablehnen
+     könnte (fehlendes Recht, gelöschte Aufgabe) — der Fehlerfall selbst zeigt
+     sich schon über die Toasts (Toasts.tsx), eigens dafür ist hier nichts
+     nötig. */
+  useEffect(() => {
+    if (!erwarteteVerschiebung) return;
+    const aktuell = tasks[erwarteteVerschiebung.taskId];
+    if (aktuell?.status === erwarteteVerschiebung.status) {
+      setAnsage(t('tasks.verschobenAngesagt', {
+        titel: erwarteteVerschiebung.titel,
+        spalte: t(`tasks.status.${erwarteteVerschiebung.status}` as never),
+      }));
+      setErwarteteVerschiebung(null);
+    }
+  }, [tasks, erwarteteVerschiebung, t]);
 
   /* Was die KI selbst eingetragen hat und noch niemand angesehen hat. */
   const ungeprueft = useMemo(
@@ -83,7 +117,7 @@ export function TasksBoard({ onClose }: { onClose: () => void }) {
 
   const spalten = useMemo(() => {
     const alle = Object.values(tasks)
-      .filter((a) => !nurMeine || a.assigneeId === self?.id)
+      .filter((a) => !nurMeine || a.assigneeId === selfId)
       /* Ohne Projektwahl alles; mit '' nur das ohne Schublade. */
       .filter((a) => projektFilter === null || (a.projektId ?? '') === projektFilter)
       .sort((a, b) => {
@@ -95,9 +129,31 @@ export function TasksBoard({ onClose }: { onClose: () => void }) {
           || a.createdAt - b.createdAt;
       });
     return TASK_STATUSES.map((status) => ({ status, items: alle.filter((a) => a.status === status) }));
-  }, [tasks, nurMeine, self?.id, projektFilter]);
+  }, [tasks, nurMeine, selfId, projektFilter]);
 
   const offen = Object.values(tasks).filter((a) => a.status !== 'finished').length;
+
+  /* Stabile Bezüge für TaskCard (Modulebene, unten): ohne das sähe jede
+     Karte bei jedem Board-Render eine neue Prop-Identität, und der
+     React.memo-Vergleich dort liefe leer. setState-Setter sind selbst
+     immer stabil — das genügt als einziges Dependency. */
+  const onOpenTask = useCallback((id: string) => setOffeneAufgabe(id), []);
+  const onDragStartTask = useCallback((id: string) => setGezogen(id), []);
+  const onDragEndTask = useCallback(() => { setGezogen(null); setUeberSpalte(null); }, []);
+  /* Der Tastaturweg zwischen Spalten (siehe TaskCard, Menü „In andere Spalte
+     verschieben"). `moveTask` ist wie `loadTasks` & Co. oben eine im Bestand
+     fest verdrahtete Funktion — dieselbe Referenz bei jedem Aufruf von
+     `getState()` — deshalb genügt sie allein als Abhängigkeit, ohne dass
+     `tasks` hier mit hineinzieht und die Karten-Referenz bei jeder
+     Bestandsänderung neu entstehen ließe. Den Titel für die Ansage holt sich
+     der Aufruf selbst frisch aus `getState()`, statt `tasks` aus dem
+     Komponenten-Zustand zu schließen — auch das nur, um diese eine stabile
+     Referenz nicht wieder aufzubrechen. */
+  const onMoveTask = useCallback((id: string, status: TaskStatus) => {
+    const titel = useStore.getState().tasks[id]?.title ?? '';
+    setErwarteteVerschiebung({ taskId: id, status, titel });
+    moveTask(id, status);
+  }, [moveTask]);
 
   return (
     <Shell
@@ -162,6 +218,12 @@ export function TasksBoard({ onClose }: { onClose: () => void }) {
         </>
       }
     >
+      {/* Immer im Baum, nur der Text wechselt — wie bei den Toasts (Toasts.tsx)
+          und dem Tipp-Hinweis der Seitenleiste (Sidebar.tsx, DmTypingHint):
+          entstünde die Region erst zusammen mit der ersten Ansage, verpassten
+          manche Sprachausgaben sie, weil sie die Stelle vorher nie sahen. */}
+      <span className="sr-only" role="status" aria-live="polite" aria-atomic="true">{ansage}</span>
+
       {pruefen ? (
         <PruefListe
           eintraege={ungeprueft.map((a) => ({
@@ -210,9 +272,10 @@ export function TasksBoard({ onClose }: { onClose: () => void }) {
                     <TaskCard
                       key={aufgabe.id}
                       task={aufgabe}
-                      onOpen={() => setOffeneAufgabe(aufgabe.id)}
-                      onDragStart={() => setGezogen(aufgabe.id)}
-                      onDragEnd={() => { setGezogen(null); setUeberSpalte(null); }}
+                      onOpen={onOpenTask}
+                      onDragStart={onDragStartTask}
+                      onDragEnd={onDragEndTask}
+                      onMove={onMoveTask}
                     />
                   ))}
                 </AnimatePresence>
@@ -239,42 +302,113 @@ export function TasksBoard({ onClose }: { onClose: () => void }) {
       </AnimatePresence>
     </Shell>
   );
+}
 
-  function TaskCard({ task, onOpen, onDragStart, onDragEnd }: {
-    task: Task; onOpen: () => void; onDragStart: () => void; onDragEnd: () => void;
-  }) {
-    const zustaendig = task.assigneeId ? users[task.assigneeId] : null;
-    const kanal = task.channelId ? channels[task.channelId] : null;
-    const frist = faelligkeit(task.dueAt);
+/**
+ * Eine Karte auf dem Brett — als eigene Komponente auf Modulebene.
+ *
+ * Stand vorher: als Funktion INNERHALB von TasksBoard definiert. Harmlos
+ * aussehend, aber folgenreich — bei jedem Render von TasksBoard entstand
+ * dadurch eine NEUE Funktionsidentität für TaskCard, und React sieht darin
+ * keine aktualisierte Komponente, sondern einen ANDEREN Komponententyp:
+ * jede Karte wurde ab- und wieder aufgebaut (echtes DOM weg und neu), nicht
+ * nur neu gezeichnet — bei jedem Zwischenstand des Bretts, auch bei
+ * Ereignissen, die mit der Karte selbst nichts zu tun haben (ein
+ * Präsenz-Update irgendeiner Kollegin, eine von jemand anderem bearbeitete
+ * Aufgabe). Genau das war die Ursache des Ruckelns beim Ziehen: das
+ * Überqueren einer Spaltengrenze ändert einen einzigen State-Wert in
+ * TasksBoard (`ueberSpalte`, für den Rahmen der Zielspalte) — und riss
+ * dabei bisher alle zehn Karten neu auf, jedes Mal mit frischer Mess- und
+ * Eintrittsanimation von framer-motion, obwohl sich an neun von zehn
+ * Karten optisch nichts ändert.
+ *
+ * Jetzt: eine mit React.memo verglichene, eigenständige Komponente. Ändert
+ * sich `task` einer Karte nicht (per Referenz — der Zustand ersetzt beim
+ * Aktualisieren nur den EINEN betroffenen Eintrag, alle anderen behalten
+ * ihre Objektreferenz), bleibt ihr DOM-Knoten unangetastet, ganz gleich wie
+ * oft TasksBoard selbst neu rendert. `onOpen`/`onDragStart`/`onDragEnd`/
+ * `onMove` kommen deshalb als vier stabile, einmal erzeugte Funktionen von
+ * außen (siehe die passenden useCallback in TasksBoard) statt als frische
+ * Closure pro Karte und Render — sonst liefe der Vergleich von React.memo
+ * leer, weil sich „irgendeine" Prop doch bei jedem Render ändert. `menuPos`
+ * unten ist davon unberührt: eigener State EINER Karte bricht den Vergleich
+ * nicht, der gilt nur den PROPS.
+ *
+ * users/channels/projekte/self-id holt sich die Karte über eigene, enge
+ * useStore-Selektoren statt sie von TasksBoard durchgereicht zu bekommen:
+ * ein Präsenz-Update für eine Kollegin betrifft dann nur noch Karten, die
+ * ihr auch zugeteilt sind — nicht mehr automatisch das ganze Brett.
+ */
+const TaskCard = memo(function TaskCard({ task, onOpen, onDragStart, onDragEnd, onMove }: {
+  task: Task;
+  onOpen: (id: string) => void;
+  onDragStart: (id: string) => void;
+  onDragEnd: () => void;
+  onMove: (id: string, status: TaskStatus) => void;
+}) {
+  const t = useT();
+  const zustaendig = useStore((s) => (task.assigneeId ? s.users[task.assigneeId] : null));
+  const kanal = useStore((s) => (task.channelId ? s.channels[task.channelId] : null));
+  const projekt = useStore((s) => (task.projektId ? s.projekte[task.projektId] : null));
+  const selfId = useStore((s) => s.self?.id);
+  const frist = faelligkeit(task.dueAt);
 
-    return (
-      <motion.button
-        /* `layout` ordnet um, wenn sich die Reihenfolge ändert — das genügt.
-           Hier stand zusätzlich `layoutId={`task_${task.id}`}`, und das war
-           die Lücke in der Spalte: `layoutId` ist für Übergänge zwischen
-           VERSCHIEDENEN Komponenten gedacht (ein Element verschwindet hier
-           und taucht dort wieder auf). Framer-Motion legt dafür eine eigene
-           Projektion an und hält den Platz des alten Elements so lange frei,
-           bis der Übergang fertig ist. Wird er unterbrochen — ein Umlauf
-           mittendrin, ein Wechsel der Spalte, ein Scrollen —, bleibt der
-           Platz reserviert: eine leere Kartenhöhe mitten in der Spalte,
-           ohne dass eine Karte fehlt.
-           Jede Karte hat längst einen stabilen `key`; `layoutId` brachte
-           nichts dazu. Die Ideentafel nebenan macht es seit jeher ohne und
-           hat das Problem nicht. */
-        layout
-        className="task-card"
+  /* Der Weg ohne Maus: ein eigener Knopf öffnet ein Menü mit den ÜBRIGEN
+     Spalten (ContextMenu.tsx — dieselbe Komponente wie beim Rechtsklick in
+     der Seitenleiste, jetzt auch per Tastatur geöffnet, siehe die
+     Fokus-Verwaltung dort). Die Position kommt von der Lage des KNOPFS
+     (`getBoundingClientRect`), nicht von `e.clientX/clientY` — ein per
+     Enter/Leertaste ausgelöster Klick trägt dort ohnehin nur Nullen. Das ist
+     Zustand DIESER Karte, keine Prop — bricht also nicht den React.memo-
+     Vergleich oben. */
+  const [menuPos, setMenuPos] = useState<MenuPosition | null>(null);
+  const verschiebenKnopf = useRef<HTMLButtonElement>(null);
+
+  const menuEintraege: MenuEintrag[] = TASK_STATUSES.filter((s) => s !== task.status).map((status) => ({
+    id: status,
+    label: t(`tasks.status.${status}` as never),
+    icon: <span className="projekt-punkt" style={{ background: SPALTEN_FARBE[status] }} />,
+    onClick: () => onMove(task.id, status),
+  }));
+
+  return (
+    <motion.div
+      /* `layout` ordnet um, wenn sich die Reihenfolge ändert — das genügt.
+         Hier stand zusätzlich `layoutId={`task_${task.id}`}`, und das war
+         die Lücke in der Spalte: `layoutId` ist für Übergänge zwischen
+         VERSCHIEDENEN Komponenten gedacht (ein Element verschwindet hier
+         und taucht dort wieder auf). Framer-Motion legt dafür eine eigene
+         Projektion an und hält den Platz des alten Elements so lange frei,
+         bis der Übergang fertig ist. Wird er unterbrochen — ein Umlauf
+         mittendrin, ein Wechsel der Spalte, ein Scrollen —, bleibt der
+         Platz reserviert: eine leere Kartenhöhe mitten in der Spalte,
+         ohne dass eine Karte fehlt.
+         Jede Karte hat längst einen stabilen `key`; `layoutId` brachte
+         nichts dazu. Die Ideentafel nebenan macht es seit jeher ohne und
+         hat das Problem nicht. */
+      layout
+      className="task-card"
+      initial={{ opacity: 0, y: 6 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, scale: 0.96 }}
+      transition={{ duration: 0.16 }}
+    >
+      {/* Zwei eigenständige Knöpfe statt einem Knopf im Knopf: `.task-card`
+          war bisher selbst ein <button>, und ein zweiter Knopf DARIN wäre
+          ungültiges HTML gewesen (Knöpfe dürfen keine anfassbaren Kinder
+          enthalten) — mit unklarem Verhalten für Tastatur und Sprachausgabe.
+          Deshalb jetzt ein umschließendes <div> und zwei GESCHWISTER: der
+          bisherige Öffnen-Knopf (Ziehen inklusive, unverändert) und der neue
+          Verschieben-Knopf daneben. */}
+      <button
+        className="task-card__open"
         draggable
         onDragStart={(e) => {
-          (e as unknown as React.DragEvent).dataTransfer?.setData('text/plain', task.id);
-          onDragStart();
+          e.dataTransfer?.setData('text/plain', task.id);
+          onDragStart(task.id);
         }}
         onDragEnd={onDragEnd}
-        onClick={onOpen}
-        initial={{ opacity: 0, y: 6 }}
-        animate={{ opacity: 1, y: 0 }}
-        exit={{ opacity: 0, scale: 0.96 }}
-        transition={{ duration: 0.16 }}
+        onClick={() => onOpen(task.id)}
       >
         <span className="task-card__prio" style={{ background: PRIO_FARBE[task.priority] }} />
         <span className="task-card__title">{task.title}</span>
@@ -289,13 +423,10 @@ export function TasksBoard({ onClose }: { onClose: () => void }) {
             ? <Avatar user={zustaendig} size={17} />
             : <span className="task-card__nobody"><UserIcon size={11} /></span>}
           {kanal && <span className="task-card__chan"><Hash size={10} />{kanal.name}</span>}
-          {task.projektId && projekte[task.projektId] && (
+          {projekt && (
             <span className="task-card__chan" title={t('projekte.assign')}>
-              <span
-                className="projekt-punkt"
-                style={{ background: projekte[task.projektId].farbe }}
-              />
-              {projekte[task.projektId].name}
+              <span className="projekt-punkt" style={{ background: projekt.farbe }} />
+              {projekt.name}
             </span>
           )}
           {frist && (
@@ -307,12 +438,32 @@ export function TasksBoard({ onClose }: { onClose: () => void }) {
               {frist.ueberfaellig ? t('tasks.overdue') : frist.heute ? t('tasks.dueToday') : relativeTime(task.dueAt!)}
             </span>
           )}
-          {task.watcherIds.includes(self?.id ?? '') && <Eye size={11} className="muted" />}
+          {task.watcherIds.includes(selfId ?? '') && <Eye size={11} className="muted" />}
         </span>
-      </motion.button>
-    );
-  }
-}
+      </button>
+
+      <button
+        ref={verschiebenKnopf}
+        type="button"
+        className="task-card__movebtn"
+        title={t('tasks.moveTo')}
+        aria-label={t('tasks.moveTo')}
+        onClick={(e) => {
+          // Nicht zugleich den Öffnen-Knopf auslösen — die beiden liegen übereinander.
+          e.stopPropagation();
+          const kasten = verschiebenKnopf.current?.getBoundingClientRect();
+          if (kasten) setMenuPos({ x: kasten.left, y: kasten.bottom + 4 });
+        }}
+      >
+        <ArrowRightLeft size={12} />
+      </button>
+
+      {menuPos && (
+        <ContextMenu position={menuPos} eintraege={menuEintraege} onClose={() => setMenuPos(null)} />
+      )}
+    </motion.div>
+  );
+});
 
 /* ── Anlegen ────────────────────────────────────────────────── */
 
@@ -457,10 +608,16 @@ function TaskDetail({ task, onClose, onDelete }: { task: Task; onClose: () => vo
             className="icon-btn"
             onClick={() => watchTask(task.id, !beobachtet)}
             title={beobachtet ? t('tasks.unwatch') : t('tasks.watch')}
+            aria-label={beobachtet ? t('tasks.unwatch') : t('tasks.watch')}
           >
             {beobachtet ? <EyeOff size={16} /> : <Eye size={16} />}
           </button>
-          <button className="icon-btn icon-btn--danger" onClick={onDelete} title={t('tasks.delete')}>
+          <button
+            className="icon-btn icon-btn--danger"
+            onClick={onDelete}
+            title={t('tasks.delete')}
+            aria-label={t('tasks.delete')}
+          >
             <Trash2 size={16} />
           </button>
         </>
@@ -565,6 +722,7 @@ function TaskDetail({ task, onClose, onDelete }: { task: Task; onClose: () => vo
           className="btn"
           disabled={!kommentar.trim()}
           onClick={() => { commentTask(task.id, kommentar.trim()); setKommentar(''); }}
+          aria-label={t('post.senden')}
         >
           <MessageSquare size={14} />
         </button>

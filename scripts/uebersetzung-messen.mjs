@@ -34,7 +34,8 @@ import { istEcho, woerter, wortAehnlichkeit, ECHO_MIN_WOERTER } from '../package
 import { translationBudget, uebersetzungsRegeln, uebersetzungsTemperatur }
   from '../packages/server/src/translation/prompt.ts';
 import { uebersetzungAusAntwort } from '../packages/server/src/translation/antwort.ts';
-import { KORPUS } from './uebersetzung-korpus.mjs';
+import { verlaufAlsKontext } from '../packages/server/src/translation/verlauf.ts';
+import { KORPUS, KONTEXT_KORPUS } from './uebersetzung-korpus.mjs';
 
 const ADRESSE = process.env.MODELL;
 if (!ADRESSE) {
@@ -54,8 +55,8 @@ const ERGEBNIS = { BESTANDEN: 'bestanden', DURCHGEFALLEN: 'durchgefallen', UEBER
 /* ── Anfrage ans Modell ───────────────────────────────────────────
    Ein Aufruf, mit genau der Anweisung aus dem Betrieb. `text` ist bereits
    maskiert — das ist es, was das Modell in Wirklichkeit sieht. */
-async function einzelneAnfrage(text, ziel, quelle, nachdruck) {
-  const req = { text, targetLang: ziel, sourceLang: quelle, nachdruck };
+async function einzelneAnfrage(text, ziel, quelle, nachdruck, context = null) {
+  const req = { text, targetLang: ziel, sourceLang: quelle, nachdruck, context };
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 45_000);
   try {
@@ -91,13 +92,13 @@ async function einzelneAnfrage(text, ziel, quelle, nachdruck) {
  * Modell hat die Ausgangssprache bereits als Zielsprache erkannt, dann ist
  * die unveränderte Rückgabe richtig und kein Fehler.
  */
-async function uebersetzeMitNachfassen(masked, ziel, quelle) {
-  const erste = await einzelneAnfrage(masked, ziel, quelle, false);
+async function uebersetzeMitNachfassen(masked, ziel, quelle, context = null) {
+  const erste = await einzelneAnfrage(masked, ziel, quelle, false, context);
   if (!erste || !erste.translation?.trim()) return null;
   const erkannteQuelle = erste.detected ? normalizeLang(erste.detected) : quelle;
   if (erkannteQuelle === ziel) return erste;
   if (!istEcho(masked, erste.translation)) return erste;
-  const zweite = await einzelneAnfrage(masked, ziel, quelle, true);
+  const zweite = await einzelneAnfrage(masked, ziel, quelle, true, context);
   if (zweite?.translation?.trim() && !istEcho(masked, zweite.translation)) return zweite;
   return zweite?.translation?.trim() ? zweite : erste;
 }
@@ -250,6 +251,20 @@ function pruefeErfindung(masked, rohAusgabe) {
   return satzZahl(rohAusgabe) <= satzZahl(masked) + 1 ? ERGEBNIS.BESTANDEN : ERGEBNIS.DURCHGEFALLEN;
 }
 
+/* ── Prüfpunkte 10/11 (nur Kontext-Vergleich): erwartet/verboten ──────
+   Dieselbe Machart wie postantwort-korpus.mjs/postantwort-messen.mjs:
+   Muster, die in einer richtigen Übersetzung vorkommen müssen bzw. nie
+   vorkommen dürfen. Leere Arrays heißen ausdrücklich "nicht automatisch
+   beurteilbar", nicht "bestanden" — siehe uebersetzung-korpus.mjs. */
+function pruefeErwartet(text, muster) {
+  if (!muster.length) return ERGEBNIS.UEBERSPRUNGEN;
+  return muster.every((r) => r.test(text)) ? ERGEBNIS.BESTANDEN : ERGEBNIS.DURCHGEFALLEN;
+}
+function pruefeVerboten(text, muster) {
+  if (!muster.length) return ERGEBNIS.UEBERSPRUNGEN;
+  return muster.some((r) => r.test(text)) ? ERGEBNIS.DURCHGEFALLEN : ERGEBNIS.BESTANDEN;
+}
+
 /* ── Hauptlauf ─────────────────────────────────────────────────────── */
 
 const KATEGORIEN = [
@@ -344,6 +359,101 @@ console.log(`\n  Fälle insgesamt: ${KORPUS.length}, ohne verwertbare Antwort: $
 
 const gesamtBestanden = KATEGORIEN.reduce((s, [k]) => s + zaehler[k].bestanden, 0);
 const gesamtDurchgefallen = KATEGORIEN.reduce((s, [k]) => s + zaehler[k].durchgefallen, 0);
-console.log(`\n${gesamtDurchgefallen ? '✗' : '✓'} ${gesamtBestanden} von ${gesamtBestanden + gesamtDurchgefallen} Einzelprüfungen bestanden.`);
-console.log('Standaufnahme, kein Grenzwert-Test — Ziel ist der Vergleich mit dem nächsten Lauf.');
-process.exit(gesamtDurchgefallen ? 1 : 0);
+console.log(`\n${gesamtDurchgefallen ? '✗' : '✓'} ${gesamtBestanden} von ${gesamtBestanden + gesamtDurchgefallen} Einzelprüfungen bestanden (Hauptkorpus).`);
+
+/* ── Kontext-Vergleich ─────────────────────────────────────────────────
+   Eigener Abschnitt, eigene Zählung — prüft nicht dasselbe wie oben, sondern
+   gezielt die eine Frage aus dem Auftrag: sieht translateMessage() die
+   vorige Nachricht, und ändert das die Übersetzung RICHTIG (nicht nur
+   irgendwie anders)?
+     `ohne` — kein `context` — der Stand vor dieser Änderung: channelContext()
+              aus ws/gateway.ts lieferte nie eine vorherige Nachricht, für
+              diese Messung also gleichbedeutend mit keinem Kontext.
+     `mit`  — Kontext über dieselbe Funktion, die im Betrieb läuft
+              (translation/verlauf.ts, verlaufAlsKontext), aus fall.vorher
+              gebaut. */
+console.log('\n\n══ Kontext-Vergleich (translation/verlauf.ts) ═══════════════════════');
+console.log(`${KONTEXT_KORPUS.length} Fälle × 2 Läufe (ohne Kontext / mit Gesprächsverlauf)\n`);
+
+const KONTEXT_LAEUFE = ['ohne', 'mit'];
+const KONTEXT_KATEGORIEN = [
+  ['echo', 'Übersetzt (kein Echo)'],
+  ['zielsprache', 'Zielsprache'],
+  ['ton', 'Ton erhalten'],
+  ['orthografie', 'Großschreibung/Satzzeichen'],
+  ['erfindung', 'Keine erfundenen Sätze'],
+  ['erwartet', 'Erwartetes Muster (richtige Deutung)'],
+  ['verboten', 'Kein verbotenes Muster (falsche Deutung)'],
+];
+const kontextZaehler = {};
+for (const l of KONTEXT_LAEUFE) {
+  kontextZaehler[l] = Object.fromEntries(KONTEXT_KATEGORIEN.map(([k]) => [k, { bestanden: 0, durchgefallen: 0, uebersprungen: 0 }]));
+}
+let kontextNr = 0;
+for (const fall of KONTEXT_KORPUS) {
+  kontextNr++;
+  const { masked, tokens } = maskText(fall.text, { protectedTerms: PROTECTED_TERMS });
+  const kontext = verlaufAlsKontext(fall.vorher);
+  console.log(`  [${String(kontextNr).padStart(2)}/${KONTEXT_KORPUS.length}] ${fall.name} [${fall.quelle}→${fall.ziel}]`);
+  if (fall.vorher?.length) {
+    for (const z of fall.vorher) console.log(`           vorher  ${z.wer}: ${z.text}`);
+  }
+  console.log(`           Text    ${fall.text}`);
+
+  for (const lauf of KONTEXT_LAEUFE) {
+    const ergebnisModell = await uebersetzeMitNachfassen(masked, fall.ziel, fall.quelle, lauf === 'mit' ? kontext : null);
+    const ergebnisse = {};
+    let ausgabe = null;
+
+    if (!ergebnisModell) {
+      ergebnisse.echo = ERGEBNIS.DURCHGEFALLEN;
+      for (const [k] of KONTEXT_KATEGORIEN) if (k !== 'echo') ergebnisse[k] = ERGEBNIS.UEBERSPRUNGEN;
+    } else {
+      ausgabe = unmaskText(ergebnisModell.translation, tokens);
+      ergebnisse.echo = istEcho(masked, ergebnisModell.translation) ? ERGEBNIS.DURCHGEFALLEN : ERGEBNIS.BESTANDEN;
+      ergebnisse.zielsprache = pruefeZielsprache(ausgabe, fall.ziel);
+      ergebnisse.ton = pruefeTon(fall.text, ausgabe, fall.quelle, fall.ziel);
+      ergebnisse.orthografie = pruefeOrthografie(fall.text, ausgabe);
+      ergebnisse.erfindung = pruefeErfindung(masked, ergebnisModell.translation);
+      ergebnisse.erwartet = pruefeErwartet(ausgabe, fall.erwartet);
+      ergebnisse.verboten = pruefeVerboten(ausgabe, fall.verboten);
+    }
+
+    for (const [k] of KONTEXT_KATEGORIEN) {
+      const r = ergebnisse[k];
+      if (r === ERGEBNIS.BESTANDEN) kontextZaehler[lauf][k].bestanden++;
+      else if (r === ERGEBNIS.DURCHGEFALLEN) kontextZaehler[lauf][k].durchgefallen++;
+      else kontextZaehler[lauf][k].uebersprungen++;
+    }
+
+    const fehler = KONTEXT_KATEGORIEN.filter(([k]) => ergebnisse[k] === ERGEBNIS.DURCHGEFALLEN).map(([k]) => k);
+    const marke = fehler.length ? `✗ ${fehler.join(',')}` : '✓';
+    console.log(`           ${lauf.padEnd(6)} ${marke.padEnd(28)} ${ausgabe ?? '(keine verwertbare Antwort)'}`);
+  }
+  console.log('');
+}
+
+console.log('── Kontext-Vergleich: Ergebnis je Prüfpunkt, ohne vs. mit ─────\n');
+console.log(`  ${'Prüfpunkt'.padEnd(40)}${KONTEXT_LAEUFE.map((l) => l.padEnd(10)).join('')}`);
+for (const [k, label] of KONTEXT_KATEGORIEN) {
+  const spalten = KONTEXT_LAEUFE.map((l) => {
+    const z = kontextZaehler[l][k];
+    const geprueft = z.bestanden + z.durchgefallen;
+    return (geprueft ? `${z.bestanden}/${geprueft}` : '—').padEnd(10);
+  });
+  console.log(`  ${label.padEnd(40)}${spalten.join('')}`);
+}
+console.log('');
+for (const l of KONTEXT_LAEUFE) {
+  const b = KONTEXT_KATEGORIEN.reduce((s, [k]) => s + kontextZaehler[l][k].bestanden, 0);
+  const d = KONTEXT_KATEGORIEN.reduce((s, [k]) => s + kontextZaehler[l][k].durchgefallen, 0);
+  const quote = b + d ? Math.round((b / (b + d)) * 100) : 0;
+  console.log(`  ${l.padEnd(6)} ${b} von ${b + d} Einzelprüfungen bestanden (${quote} %)`);
+}
+
+const kontextBestanden = KONTEXT_LAEUFE.reduce((s, l) => s + KONTEXT_KATEGORIEN.reduce((s2, [k]) => s2 + kontextZaehler[l][k].bestanden, 0), 0);
+const kontextDurchgefallen = KONTEXT_LAEUFE.reduce((s, l) => s + KONTEXT_KATEGORIEN.reduce((s2, [k]) => s2 + kontextZaehler[l][k].durchgefallen, 0), 0);
+
+console.log(`\n${kontextDurchgefallen ? '✗' : '✓'} ${kontextBestanden} von ${kontextBestanden + kontextDurchgefallen} Einzelprüfungen bestanden (Kontext-Vergleich, beide Läufe zusammen).`);
+console.log('\nStandaufnahme, kein Grenzwert-Test — Ziel ist der Vergleich mit dem nächsten Lauf.');
+process.exit(gesamtDurchgefallen || kontextDurchgefallen ? 1 : 0);

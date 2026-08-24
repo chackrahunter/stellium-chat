@@ -215,15 +215,66 @@ funktioniert trotzdem, es erzeugt ein neues Einmal-Passwort.
 ### Das Masterpasswort
 
 Liegt in der macOS-Keychain (an dein Login gebunden) oder als
-`STELLIUM_MASTER_PASSPHRASE` in der Umgebung — **nie** auf der Platte neben dem
-Chiffrat. Ein Rateversuch kostet durch scrypt rund 200 ms, also etwa fünf
-Versuche pro Sekunde und Kern statt Millionen.
+`STELLIUM_MASTER_PASSPHRASE` in der Umgebung — **nie** dauerhaft auf der Platte
+neben dem Chiffrat.
 
 ```bash
 npm run secret -w @stellium/server -- setzen groq      # ablegen
 npm run secret -w @stellium/server -- liste            # Namen, nie Werte
 npm run secret -w @stellium/server -- passwort-neu     # Masterpasswort erneuern
 ```
+
+Keiner dieser Befehle schreibt einen Schlüssel oder ein Passwort auf den
+Bildschirm, auch nicht gekürzt. Ein Terminal ist kein sicherer Ort: was dort
+steht, steht im SSH-Rückblick, in jedem `script`-Mitschnitt und je nach Aufruf
+im journald. `setzen` bestätigt nur, dass der Wert abgelegt und zur Probe
+wieder entschlüsselt werden konnte.
+
+**Zwei Verfahren, zwei sehr verschiedene Reserven.** Für den Tresor
+`secrets.enc` geht das Passwort durch scrypt: ein Rateversuch kostet rund
+200 ms, also etwa fünf Versuche pro Sekunde und Kern statt Millionen. Für die
+Datenbank geht dasselbe Passwort durch HKDF — und HKDF hat **keinen
+Arbeitsfaktor**, es läuft bei jedem Serverstart und muss schnell sein. Daraus
+entstehen die Schlüssel für Nachrichtentexte, Volltextindex, Namen und
+E-Mail-Adressen sowie für den Blind-Index, über den die Anmeldung läuft. Wer
+`stellium.db` in die Hand bekommt, probiert Passwörter so schnell durch, wie
+seine Grafikkarte rechnet. Dort schützt allein die Stärke des Passworts.
+
+Deshalb nimmt Stellium ein von Hand eingegebenes Masterpasswort nur an, wenn es
+geschätzt rund 100 Bit trägt und mindestens 20 Zeichen lang ist — und bietet von
+sich aus an, eines zu erzeugen.
+Nimm das Angebot an: 256 Bit, und niemand muss es sich merken.
+
+**Wo ein erzeugtes Passwort landet.** Auf dem Mac in der Keychain. Überall
+sonst — also auch auf dem Pi — in `data/neues-masterpasswort.txt`, Rechte
+`0600`, nur für den eigenen Benutzer lesbar; auf dem Bildschirm erscheint es
+nicht. Diese Datei ist eine Übergabe, kein Aufbewahrungsort:
+
+1. Wert dort ablegen, wo du Passwörter aufbewahrst
+2. Wert als `STELLIUM_MASTER_PASSPHRASE` in die Umgebung des Dienstes eintragen
+   (systemd: `EnvironmentFile=`, nicht in die `.env` neben den Daten)
+3. Dienst neu starten
+4. `rm data/neues-masterpasswort.txt`
+
+Bleibt die Datei liegen, liegt der Schlüssel zu allen Nachrichten im selben
+Verzeichnis wie das Chiffrat — und in jedem Backup davon.
+
+**`STELLIUM_SCHWACHES_MASTERPASSWORT=ja-ich-weiss-was-ich-tue` hebelt die
+Stärkeprüfung aus.** Das ist kein Komfortschalter, sondern ein Notausgang für
+den Fall, dass ein Passwort von außen vorgegeben ist und sich wirklich nicht
+ändern lässt. Wer ihn benutzt, verschiebt nichts auf später: die
+Datenbankschlüssel haben keinen Arbeitsfaktor, der eine schwache Wahl
+abfedert. Ab diesem Moment sind jede Nachricht, jeder Name und jede
+E-Mail-Adresse aller Beteiligten genau so gut geschützt wie dieses eine
+Passwort — nicht besser. Und man merkt es nie: der Server läuft unverändert
+weiter, es sieht nichts kaputt aus. Beim Anlegen erscheint eine Warnung, danach
+nie wieder.
+
+**`passwort-neu` rechnet die Datenbank nicht um.** Neu verschlüsselt wird allein
+`secrets.enc`. Konten, Nachrichten, Namen und Suchindex bleiben unter dem alten
+Schlüssel liegen und sind danach unlesbar — der Befehl sagt das vorher und lässt
+sich den Satz `ALLE KONTEN VERLIEREN` abtippen, bevor er etwas anfasst. Sinnvoll
+auf einer frischen Installation; sonst nur, wenn der Verlust gewollt ist.
 
 ### Was das schützt — und was nicht
 
@@ -396,19 +447,22 @@ WebSocket-Upgrade auf `/ws` durchreichen.
 | Variable | Standard | Bedeutung |
 |---|---|---|
 | `PORT` | `8787` | Server-Port |
-| `DATA_DIR` | `./data` | Datenbank, Uploads, Tresor |
+| `DATA_DIR` | `packages/server/data` | Datenbank, Uploads, Tresor. Die Vorgabe hängt am Serverpaket, nicht am Arbeitsverzeichnis; ein gesetzter Pfad gilt relativ zum Startverzeichnis |
 | `OWNER_HANDLE` | Systembenutzer | Erstes Konto beim Erststart |
 | `OWNER_NAME` | daraus abgeleitet | Anzeigename dazu |
 | `AI_PROVIDER` | `groq` | `groq` · `openai` · `deepl` · `libre` · `demo` |
 | `GROQ_MODEL` | leer | Leer = der Server wählt selbst |
 | `STELLIUM_MASTER_PASSPHRASE` | Keychain | Masterpasswort für den Tresor |
 | `STELLIUM_SCHLUESSELWECHSEL` | leer | `ja` lässt den Server trotz gewechseltem Masterpasswort starten — die alten Konten und Nachrichten bleiben dann unlesbar |
+| `STELLIUM_SCHWACHES_MASTERPASSWORT` | leer | `ja-ich-weiss-was-ich-tue` lässt ein Masterpasswort zu, das die Stärkeprüfung nicht besteht. Notausgang, kein Komfortschalter — siehe [Das Masterpasswort](#das-masterpasswort) |
 | `MAX_UPLOAD_MB` | `50` | Maximale Dateigröße |
 | `STORAGE_QUOTA_GB` | `20` | Kontingent der Dateiablage |
-| `STORAGE_DIR` | `./data/storage` | Ablageordner |
-| `RELEASE_DIR` | `./data/releases` | Hochgeladene App-Versionen |
+| `STORAGE_DIR` | `DATA_DIR/storage` | Ablageordner |
+| `RELEASE_DIR` | `DATA_DIR/releases` | Hochgeladene App-Versionen |
 
-Vollständig in `.env.example`.
+Die üblichen Werte stehen in `.env.example`. Die `STELLIUM_*`-Zeilen fehlen dort
+mit Absicht: das Masterpasswort gehört nicht in eine Datei neben die Daten, und
+die beiden Notausgänge gehören in keine Vorlage.
 
 ---
 

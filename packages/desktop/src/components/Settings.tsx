@@ -77,7 +77,7 @@ export function Settings({ onClose }: { onClose: () => void }) {
             <h2>{self.displayName}</h2>
             <div className="muted" style={{ fontSize: 12.5 }}>@{self.handle} · {self.title ?? t('settings.defaultTitle')}</div>
           </div>
-          <button className="icon-btn" style={{ marginLeft: 'auto' }} onClick={onClose}><X size={17} /></button>
+          <button className="icon-btn" style={{ marginLeft: 'auto' }} onClick={onClose} aria-label={t('common.close')}><X size={17} /></button>
         </div>
 
         <div className="tabs" ref={reiter}>
@@ -462,20 +462,28 @@ export function Settings({ onClose }: { onClose: () => void }) {
  * auch nicht dem, der sie eingetragen hat. Zurück kommt nur, DASS etwas
  * hinterlegt ist. Ein Schlüssel, den man versehentlich weiterreichen kann,
  * ist keiner mehr.
+ *
+ * Hier steht nur noch die DOMÄNE, keine vollständige Adresse mehr — den
+ * lokalen Teil (`support`, `info`, …) bestimmt beim tatsächlichen Versand
+ * immer das gewählte Fach (services/post.ts, `senden()`), nie eine globale
+ * Vorgabe. Vorher stand hier ein einzelnes Adressfeld, aus dem JEDE Antwort
+ * hinausging, unabhängig davon, an welches Fach die ursprüngliche Mail
+ * ankam — genau das ist mit der Fach-Auswahl beim Antworten/Weiterleiten/
+ * Freigeben (siehe PostPanel.tsx) nicht mehr vereinbar.
  */
 function PostEinstellungen() {
   const t = useT();
   const [stand, setStand] = useState<{
-    versandBereit: boolean; eingangBereit: boolean; absender: string | null; name: string | null;
+    versandBereit: boolean; eingangBereit: boolean; domaene: string | null; name: string | null;
   } | null>(null);
-  const [absender, setAbsender] = useState('');
+  const [domaene, setDomaene] = useState('');
   const [name, setName] = useState('');
   const [laeuft, setLaeuft] = useState(false);
 
   useEffect(() => {
     void api.postZugang().then((z) => {
       setStand(z);
-      setAbsender(z.absender ?? '');
+      setDomaene(z.domaene ?? '');
       setName(z.name ?? 'Stellium');
     }).catch(() => setStand(null));
   }, []);
@@ -484,7 +492,7 @@ function PostEinstellungen() {
     setLaeuft(true);
     try {
       const z = await api.postZugangSetzen({
-        absender: absender.trim() || undefined,
+        domaene: domaene.trim() || undefined,
         name: name.trim(),
       });
       setStand((s) => (s ? { ...s, ...z } : s));
@@ -496,10 +504,10 @@ function PostEinstellungen() {
   return (
     <>
       <div className="field">
-        <label className="field__label">{t('post.absender')}</label>
-        <input className="input" value={absender} onChange={(e) => setAbsender(e.target.value)}
-               placeholder="support@stellium.club" />
-        <p className="field__hint">{t('post.absenderHint')}</p>
+        <label className="field__label">{t('post.domaene')}</label>
+        <input className="input" value={domaene} onChange={(e) => setDomaene(e.target.value)}
+               placeholder="stellium.club" />
+        <p className="field__hint">{t('post.domaeneHint')}</p>
       </div>
 
       <div className="field">

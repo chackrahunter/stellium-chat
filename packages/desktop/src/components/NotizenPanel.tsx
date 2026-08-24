@@ -31,6 +31,7 @@ export function NotizenPanel({ onClose }: { onClose: () => void }) {
   const users = useStore((s) => s.users);
   const notizen = useStore((s) => s.notizen);
   const notizenKlartext = useStore((s) => s.notizenKlartext);
+  const notizenSchluesselFehlt = useStore((s) => s.notizenSchluesselFehlt);
   const notizenGeladen = useStore((s) => s.notizenGeladen);
 
   const [ausgewaehlteId, setAusgewaehlteId] = useState<string | null>(null);
@@ -132,8 +133,13 @@ export function NotizenPanel({ onClose }: { onClose: () => void }) {
                 <div className="result__main">
                   <div className="notizen-row__titel">
                     <span className="result__title truncate">
-                      {klar ? (klar.titel.trim() || t('notizen.ohneTitel')) : t('notizen.wirdEntschluesselt')}
+                      {klar
+                        ? (klar.titel.trim() || t('notizen.ohneTitel'))
+                        : t(notizenSchluesselFehlt[n.id] ? 'notizen.schluesselFehlt' : 'notizen.wirdEntschluesselt')}
                     </span>
+                    {!klar && notizenSchluesselFehlt[n.id] && (
+                      <AlertTriangle size={12} style={{ flex: 'none', color: 'var(--amber)' }} />
+                    )}
                   </div>
                   <div className="result__sub truncate">
                     {!eigene && users[n.ownerId] && `${users[n.ownerId].displayName} · `}
@@ -195,6 +201,7 @@ function NotizEditor({ notiz, onLoeschenAnfragen }: { notiz: Notiz; onLoeschenAn
   // Sobald ein Konflikt ansteht, trägt derselbe Klartext bereits den fremden,
   // aktuellen Serverstand — siehe lib/notizen.ts, case 'notiz:konflikt'.
   const klartext = useStore((s) => s.notizenKlartext[notiz.id]);
+  const schluesselFehlt = useStore((s) => s.notizenSchluesselFehlt[notiz.id] ?? false);
   const konflikt = useStore((s) => s.notizKonflikte[notiz.id]);
 
   const [titel, setTitel] = useState(klartext?.titel ?? '');
@@ -272,6 +279,24 @@ function NotizEditor({ notiz, onLoeschenAnfragen }: { notiz: Notiz; onLoeschenAn
   const geaendertVonName = users[notiz.geaendertVon]?.displayName ?? '—';
 
   if (!klartext) {
+    // Zwei ganz unterschiedliche Zustände hinter demselben leeren Klartext:
+    // kurz nach dem Laden ist ein fehlender Schlüssel der Normalfall (siehe
+    // lib/notizen.ts, decodiereUndSpeichere) — danach, wenn
+    // schluesselWartenStarten() seine Frist erreicht hat, ohne dass ein
+    // anderes Gerät geantwortet hätte, ist es das nicht mehr. Ein Kreisel,
+    // der ewig dreht, wäre hier die unehrlichere der beiden Anzeigen (siehe
+    // protocolFehler in state/store.ts für denselben Gedanken).
+    if (schluesselFehlt) {
+      return (
+        <div className="empty-state" style={{ height: '100%' }}>
+          <AlertTriangle size={22} className="muted" style={{ color: 'var(--amber)' }} />
+          <p>{t('notizen.schluesselFehlt')}</p>
+          <p className="muted" style={{ fontSize: 12.5, maxWidth: 360, textAlign: 'center' }}>
+            {t('notizen.schluesselFehltText')}
+          </p>
+        </div>
+      );
+    }
     return (
       <div className="empty-state" style={{ height: '100%' }}>
         <Loader2 size={22} className="spin muted" />
@@ -354,7 +379,7 @@ function NotizEditor({ notiz, onLoeschenAnfragen }: { notiz: Notiz; onLoeschenAn
           <Users size={13} />
           {t('notizen.zugriff')}{notiz.memberIds.length > 0 ? ` · ${notiz.memberIds.length + 1}` : ''}
         </button>
-        <button className="icon-btn icon-btn--danger" title={t('notizen.loeschen')} onClick={onLoeschenAnfragen}>
+        <button className="icon-btn icon-btn--danger" title={t('notizen.loeschen')} aria-label={t('notizen.loeschen')} onClick={onLoeschenAnfragen}>
           <Trash2 size={15} />
         </button>
       </div>
@@ -381,6 +406,7 @@ function NotizEditor({ notiz, onLoeschenAnfragen }: { notiz: Notiz; onLoeschenAn
                 <button
                   className="icon-btn"
                   title={t('notizen.entfernen')}
+                  aria-label={t('notizen.entfernen')}
                   disabled={entfernenLaeuft === uid}
                   onClick={() => {
                     if (confirm(t('notizen.entfernenBestaetigen', { name: users[uid]?.displayName ?? '—' }))) {

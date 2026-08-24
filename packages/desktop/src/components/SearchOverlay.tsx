@@ -112,7 +112,7 @@ export function SearchOverlay({ onClose, initialTab }: {
         <div className="tabs" ref={reiter}>
           <button className="tab" aria-selected={tab === 'search'} onClick={() => setTab('search')}>{t('nav.search')}</button>
           <button className="tab" aria-selected={tab === 'saved'} onClick={() => setTab('saved')}>{t('common.saved')}</button>
-          <button className="icon-btn" style={{ marginLeft: 'auto', alignSelf: 'center' }} onClick={onClose}><X size={16} /></button>
+          <button className="icon-btn" style={{ marginLeft: 'auto', alignSelf: 'center' }} onClick={onClose} aria-label={t('common.close')}><X size={16} /></button>
         </div>
 
         {tab === 'search' && (

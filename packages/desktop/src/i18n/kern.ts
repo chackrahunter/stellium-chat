@@ -49,6 +49,26 @@ const WOERTERBUECHER: Record<string, Partial<Dictionary>> = { de, en, ar, cs, da
 export const UI_LANGUAGES = LANGUAGES.filter((l) => l.code in WOERTERBUECHER);
 
 /**
+ * Der ROHE Eintrag eines einzelnen Wörterbuchs — OHNE jeden Rückfall auf
+ * Deutsch oder den Schlüssel selbst (im Unterschied zu `translate()`
+ * unten). `undefined`, wenn genau DIESES Wörterbuch den Schlüssel nicht
+ * trägt.
+ *
+ * Existiert, damit ein Prüflauf (scripts/partnergruppen-anzeigename-
+ * pruefen.mjs) einen unabhängig gelesenen Erwartungswert bilden kann, statt
+ * `translate()` zweimal mit denselben Argumenten aufzurufen und das
+ * Ergebnis mit sich selbst zu vergleichen — eine solche Selbstprobe hält
+ * auch dann noch, wenn ein Wörterbuch den Schlüssel verloren hat, weil
+ * `translate()`s Rückfallkette (fremde Mehrzahlform der Sprache -> Deutsch
+ * -> roher Schlüssel) auf BEIDEN Seiten der Selbstprobe gleichermaßen
+ * greift.
+ */
+export function rohesWort(sprache: string, key: TranslationKey): string | undefined {
+  const kurz = sprache.toLowerCase().split(/[-_]/)[0];
+  return WOERTERBUECHER[kurz]?.[key] as string | undefined;
+}
+
+/**
  * Mehrzahlform je Sprache — von Intl.PluralRules gebaut, nicht von Hand.
  * Deutsch und Englisch kommen mit "eins" und "alles andere" aus; Russisch,
  * Polnisch, Ukrainisch und Tschechisch brauchen drei bis vier Formen, Arabisch

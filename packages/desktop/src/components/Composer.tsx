@@ -7,6 +7,7 @@ import { ChevronDown,
 import type { Attachment, RewriteTone } from '@stellium/shared';
 import { normalizeLang } from '@stellium/shared';
 import { useStore, waitForMessageId } from '../state/store.js';
+import { socket } from '../net/socket.js';
 import { useFokusfalle } from './Fokusfalle.jsx';
 import { spracheName, useT, t } from '../i18n/index.js';
 import { api } from '../net/api.js';
@@ -78,6 +79,39 @@ export function Composer({ channelId, parentId = null, placeholder, autoFocus }:
    * es im zweiten Fall über message:attach / message:attachGiveUp nach.
    */
   const unterwegs = useRef<Map<string, string>>(new Map());
+
+  /**
+   * Die echte Kennung einer gesendeten Nachricht abwarten — höchstens einmal
+   * pro `clientId`, nicht bei jedem Aufruf neu.
+   *
+   * waitForMessageId() (state/store.ts) hört auf GENAU EIN message:new — das
+   * eigene Echo der gerade gesendeten Nachricht. Dieses Echo kommt fast immer,
+   * bevor ein gleichzeitig laufender Upload überhaupt fertig ist: submit()
+   * unten schickt die Nachricht sofort hinaus, der Server antwortet binnen
+   * Millisekunden, ein Bild braucht oft Sekunden bis Minuten. Wer erst NACH
+   * dem Upload auf die Kennung wartet, ruft waitForMessageId() für ein
+   * message:new auf, das längst durch war: settle() in store.ts wirkt nur
+   * auf wer in diesem Moment zuhört, nichts spielt das Ereignis nach. Ohne
+   * Zuhörer ist der Wert für immer weg, und der späte Aufruf wartet die volle
+   * Frist (60 s) auf ein Echo, das nie wieder kommt — genau der Anhang, der
+   * für immer „wird hochgeladen" zeigt, obwohl der Upload selbst längst fertig
+   * war (oder sauber gescheitert ist).
+   *
+   * Deshalb hier: EIN Aufruf pro clientId, ausgelöst in submit() im selben
+   * synchronen Durchlauf, der auch sendMessage() aufruft — also garantiert,
+   * bevor irgendeine Antwort vom Server überhaupt eintreffen kann. Alles, was
+   * die Kennung später braucht (mehrere Anhänge an derselben Nachricht
+   * eingeschlossen), teilt sich dasselbe, längst wartende Versprechen.
+   */
+  const nachrichtKennung = useRef<Map<string, Promise<string>>>(new Map());
+  const kennungAbwarten = (clientId: string): Promise<string> => {
+    let wartend = nachrichtKennung.current.get(clientId);
+    if (!wartend) {
+      wartend = waitForMessageId(clientId);
+      nachrichtKennung.current.set(clientId, wartend);
+    }
+    return wartend;
+  };
 
   /* Höhe automatisch an den Inhalt anpassen */
   useEffect(() => {
@@ -244,13 +278,17 @@ export function Composer({ channelId, parentId = null, placeholder, autoFocus }:
      * Einen Anhang aufgeben — der Upload ist gescheitert, oder er ließ sich
      * gar nicht erst verschlüsseln.
      *
-     * Zwei Fälle, je nachdem, ob die Nachricht schon unterwegs war (siehe
+     * Drei Fälle, je nachdem, ob die Nachricht schon unterwegs war (siehe
      * `unterwegs` oben an der Komponente): Läuft der Anhang noch im
      * Composer-Feld mit, genügt es, ihn dort wegzunehmen. Steht die Nachricht
-     * aber schon — weil senden inzwischen nicht mehr auf einen Upload wartet
-     * —, muss der Server erfahren, dass aus dem Platzhalter nichts wird
-     * (message:attachGiveUp), sonst zeigte die Nachricht bei allen anderen
-     * für immer "wird hochgeladen".
+     * schon, aber noch offline in der Warteschlange, wird der Platzhalter
+     * dort direkt wieder herausgenommen (socket.patchQueuedMessage) — sonst
+     * ginge er beim nächsten flush() als Zusage für eine Datei hinaus, die es
+     * nie geben wird, und das für jede Person im Kanal, für immer. Steht die
+     * Nachricht schon beim Server — weil senden inzwischen nicht mehr auf
+     * einen Upload wartet —, muss der Server erfahren, dass aus dem
+     * Platzhalter nichts wird (message:attachGiveUp), sonst zeigte die
+     * Nachricht bei allen anderen für immer "wird hochgeladen".
      */
     const aufgeben = async (tempId: string, fehler: Error) => {
       setAttachments((prev) => prev.filter((a) => a.id !== tempId));
@@ -259,8 +297,15 @@ export function Composer({ channelId, parentId = null, placeholder, autoFocus }:
       const zielClientId = unterwegs.current.get(tempId);
       if (!zielClientId) return;
       unterwegs.current.delete(tempId);
+      const nochInWarteschlange = socket.patchQueuedMessage(zielClientId, (ev) => {
+        ev.pendingAttachments = ev.pendingAttachments?.filter((p) => p.tempId !== tempId);
+      });
+      // Stand die Nachricht noch offline in der Warteschlange, ist sie damit
+      // schon korrigiert — der Server hat noch gar keine Kennung für sie
+      // vergeben, ein message:attachGiveUp liefe also ins Leere.
+      if (nochInWarteschlange) return;
       try {
-        const messageId = await waitForMessageId(zielClientId);
+        const messageId = await kennungAbwarten(zielClientId);
         useStore.getState().giveUpAttachment(messageId, tempId);
       } catch {
         // Die Nachricht kam nie durch (siehe waitForMessageId-Frist) — dann
@@ -335,9 +380,19 @@ export function Composer({ channelId, parentId = null, placeholder, autoFocus }:
         const zielClientId = unterwegs.current.get(temp.id);
         if (zielClientId) {
           unterwegs.current.delete(temp.id);
+          /* Steht die Nachricht noch offline in der Warteschlange, lässt sich
+             der Platzhalter direkt gegen die fertige Kennung tauschen — kein
+             Rundweg über message:attach nötig, der zu dem Zeitpunkt ohnehin
+             niemanden mehr erreicht (siehe kennungAbwarten-Frist im catch
+             unten, und socket.ts, patchQueuedMessage). */
+          const nochInWarteschlange = socket.patchQueuedMessage(zielClientId, (ev) => {
+            ev.pendingAttachments = ev.pendingAttachments?.filter((p) => p.tempId !== temp.id);
+            ev.attachmentIds = [...(ev.attachmentIds ?? []), attachment.id];
+          });
+          if (nochInWarteschlange) return;
           void (async () => {
             try {
-              const messageId = await waitForMessageId(zielClientId);
+              const messageId = await kennungAbwarten(zielClientId);
               useStore.getState().attachUploadToMessage(messageId, temp.id, attachment.id);
             } catch (fehler) {
               /* Die Nachricht kam nie durch (siehe waitForMessageId-Frist,
@@ -348,8 +403,21 @@ export function Composer({ channelId, parentId = null, placeholder, autoFocus }:
                  aufgenommen wurde. Dafür gibt es heute keinen eigenen
                  Aufräumlauf — derselbe, seit je bestehende Zustand wie beim
                  Schließen der App mit einem angehängten, aber nie
-                 abgeschickten Bild. */
-              console.error('[composer] Anhang nicht nachgetragen:', (fehler as Error).message);
+                 abgeschickten Bild.
+
+                 Der Upload selbst ist geglückt — nur das Nachtragen an die
+                 Nachricht nicht. Das früher hier stehende console.error()
+                 war für die schreibende Person unsichtbar: die Nachricht
+                 zeigte weiter „wird hochgeladen", für immer, ohne jede
+                 Erklärung. Jetzt bekommt sie denselben Hinweis wie bei jedem
+                 anderen gescheiterten Anhang — mit dem Unterschied, dass hier
+                 nichts wiederholt werden kann (der Platzhalter in der
+                 Nachricht bleibt stehen, siehe Kommentar oben), aber
+                 wenigstens steht fest, woran es lag, statt dass der Kreisel
+                 kommentarlos ewig weiterdreht. */
+              useStore.getState().toast({
+                kind: 'error', title: t('composer.uploadFailed'), body: (fehler as Error).message,
+              });
             }
           })();
         }
@@ -388,6 +456,11 @@ export function Composer({ channelId, parentId = null, placeholder, autoFocus }:
       attachmentIds: ready.map((a) => a.id),
       pendingAttachments: pending.map((p) => ({ tempId: p.id, name: p.name, mime: p.mime })),
     });
+    /* Auf das eigene message:new-Echo JETZT schon warten, nicht erst wenn
+       ein Anhang fertig hochgeladen ist (siehe kennungAbwarten() oben) — das
+       Echo kommt oft, bevor ein großes Bild überhaupt zur Hälfte oben ist,
+       und ein späterer Aufruf verpasst es unwiderruflich. */
+    if (pending.length) kennungAbwarten(clientId);
     for (const p of pending) unterwegs.current.set(p.id, clientId);
 
     setText('');
@@ -482,7 +555,12 @@ export function Composer({ channelId, parentId = null, placeholder, autoFocus }:
         {parentId && (
           <div className="composer__reply">
             <span>{t('composer.replyingInThread')}</span>
-            <button className="icon-btn icon-btn--sm" style={{ marginLeft: 'auto' }} onClick={() => useStore.getState().openThread(null)}>
+            <button
+              className="icon-btn icon-btn--sm"
+              style={{ marginLeft: 'auto' }}
+              onClick={() => useStore.getState().openThread(null)}
+              aria-label={t('common.close')}
+            >
               <X size={13} />
             </button>
           </div>
@@ -513,7 +591,11 @@ export function Composer({ channelId, parentId = null, placeholder, autoFocus }:
                     </span>
                   )}
                 </div>
-                <button className="icon-btn icon-btn--sm" onClick={() => setAttachments((p) => p.filter((x) => x.id !== a.id))}>
+                <button
+                  className="icon-btn icon-btn--sm"
+                  onClick={() => setAttachments((p) => p.filter((x) => x.id !== a.id))}
+                  aria-label={t('composer.attachmentEntfernen', { name: a.name })}
+                >
                   <X size={13} />
                 </button>
               </div>
@@ -571,7 +653,7 @@ export function Composer({ channelId, parentId = null, placeholder, autoFocus }:
             hidden
             onChange={(e) => { if (e.target.files) void uploadFiles(e.target.files); e.target.value = ''; }}
           />
-          <button className="icon-btn icon-btn--sm" onClick={() => fileRef.current?.click()} title={t('composer.attach')}>
+          <button className="icon-btn icon-btn--sm" onClick={() => fileRef.current?.click()} title={t('composer.attach')} aria-label={t('composer.attach')}>
             <Paperclip size={16} />
           </button>
           <button
@@ -579,6 +661,7 @@ export function Composer({ channelId, parentId = null, placeholder, autoFocus }:
             className="icon-btn icon-btn--sm"
             onClick={() => setPickerOpen(true)}
             title={t('composer.emoji')}
+            aria-label={t('composer.emoji')}
           >
             <Smile size={16} />
           </button>
@@ -596,6 +679,7 @@ export function Composer({ channelId, parentId = null, placeholder, autoFocus }:
               });
             }}
             title={t('composer.mention')}
+            aria-label={t('composer.mention')}
           >
             <AtSign size={16} />
           </button>
@@ -612,6 +696,7 @@ export function Composer({ channelId, parentId = null, placeholder, autoFocus }:
               });
             }}
             title={t('composer.channelLink')}
+            aria-label={t('composer.channelLink')}
           >
             <Hash size={16} />
           </button>
@@ -620,6 +705,7 @@ export function Composer({ channelId, parentId = null, placeholder, autoFocus }:
               className="icon-btn icon-btn--sm"
               onClick={() => setRecording(true)}
               title={t('composer.voice')}
+              aria-label={t('composer.voice')}
             >
               <Mic size={16} />
             </button>
@@ -629,6 +715,7 @@ export function Composer({ channelId, parentId = null, placeholder, autoFocus }:
               className="icon-btn icon-btn--sm"
               onClick={() => useStore.getState().setOverlay('poll')}
               title={t('composer.poll')}
+              aria-label={t('composer.poll')}
             >
               <BarChart3 size={16} />
             </button>
@@ -641,6 +728,7 @@ export function Composer({ channelId, parentId = null, placeholder, autoFocus }:
                 onClick={() => setToneOpen((v) => !v)}
                 disabled={!text.trim() || rewriting}
                 title={t('composer.rewrite')}
+                aria-label={t('composer.rewrite')}
               >
                 {rewriting ? <Loader2 size={16} className="spin" /> : <Wand2 size={16} />}
               </button>
@@ -675,6 +763,7 @@ export function Composer({ channelId, parentId = null, placeholder, autoFocus }:
             onClick={() => setScheduleOpen(true)}
             disabled={!canSend}
             title={t('composer.scheduleLater')}
+            aria-label={t('composer.scheduleLater')}
           >
             <Clock size={16} />
           </button>
@@ -692,6 +781,7 @@ export function Composer({ channelId, parentId = null, placeholder, autoFocus }:
             disabled={!canSend}
             onClick={submit}
             title={t('composer.send')}
+            aria-label={t('composer.send')}
           >
             <Send size={16} />
           </motion.button>
@@ -855,7 +945,7 @@ function ScheduleDialog({ onClose, onPick }: { onClose: () => void; onPick: (sen
         <div className="panel__head">
           <Clock size={18} />
           <h2>{t('schedule.title')}</h2>
-          <button className="icon-btn" style={{ marginLeft: 'auto' }} onClick={onClose}><X size={16} /></button>
+          <button className="icon-btn" style={{ marginLeft: 'auto' }} onClick={onClose} aria-label={t('common.close')}><X size={16} /></button>
         </div>
         <div className="panel__body">
           <p className="muted" style={{ marginTop: 0, fontSize: 13 }}>

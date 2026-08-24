@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
-  AlertTriangle, Ban, Check, Copy, KeyRound, Loader2, Plus, Search,
+  AlertTriangle, Ban, Check, Copy, KeyRound, LifeBuoy, Loader2, Plus, Search,
   ShieldCheck, Trash2, UserPlus, X,
 } from 'lucide-react';
 import {
-  KONTO_KATEGORIEN, LANGUAGES, PERMISSIONS,
+  KONTO_KATEGORIEN, LANGUAGES, PERMISSIONS, ROLES,
   type KontoKategorie, type ManagedUser, type MemberRole, type OneTimeCredential,
   type PermissionKey,
 } from '@stellium/shared';
@@ -16,12 +16,52 @@ import { Avatar } from './Avatar.jsx';
 import { t } from '../i18n/index.js';
 import { relativeTime } from '../lib/format.js';
 
-const ROLLEN: { wert: MemberRole; label: string; hinweis: string }[] = [
-  { wert: 'owner',  label: t('admin.roleOwner'),  hinweis: t('role.ownerHint') },
-  { wert: 'admin',  label: t('admin.roleAdmin'),  hinweis: t('role.adminHint') },
-  { wert: 'member', label: t('admin.roleMember'), hinweis: t('role.memberHint') },
-  { wert: 'guest',  label: t('admin.roleGuest'),  hinweis: t('role.guestHint') },
-];
+/**
+ * Rollen für Beschriftung und Auswahl — aus `ROLES` (@stellium/shared)
+ * abgeleitet, nicht hier von Hand nachgebaut.
+ *
+ * Genau DAS war heute schon dreimal derselbe Fehler: `services/users.ts`
+ * `setRole()` prüfte gegen eine vierwertige Kopie, während `ROLES` zehn
+ * Rollen kennt; `pruefungen/rechte-eskalation.mts` bildete den Routen-
+ * Wächter als eigenen Nachbau nach; und hier stand bis eben dieselbe
+ * vierwertige Liste (`owner`, `admin`, `member`, `guest`) ein viertes Mal —
+ * und dieses Paket importierte `ROLES` nirgends. Für ein Konto mit einer
+ * der sechs übrigen Rollen blieb die Beschriftung deshalb leer
+ * (`ROLLEN.find(...)?.label` wurde `undefined`), obwohl die Kontoerstellung
+ * schon immer alle zehn Rollen annahm. Wer diese Datei anfasst: `ROLES`
+ * bleibt die einzige Quelle. Nicht wieder abschreiben.
+ *
+ * Beschriftung und Tooltip folgen demselben Schema wie die vier
+ * bestehenden Wörterbuch-Einträge (`admin.role<Name>` / `role.<name>Hint`)
+ * — fortgeführt statt neu erfunden. Für die sechs neuen Rollen fehlen die
+ * Schlüssel in den 22 Wörterbüchern noch (siehe Übergabe); `as never` lässt
+ * es bis dahin compilieren, `translate()` (i18n/kern.ts) fällt in der
+ * Zwischenzeit auf den Schlüssel selbst zurück statt auf einen leeren Text.
+ */
+const grossAnfangsbuchstabe = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+
+const ROLLEN: { wert: MemberRole; label: string; hinweis: string; ownerOnly?: boolean; technical?: boolean }[] =
+  ROLES.map((r) => ({
+    wert: r.name,
+    label: t(`admin.role${grossAnfangsbuchstabe(r.name)}` as never),
+    hinweis: t(`role.${r.name}Hint` as never),
+    ownerOnly: r.ownerOnly,
+    technical: r.technical,
+  }));
+
+/**
+ * Rollen, die sich einer Person tatsächlich zuweisen lassen.
+ *
+ * `bot` fällt heraus: laut `RoleInfo.technical` in permissions.ts
+ * ("Nicht für Menschen gedacht") ist sie für den KI-Assistenten und
+ * Integrationen da, nicht zum Anklicken durch eine Teamleitung. Die übrigen
+ * neun — `readonly` ("Für Einarbeitung, Prüfungen und Archivzugänge")
+ * eingeschlossen — sind laut ihrer eigenen Beschreibung in permissions.ts
+ * ausdrücklich für Menschen gedacht und gehören ins Auswahlfeld. Trägt ein
+ * Konto schon die Rolle `bot`, bekommt es seine Beschriftung trotzdem: dafür
+ * bleibt `ROLLEN` oben vollständig, nur diese Liste ist kleiner.
+ */
+const ZUWEISBARE_ROLLEN = ROLLEN.filter((r) => !r.technical);
 
 /* Nur die Kennungen — die Überschriften kommen aus dem Wörterbuch.
    Reihenfolge wie in der Gruppenliste in permissions.ts, damit sich beide
@@ -137,12 +177,22 @@ export function TeamAdmin({ onClose }: { onClose: () => void }) {
 
   const person = liste.find((u) => u.id === gewaehlt) ?? null;
 
-  const mit = async <T,>(fn: () => Promise<T & { users: ManagedUser[] }>, erfolg?: string) => {
+  /* `erfolg` als Funktion statt als fester Satz: für „Notzugang aufheben"
+     hängt die Meldung am ERGEBNIS (`r.verbrannt`), nicht am Knopf — derselbe
+     Aufruf endet je nach Zustand des Ziels mit „Rettungsleine gekappt" oder
+     „Notizen und Tresor endgültig gelöscht", und beide dürfen nicht denselben
+     Text bekommen. Ein fester String bleibt für jeden Griff, dem das egal
+     ist, weiterhin die kürzere Schreibweise. */
+  const mit = async <T,>(
+    fn: () => Promise<T & { users: ManagedUser[] }>,
+    erfolg?: string | ((r: T & { users: ManagedUser[] }) => string),
+  ) => {
     setBusy(true);
     try {
       const r = await fn();
       setListe(r.users);
-      if (erfolg) useStore.getState().toast({ kind: 'ok', title: erfolg });
+      const text = typeof erfolg === 'function' ? erfolg(r) : erfolg;
+      if (text) useStore.getState().toast({ kind: 'ok', title: text });
       return r;
     } catch (err) {
       useStore.getState().toast({ kind: 'error', title: t('team.notPossible'), body: (err as Error).message });
@@ -150,6 +200,43 @@ export function TeamAdmin({ onClose }: { onClose: () => void }) {
     } finally {
       setBusy(false);
     }
+  };
+
+  /**
+   * Der Klick auf „Notzugang aufheben" in der Kontenverwaltung — mit einer
+   * Rückfrage, die den tatsächlichen Ausgang FÜR DIESEN ZUSTAND benennt.
+   *
+   * Anders als NotzugangPanel.tsx (dieselbe Handlung, am EIGENEN Konto)
+   * fragt hier IMMER nach, nicht nur im gefährlichen Zustand: das ist der
+   * Griff einer Verwaltung an einem FREMDEN Konto, und dieselbe Haus-
+   * Konvention wie beim Löschen (`team.deleteConfirm`) — ein
+   * `window.confirm()` mit ausgeschriebenem Satz statt einer stillen
+   * Bestätigung — gilt hier ohne Ausnahme. Welcher der beiden Sätze
+   * erscheint, entscheidet `person.notzugangAufhebenVerbrennt`
+   * (services/notzugang.ts, kontenBeiDenenAufhebenVerbrennt()):
+   *
+   *   verbrennt = true   -> derselbe Klick löscht Notizen und Passwort-Tresor
+   *                         sofort und endgültig. Der Satz nennt genau das.
+   *   verbrennt = false  -> der Klick kappt nur eine künftige Absicherung;
+   *                         Notizen und Tresor bleiben unangetastet.
+   *
+   * Und NACH dem Klick lügt die Meldung nicht mehr: `r.verbrannt` kommt vom
+   * Server (derselbe Wert, den auch die betroffene Person per Push bekommt,
+   * siehe http/routes.ts), nicht aus der Vermutung von VOR dem Klick — ein
+   * Wettlauf mit einem zweiten, gleichzeitigen Zurücksetzen könnte die
+   * beiden sonst auseinanderlaufen lassen.
+   */
+  const notzugangAufhebenKlick = (ziel: ManagedUser) => {
+    const frage = ziel.notzugangAufhebenVerbrennt
+      ? t('team.notzugangAufhebenVerbrenntBestaetigen', { name: ziel.displayName })
+      : t('team.notzugangAufhebenBestaetigen', { name: ziel.displayName });
+    if (!window.confirm(frage)) return;
+    void mit(
+      () => api.notzugangAufhebenFuer(ziel.id),
+      (r) => (r.verbrannt
+        ? t('team.notzugangAufgehobenVerbrannt', { name: ziel.displayName })
+        : t('notzugang.aufgehoben')),
+    );
   };
 
   return (
@@ -175,7 +262,7 @@ export function TeamAdmin({ onClose }: { onClose: () => void }) {
               <UserPlus size={13} /> {t('team.createAccount')}
             </button>
           )}
-          <button className="icon-btn" style={{ marginLeft: darfAnlegen ? 0 : 'auto' }} onClick={onClose}>
+          <button className="icon-btn" style={{ marginLeft: darfAnlegen ? 0 : 'auto' }} onClick={onClose} aria-label={t('common.close')}>
             <X size={17} />
           </button>
         </div>
@@ -259,18 +346,66 @@ export function TeamAdmin({ onClose }: { onClose: () => void }) {
                 <div className="field">
                   <label className="field__label">{t('team.role')}</label>
                   <div className="hstack gap-2" style={{ flexWrap: 'wrap' }}>
-                    {ROLLEN.map((r) => (
+                    {ZUWEISBARE_ROLLEN.map((r) => (
                       <button
                         key={r.wert}
                         className={`btn${person.role === r.wert ? ' btn--primary' : ''}`}
                         title={r.hinweis}
-                        disabled={!darfVerwalten || busy || (r.wert === 'owner' && self?.role !== 'owner')}
+                        disabled={!darfVerwalten || busy || (Boolean(r.ownerOnly) && self?.role !== 'owner')}
                         onClick={() => void mit(() => api.setUserRole(person.id, r.wert), `Rolle: ${r.label}`)}
                       >{r.label}</button>
                     ))}
                   </div>
                   <p className="field__hint">{t('team.roleHint')}</p>
                 </div>
+
+                {/* WAS EIN ZURÜCKSETZEN HIER TATSÄCHLICH TUT — und zwar VOR
+                    dem Klick, nicht danach.
+
+                    Hat dieses Konto einen Notzugang, dann SCHONT das
+                    Zurücksetzen den Kontoschlüssel
+                    (services/kontoschluessel.ts, verwerfen()): Notizen und
+                    Tresor überleben, und mit ihnen die Eigenschaft, dass das
+                    BISHERIGE Passwort sie zusammen mit einer alten Sicherung
+                    weiterhin öffnet. Für ein VERGESSENES Passwort ist genau
+                    das der Sinn. Für ein DURCHGESICKERTES ist es das
+                    Gegenteil dessen, was die zurücksetzende Person glaubt zu
+                    tun — und sie erfuhr es bisher nirgends: die Spurzeile
+                    „geschont" landet in der Tafel der besitzenden Person,
+                    nicht hier. Deshalb steht der Satz an genau diesem Knopf,
+                    und der Griff dagegen gleich daneben.
+
+                    WAS HIER WEITERHIN NICHT STEHT, UND WARUM: wer Anteile
+                    hält, wie viele noch tragen und wann er eingerichtet
+                    wurde, geht die Verwaltung nichts an (siehe `hatNotzugang`
+                    in @stellium/shared) — das bleibt so, das ist eine Auskunft
+                    über DRITTE Personen (die haltenden), nicht über das Ziel
+                    selbst.
+
+                    WAS NEU DAZUKAM, UND WARUM DAS ETWAS ANDERES IST:
+                    `person.notzugangAufhebenVerbrennt`. Der Knopf „Notzugang
+                    aufheben" weiter unten bedeutete bisher für ZWEI ganz
+                    verschiedene Kontenzustände dasselbe: dieselbe
+                    Beschriftung, derselbe Klick, derselbe stille Erfolgstext
+                    — und je nachdem, ob `konto_schluessel.daten` gerade leer
+                    steht (etwa weil ein Zurücksetzen kurz zuvor den
+                    schonenden Zweig genommen hat), kappt er entweder nur
+                    eine künftige Absicherung oder er löscht Notizen und
+                    Passwort-Tresor SOFORT UND ENDGÜLTIG
+                    (services/notzugang.ts, aufheben()). Das ist keine
+                    Auskunft über wer/wie viele/wann, sondern die
+                    unmittelbare Folge des einen Knopfs, den die Verwaltung
+                    gleich drückt — dieselbe Art von Auskunft wie
+                    `hatNotzugang` selbst, nur eine Stufe genauer. Ohne sie
+                    konnte die Verwaltung eine Rettungsleine nicht von einer
+                    Vernichtung unterscheiden, bevor sie klickte; mit ihr
+                    kennt sie nur das OB der Vernichtung, nicht mehr. */}
+                {darfVerwalten && person.hatNotzugang && !person.deletedAt && (
+                  <div className="hinweis" style={{ alignItems: 'flex-start' }}>
+                    <AlertTriangle size={14} />
+                    <span>{t('team.notzugangVorhanden')}</span>
+                  </div>
+                )}
 
                 <div className="hstack gap-2" style={{ marginBottom: 'var(--sp-4)', flexWrap: 'wrap' }}>
                   {darfVerwalten && (
@@ -279,6 +414,11 @@ export function TeamAdmin({ onClose }: { onClose: () => void }) {
                       if (r) setZugang(r.credential);
                     }}>
                       <KeyRound size={15} /> {t('team.resetPassword')}
+                    </button>
+                  )}
+                  {darfVerwalten && person.hatNotzugang && !person.deletedAt && (
+                    <button className="btn" disabled={busy} onClick={() => notzugangAufhebenKlick(person)}>
+                      <LifeBuoy size={15} /> {t('notzugang.aufheben')}
                     </button>
                   )}
                   {person.deletedAt && (
@@ -456,7 +596,7 @@ function KontoAnlegen({ onClose, onFertig }: {
         <div className="panel__head">
           <UserPlus size={18} />
           <h2>{t('team.createAccount')}</h2>
-          <button className="icon-btn" style={{ marginLeft: 'auto' }} onClick={onClose}><X size={17} /></button>
+          <button className="icon-btn" style={{ marginLeft: 'auto' }} onClick={onClose} aria-label={t('common.close')}><X size={17} /></button>
         </div>
         <div className="panel__body">
           {fehler && <div className="auth__error">{fehler}</div>}
@@ -484,7 +624,7 @@ function KontoAnlegen({ onClose, onFertig }: {
           <div className="field">
             <label className="field__label">{t('team.role')}</label>
             <div className="hstack gap-2" style={{ flexWrap: 'wrap' }}>
-              {ROLLEN.filter((r) => r.wert !== 'owner').map((r) => (
+              {ZUWEISBARE_ROLLEN.filter((r) => !r.ownerOnly).map((r) => (
                 <button key={r.wert} className={`btn${rolle === r.wert ? ' btn--primary' : ''}`}
                   title={r.hinweis} onClick={() => setRolle(r.wert)}>{r.label}</button>
               ))}
@@ -533,7 +673,7 @@ function ZugangAnzeigen({ credential, onClose }: { credential: OneTimeCredential
         <div className="panel__head">
           <KeyRound size={18} />
           <h2>{t('admin.oneTimePassword')}</h2>
-          <button className="icon-btn" style={{ marginLeft: 'auto' }} onClick={onClose}><X size={17} /></button>
+          <button className="icon-btn" style={{ marginLeft: 'auto' }} onClick={onClose} aria-label={t('common.close')}><X size={17} /></button>
         </div>
         <div className="panel__body">
           <p className="muted" style={{ marginTop: 0, fontSize: 13.5 }}>

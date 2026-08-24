@@ -1,0 +1,136 @@
+/* ── Passwort-Tresor ────────────────────────────────────────────
+   Nutzt ausschließlich Farbtoken, Radien und Abstände aus tokens.css sowie
+   allgemeine Klassen aus app.css (.result, .row, .field, .input, .textarea,
+   .btn, .pill, .icon-btn, .hinweis, .empty-state, .muted, .spin, .truncate —
+   siehe dort). Diese Datei fügt nur die zweispaltige Aufteilung der Tafel
+   hinzu und ein paar Kleinigkeiten, die eigens für Zugangsdaten gebraucht
+   werden (maskiertes Feld, Aufdecken-Knopf, Kopiert-Rückmeldung) — dieselbe
+   Bauart wie notizen.css, an dem sich diese Tafel Zeile für Zeile orientiert. */
+
+.passwort {
+  display: grid;
+  grid-template-columns: minmax(200px, 260px) minmax(0, 1fr);
+  gap: var(--sp-3);
+  height: min(70vh, 640px);
+  min-height: 420px;
+}
+.passwort > * { min-width: 0; min-height: 0; }
+
+/* ── Liste ──────────────────────────────────────────────────────── */
+
+.passwort__liste {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow-y: auto;
+  padding-inline-end: 6px;
+  border-inline-end: 1px solid var(--line);
+}
+.passwort__liste .files-search { flex: 0 0 auto; }
+
+.passwort-row__titel { display: flex; align-items: baseline; gap: 6px; }
+.passwort-row__titel .truncate { flex: 1; }
+
+/* ── Editor ─────────────────────────────────────────────────────── */
+
+.passwort__editor {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.passwort__label-feld {
+  flex: none;
+  width: 100%;
+  border: 0;
+  background: none;
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  padding: 2px 0 var(--sp-3);
+}
+.passwort__label-feld::placeholder { color: var(--tx-lo); font-weight: 600; }
+
+/* Zeile mit Eingabe plus Knöpfen daneben — für das Passwortfeld (Aufdecken,
+   Kopieren) und den Benutzernamen (Kopieren). */
+.passwort__feld-zeile {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.passwort__feld-zeile .input { flex: 1 1 auto; min-width: 0; }
+
+/* Maskiert, solange nicht aufgedeckt — echte Zeichen, nur mit
+   `-webkit-text-security`/`type="password"` verdeckt, nicht durch Platzhalter-
+   Punkte ersetzt: Kopieren muss den echten Wert greifen, auch verdeckt. */
+.passwort__geheim {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  letter-spacing: 0.02em;
+}
+
+.passwort__werkzeuge {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding-top: var(--sp-3);
+  margin-top: var(--sp-3);
+  border-top: 1px solid var(--line);
+  flex-wrap: wrap;
+}
+
+.passwort__mitglieder-liste {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: var(--sp-2);
+}
+
+.passwort__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 8px 4px 4px;
+  border-radius: 999px;
+  background: var(--bg-hover);
+  font-size: 12.5px;
+}
+.passwort__chip button {
+  display: inline-flex;
+  color: var(--tx-lo);
+  border-radius: 999px;
+}
+.passwort__chip button:hover { color: var(--rose); }
+
+.passwort__ehemalige { margin-top: var(--sp-2); font-size: 11.5px; color: var(--tx-lo); }
+
+/* Wer wann aufgedeckt hat — nur für die besitzende Person, siehe
+   PasswortPanel.tsx. Reine Textliste, kein Wert steht je darin. */
+.passwort__offenlegungen {
+  margin-top: var(--sp-2);
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 12px;
+  color: var(--tx-lo);
+  max-height: 140px;
+  overflow-y: auto;
+}
+
+/* ── Schmales Fenster ───────────────────────────────────────────── */
+@media (max-width: 720px) {
+  .passwort {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto minmax(0, 1fr);
+    height: auto;
+    max-height: min(78vh, 640px);
+  }
+  .passwort__liste {
+    border-inline-end: 0;
+    border-bottom: 1px solid var(--line);
+    max-height: 180px;
+    padding-inline-end: 0;
+    padding-bottom: 8px;
+  }
+}

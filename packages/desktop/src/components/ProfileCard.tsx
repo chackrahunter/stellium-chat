@@ -39,7 +39,7 @@ export function ProfileCard({ userId, onClose }: { userId: string; onClose: () =
         onClick={(e) => e.stopPropagation()}
       >
         <div className="profile__banner">
-          <button className="icon-btn profile__close" onClick={onClose}><X size={16} /></button>
+          <button className="icon-btn profile__close" onClick={onClose} aria-label={t('common.close')}><X size={16} /></button>
         </div>
 
         <div className="profile__avatar">

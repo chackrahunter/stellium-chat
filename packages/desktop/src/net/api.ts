@@ -1,7 +1,11 @@
 import type {
-  AiCapabilities, AiModelInfo, AiModelSelection, GlossaryEntry, ManagedUser,
-  MemberRole, Message, OneTimeCredential, PermissionInfo, PermissionKey,
-  ReleaseInfo, ReleasePlatform, SearchHit, SelfUser, StoredFile, StorageUsage,
+  AiCapabilities, AiModelInfo, AiModelSelection, AnmeldeNachweisBlob, AnmeldeSalz,
+  FluechtigesPaket, GlossaryEntry, KontoPaket, KontoSchluesselBlob, ManagedUser,
+  MemberRole, Message, NotzugangAnfrage, NotzugangAnteilBlob, NotzugangAufgabe,
+  NotzugangHuelle, NotzugangProtokollZeile, NotzugangStand,
+  OneTimeCredential, PasswortOffenlegung, Passworteintrag,
+  PermissionInfo, PermissionKey, ReleaseInfo, ReleasePlatform,
+  SchluesselPaket, SearchHit, SelfUser, StoredFile, StorageUsage,
 } from '@stellium/shared';
 
 import { useStore } from '../state/store.js';
@@ -253,12 +257,67 @@ export interface GumroadUebersicht {
   auszahlungen: { status: string; waehrung: string | null; anzahl: number; summeRoh: number }[];
 }
 
+/**
+ * Höchstfrist für einen einzelnen Uploadstrom (ein Teil, oder die ganze
+ * Datei im Weg am Stück).
+ *
+ * Ohne `xhr.timeout` wartet ein XMLHttpRequest bei einer Leitung, die
+ * mittendrin steckenbleibt — anders als ein sauberer Abbruch (das löst
+ * `onerror` aus) —, für immer: weder `onload` noch `onerror` feuern je,
+ * das umschließende `new Promise(...)` löst sich nie auf. Genau dieses Bild
+ * — ein Anhang, der für immer "wird hochgeladen" zeigt, ohne jede
+ * Fehlermeldung — ist der gemeldete Fehler; die eigentliche Ursache lag an
+ * anderer Stelle (siehe Composer.tsx, kennungAbwarten()), aber eine
+ * steckengebliebene Leitung wäre ein zweiter, unabhängiger Weg zum selben
+ * Bild gewesen. Großzügig bemessen: ein Teil sind höchstens 4 MB, aber auf
+ * einer langsamen Leitung zum eigenen Pi zuhause soll das nicht fälschlich
+ * abbrechen, was bloß langsam, nicht tot ist.
+ */
+const UPLOAD_XHR_FRIST_MS = 5 * 60_000;
+
 export const api = {
   health: () => request<{ ok: boolean; workspace: string; ai: AiCapabilities }>('/api/health'),
 
+  /**
+   * Die Anmeldung, wie es sie immer gab — mit dem Passwort im Klartext.
+   *
+   * BLEIBT UNVERÄNDERT und wird nicht abgelöst. Sie ist das Auffangnetz
+   * unter dem neuen Weg darunter: ein Server, der ihn noch nicht kennt, ein
+   * Konto, das noch keinen Nachweis hinterlegt hat, eine erste Anmeldung auf
+   * einem frischen Gerät. Wer sie ruft, sollte es über anmelden() in
+   * lib/anmeldenachweis.ts tun — die nimmt zuerst den Weg ohne Passwort.
+   */
   login: (login: string, password: string) =>
     request<{ token: string; user: SelfUser }>('/api/auth/login', {
       method: 'POST', body: JSON.stringify({ login, password }),
+    }),
+
+  /* ── Anmelden ohne Passwort ───────────────────────────────────
+     Warum es das gibt, steht im Kopf von lib/anmeldenachweis.ts: der
+     Kontoschlüssel wird aus dem Passwort abgeleitet, und solange das
+     Passwort bei jeder Anmeldung zum Server ging, war seine Hülle gegen den
+     Server selbst wertlos. */
+
+  /** Die Wegbeschreibung für den Nachweis. POST und nicht GET, damit der
+   *  Benutzername nicht in Zugriffsprotokollen und Verlaufslisten landet. */
+  anmeldeSalz: (login: string) =>
+    request<AnmeldeSalz>('/api/auth/anmeldesalz', {
+      method: 'POST', body: JSON.stringify({ login }),
+    }),
+
+  /** Dieselbe Adresse wie login(), nur ohne Passwort im Rumpf. Der Server
+   *  entscheidet am Feld, wogegen er prüft — und beide Wege hängen dort an
+   *  derselben Bremse. */
+  loginMitNachweis: (login: string, nachweis: string) =>
+    request<{ token: string; user: SelfUser }>('/api/auth/login', {
+      method: 'POST', body: JSON.stringify({ login, nachweis }),
+    }),
+
+  /** Den Nachweis hinterlegen — nach einer Anmeldung über den alten Weg,
+   *  wenn das Passwort im Klartext vorliegt. */
+  anmeldeNachweisHinterlegen: (blob: AnmeldeNachweisBlob) =>
+    request<{ ok: boolean }>('/api/auth/nachweis', {
+      method: 'POST', body: JSON.stringify(blob),
     }),
 
   me: () => request<{ user: SelfUser; ai: AiCapabilities }>('/api/me'),
@@ -267,10 +326,180 @@ export const api = {
   setup: (input: { handle?: string; email?: string; displayName?: string; newPassword: string }) =>
     request<{ user: SelfUser }>('/api/auth/setup', { method: 'POST', body: JSON.stringify(input) }),
 
-  changePassword: (current: string, next: string) =>
+  /**
+   * Passwort ändern.
+   *
+   * `kontoSchluessel` ist der bestehende Kontoschlüssel, mit dem NEUEN
+   * Passwort neu umschlossen — gerechnet auf dem Gerät, siehe
+   * lib/kontoschluessel.ts. Der Server bekommt Bytes, kein Passwort und
+   * keinen Schlüssel.
+   *
+   * Das Feld ist PFLICHT, obwohl der Server auch ohne auskommt, und `null`
+   * ist ausdrücklich erlaubt. Der Grund ist ein Fund: eine Oberfläche zum
+   * Passwortwechsel gibt es in dieser App derzeit gar nicht — der Schlüssel
+   * `settings.changePassword` steht in allen Wörterbüchern, aber niemand
+   * ruft diese Funktion. Wer sie eines Tages baut, soll nicht versehentlich
+   * ohne Umschließen abbiegen: ein Pflichtfeld erzwingt die Entscheidung
+   * beim Übersetzen, ein wahlfreies hätte sie beim Vergessen getroffen.
+   * Der bequeme Weg dorthin ist `passwortWechseln()` in
+   * lib/kontoschluessel.ts — die rechnet das Feld selbst aus.
+   */
+  changePassword: (current: string, next: string, kontoSchluessel: KontoSchluesselBlob | null) =>
     request<{ ok: boolean }>('/api/auth/password', {
-      method: 'POST', body: JSON.stringify({ current, next }),
+      method: 'POST', body: JSON.stringify({ current, next, kontoSchluessel: kontoSchluessel ?? undefined }),
     }),
+
+  /* ── Kontoschlüssel ───────────────────────────────────────── */
+
+  /* `notzugangWartet` heißt: es gibt keine Hülle zum Öffnen, aber der
+     Kontoschlüssel dahinter lebt — drei von fünf Anteilen holen ihn zurück
+     (siehe lib/notzugang.ts). Die App darf dann KEINEN frischen minten. */
+  kontoSchluessel: () => request<{
+    schluessel: KontoSchluesselBlob | null; notzugangWartet?: boolean;
+  }>('/api/konto/schluessel'),
+
+  kontoSchluesselHinterlegen: (blob: KontoSchluesselBlob) =>
+    request<{ fassung: number }>('/api/konto/schluessel', {
+      method: 'POST', body: JSON.stringify(blob),
+    }),
+
+  /* ── Notzugang: „3 von 5" ─────────────────────────────────────
+   * Alles Verschlossene entsteht in lib/notzugang.ts; hier gehen nur Bytes
+   * durch. Der Server sieht weder den Notschlüssel noch einen offenen
+   * Anteil noch den Code — siehe services/notzugang.ts. */
+
+  notzugang: () => request<{
+    stand: NotzugangStand;
+    huelle: NotzugangHuelle | null;
+    anfrage: NotzugangAnfrage | null;
+    protokoll: NotzugangProtokollZeile[];
+  }>('/api/konto/notzugang'),
+
+  notzugangEinrichten: (huelle: NotzugangHuelle, anteile: NotzugangAnteilBlob[]) =>
+    request<{ stand: NotzugangStand }>('/api/konto/notzugang', {
+      method: 'POST', body: JSON.stringify({ huelle, anteile }),
+    }),
+
+  /* `verbrannt`: hat dieser Klick, weil `konto_schluessel.daten` schon leer
+     stand, gleich den Kontoschlüssel mit niedergebrannt (services/notzugang.ts,
+     aufheben())? NotzugangPanel.tsx braucht die Antwort für die Meldung
+     DANACH — die Rückfrage VOR dem Klick verlässt sich auf einen `stand`,
+     der beim Öffnen der Tafel geladen wurde und seither veraltet sein kann. */
+  notzugangAufheben: () =>
+    request<{ ok: boolean; verbrannt: boolean }>('/api/konto/notzugang', { method: 'DELETE' }),
+
+  /* Den Notzugang einer ANDEREN Person aufheben — der einzige Griff, den die
+     Verwaltung an einem fremden Notzugang hat. Er zerstört eine
+     Rettungsleine und öffnet nichts; gebraucht wird er vor dem Zurücksetzen
+     eines DURCHGESICKERTEN Passworts, damit der alte Kontoschlüssel dabei
+     wieder verbrennt. Zurück kommt die Kontenliste, damit die Ansicht
+     danach nicht das Gegenteil behauptet — und `verbrannt`, damit TeamAdmin.tsx
+     weiß, was DIESER Klick gerade bewirkt hat, statt nur einen festen
+     Erfolgstext zu zeigen. */
+  notzugangAufhebenFuer: (userId: string) =>
+    request<{ ok: boolean; verbrannt: boolean; users: ManagedUser[] }>(
+      `/api/admin/notzugang/${encodeURIComponent(userId)}`, { method: 'DELETE' },
+    ),
+
+  notzugangAnfragen: (codeAbdruck: string) =>
+    request<{ anfrage: NotzugangAnfrage }>('/api/konto/notzugang/anfrage', {
+      method: 'POST', body: JSON.stringify({ codeAbdruck }),
+    }),
+
+  notzugangAnfrageAbbrechen: (anfrageId: string) =>
+    request<{ ok: boolean }>(`/api/konto/notzugang/anfrage/${encodeURIComponent(anfrageId)}`, {
+      method: 'DELETE',
+    }),
+
+  notzugangAufgaben: () =>
+    request<{ aufgaben: NotzugangAufgabe[] }>('/api/konto/notzugang/aufgaben'),
+
+  notzugangBeitragen: (anfrageId: string, paket: FluechtigesPaket, codeAbdruck: string) =>
+    request<{ ok: boolean }>('/api/konto/notzugang/beitrag', {
+      method: 'POST', body: JSON.stringify({ anfrageId, paket, codeAbdruck }),
+    }),
+
+  notzugangBeitraege: (anfrageId: string) =>
+    request<{ beitraege: { halterId: string; stelle: number; paket: FluechtigesPaket }[] }>(
+      `/api/konto/notzugang/beitraege/${encodeURIComponent(anfrageId)}`,
+    ),
+
+  notzugangEinloesen: (anfrageId: string) =>
+    request<{ ok: boolean; beteiligte: string[] }>('/api/konto/notzugang/einloesen', {
+      method: 'POST', body: JSON.stringify({ anfrageId }),
+    }),
+
+  /* ── Passwort-Tresor ──────────────────────────────────────────
+   * HTTP statt WebSocket, anders als bei Notizen — derselbe Ansatz wie
+   * PayPal/Einmalcodes: die Tafel fragt beim Öffnen einmal ab, es gibt
+   * keinen Push. Siehe lib/passwoerter.ts für die Begründung und die
+   * Kryptografie, http/passwoerter.ts für die Gegenseite auf dem Server. */
+
+  passwortListe: () => request<{
+    eintraege: Passworteintrag[];
+    eigenePakete: { eintragId: string; fassung: number; paket: SchluesselPaket }[];
+    kontoPakete: { eintragId: string; fassung: number; paket: KontoPaket }[];
+    kontoLuecken: string[];
+    unverpackteMitglieder: { eintragId: string; userId: string }[];
+  }>('/api/passwoerter'),
+
+  passwortAnlegen: (input: {
+    id: string; chiffrat: string; geheimChiffrat: string; paket: SchluesselPaket; kontoPaket?: KontoPaket;
+  }) =>
+    request<{ eintrag: Passworteintrag }>('/api/passwoerter', { method: 'POST', body: JSON.stringify(input) }),
+
+  /** `getrennt` sagt dem Server: diese App kennt die zwei Hüllen. Ohne die
+   *  Angabe weist er das Speichern eines getrennten Eintrags ab, weil eine
+   *  ältere App sonst ihre eine Hülle — mit dem Passwort darin — ins
+   *  Schaufenster zurückschriebe. `geheimChiffrat` fehlt im Alltag: wer nur
+   *  das Etikett ändert, hat das Passwort nie geholt, und dann bleibt das
+   *  gespeicherte Geheimnis unangetastet. */
+  passwortSpeichern: (id: string, chiffrat: string, version: number, force = false, geheimChiffrat?: string) =>
+    request<{ ok: boolean; eintrag: Passworteintrag }>(`/api/passwoerter/${id}`, {
+      method: 'PATCH', body: JSON.stringify({ chiffrat, version, force, geheimChiffrat, getrennt: true }),
+    }),
+
+  passwortLoeschen: (id: string) =>
+    request<{ ok: boolean }>(`/api/passwoerter/${id}`, { method: 'DELETE' }),
+
+  passwortMitgliedHinzufuegen: (id: string, userId: string, paket: SchluesselPaket) =>
+    request<{ eintrag: Passworteintrag }>(`/api/passwoerter/${id}/mitglieder`, {
+      method: 'POST', body: JSON.stringify({ userId, paket }),
+    }),
+
+  passwortPaketeNachreichen: (id: string, userId: string, paket: SchluesselPaket) =>
+    request<{ ok: boolean }>(`/api/passwoerter/${id}/mitglieder/nachreichen`, {
+      method: 'POST', body: JSON.stringify({ userId, paket }),
+    }),
+
+  passwortMitgliedEntfernen: (id: string, input: {
+    userId: string; neueFassung: number; chiffrat: string; geheimChiffrat: string; version: number;
+    pakete: { userId: string; paket: SchluesselPaket }[];
+  }) =>
+    request<{ eintrag: Passworteintrag }>(`/api/passwoerter/${id}/mitglieder/entfernen`, {
+      method: 'POST', body: JSON.stringify(input),
+    }),
+
+  passwortKontoPaketSetzen: (id: string, fassung: number, paket: KontoPaket) =>
+    request<{ ok: boolean }>(`/api/passwoerter/${id}/konto-paket`, {
+      method: 'POST', body: JSON.stringify({ fassung, paket }),
+    }),
+
+  /** Das Passwort holen — der einzige Weg dorthin, und er schreibt beim
+   *  Ausliefern eine Offenlegungszeile (server/services/passwoerter.ts,
+   *  geheimnisAusliefern()). POST statt GET, damit kein Zwischenspeicher die
+   *  Anfrage wiederholt oder auslässt: beides wäre im Protokoll falsch.
+   *
+   *  `altbestand: true` heißt, dass die gelieferte Hülle noch die alte ist —
+   *  mit Etikett, Benutzername, Notiz und Adresse mit drin. Der Aufrufer
+   *  stellt den Eintrag dann um (lib/passwoerter.ts, geheimnisAbrufen()). */
+  passwortGeheimnis: (id: string) =>
+    request<{ chiffrat: string; fassung: number; altbestand: boolean }>(
+      `/api/passwoerter/${id}/geheimnis`, { method: 'POST', body: '{}' },
+    ),
+
+  passwortOffenlegungen: (id: string) =>
+    request<{ offenlegungen: PasswortOffenlegung[] }>(`/api/passwoerter/${id}/offenlegungen`),
 
   /* ── Kontenverwaltung ─────────────────────────────────────── */
 
@@ -419,6 +648,7 @@ export const api = {
         await new Promise<void>((fertig, schief) => {
           const xhr = new XMLHttpRequest();
           xhr.open('PUT', `${serverUrl()}/api/uploads/${uploadId}/part/${nummer}`);
+          xhr.timeout = UPLOAD_XHR_FRIST_MS;
           const t = token();
           if (t) xhr.setRequestHeader('authorization', `Bearer ${t}`);
           xhr.setRequestHeader('content-type', 'application/octet-stream');
@@ -433,10 +663,11 @@ export const api = {
               melden();
               fertig();
             } else {
-              schief(new ApiError(`Teil ${nummer} fehlgeschlagen (${xhr.status})`, xhr.status));
+              schief(new ApiError(txt('api.error', { status: xhr.status }), xhr.status));
             }
           };
-          xhr.onerror = () => schief(new ApiError(`Teil ${nummer}: keine Verbindung`, 0));
+          xhr.onerror = () => schief(new ApiError(txt('api.uploadNoConnection'), 0));
+          xhr.ontimeout = () => schief(new ApiError(txt('api.uploadNoConnection'), 0));
           xhr.send(stueck);
         });
       }
@@ -454,6 +685,7 @@ export const api = {
     return new Promise<{ attachment: Anhang }>((resolve, reject) => {
       const xhr = new XMLHttpRequest();
       xhr.open('POST', `${serverUrl()}/api/uploads`);
+      xhr.timeout = UPLOAD_XHR_FRIST_MS;
       const t = token();
       if (t) xhr.setRequestHeader('authorization', `Bearer ${t}`);
       xhr.upload.onprogress = (e) => { if (e.lengthComputable) onProgress?.(e.loaded / e.total); };
@@ -461,12 +693,13 @@ export const api = {
         try {
           const data = JSON.parse(xhr.responseText);
           if (xhr.status >= 200 && xhr.status < 300) resolve(data);
-          else reject(new ApiError(data.error ?? `Upload fehlgeschlagen (${xhr.status})`, xhr.status));
+          else reject(new ApiError(data.error ?? txt('api.error', { status: xhr.status }), xhr.status));
         } catch {
           reject(new ApiError(txt('api.badResponse'), xhr.status));
         }
       };
       xhr.onerror = () => reject(new ApiError(txt('api.uploadNoConnection'), 0));
+      xhr.ontimeout = () => reject(new ApiError(txt('api.uploadNoConnection'), 0));
       xhr.send(form);
     });
   },
@@ -537,10 +770,10 @@ export const api = {
      auch nicht an den, der sie eingetragen hat. */
   postZugang: () => request<{
     versandBereit: boolean; eingangBereit: boolean; verschluesselt: boolean;
-    absender: string | null; name: string | null;
+    domaene: string | null; name: string | null;
   }>('/api/post/zugang'),
   postZugangSetzen: (werte: {
-    absender?: string; name?: string; versandSchluessel?: string; eingangGeheimnis?: string;
+    domaene?: string; name?: string; versandSchluessel?: string; eingangGeheimnis?: string;
   }) => request<{ versandBereit: boolean; eingangBereit: boolean }>(
     '/api/post/zugang', { method: 'POST', body: JSON.stringify(werte) }),
 

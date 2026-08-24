@@ -4,21 +4,32 @@ import path from 'node:path';
 import { Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
-import { normalizeLang, LANGUAGES } from '@stellium/shared';
+import {
+  normalizeLang, LANGUAGES,
+  type AnmeldeNachweisBlob, type FluechtigesPaket, type KontoSchluesselBlob,
+  type NotzugangAnteilBlob, type NotzugangHuelle,
+} from '@stellium/shared';
 import { signToken, verifyPassword, verifyToken } from '../auth.js';
 import * as users from '../services/users.js';
 import * as praesenz from '../services/praesenz.js';
+import * as kontoschluessel from '../services/kontoschluessel.js';
+import * as anmeldenachweis from '../services/anmeldenachweis.js';
+import * as notzugang from '../services/notzugang.js';
+import * as push from '../services/push.js';
 import * as systemwerte from '../services/systemwerte.js';
 import { may } from '../services/users.js';
 import { KONTO_KATEGORIEN } from '@stellium/shared';
-import { PERMISSIONS, type MemberRole, type PermissionKey } from '@stellium/shared';
+import {
+  PERMISSIONS, PERMISSION_KEYS, ROLES, ROLE_DEFAULTS, roleInfo,
+  type MemberRole, type PermissionKey,
+} from '@stellium/shared';
 import { config } from '../config.js';
-import { db } from '../db/index.js';
+import { db, placeholders } from '../db/index.js';
 import { kennungVon } from '../util/abweisung.js';
 import { newId } from '../util/id.js';
 import {
-  addGlossaryEntry, aiCapabilities, anbieterWaehlen, chooseModels, listGlossary, lokalePruefung,
-  modelRegistry, removeGlossaryEntry,
+  addGlossaryEntry, aiCapabilities, anbieterWaehlen, cachedReleaseNotes, chooseModels, listGlossary,
+  lokalePruefung, modelRegistry, removeGlossaryEntry, translateReleaseNotes,
 } from '../translation/index.js';
 import { search } from '../services/search.js';
 import * as store from '../services/store.js';
@@ -29,16 +40,17 @@ import * as mailzugang from '../services/mailzugang.js';
 import * as verkaufzugang from '../services/verkaufzugang.js';
 import * as patreon from '../services/patreon.js';
 import * as gumroad from '../services/gumroad.js';
+import * as verkaufBenachrichtigung from '../services/verkaufBenachrichtigung.js';
+import * as paypal from '../services/paypal.js';
 import * as post from '../services/post.js';
 import * as postSuche from '../services/post-suche.js';
 import * as postSichtung from '../services/post-sichtung.js';
 import * as postEntwurfKi from '../services/post-entwurf-ki.js';
 import * as partnerGruppen from '../services/post-partnergruppen.js';
-import { PARTNER_GRUPPEN } from '@stellium/shared';
 import { registerPostEingang } from './posteingang.js';
 import { downloadSeite, systemErkennen } from './download/seite.js';
 
-import { broadcastAll, sitzungenBeenden, verbindungen } from '../ws/gateway.js';
+import { broadcastAll, onlineUserIds, sitzungenBeenden, verbindungen } from '../ws/gateway.js';
 import * as ablage from '../services/ablage.js';
 import * as avatare from '../services/avatare.js';
 import { huelleSchreiben, umschlagVonDatei } from '../crypto/dateien.js';
@@ -86,6 +98,30 @@ function requireUser(req: FastifyRequest): string {
   return id;
 }
 
+/**
+ * Die Änderungsliste einer Fassung in der Lesesprache der betrachtenden
+ * Person — sofort, aus dem Zwischenspeicher, nie über einen Netzaufruf.
+ *
+ * Wer eine Version veröffentlicht, tippt die Notizen frei ein (meist
+ * Deutsch, aber nicht garantiert) — ohne diese Stelle ging genau dieser
+ * Wortlaut unverändert an jede Person hinaus, egal welche Sprache ihre
+ * Oberfläche zeigt. Fehlt eine Übersetzung noch, kommt hier das Original
+ * zurück (nie eine leere Antwort) und im Hintergrund wird nachgeholt, was
+ * fehlt — ohne dass diese Anfrage darauf wartet. Der nächste Abruf (die
+ * App fragt viertelstündlich nach, siehe electron/updater.ts) bekommt dann
+ * die Übersetzung.
+ */
+function notizenFuerBetrachter(platform: string, userId: string, original: string | null): string | null {
+  if (!original) return null;
+  const sprache = store.uiLanguageOf(userId);
+  const uebersetzt = cachedReleaseNotes(platform, sprache);
+  if (uebersetzt !== null) return uebersetzt;
+  void translateReleaseNotes(platform, sprache).catch((err) => {
+    console.error('[releases]', (err as Error).message);
+  });
+  return original;
+}
+
 const HANDLE_RE = /^[a-z0-9][a-z0-9._-]{1,31}$/;
 
 /* ── Bremse gegen das Durchprobieren von Passwörtern ───────────── */
@@ -123,6 +159,41 @@ function versucheZuruecksetzen(herkunft: string): void {
 }
 
 /**
+ * Der Schlüssel eines Eimers — Herkunft und Benutzername.
+ *
+ * Der Name wird hier GENAU SO zurechtgelegt wie bei der Kontosuche:
+ * `trim().toLowerCase()`, dieselbe Reihenfolge wie in blindIndex()
+ * (crypto/pii.ts) und wie im Altbestands-Zweig von users.findByLogin(),
+ * der mit `login.trim()` sucht. Beide Suchwege benutzen dasselbe
+ * String.prototype.trim() — es gibt also nur EINE Menge von Zeichen, die
+ * vorn und hinten wegfällt, und die muss die Bremse kennen.
+ *
+ * WARUM DAS EINE SICHERHEITSFRAGE IST: ohne das `trim()` bekamen "anna",
+ * "anna " und "\tanna" je einen EIGENEN Eimer, obwohl alle drei DASSELBE
+ * Konto öffnen. Wer bei jedem Versuch ein weiteres Leerzeichen anhängt,
+ * zählte damit nie über eins und lief nie in die Grenze — jedes Raten wurde
+ * trotzdem gegen den echten Nachweis geprüft. Die Bremse stand da und
+ * bremste nur den, der sich vertippt hat.
+ *
+ * DAS KANN NIEMANDEN AUSSPERREN: der Schlüssel wird gröber, nie feiner. Es
+ * entsteht kein neuer Eimer, es fallen nur solche zusammen, die heute
+ * fälschlich getrennt sind — und zwar genau dann, wenn beide Schreibweisen
+ * ohnehin dasselbe Konto treffen. Zwei verschiedene Konten können sich
+ * keinen Eimer teilen: ein gespeicherter Benutzername oder eine
+ * gespeicherte E-Mail enthält nie eines dieser Zeichen (die Prüfmuster in
+ * services/users.ts lassen mit `[a-z0-9._-]` und `[^@\s]` keines durch),
+ * es kann also gar nicht erst zwei Konten geben, die sich nur um Leerraum
+ * unterscheiden. Und ein gelungener Login räumt genau diesen Schlüssel
+ * wieder weg (versucheZuruecksetzen) — für jede Schreibweise auf einmal.
+ *
+ * Dass ein ANDERER Benutzername einen eigenen Eimer bekommt, bleibt genau
+ * so: das ist Absicht, siehe der Kommentar über `versuche` oben.
+ */
+function bremsSchluessel(ip: string, login: string): string {
+  return `${ip}|${login.trim().toLowerCase()}`;
+}
+
+/**
  * Angefangene Teil-Uploads. Bewusst nur im Speicher: bricht der Server ab,
  * fängt der Client neu an — das ist besser, als Reste in der Datenbank zu
  * führen, die niemand mehr abholt.
@@ -130,13 +201,29 @@ function versucheZuruecksetzen(herkunft: string): void {
 const teilUploads = new Map<string, {
   userId: string; name: string; mime: string; size: number; parts: number;
   da: Set<number>; groessen: Map<number, number>; begonnen: number;
+  /**
+   * Was JEDER Teil dieses Auftrags zusammen schon belegt — fertig geschrieben
+   * UND gerade im Fluss. Siehe `begrenzt()` weiter unten: ohne diese eine
+   * Zahl rechnete jeder Teil für sich, und „für sich" heißt bei gleichzeitigen
+   * Anfragen: gegen denselben veralteten Stand.
+   */
+  gesamt: number;
+  /** Wie viel jeder gerade laufende Teil bisher beigetragen hat — je Teil,
+      damit ein Abbruch genau seinen eigenen Beitrag wieder freigibt. */
+  imFlug: Map<number, number>;
+  /** Läuft für diesen Auftrag schon ein `/finish`? */
+  abschluss: boolean;
 }>();
+
+/** Der Auftrag, wie ihn `begrenzt()` und die Teilroute brauchen. */
+type TeilAuftrag = NonNullable<ReturnType<typeof teilUploads.get>>;
 
 /** Wie viele angefangene Teil-Uploads ein Konto gleichzeitig haben darf. */
 const TEILUPLOADS_JE_KONTO = 8;
 
 /**
- * Einen Datenstrom durchlassen, aber nur bis zu einer Grenze.
+ * Einen Datenstrom durchlassen, aber nur so weit, wie der GANZE Auftrag noch
+ * Platz hat.
  *
  * Ohne das nahm `PUT /api/uploads/:id/part/:index` jeden Rumpf entgegen, den
  * jemand schickte. Fastify erzwingt seine `bodyLimit` nicht, wenn ein eigener
@@ -148,13 +235,36 @@ const TEILUPLOADS_JE_KONTO = 8;
  *
  * Die Prüfung beim Zusammenlegen half nicht: sie vergleicht die Summe erst,
  * wenn alles längst geschrieben ist.
+ *
+ * WARUM DIE GRENZE JETZT AM AUFTRAG HÄNGT UND NICHT MEHR AM TEIL
+ *
+ * Die erste Fassung bekam eine feste Zahl mit: „dieser Teil darf noch so
+ * viel". Ausgerechnet wurde sie VOR dem `await` aus `auftrag.groessen`, und
+ * eingetragen wurde erst DANACH. Zwischen beidem liegt der ganze Upload —
+ * und in dieser Lücke rechneten alle gleichzeitig laufenden Teile gegen
+ * denselben leeren Stand. Jeder bekam das volle Budget, keiner sah die
+ * anderen. Nachgemessen an einem echten Server: dreißig gleichzeitige Teile
+ * bei einer Meldung von 1 MB — dreißig mal 200, kein einziges 413, 31,4 MB
+ * auf der Platte. Das Kontingent stand auf 1 MB.
+ *
+ * Deshalb zählt jetzt nicht mehr jeder Teil für sich, sondern alle in EINE
+ * Zahl am Auftrag (`gesamt`): fertig geschriebene und gerade fließende Bytes
+ * zusammen. Der Anspruch entsteht Stück für Stück beim Durchfließen, nicht
+ * erst am Ende — deshalb kann ihn niemand mehr überholen. Vier gleichzeitige
+ * Teile, wie die echte App sie schickt (desktop/src/net/api.ts), stören
+ * einander dabei nicht: ihre Summe bleibt unter der angemeldeten Größe, und
+ * nur die Summe wird geprüft.
+ *
+ * Freigegeben wird in der Route, nicht hier — ein abgebrochener Strom darf
+ * seinen Anspruch nicht behalten, sonst könnte ein Konto sich mit
+ * abgebrochenen Uploads selbst aussperren.
  */
-function begrenzt(hoechstens: number): Transform {
-  let gesehen = 0;
+function begrenzt(auftrag: TeilAuftrag, nummer: number): Transform {
   return new Transform({
     transform(stueck, _kodierung, weiter) {
-      gesehen += stueck.length;
-      if (gesehen > hoechstens) { weiter(new Error('zu groß')); return; }
+      auftrag.gesamt += stueck.length;
+      auftrag.imFlug.set(nummer, (auftrag.imFlug.get(nummer) ?? 0) + stueck.length);
+      if (auftrag.gesamt > auftrag.size) { weiter(new Error('zu groß')); return; }
       weiter(null, stueck);
     },
   });
@@ -224,6 +334,291 @@ setInterval(() => {
   }
 }, 15 * 60 * 1000).unref();
 
+/* ── Wer welche Rolle vergeben und wessen Konto übernehmen darf ──
+ *
+ * ZWEI TÜREN IN DENSELBEN RAUM
+ *
+ * Hier stehen ZWEI Wächter, weil es zwei Wege gibt, an fremde Rechte zu
+ * kommen: eine Rolle VERGEBEN (`darfRolleVergeben()`) und ein Konto
+ * ÜBERNEHMEN (`fehlendesRechtZurUebernahme()`). Beide vergleichen
+ * Rechtemengen, und beide rufen dafür in DIESELBE Funktion hinein
+ * (`erstesFehlendesRecht()` weiter unten) — nicht aus Sparsamkeit, sondern
+ * weil eine zweite Kopie desselben Vergleichs genau der Fehler ist, gegen
+ * den diese ganze Regel geschrieben wurde: zwei Stellen, von denen später
+ * nur eine nachgezogen wird.
+ *
+ * DIE REGEL, AUSGESCHRIEBEN
+ *
+ *   1. Der Inhaber darf jede Rolle vergeben. Er hat ohnehin jedes Recht;
+ *      ihn hier zu bremsen hieße nur, ihn aus seinem eigenen Haus
+ *      auszusperren.
+ *   2. Alle anderen dürfen eine Rolle nur vergeben, wenn sie JEDES Recht,
+ *      das diese Rolle mitbringt, selbst besitzen. Weitergeben, was man
+ *      nicht hat, wäre der bequemere Weg an der Rechteverwaltung vorbei.
+ *   3. Und die Rolle muss ECHT kleiner sein als die eigenen Rechte: es
+ *      muss mindestens ein Recht geben, das der Vergebende hat und sie
+ *      nicht. Ohne diesen dritten Punkt dürfte ein Administrator weitere
+ *      Administratoren ernennen — und eine Decke, die sich selbst
+ *      nachbauen kann, ist keine.
+ *
+ * WARUM ES DIESE REGEL BRAUCHT
+ *
+ * Hier stand vorher nur „ist die gewünschte Rolle 'owner' und bin ich
+ * nicht der Inhaber". Gegen `'admin'` stand nichts. Und geprüft wurde die
+ * Zeichenkette nirgends sonst: `users.role` in db/schema.sql hat kein
+ * CHECK, es gibt kein `schema:` an der Route, keinen Validator, und
+ * `MemberRole` ist ein TypeScript-Typ — zur Laufzeit nichts. In
+ * `createAccount()` (services/users.ts) ging `input.role ?? 'member'`
+ * ungeprüft in den INSERT.
+ *
+ * Der kurze Weg war nicht einmal `user.invite`, sondern `user.manage`
+ * allein: fremdes Konto auf `admin` setzen (nur `owner` und man selbst
+ * waren gesperrt), diesem Konto das Passwort zurücksetzen (nur ein
+ * Inhaber als ZIEL war gesperrt) — das Einmal-Passwort steht in der
+ * Antwort —, anmelden, fertig. `admin` ist ALLE Rechte außer
+ * `user.delete`, `permission.manage` und `channel.delete` und schließt
+ * damit vier Rechte ein, die `ownerOnly` tragen.
+ *
+ * Der Angreifer ist dabei kein Eindringling, sondern ein Mitglied oder
+ * Gast, dem der Inhaber im Rechteraster bewusst `user.invite` oder
+ * `user.manage` gegeben hat — beide sind nicht `ownerOnly`, das ist ein
+ * vorgesehener Weg. Er überstieg damit die Decke, die die Rolle
+ * `teamlead` ausdrücklich zusagt: „Vergibt keine Einzelrechte"
+ * (shared/permissions.ts).
+ *
+ * Die Bauart ist absichtlich dieselbe wie bei `ownerOnly` für einzelne
+ * Rechte (`setPermission()` in services/users.ts): dort heißt es „nur der
+ * Inhaber darf dieses Recht VERGEBEN", nicht „nur der Inhaber darf es
+ * haben" — der Inhaber WILL, dass Administratoren diese vier Rechte
+ * tragen. Falsch war nie, was ein Administrator darf, sondern dass
+ * jemand ohne Zutun des Inhabers Administrator werden konnte.
+ *
+ * Verglichen werden Rechte und nicht Rangstufen: eine Rangliste wäre eine
+ * zweite Wahrheit neben ROLE_DEFAULTS und liefe eines Tages daneben.
+ * Persönliche Ausnahmen zählen mit, weil `permissionsFor()` sie mitzählt —
+ * wer ein Recht per Ausnahme hat, darf es auch weitergeben.
+ *
+ * ─────────────────────────────────────────────────────────────────
+ * DIE ZWEITE TÜR: EIN KONTO ÜBERNEHMEN
+ *
+ * Die Regel oben schließt den Weg, sich SELBST einen Administrator zu
+ * bauen. Sie schließt nicht den Weg über einen, den es schon gibt.
+ *
+ * `POST /.../reset-password` verlangte `user.manage` und sperrte als ZIEL
+ * einzig den Inhaber. Ein Administrator, den der Inhaber selbst ernannt
+ * hatte, stand offen: Passwort zurücksetzen, das neue Einmal-Passwort steht
+ * im Antwortkörper, anmelden. Derselbe Raum, andere Tür. Nachgestellt gegen
+ * einen laufenden Server: ein Konto mit Rolle `guest` und dem einzelnen
+ * Recht `user.manage` meldete sich danach wirklich als Administrator an.
+ *
+ * DESHALB GILT FÜR DAS ÜBERNEHMEN DIESELBE REGEL WIE FÜRS VERGEBEN:
+ *
+ *   Ein fremdes Passwort zurücksetzen darf nur, wer JEDES Recht dieses
+ *   Kontos selbst hat.
+ *
+ * Das ist Punkt 2 von oben, angewandt auf ein Konto statt auf eine Rolle.
+ * Wer ein Passwort zurücksetzt und das Einmal-Passwort in die Hand bekommt,
+ * IST danach dieses Konto — der Vorgang gibt keine Rechte weiter, er gibt
+ * sie ganz. Wenn schon fürs Vergeben einer Fähigkeit gilt „du musst sie
+ * selbst haben", kann fürs Ansichnehmen nicht weniger gelten. Sonst steht
+ * neben der eben verschlossenen Tür eine offene.
+ *
+ * PUNKT 3 GILT HIER NICHT — WARUM
+ *
+ * Für das VERGEBEN verlangt Punkt 3 ein Recht, das der Vergebende behält
+ * und die Rolle nicht hat; sonst ernennt ein Administrator Administratoren.
+ * Übertragen hieße das: kein Administrator dürfte das Passwort eines
+ * anderen Administrators zurücksetzen. Das ist bewusst NICHT so, und zwar
+ * aus drei Gründen:
+ *
+ *   a) Punkt 3 wehrt eine VERMEHRUNG ab. Vergeben schafft einen NEUEN
+ *      Träger: aus einem Administrator werden zwei, aus zweien vier, und
+ *      die Decke baut sich ohne den Inhaber nach. Ein Zurücksetzen schafft
+ *      keinen Träger — hinterher gibt es exakt dieselben Konten mit exakt
+ *      denselben Rechten. Es wechselt nur, wer dahinter sitzt. Das
+ *      Argument, das Punkt 3 trägt, trägt hier nicht.
+ *   b) Punkt 2 deckt die Eskalation bereits vollständig ab: hinterher kann
+ *      der Angreifer genau das, was das Zielkonto konnte — und Punkt 2
+ *      sagt, dass er das schon vorher konnte. Die Decke steigt um keinen
+ *      Millimeter. Mehr will diese Regel nicht.
+ *   c) Punkt 3 würde dem Zurücksetzen seinen eigentlichen Zweck nehmen.
+ *      `teamlead` verspricht wörtlich „Nimmt neue Leute auf und setzt
+ *      Passwörter zurück" (shared/permissions.ts). Unter Punkt 3 könnten
+ *      zwei Teamleitungen mit gleichen Rechten einander NICHT mehr
+ *      heraushelfen — ausgerechnet der häufigste echte Fall, der ausgesperrte
+ *      Kollege, ginge nur noch über den Inhaber. Eine Regel, die ihren
+ *      meistgebrauchten Fall verbietet, wird umgangen, nicht befolgt.
+ *
+ * Was ohne Punkt 3 übrig bleibt, ist das Auftreten UNTER GLEICHEN — kein
+ * Rechtegewinn, aber fremde Direktnachrichten und fremde Kanäle. Das ist
+ * real, und es bleibt bewusst stehen, weil dieser Vorgang von sich aus laut
+ * ist: `resetPassword()` (services/users.ts) kappt die Sitzungen des Ziels,
+ * setzt `must_change_password` und schreibt eine Zeile nach `invites` mit
+ * `created_by`. Der Bestohlene fliegt heraus, sein Passwort gilt nicht mehr,
+ * und wer es war, steht in der Tabelle. Eine Übernahme, die sich selbst
+ * anzeigt und das Opfer aussperrt, ist ein lauter Angriff — anders als das
+ * stille Ernennen, gegen das Punkt 3 steht. Der teuerste Inhalt kommt
+ * ohnehin nicht mit: `vertraulich_sicherung` (db/schema.sql) verschließt den
+ * privaten Schlüssel mit einem Wiederherstellungscode, der nirgends auf dem
+ * Server steht.
+ *
+ * FÜR BEIDE TÜREN GILT: es zählen die WIRKSAMEN Rechte, nicht die
+ * Rollenvorgabe. Beim Vergeben ist die Zielmenge trotzdem `ROLE_DEFAULTS`,
+ * und das ist kein Näherungswert, sondern genau richtig: `setRole()`
+ * (services/users.ts) löscht beim Rollenwechsel alle persönlichen Ausnahmen
+ * des Ziels, die Rollenvorgabe IST danach dessen ganze Rechtemenge. Beim
+ * Übernehmen bleiben die Ausnahmen stehen, also muss dort `permissionsFor()`
+ * gefragt werden — sonst käme ein Administrator, dem der Inhaber einzeln
+ * `permission.manage` gegeben hat, unter seiner Rollenvorgabe durch.
+ */
+
+/**
+ * Eine Rolle aus einer Anfrage — geprüft gegen die wirkliche Liste.
+ *
+ * `ROLES` (@stellium/shared) ist die Liste der Rollen. Alles andere ist
+ * keine Rolle, auch wenn es wie eine aussieht.
+ *
+ * HIER STAND EINE FALSCHE ZUSAGE, und sie ist es wert, benannt zu werden:
+ * „ROLES ist dieselbe Quelle, aus der die Oberfläche ihr Auswahlfeld baut."
+ * Das stimmt nicht. `packages/desktop/src/components/TeamAdmin.tsx` trägt
+ * ganz oben eine eigene, von Hand geschriebene Liste `ROLLEN` mit genau
+ * vier Einträgen (owner, admin, member, guest) und importiert `ROLES`
+ * nirgends — nachgesehen am 2026-08-23, im ganzen Ordner
+ * packages/desktop/src kein einziges Vorkommen.
+ *
+ * Damit gab es DREI Stände derselben Liste: `ROLES` mit zehn,
+ * `users.setRole()` mit vier (inzwischen behoben, Begründung dort) und die
+ * Oberfläche mit vier. Zwei davon sind jetzt eine; die Oberfläche ist der
+ * verbliebene dritte. Solange sie ihre vier behält, zeigt sie für ein Konto
+ * mit einer der sechs übrigen Rollen bei der Rollenbeschriftung nichts an
+ * (`ROLLEN.find(...)?.label` wird undefined) — erreichbar schon immer über
+ * die Kontoerstellung, die alle zehn annimmt, seit der Behebung in
+ * setRole() zusätzlich über /role. Wer TeamAdmin.tsx anfasst: das
+ * Auswahlfeld gehört aus `ROLES` gebaut, dann ist auch dieser Stand weg.
+ */
+export function rolleLesen(wert: unknown): MemberRole | null {
+  if (typeof wert !== 'string') return null;
+  return ROLES.some((r) => r.name === wert) ? (wert as MemberRole) : null;
+}
+
+type Rechtesatz = ReadonlySet<PermissionKey>;
+
+/**
+ * DIE eine Vergleichsstelle: welches Recht aus `fremde` fehlt `eigene`?
+ * `null` heißt „keins" — `eigene` deckt `fremde` vollständig ab.
+ *
+ * Punkt 2 der Regel oben UND die Regel für das Übernehmen laufen beide
+ * hierher. Ein zweiter Vergleich daneben wäre eine zweite Wahrheit, und
+ * genau daran ist die Rollenregel schon einmal auseinandergelaufen (siehe
+ * den Kopfkommentar von src/pruefungen/rechte-eskalation.mts).
+ *
+ * Zurückgegeben wird das fehlende Recht und nicht nur ein `false`, weil der
+ * Aufrufer die BEGRÜNDUNG braucht: die Route schreibt sie in die Meldung,
+ * damit dort „dir fehlt das Recht X" steht und nicht „geht nicht".
+ */
+function erstesFehlendesRecht(eigene: Rechtesatz, fremde: Rechtesatz): PermissionKey | null {
+  for (const k of fremde) if (!eigene.has(k)) return k;
+  return null;
+}
+
+/** Punkt 3: hält `eigene` mindestens ein Recht, das `fremde` nicht hat? */
+function haeltEinRechtMehr(eigene: Rechtesatz, fremde: Rechtesatz): boolean {
+  for (const k of eigene) if (!fremde.has(k)) return true;
+  return false;
+}
+
+/** Die Nachschlagetabelle aus `permissionsFor()` als Menge. */
+function rechtesatzVon(tabelle: Record<PermissionKey, boolean>): Rechtesatz {
+  return new Set(PERMISSION_KEYS.filter((k) => tabelle[k] === true));
+}
+
+/** Punkt 1 bis 3 der Regel oben, in dieser Reihenfolge. */
+export function darfRolleVergeben(userId: string, rolle: MemberRole): boolean {
+  if (store.getSelf(userId)?.role === 'owner') return true;          // (1)
+  const eigene = rechtesatzVon(users.permissionsFor(userId));
+  /* Zielmenge ist die Rollenvorgabe, nicht `permissionsFor()` — Begründung
+     im letzten Absatz der Regel oben (setRole() räumt die Ausnahmen weg). */
+  const ziel: Rechtesatz = new Set(ROLE_DEFAULTS[rolle] ?? []);
+  if (erstesFehlendesRecht(eigene, ziel) !== null) return false;     // (2)
+  return haeltEinRechtMehr(eigene, ziel);                            // (3)
+}
+
+/**
+ * Darf `userId` das Konto `zielId` übernehmen — also dessen Passwort
+ * zurücksetzen und das Einmal-Passwort ausgehändigt bekommen?
+ *
+ * `null` heißt ja. Sonst kommt das erste Recht zurück, das dem Aufrufenden
+ * dazu fehlt; die Route macht daraus die Meldung.
+ *
+ * OHNE SONDERFÄLLE, UND DAS IST ABSICHT — die beiden Fälle, die sonst
+ * jeder für sich hier stünden, fallen aus der Regel heraus:
+ *
+ *   Der Inhaber. `effectivePermissions()` (shared/permissions.ts) gibt der
+ *   Rolle `owner` jedes Recht des Katalogs zurück und lässt persönliche
+ *   Ausnahmen dabei ausdrücklich nicht gelten. Eine Obermenge von allem ist
+ *   Obermenge auch von jedem Einzelnen — der Inhaber kommt hier immer durch,
+ *   ohne dass ein `if` das eigens erlauben müsste. (Ein ZWEITER Inhaber als
+ *   Ziel bleibt trotzdem gesperrt: das erledigt die ältere, unveränderte
+ *   Sperre in der Route selbst.)
+ *
+ *   Das eigene Passwort. Jede Menge enthält sich selbst; `zielId === userId`
+ *   findet nie ein fehlendes Recht. Auch dafür braucht es keine Ausnahme.
+ *
+ * Ein Sonderfall, den man nicht schreibt, kann später nicht falsch werden.
+ */
+export function fehlendesRechtZurUebernahme(userId: string, zielId: string): PermissionKey | null {
+  return erstesFehlendesRecht(
+    rechtesatzVon(users.permissionsFor(userId)),
+    rechtesatzVon(users.permissionsFor(zielId)),
+  );
+}
+
+/**
+ * Wie `verbindungen()` (ws/gateway.ts), aber `benutzer` zählt nur, wer
+ * wirklich zum Team gehört — kein technisches Konto (Bot, KI-Assistent,
+ * künftige Integrationen), keins, das gesperrt oder gelöscht ist. Speist
+ * den Nenner *und* den Zähler des „Team online"-Bogens in der App
+ * (SystemPanel.tsx liest `verbunden.benutzer` gegen `inhalt.users`, siehe
+ * systemwerte.ts/stellium-konsole.mjs für die andere Hälfte derselben
+ * Rechnung) — und in der Zeile `system.verbunden` gleich mit, aus demselben
+ * Grund: „Personen" soll Personen heißen, kein Bot.
+ *
+ * `clients` bleibt roh: die Zahl offener Verbindungen ist ein technischer
+ * Wert, kein Team-Wert, und ein Bot, der mitzählt, ist dort einfach richtig.
+ *
+ * Welche Rollen als „technisch" gelten, kommt aus `ROLES`/`technical`
+ * (@stellium/shared) — nicht aus einer von Hand gepflegten Liste, siehe
+ * TeamAdmin.tsx (ZUWEISBARE_ROLLEN) für dieselbe Quelle. Die Bedingung
+ * spiegelt bewusst `toUser()` (services/store.ts, Feld `technisch`): eine
+ * gewählte Kategorie schlägt die Vermutung aus der Rolle. `disabled`/
+ * `deleted_at` dürften unter den Verbundenen ohnehin nie auftauchen —
+ * `setDisabled()`/`deleteAccount()` (services/users.ts) kappen laufende
+ * Sitzungen aktiv (`sitzungenKappen`) —, die Prüfung bleibt trotzdem stehen,
+ * weil sie nichts kostet und die Zahl auch dann noch stimmt, wenn das
+ * einmal nicht gilt.
+ */
+function teamVerbunden(): { clients: number; benutzer: number } {
+  const roh = verbindungen();
+  const ids = onlineUserIds();
+  if (!ids.length) return { clients: roh.clients, benutzer: 0 };
+
+  const technischeRollen = ROLES.filter((r) => r.technical).map((r) => r.name);
+  const rollenBedingung = technischeRollen.length
+    ? `role IN (${placeholders(technischeRollen.length)})`
+    : '0';
+  const zeile = db.get<{ n: number }>(
+    `SELECT COUNT(*) AS n FROM users
+     WHERE id IN (${placeholders(ids.length)})
+       AND deleted_at IS NULL AND disabled = 0
+       AND NOT (
+         (kategorie IS NOT NULL AND kategorie = 'technisch')
+         OR (kategorie IS NULL AND ${rollenBedingung})
+       )`,
+    ...ids, ...technischeRollen,
+  );
+  return { clients: roh.clients, benutzer: zeile?.n ?? 0 };
+}
+
 export async function registerRoutes(app: FastifyInstance): Promise<void> {
   /* Was ein Absturz mitten in einer Übernahme liegengelassen hat, wird jetzt
      zu Ende gebracht. Steht hier und nicht in einem eigenen Zeitgeber, weil es
@@ -232,7 +627,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   ablage.offeneUebernahmenFortsetzen();
 
   app.get('/api/health', async () => ({
-    verbunden: verbindungen(),
+    verbunden: teamVerbunden(),
     ok: true,
     /* Welche Fassung hier wirklich läuft. Ohne diese Zeile endete das
        Ausliefern mit „veröffentlicht", ohne dass jemand nachsehen konnte, ob
@@ -374,24 +769,116 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     fehler(reply, 403, 'fehler.keineSelbstanmeldung',
       'Konten legt die Team-Leitung an. Frage nach einem Einmal-Passwort.'));
 
+  /**
+   * Die Wegbeschreibung für den Anmeldenachweis — VOR der Anmeldung, also
+   * ohne jeden Nachweis abrufbar.
+   *
+   * WAS SIE VERRÄT: NICHTS. Sie antwortet auf jeden eingetippten Namen mit
+   * derselben Art von Auskunft. Gibt es kein Konto — oder gibt es eines, das
+   * noch keinen Nachweis hinterlegt hat —, kommt ein Salz, das aus dem
+   * Servergeheimnis und dem Namen abgeleitet ist: für denselben Namen immer
+   * dasselbe, von echtem Zufall nicht zu unterscheiden. Die drei Zustände
+   * (Konto mit Nachweis / Konto ohne Nachweis / kein Konto) sehen von außen
+   * gleich aus. Siehe salzFuer() in services/anmeldenachweis.ts.
+   *
+   * POST und nicht GET, obwohl nichts geschrieben wird: bei GET stünde der
+   * Benutzername in der Adresse und damit in jedem Zugriffsprotokoll, in der
+   * Verlaufsliste des Browsers und in jeder Weiterleitungskopfzeile. Diese
+   * Aufgabe handelt davon, dass beim Anmelden weniger beim Server landet —
+   * dann nicht ausgerechnet hier den Namen ins Protokoll schreiben.
+   *
+   * DIE BREMSE GILT AUCH HIER, aber nur lesend: wer schon zu oft falsch
+   * geraten hat, bekommt auch kein Salz mehr. GEZÄHLT wird hier bewusst
+   * nicht — sonst könnte jemand ein Konto von außen aussperren, indem er
+   * bloß Salz abfragt, ohne je ein Passwort zu raten.
+   */
+  app.post('/api/auth/anmeldesalz', async (req, reply) => {
+    const { login } = (req.body ?? {}) as { login?: unknown };
+    /* Auf den TYP prüfen, nicht nur auf "irgendwas Wahres": ein Rumpf wie
+       {"login":{}} kam an dieser Stelle durch und lief erst im .trim()
+       darunter auf einen Fehler — eine 500 statt der 400, die hier
+       hingehört. Keine Lücke, aber die falsche Antwort. */
+    if (typeof login !== 'string' || !login) {
+      return fehler(reply, 400, 'fehler.zugangsdatenFehlen', 'Zugangsdaten fehlen');
+    }
+    const herkunft = bremsSchluessel(req.ip, login);
+    if (zuVieleVersuche(herkunft)) {
+      return fehler(reply, 429, 'fehler.zuVieleVersuche',
+        'Zu viele Versuche. Bitte eine Minute warten.');
+    }
+    const row = users.findByLogin(login);
+    return anmeldenachweis.salzFuer(row?.id ?? null, login);
+  });
+
+  /**
+   * Anmeldung — auf ZWEI Wegen, und der alte bleibt unangetastet.
+   *
+   * `password`  Der Weg, den es immer gab. Jede ältere App, jeder Browser
+   *             mit gemerktem Bündel und jede Person, die nicht
+   *             aktualisiert hat, kommt hier herein — auch bei einem Konto,
+   *             das den neuen Weg längst benutzt. Das ist keine
+   *             Übergangsfreundlichkeit, sondern die Sicherung dieses
+   *             Umbaus: der Server steht auf einem Rechner, an den niemand
+   *             herankommt, und ein Ausschluss wäre dort nicht
+   *             zurückzunehmen.
+   *
+   * `nachweis`  Der neue Weg. Das Gerät hat PBKDF2 über das Passwort
+   *             gerechnet (Salz von `/api/auth/anmeldesalz`), das Passwort
+   *             selbst erreicht den Server nicht mehr. Damit kann auch ein
+   *             Server, der in diesem Augenblick mitschriebe, den
+   *             Kontoschlüssel nicht mehr herleiten — der Grund für die
+   *             ganze Übung, siehe services/anmeldenachweis.ts.
+   *
+   * BEIDE WEGE HÄNGEN AN DERSELBEN BREMSE, demselben `herkunft`-Schlüssel
+   * und demselben zeitgleichen Nein-Weg. Sie stehen absichtlich in EINER
+   * Route und nicht in zweien: eine zweite Route wäre eine zweite Tür, an
+   * der jemand die Bremse hätte vergessen können — der bequeme Weg wäre
+   * dann der ungebremste gewesen.
+   *
+   * EIN FEHLGESCHLAGENER NACHWEIS IST EIN GEWÖHNLICHES 401 — dasselbe wie
+   * ein falsches Passwort, dieselbe Kennung, dieselbe scrypt-Zeit. Kein
+   * eigener Text für "dieses Konto hat noch keinen Nachweis": das wäre die
+   * Auskunft, dass es das Konto gibt. Die App weiß, was zu tun ist, ohne
+   * gesagt zu bekommen warum — sie fällt auf den alten Weg zurück und
+   * hinterlegt danach einen Nachweis.
+   */
   app.post('/api/auth/login', async (req, reply) => {
-    const { login, password } = req.body as { login?: string; password?: string };
-    if (!login || !password) return fehler(reply, 400, 'fehler.zugangsdatenFehlen', 'Zugangsdaten fehlen');
+    const { login, password, nachweis } = (req.body ?? {}) as
+      { login?: unknown; password?: unknown; nachweis?: unknown };
+    /* Der Nachweis tritt an die Stelle des Passworts, nicht daneben. Kämen
+       beide, wäre der Nachweis Zierat und das Passwort läge trotzdem beim
+       Server — genau der Zustand, den diese Änderung abschafft. */
+    const geheim = password || nachweis;
+    /* Auf den TYP prüfen, nicht nur auf "irgendwas Wahres": {"login":{}}
+       kam hier durch und starb erst im .trim() darunter, {"password":{}}
+       erst im scrypt — beides eine 500, wo eine 400 hingehört. */
+    if (typeof login !== 'string' || !login || typeof geheim !== 'string' || !geheim) {
+      return fehler(reply, 400, 'fehler.zugangsdatenFehlen', 'Zugangsdaten fehlen');
+    }
 
     // Wer es zu oft falsch versucht, wartet. scrypt macht jeden Versuch
     // ohnehin teuer, aber eine Bremse gehört an die Tür, nicht ins Schloss.
-    const herkunft = `${req.ip}|${login.toLowerCase()}`;
+    const herkunft = bremsSchluessel(req.ip, login);
     if (zuVieleVersuche(herkunft)) {
       return fehler(reply, 429, 'fehler.zuVieleVersuche',
         'Zu viele Versuche. Bitte eine Minute warten.');
     }
 
     const row = users.findByLogin(login);
+    /* Wogegen geprüft wird, hängt am WEG, nicht am Konto: wer ein Passwort
+       schickt, wird gegen users.password_hash geprüft (unverändert), wer
+       einen Nachweis schickt, gegen den hinterlegten Nachweis. Ein Konto,
+       das noch keinen hat, liefert hier `null` — und dann greift derselbe
+       Platzhalter wie bei einem Konto, das es gar nicht gibt. */
+    const hinterlegt = password
+      ? (row?.password_hash ?? null)
+      : (row ? anmeldenachweis.nachweisHash(row.id) : null);
+
     // Auch bei unbekanntem Konto das Passwort prüfen, damit die Antwortzeit
     // nicht verrät, ob es den Benutzernamen gibt.
-    const gueltig = row
-      ? verifyPassword(password, row.password_hash)
-      : verifyPassword(password, '$scrypt$16384$8$1$AAAA$AAAA');
+    const gueltig = hinterlegt
+      ? verifyPassword(geheim, hinterlegt)
+      : verifyPassword(geheim, '$scrypt$16384$8$1$AAAA$AAAA');
 
     if (!row || !gueltig) {
       versuchGezaehlt(herkunft);
@@ -403,6 +890,32 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         'Dieses Konto ist gesperrt. Wende dich an die Team-Leitung.');
     }
     return { token: signToken(row.id), user: store.getSelf(row.id) };
+  });
+
+  /**
+   * Einen Anmeldenachweis hinterlegen — von einem Gerät, das sich gerade
+   * klassisch angemeldet hat und deshalb das Passwort im Klartext hatte.
+   *
+   * Braucht ein Token, also eine bestandene Anmeldung. Das ist der ganze
+   * Wächter und er reicht: wer sich anmelden konnte, kannte das Passwort,
+   * und ein Nachweis, den er daraus ableitet, gehört zu genau diesem Konto.
+   *
+   * NICHT in OHNE_EINRICHTUNG_ERLAUBT (server/src/index.ts), und das ist
+   * Absicht: wer noch mit einem Einmal-Passwort dasteht, soll dafür keinen
+   * Nachweis hinterlegen — das Passwort wird gleich ersetzt und der Nachweis
+   * wäre schon beim Anlegen veraltet. Der Einrichtungsriegel weist diesen
+   * Weg in genau diesem Zustand von selbst ab; die App fängt das ab und
+   * versucht es bei der nächsten Anmeldung wieder.
+   */
+  app.post('/api/auth/nachweis', async (req, reply) => {
+    const userId = requireUser(req);
+    const blob = req.body as AnmeldeNachweisBlob;
+    try {
+      anmeldenachweis.hinterlegen(userId, blob);
+    } catch (err) {
+      return weiterreichen(reply, 400, err);
+    }
+    return { ok: true };
   });
 
   /** Ersteinrichtung nach dem Einmal-Passwort. */
@@ -421,28 +934,439 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     return { user: store.getSelf(userId) };
   });
 
-  /** Passwort selbst ändern. */
+  /**
+   * Passwort selbst ändern — und dabei den Kontoschlüssel mitnehmen.
+   *
+   * `kontoSchluessel` ist der bestehende Kontoschlüssel, von der App neu
+   * umschlossen. Nur sie kann das: in diesem Augenblick hat sie beide
+   * Passwörter im Klartext, der Server keines von beiden dauerhaft und den
+   * abgeleiteten Schlüssel nie. Fehlt das Feld (ältere App), läuft der
+   * Wechsel trotzdem durch — siehe changeOwnPassword() in services/users.ts
+   * für die ausführliche Begründung, warum Ablehnen hier schlechter wäre.
+   */
   app.post('/api/auth/password', async (req, reply) => {
     const userId = requireUser(req);
-    const { current, next } = req.body as { current?: string; next?: string };
+    const { current, next, kontoSchluessel } = req.body as {
+      current?: string; next?: string; kontoSchluessel?: KontoSchluesselBlob;
+    };
     if (!current || !next) return fehler(reply, 400, 'fehler.beidePasswoerter', 'Beide Passwörter angeben');
     try {
-      users.changeOwnPassword(userId, current, next, verifyPassword);
+      users.changeOwnPassword(userId, current, next, verifyPassword, kontoSchluessel);
     } catch (err) {
       return weiterreichen(reply, 400, err);
     }
     return { ok: true };
   });
 
+  /* ── Der Kontoschlüssel ─────────────────────────────────────
+     Über HTTP und nicht über den Draht (ws/gateway.ts), obwohl alles andere
+     an den Notizen dort läuft: gebraucht wird er im Augenblick der
+     Anmeldung, und da steht die Verbindung noch nicht. Der Server verwahrt
+     hier nur Bytes — siehe services/kontoschluessel.ts. */
+
+  /**
+   * Den eigenen, verschlossenen Kontoschlüssel abholen.
+   *
+   * `notzugangWartet` ist das Feld, ohne das der Notzugang sich selbst
+   * zerstörte. Nach einem schonenden Verwerfen (services/kontoschluessel.ts)
+   * steht hier `schluessel: null` — die Passworthülle ist tot, der Schlüssel
+   * dahinter lebt aber weiter und wartet auf drei Anteile. Eine App, die nur
+   * die Null sieht, mintet nach ihrer eigenen Regel einen frischen
+   * Kontoschlüssel und räumt damit alles weg, was gerade gerettet werden
+   * soll. Dieses Feld sagt ihr: Finger weg, hier läuft eine
+   * Wiederherstellung. (Der Server weist einen Ersatz zusätzlich ab — das
+   * Feld ist die Höflichkeit, die Abweisung die Sicherung.)
+   *
+   * Die Auskunft kommt aus kontoschluessel.notzugangWartet() und wird hier
+   * NICHT ein zweites Mal ausgerechnet. Hier stand
+   * `!schluessel && notzugang.standFuer(userId).eingerichtet` — eine andere
+   * Rechnung als die, mit der der Server nebenan über Annehmen oder Abweisen
+   * entscheidet. Zwei Rechnungen für eine Frage widersprechen sich
+   * irgendwann, und hier taten sie es in beide Richtungen: die App bekam
+   * „Finger weg", während der Server einen Ersatz annahm, und umgekehrt.
+   */
+  app.get('/api/konto/schluessel', async (req) => {
+    const userId = requireUser(req);
+    return {
+      schluessel: kontoschluessel.holen(userId),
+      notzugangWartet: kontoschluessel.notzugangWartet(userId),
+    };
+  });
+
+  /**
+   * Hinterlegen — umschließen oder ersetzen, entschieden am Abdruck (siehe
+   * services/kontoschluessel.ts). Die Antwort trägt die Fassung zurück: ohne
+   * sie dürfte das Gerät kein einziges Notiz-Kontopaket schreiben.
+   */
+  app.post('/api/konto/schluessel', async (req, reply) => {
+    const userId = requireUser(req);
+    const blob = req.body as KontoSchluesselBlob;
+    try {
+      return { fassung: kontoschluessel.hinterlegen(userId, blob) };
+    } catch (err) {
+      return weiterreichen(reply, 400, err);
+    }
+  });
+
+  /* ── Der Notzugang: „3 von 5" ────────────────────────────────
+     Auch hier über HTTP und nicht über den Draht, aus demselben Grund wie
+     beim Kontoschlüssel darüber: gebraucht wird das rund um die Anmeldung.
+     Der Server verwahrt Bytes und zählt — siehe services/notzugang.ts. */
+
+  /**
+   * Der eigene Stand: eingerichtet, wer hält, wie viele Anteile heute noch
+   * brauchbar sind, und ob gerade eine Wiederherstellung läuft.
+   *
+   * `notzugangWartet` kommt aus `kontoschluessel.notzugangWartet(userId)` —
+   * DERSELBEN Rechnung, die GET /api/konto/schluessel weiter oben schon
+   * ausgibt, und nicht aus einer zweiten. `notzugang.standFuer()` kennt sie
+   * bewusst nicht (siehe dort): der einzige Ort, an dem beide Dienste schon
+   * zusammenkommen, ist hier.
+   */
+  const standMitWartet = (userId: string) => (
+    { ...notzugang.standFuer(userId), notzugangWartet: kontoschluessel.notzugangWartet(userId) }
+  );
+
+  app.get('/api/konto/notzugang', async (req) => {
+    const userId = requireUser(req);
+    return {
+      stand: standMitWartet(userId),
+      huelle: notzugang.huelleHolen(userId),
+      anfrage: notzugang.eigeneAnfrage(userId),
+      protokoll: notzugang.protokollFuer(userId),
+    };
+  });
+
+  /** Einrichten oder erneuern. Alles fertig verschlossen aus der App. */
+  app.post('/api/konto/notzugang', async (req, reply) => {
+    const userId = requireUser(req);
+    const { huelle, anteile } = req.body as {
+      huelle?: NotzugangHuelle; anteile?: NotzugangAnteilBlob[];
+    };
+    if (!huelle || !Array.isArray(anteile)) {
+      return fehler(reply, 400, 'fehler.notzugangUngueltig', 'Der Notzugang ist unvollständig.');
+    }
+    try {
+      notzugang.einrichten(userId, huelle, anteile);
+    } catch (err) {
+      return weiterreichen(reply, 400, err);
+    }
+    return { stand: standMitWartet(userId) };
+  });
+
+  /**
+   * Den eigenen Notzugang aufheben.
+   *
+   * `verbrannt` geht mit zurück — vorher endete die Antwort bei `{ ok: true
+   * }`, ganz gleich, ob der Klick nur die Rettungsleine kappte oder eben
+   * noch Notizen und Passwort-Tresor endgültig gelöscht hat. Der Browser-
+   * Aufbau, ein direkter API-Aufruf oder eine Tafel mit einem veralteten
+   * `stand`-Stand (NotzugangPanel.tsx lädt ihn beim Öffnen einmal) konnten
+   * die Rückfrage im Renderer umgehen; die Meldung DANACH log ehrlich sein,
+   * ganz gleich, ob die Rückfrage lief.
+   *
+   * Kein Notzugang zum Aufheben da (schon aufgehoben, nie eingerichtet) ->
+   * notzugang.aufheben() weist mit `fehler.notzugangNichtVorhanden` ab,
+   * statt ein zweites Mal niederzubrennen (siehe dort).
+   */
+  app.delete('/api/konto/notzugang', async (req, reply) => {
+    const userId = requireUser(req);
+    try {
+      const verbrannt = notzugang.aufheben(userId, userId);
+      return { ok: true, verbrannt };
+    } catch (err) {
+      return weiterreichen(reply, 400, err);
+    }
+  });
+
+  /**
+   * Den Notzugang einer ANDEREN Person aufheben — mit `user.manage`.
+   *
+   * Das ist der einzige Griff, den die Verwaltung an einem fremden Notzugang
+   * hat, und er geht nur in eine Richtung: er ZERSTÖRT die Rettungsleine und
+   * öffnet nichts. Gebraucht wird er für den Fall, für den der Notzugang
+   * gerade NICHT gedacht ist — ein durchgesickertes (statt vergessenes)
+   * Passwort.
+   *
+   * Die Reihenfolge ist dabei egal geworden, und das war sie nicht immer:
+   * „erst aufheben, dann zurücksetzen" ließ kontoschluessel.verwerfen() in
+   * den harten Zweig laufen, „erst zurücksetzen, dann aufheben" nicht — dort
+   * schonte das Zurücksetzen die Pakete und das Aufheben sah den
+   * Kontoschlüssel gar nicht an. Seither holt notzugang.aufheben() das
+   * Niederbrennen selbst nach, wenn keine Passworthülle mehr dasteht.
+   *
+   * Zurück geht die Kontenliste, wie bei jedem anderen Griff der Verwaltung
+   * daneben: `hatNotzugang` und `notzugangAufhebenVerbrennt` stehen darin
+   * (services/store.ts), und TeamAdmin.tsx zeigt daran VOR dem Klick, ob ein
+   * Zurücksetzen — bzw. dieser Klick selbst, siehe unten — den
+   * Kontoschlüssel verbrennt. Ohne die frische Liste behauptete sie nach dem
+   * Aufheben weiter das Gegenteil.
+   *
+   * Und `verbrannt` geht zusätzlich zurück, NEBEN der Liste: die Liste sagt
+   * nur noch, wie es JETZT steht, nicht mehr, was der gerade abgeschickte
+   * Klick bewirkt hat — ein Konto, dessen Kontoschlüssel gerade eben
+   * verbrannt ist, sieht danach genauso aus wie eines, das nie einen hatte.
+   * TeamAdmin.tsx braucht beides: die Liste für die nächste Anzeige, den
+   * Rückgabewert für die Meldung ÜBER DIESEN Klick.
+   */
+  app.delete('/api/admin/notzugang/:id', async (req, reply) => {
+    const userId = requireUser(req);
+    requirePermission(userId, 'user.manage');
+    const { id } = req.params as { id: string };
+    const ziel = store.getUser(id);
+    if (!ziel) return fehler(reply, 404, 'fehler.kontoNichtGefunden', 'Konto nicht gefunden');
+
+    /* DIESELBEN ZWEI SPERREN WIE BEIM ZURÜCKSETZEN (weiter unten,
+       /api/admin/users/:id/reset-password). Sie fehlten hier, und der
+       Unterschied war nicht klein: `user.manage` allein genügte, um die
+       Rettungsleine JEDER Person zu kappen — auch die des Inhabers, und auch
+       die einer Person, deren Passwort dieselbe Person nicht zurücksetzen
+       darf.
+
+       Dass das Aufheben nichts ÖFFNET, trägt als Begründung nicht mehr. Es
+       stimmt weiterhin (siehe services/notzugang.ts, Dateikopf), aber der
+       Griff steht nicht mehr allein da: er brennt seit dieser Fassung den
+       Kontoschlüssel selbst nieder, sobald keine Passworthülle mehr dasteht
+       — und in jedem anderen Fall macht er aus dem nächsten, gewöhnlichen
+       Zurücksetzen die vollständige Vernichtung von Notizen und Tresor. Wer
+       ein Konto nicht übernehmen darf, darf es auch nicht so weit bringen. */
+    if (ziel.role === 'owner' && id !== userId) {
+      return fehler(reply, 403, 'fehler.ownerNotzugangSelbst',
+        'Den Notzugang des Owners kann nur er selbst aufheben.');
+    }
+    const fehltZurUebernahme = fehlendesRechtZurUebernahme(userId, id);
+    if (fehltZurUebernahme) {
+      const name = PERMISSIONS.find((p) => p.key === fehltZurUebernahme)?.labelDe ?? fehltZurUebernahme;
+      return fehler(reply, 403, 'fehler.keinRechtName',
+        `Dafür fehlt dir das Recht "${name}".`, { recht: name });
+    }
+
+    /* Kein Notzugang zum Aufheben da (schon aufgehoben, ein Wettlauf zweier
+       Klicks, ein Skript, das die Route noch einmal trifft) -> Abweisung
+       statt eines zweiten, stillen Niederbrennens. Siehe
+       services/notzugang.ts, aufheben(). */
+    let verbrannt: boolean;
+    try {
+      verbrannt = notzugang.aufheben(id, userId);
+    } catch (err) {
+      return weiterreichen(reply, 400, err);
+    }
+
+    /* UND DIE PERSON ERFÄHRT ES. Bisher stand das Aufheben nur in ihrer
+       eigenen Tafel — sichtbar für den, der sie aufschlägt, also frühestens
+       an dem Tag, an dem er die Rettungsleine braucht und sie nicht mehr
+       findet. Zwei Texte, weil es zwei verschiedene Nachrichten sind: die
+       Leine ist weg, oder Notizen und Tresor sind es auch. Ein Schaden, den
+       die betroffene Person erst Wochen später bemerkt, ist ein Schaden, den
+       niemand mehr einordnen kann. */
+    const durch = store.getSelf(userId)?.displayName ?? '';
+    void push.sendenAn(id, {
+      titel: { text: 'Notzugang aufgehoben', code: 'notzugang.pushAufgehobenTitel' as const },
+      text: verbrannt
+        ? {
+            text: `${durch} hat deinen Notzugang aufgehoben. Notizen und Tresor sind damit endgültig verloren.`,
+            code: 'notzugang.pushAufgehobenVerbrannt',
+            werte: { name: durch },
+          }
+        : {
+            text: `${durch} hat deinen Notzugang aufgehoben. Ein vergessenes Passwort holt dich jetzt nicht mehr zurück.`,
+            code: 'notzugang.pushAufgehoben',
+            werte: { name: durch },
+          },
+      gruppe: 'notzugang',
+    });
+
+    /* `verbrannt` geht auch an die Verwaltung zurück, nicht nur an die
+       betroffene Person im Push oben — siehe TeamAdmin.tsx: derselbe Knopf,
+       dieselbe Beschriftung, zwei ganz verschiedene Ausgänge, und die
+       Verwaltung erfuhr bisher keinen davon zuverlässig, sondern nur einen
+       festen Erfolgstext. */
+    return { ok: true, verbrannt, users: store.listManagedUsers() };
+  });
+
+  /** Eine Wiederherstellung anstoßen. Der Code selbst bleibt auf dem Gerät —
+   *  hier kommt nur sein Abdruck an. */
+  app.post('/api/konto/notzugang/anfrage', async (req, reply) => {
+    const userId = requireUser(req);
+    const { codeAbdruck } = req.body as { codeAbdruck?: string };
+    if (!codeAbdruck) return fehler(reply, 400, 'fehler.notzugangUngueltig', 'Der Code fehlt.');
+    try {
+      return { anfrage: notzugang.anfragen(userId, codeAbdruck) };
+    } catch (err) {
+      return weiterreichen(reply, 400, err);
+    }
+  });
+
+  /** Die eigene Anfrage zurückziehen. */
+  app.delete('/api/konto/notzugang/anfrage/:id', async (req, reply) => {
+    const userId = requireUser(req);
+    const { id } = req.params as { id: string };
+    try {
+      notzugang.abbrechen(userId, id);
+    } catch (err) {
+      return weiterreichen(reply, 400, err);
+    }
+    return { ok: true };
+  });
+
+  /** Was auf mich als haltende Person wartet — samt meinem verschlossenen
+   *  Anteil, der ohne meinen privaten Schlüssel nichts hergibt. */
+  app.get('/api/konto/notzugang/aufgaben', async (req) => {
+    const userId = requireUser(req);
+    return { aufgaben: notzugang.aufgabenFuer(userId) };
+  });
+
+  /** Einen Anteil beisteuern — doppelt verschlossen, fertig aus der App. */
+  app.post('/api/konto/notzugang/beitrag', async (req, reply) => {
+    const userId = requireUser(req);
+    const { anfrageId, paket, codeAbdruck } = req.body as {
+      anfrageId?: string; paket?: FluechtigesPaket; codeAbdruck?: string;
+    };
+    if (!anfrageId || !paket || !codeAbdruck) {
+      return fehler(reply, 400, 'fehler.notzugangUngueltig', 'Der Notzugang ist unvollständig.');
+    }
+    try {
+      notzugang.beitragen(userId, anfrageId, paket, codeAbdruck);
+    } catch (err) {
+      return weiterreichen(reply, 400, err);
+    }
+    return { ok: true };
+  });
+
+  /**
+   * Die gesammelten Beiträge zur eigenen Anfrage.
+   *
+   * UND DIE STELLE, AN DER DIE MELDUNG RAUSGEHT. Sie hing bisher allein an
+   * `/einloesen`, und das ruft die App, NACHDEM sie den Kontoschlüssel schon
+   * zurückhat (lib/notzugang.ts). Eine App, die diesen letzten Aufruf
+   * wegließe, käme lautlos an einen fremden Kontoschlüssel. Hier dagegen
+   * gehen die Anteile tatsächlich über die Leitung — ab der Schwelle ist der
+   * Notschlüssel rechnerisch erreichbar, und genau das ist das Ereignis, über
+   * das zu berichten ist. `herausgabeVermerken()` schreibt die Spur und gibt
+   * die zu benachrichtigenden Personen genau einmal je Anfrage zurück; ein
+   * zweiter Abruf löst keine zweite Meldung aus.
+   */
+  app.get('/api/konto/notzugang/beitraege/:id', async (req, reply) => {
+    const userId = requireUser(req);
+    const { id } = req.params as { id: string };
+    let beitraege;
+    try {
+      beitraege = notzugang.beitraegeHolen(userId, id);
+    } catch (err) {
+      return weiterreichen(reply, 400, err);
+    }
+    const zuMelden = notzugang.herausgabeVermerken(userId, id);
+    if (zuMelden.length) {
+      const name = store.getSelf(userId)?.displayName ?? '';
+      /* Die Zahl im Text ist die GESAMTZAHL der herausgegebenen Anteile, nicht
+         die der neu gemeldeten. `zuMelden` enthält seit der Meldung je Person
+         (services/notzugang.ts) beim Nachzügler nur noch einen einzigen Namen
+         — „1 Anteile" stünde dann auf dem Sperrbildschirm, und die Meldung
+         wäre obendrein falsch: es sind vier unterwegs, nicht einer.
+         `beitraege` ist genau die Liste, die der Server soeben herausgegeben
+         hat, also die richtige Zahl. Sie ist nie kleiner als die Schwelle —
+         darunter meldet herausgabeVermerken() gar nichts. */
+      for (const ziel of [userId, ...zuMelden]) {
+        void push.sendenAn(ziel, {
+          titel: { text: 'Notzugang: Anteile herausgegeben', code: 'notzugang.pushHerausgegebenTitel' as const },
+          text: {
+            text: `Für den Notzugang von ${name} wurden ${beitraege.length} Anteile an ein Gerät herausgegeben.`,
+            code: 'notzugang.pushHerausgegeben',
+            werte: { name, n: String(beitraege.length) },
+          },
+          gruppe: 'notzugang',
+        });
+      }
+    }
+    return { beitraege };
+  });
+
+  /**
+   * Die Anfrage schließen, nachdem das Gerät den Kontoschlüssel wiederhat.
+   *
+   * Hier entsteht die Spur und hier gehen die Meldungen raus — an die
+   * besitzende Person selbst (sie soll es auch dann erfahren, wenn nicht sie
+   * am Gerät saß) und an jede Person, deren Anteil verbraucht wurde. Ein
+   * Vorgang, bei dem jemand für einen Augenblick einen fremden
+   * Kontoschlüssel in der Hand hält, darf nicht lautlos sein.
+   */
+  app.post('/api/konto/notzugang/einloesen', async (req, reply) => {
+    const userId = requireUser(req);
+    const { anfrageId } = req.body as { anfrageId?: string };
+    if (!anfrageId) return fehler(reply, 400, 'fehler.notzugangAnfrageFehlt', 'Diese Anfrage gibt es nicht.');
+    let beteiligte: string[];
+    try {
+      beteiligte = notzugang.einloesen(userId, anfrageId);
+    } catch (err) {
+      return weiterreichen(reply, 400, err);
+    }
+    const name = store.getSelf(userId)?.displayName ?? '';
+    const titel = { text: 'Notzugang eingelöst', code: 'notzugang.pushTitel' as const };
+    for (const ziel of [userId, ...beteiligte]) {
+      void push.sendenAn(ziel, {
+        titel,
+        text: {
+          text: `Der Notzugang von ${name} wurde mit ${beteiligte.length} Anteilen eingelöst.`,
+          code: 'notzugang.pushEingeloest',
+          werte: { name, n: String(beteiligte.length) },
+        },
+        gruppe: 'notzugang',
+      });
+    }
+    return { ok: true, beteiligte };
+  });
+
   /* ── Kontenverwaltung ───────────────────────────────────────── */
 
-  /** Prüft ein Recht und wirft eine sprechende Antwort, wenn es fehlt. */
+  /**
+   * Prüft ein Recht und wirft eine sprechende Antwort, wenn es fehlt.
+   *
+   * WARUM AN DIESEM WURF EINE KENNUNG HÄNGT
+   *
+   * Dieser Wurf bewacht sechsundfünfzig Routen, und von seinem deutschen Satz
+   * kam bei niemandem je etwas an. Ein GEWORFENER Fehler geht nicht durch
+   * `fehler()` weiter unten, sondern durch Fastifys eigene Ausgabe, und die
+   * schreibt genau vier Felder: `statusCode`, `code`, `error`, `message`.
+   * `error` ist dort NICHT der deutsche Satz, sondern der Name des
+   * Statuscodes — „Forbidden". Der deutsche Satz landet in `message`, und
+   * genau die liest die Oberfläche nicht: `request()` in
+   * desktop/src/net/api.ts nimmt `error` und `code`. Ergebnis: in allen
+   * zweiundzwanzig Sprachen, Deutsch eingeschlossen, stand als Begründung das
+   * blanke englische Wort „Forbidden".
+   *
+   * `code` ist das einzige Feld, das Fastify von einem geworfenen Fehler
+   * ungefragt durchreicht (nachgemessen), und es genügt: hinaus geht die
+   * Wörterbuchadresse des fehlenden Rechts, `perm.<recht>.label`. Die gibt es
+   * in allen zweiundzwanzig Wörterbüchern, und die Oberfläche schlägt eine
+   * Kennung ohnehin zuerst nach (`uebersetzterFehler()` dort). Damit steht
+   * ohne eine einzige Änderung am Client ab jetzt der NAME des Rechts in der
+   * eingestellten Sprache, wo vorher „Forbidden" stand.
+   *
+   * Der deutsche Satz bleibt trotzdem stehen: er ist der Rückfall für alles,
+   * was die Kennung nicht kennt — dieselbe Aufteilung wie bei `fehler()`.
+   *
+   * Ein `setErrorHandler` wäre der andere Weg. Der gehört nicht in diese
+   * Datei; was am Client noch fehlt, damit aus dem Namen ein ganzer Satz
+   * wird ('fehler.keinRechtName' steht mit Platzhalter schon in allen
+   * zweiundzwanzig Wörterbüchern), steht im Bericht.
+   */
   function requirePermission(userId: string, permission: PermissionKey): void {
     if (users.may(userId, permission)) return;
     const info = PERMISSIONS.find((p) => p.key === permission);
-    const err = new Error(`Dafür fehlt dir das Recht "${info?.labelDe ?? permission}".`) as Error & { statusCode?: number };
+    const err = new Error(`Dafür fehlt dir das Recht "${info?.labelDe ?? permission}".`) as Error & {
+      statusCode?: number; code?: string;
+    };
     err.statusCode = 403;
+    err.code = `perm.${permission}.label`;
     throw err;
+  }
+
+  /** Die immer gleiche Abweisung für Punkt 2 und 3. */
+  function rolleAbweisen(reply: FastifyReply, rolle: MemberRole) {
+    const name = roleInfo(rolle)?.labelDe ?? rolle;
+    return fehler(reply, 403, 'fehler.rolleZuHoch',
+      `Die Rolle „${name}" kannst du nicht vergeben — sie reicht mindestens so weit wie deine eigene.`,
+      { rolle: name });
   }
 
   app.get('/api/permissions', async (req) => {
@@ -464,11 +1388,38 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       role?: MemberRole; language?: string; timezone?: string;
     };
     if (!body.displayName) return fehler(reply, 400, 'fehler.nameFehlt', 'Name fehlt');
-    if (body.role === 'owner' && store.getSelf(userId)?.role !== 'owner') {
+
+    /* Die Rolle wird HIER geprüft, an der Grenze, und nicht weiter innen:
+       hinter dieser Route steht mit `createAccount()` ein INSERT, der
+       `input.role ?? 'member'` ungeprüft übernimmt (services/users.ts) — die
+       Spalte hat kein CHECK, die Route kein `schema:`, und `MemberRole` ist
+       zur Laufzeit nichts. Ohne diese Zeilen war „welche Rolle bekommt das
+       neue Konto" eine freie Angabe des Aufrufers. Siehe die ausgeschriebene
+       Regel bei `darfRolleVergeben()` weiter oben. */
+    const rolle = body.role === undefined ? 'member' : rolleLesen(body.role);
+    if (!rolle) {
+      return fehler(reply, 400, 'fehler.rolleUnbekannt',
+        `Unbekannte Rolle „${String(body.role)}".`, { rolle: String(body.role) });
+    }
+    if (rolle === 'owner' && store.getSelf(userId)?.role !== 'owner') {
       return fehler(reply, 403, 'fehler.nurOwnerErnennt', 'Nur der Owner kann einen weiteren Owner ernennen.');
     }
+    if (!darfRolleVergeben(userId, rolle)) return rolleAbweisen(reply, rolle);
+
     try {
-      const konto = users.createAccount({ ...body, displayName: body.displayName, createdBy: userId });
+      /* Feld für Feld statt `...body`: was der Aufrufer sonst noch mitschickt,
+         hat in einem INSERT nichts verloren — und `role` käme beim Streuen
+         ungeprüft wieder herein, direkt neben der Prüfung, die es gerade
+         abgefangen hat. */
+      const konto = users.createAccount({
+        displayName: body.displayName,
+        handle: body.handle,
+        email: body.email,
+        role: rolle,
+        language: body.language,
+        timezone: body.timezone,
+        createdBy: userId,
+      });
       const person = store.getUser(konto.userId);
       // Ohne diese Meldung lernten die anderen Clients das neue Konto erst
       // beim nächsten Neuladen kennen — bis dahin ließe es sich nicht erwähnen.
@@ -497,6 +1448,19 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     if (ziel.role === 'owner' && id !== userId) {
       return fehler(reply, 403, 'fehler.ownerPasswortSelbst', 'Das Passwort des Owners kann nur er selbst zurücksetzen.');
     }
+    /* Die zweite Tür in denselben Raum — ausgeschriebene Begründung bei
+       `fehlendesRechtZurUebernahme()` weiter oben. Kurz: das Einmal-Passwort
+       geht gleich unten im Antwortkörper an genau diese Person hinaus, und
+       wer es hat, IST dieses Konto. Also darf nur zurücksetzen, wer jedes
+       Recht des Ziels ohnehin schon selbst hat. Die Sperre steht hier an der
+       Grenze und nicht in `users.resetPassword()` — dieselbe Aufteilung wie
+       bei `darfRolleVergeben()`/`users.setRole()`. */
+    const fehltZurUebernahme = fehlendesRechtZurUebernahme(userId, id);
+    if (fehltZurUebernahme) {
+      const name = PERMISSIONS.find((p) => p.key === fehltZurUebernahme)?.labelDe ?? fehltZurUebernahme;
+      return fehler(reply, 403, 'fehler.keinRechtName',
+        `Dafür fehlt dir das Recht "${name}".`, { recht: name });
+    }
     try {
       const passwort = users.resetPassword(id, userId);
       return {
@@ -515,8 +1479,13 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const userId = requireUser(req);
     requirePermission(userId, 'user.manage');
     const { id } = req.params as { id: string };
-    const { role } = req.body as { role?: MemberRole };
-    if (role === 'owner' && store.getSelf(userId)?.role !== 'owner') {
+    const rolle = rolleLesen((req.body as { role?: unknown })?.role);
+    if (!rolle) {
+      const roh = (req.body as { role?: unknown })?.role;
+      return fehler(reply, 400, 'fehler.rolleUnbekannt',
+        `Unbekannte Rolle „${String(roh)}".`, { rolle: String(roh) });
+    }
+    if (rolle === 'owner' && store.getSelf(userId)?.role !== 'owner') {
       return fehler(reply, 403, 'fehler.nurOwnerRolle', 'Nur der Owner kann diese Rolle vergeben.');
     }
     /* Die eigene Rolle bleibt tabu. Sonst könnte sich jeder mit 'user.manage'
@@ -524,8 +1493,16 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     if (id === userId) {
       return fehler(reply, 403, 'fehler.eigeneRolle', 'Die eigene Rolle lässt sich nicht ändern.');
     }
+    /* Ein FREMDES Konto hochzustufen war der eigentliche Weg nach oben, und
+       er war offen: gesperrt war nur `owner` und man selbst. Wer `user.manage`
+       hatte, machte ein beliebiges Konto zum Administrator, setzte ihm gleich
+       danach das Passwort zurück (die Antwort dort enthält das Einmal-
+       Passwort im Klartext) und meldete sich als dieses Konto an. Die
+       ausgeschriebene Regel steht bei `darfRolleVergeben()` weiter oben. */
+    if (!darfRolleVergeben(userId, rolle)) return rolleAbweisen(reply, rolle);
+
     try {
-      users.setRole(id, role as any, userId);
+      users.setRole(id, rolle, userId);
       return { users: store.listManagedUsers() };
     } catch (err) {
       return weiterreichen(reply, 400, err);
@@ -622,39 +1599,69 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
      services/avatare.ts; hier steht nur das Entgegennehmen, das Umbiegen
      der Datenbankzeile und das Nachrichten an alle (siehe user:upsert). */
 
+  /**
+   * Wessen Profilbild gerade gespeichert wird.
+   *
+   * Zwischen dem Lesen der bisherigen Adresse und dem UPDATE liegen zwei
+   * `await` — das Bild wird neu aufgebaut und abgelegt. Zwei Speicherungen
+   * kurz hintereinander (zweimal geklickt, ein Zuschnitt gleich korrigiert)
+   * überholen einander in dieser Lücke: beide lesen dieselbe alte Adresse,
+   * beide legen eine Datei ab, und das zuletzt eintreffende UPDATE gewinnt —
+   * nicht das zuletzt gewollte. Danach steht in der Datenbank der Zuschnitt,
+   * den die Person gerade ERSETZT hat, die andere Datei liegt herrenlos im
+   * Verzeichnis, und weil Profilbilder mit `cache-control: immutable`
+   * ausgeliefert werden, bleibt das falsche Bild ein Jahr lang kleben.
+   *
+   * Deshalb: eins nach dem anderen, je Konto. Der Anspruch wird gesetzt,
+   * bevor überhaupt der Rumpf gelesen wird — `requireUser()` davor ist
+   * synchron, es kann sich also niemand dazwischenschieben.
+   */
+  const avatarLaeuft = new Set<string>();
+
   app.post('/api/me/avatar', async (req, reply) => {
     const userId = requireUser(req);
-    const file = await req.file({ limits: { fileSize: avatare.AVATAR_MAX_BYTES } });
-    if (!file) return fehler(reply, 400, 'fehler.keineDatei', 'Keine Datei im Request');
-
-    // Klein genug für den ganzen Rutsch im Speicher — die Obergrenze oben
-    // greift schon beim Empfangen, nicht erst hier.
-    const roh = await file.toBuffer();
-    if (file.file.truncated) {
-      return fehler(reply, 413, 'fehler.dateiZuGross',
-        `Datei überschreitet ${avatare.AVATAR_MAX_BYTES / 1024 / 1024} MB`,
-        { mb: String(avatare.AVATAR_MAX_BYTES / 1024 / 1024) });
+    if (avatarLaeuft.has(userId)) {
+      return fehler(reply, 409, 'fehler.avatarLaeuft',
+        'Dein Profilbild wird gerade schon gespeichert.');
     }
-
+    avatarLaeuft.add(userId);
     try {
-      const bisherige = db.get<{ avatar_url: string | null }>(
-        'SELECT avatar_url FROM users WHERE id = ?', userId,
-      )?.avatar_url ?? null;
+      const file = await req.file({ limits: { fileSize: avatare.AVATAR_MAX_BYTES } });
+      if (!file) return fehler(reply, 400, 'fehler.keineDatei', 'Keine Datei im Request');
 
-      const bild = await avatare.verarbeiten(roh);
-      const neueUrl = await avatare.ablegen(userId, bild);
-      db.run('UPDATE users SET avatar_url = ? WHERE id = ?', neueUrl, userId);
-      /* Erst jetzt die alte Datei weg — die Datenbank zeigt schon auf die
-         neue, ein Fehlschlag beim Löschen kann also nichts mehr zerreißen. */
-      await avatare.entfernen(bisherige);
+      // Klein genug für den ganzen Rutsch im Speicher — die Obergrenze oben
+      // greift schon beim Empfangen, nicht erst hier.
+      const roh = await file.toBuffer();
+      if (file.file.truncated) {
+        return fehler(reply, 413, 'fehler.dateiZuGross',
+          `Datei überschreitet ${avatare.AVATAR_MAX_BYTES / 1024 / 1024} MB`,
+          { mb: String(avatare.AVATAR_MAX_BYTES / 1024 / 1024) });
+      }
 
-      const user = store.getUser(userId);
-      // Ohne diese Meldung sähen die anderen das neue Bild erst nach einem
-      // Neustart der App — derselbe Weg wie bei jeder anderen Profiländerung.
-      if (user) broadcastAll({ t: 'user:upsert', user });
-      return { user };
-    } catch (err) {
-      return weiterreichen(reply, 400, err);
+      try {
+        const bisherige = db.get<{ avatar_url: string | null }>(
+          'SELECT avatar_url FROM users WHERE id = ?', userId,
+        )?.avatar_url ?? null;
+
+        const bild = await avatare.verarbeiten(roh);
+        const neueUrl = await avatare.ablegen(userId, bild);
+        db.run('UPDATE users SET avatar_url = ? WHERE id = ?', neueUrl, userId);
+        /* Erst jetzt die alte Datei weg — die Datenbank zeigt schon auf die
+           neue, ein Fehlschlag beim Löschen kann also nichts mehr zerreißen. */
+        await avatare.entfernen(bisherige);
+
+        const user = store.getUser(userId);
+        // Ohne diese Meldung sähen die anderen das neue Bild erst nach einem
+        // Neustart der App — derselbe Weg wie bei jeder anderen Profiländerung.
+        if (user) broadcastAll({ t: 'user:upsert', user });
+        return { user };
+      } catch (err) {
+        return weiterreichen(reply, 400, err);
+      }
+    } finally {
+      // Auch wenn oben etwas geworfen hat: sonst könnte dieses Konto nie
+      // wieder ein Profilbild setzen.
+      avatarLaeuft.delete(userId);
     }
   });
 
@@ -1001,6 +2008,9 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       da: new Set(),
       groessen: new Map(),
       begonnen: Date.now(),
+      gesamt: 0,
+      imFlug: new Map(),
+      abschluss: false,
     });
     return { uploadId: id };
   });
@@ -1017,35 +2027,72 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       return fehler(reply, 400, 'fehler.teilnummer', 'Ungültige Teilnummer.');
     }
 
-    /* Was dieser Teil höchstens noch beitragen darf: die angemeldete Größe
-       minus dem, was die anderen Teile schon belegen. Ein Teil neu zu
-       schicken ist erlaubt — sein bisheriger Beitrag zählt dann nicht mit. */
-    let belegt = 0;
-    for (const [n, g] of auftrag.groessen) if (n !== nummer) belegt += g;
-    const budget = auftrag.size - belegt;
-    if (budget <= 0) {
-      return fehler(reply, 413, 'fehler.dateiZuGross',
-        `Datei überschreitet ${Math.round(auftrag.size / 1024 / 1024)} MB`,
-        { mb: String(Math.round(auftrag.size / 1024 / 1024)) });
+    const zuGross = () => fehler(reply, 413, 'fehler.dateiZuGross',
+      `Datei überschreitet ${Math.round(auftrag.size / 1024 / 1024)} MB`,
+      { mb: String(Math.round(auftrag.size / 1024 / 1024)) });
+
+    /* Denselben Teil zweimal GLEICHZEITIG: dann stünden zwei Ströme unter
+       einer Nummer in `imFlug`, und der zuerst fertige gäbe den Anspruch des
+       anderen mit frei. Eine ehrliche App tut das nie — sie schickt jeden
+       Teil einmal (desktop/src/net/api.ts). */
+    if (auftrag.imFlug.has(nummer)) {
+      return fehler(reply, 409, 'fehler.teilLaeuft',
+        `Teil ${nummer} wird gerade schon hochgeladen.`, { nummer: String(nummer) });
     }
 
-    const ziel = path.join(config.uploadDir, `${id}.teil${nummer}`);
+    /* Einen Teil neu zu schicken bleibt erlaubt: sein bisheriger Beitrag
+       zählt dann nicht mehr mit und geht aus `gesamt` heraus, BEVOR der neue
+       Strom anfängt zu zählen. */
+    const vorher = auftrag.groessen.get(nummer);
+    if (vorher !== undefined) {
+      auftrag.gesamt -= vorher;
+      auftrag.groessen.delete(nummer);
+    }
     auftrag.da.delete(nummer);
-    auftrag.groessen.delete(nummer);
+
+    if (auftrag.gesamt >= auftrag.size) return zuGross();
+
+    /* Hier wird der Anspruch angemeldet — VOR dem `await`, und ab jetzt sieht
+       ihn jede andere gleichzeitige Anfrage. Genau das fehlte: die alte
+       Fassung rechnete vorher und trug erst nachher ein, und in dieser Lücke
+       bekamen dreißig gleichzeitige Teile dreißigmal dasselbe volle Budget.
+       Siehe `begrenzt()` oben. */
+    auftrag.imFlug.set(nummer, 0);
+    /** Den eigenen Beitrag wieder hergeben — sonst sperrt sich ein Konto mit
+        abgebrochenen Uploads selbst aus. */
+    const anspruchLoesen = () => {
+      auftrag.gesamt -= auftrag.imFlug.get(nummer) ?? 0;
+      auftrag.imFlug.delete(nummer);
+    };
+
+    const ziel = path.join(config.uploadDir, `${id}.teil${nummer}`);
     try {
-      await pipeline(req.raw, begrenzt(budget), fs.createWriteStream(ziel, { highWaterMark: 1024 * 1024 }));
+      await pipeline(req.raw, begrenzt(auftrag, nummer), fs.createWriteStream(ziel, { highWaterMark: 1024 * 1024 }));
     } catch (err) {
+      anspruchLoesen();
       await fs.promises.rm(ziel, { force: true });
-      if ((err as Error).message === 'zu groß') {
-        return fehler(reply, 413, 'fehler.dateiZuGross',
-          `Datei überschreitet ${Math.round(auftrag.size / 1024 / 1024)} MB`,
-          { mb: String(Math.round(auftrag.size / 1024 / 1024)) });
-      }
+      if ((err as Error).message === 'zu groß') return zuGross();
       return fehler(reply, 500, 'fehler.teilFehlgeschlagen',
         `Teil ${nummer} fehlgeschlagen: ${(err as Error).message}`,
         { nummer: String(nummer), grund: (err as Error).message });
     }
-    auftrag.groessen.set(nummer, (await fs.promises.stat(ziel)).size);
+
+    let geschrieben: number;
+    try {
+      geschrieben = (await fs.promises.stat(ziel)).size;
+    } catch (err) {
+      anspruchLoesen();
+      return fehler(reply, 500, 'fehler.teilFehlgeschlagen',
+        `Teil ${nummer} fehlgeschlagen: ${(err as Error).message}`,
+        { nummer: String(nummer), grund: (err as Error).message });
+    }
+    /* Umbuchen statt neu zählen: diese Bytes stehen bereits in `gesamt` —
+       sie wechseln nur von „im Fluss" zu „geschrieben". Die Differenz ist
+       im Normalfall null; sie steht hier, damit `gesamt` auch dann stimmt,
+       wenn auf der Platte etwas anderes ankam als durch den Strom ging. */
+    auftrag.gesamt += geschrieben - (auftrag.imFlug.get(nummer) ?? 0);
+    auftrag.imFlug.delete(nummer);
+    auftrag.groessen.set(nummer, geschrieben);
     auftrag.da.add(nummer);
     return { ok: true, teil: nummer };
   });
@@ -1057,6 +2104,24 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const auftrag = teilUploads.get(id);
     if (!auftrag || auftrag.userId !== userId) return fehler(reply, 404, 'fehler.uploadUnbekannt', 'Unbekannter Upload.');
 
+    /* Ein zweites `/finish`, während das erste noch läuft, kam bis hierher
+       durch jede Prüfung: der Eintrag wird erst ganz am Ende gelöscht, und
+       bis dahin sieht der zweite Aufruf einen vollständigen Auftrag. Beide
+       lasen dann dieselben Teildateien — der eine räumte sie unter dem
+       anderen weg. Herauskam entweder ein ENOENT-500 für einen Upload, der
+       in Wahrheit gelungen war, oder zwei `attachments`-Zeilen für eine
+       einzige Datei.
+
+       Der Anspruch wird gesetzt, BEVOR das erste `await` kommt; alles davor
+       ist synchron, also kann sich niemand dazwischenschieben. Freigegeben
+       wird er nicht: schlägt das Zusammenlegen fehl, ist der Auftrag ohnehin
+       weg (siehe unten), und ein zweiter Anlauf beginnt mit `/uploads/start`
+       neu. */
+    if (auftrag.abschluss) {
+      return fehler(reply, 409, 'fehler.uploadLaeuft',
+        'Dieser Upload wird gerade schon abgeschlossen.');
+    }
+
     const fehlend = [];
     for (let i = 0; i < auftrag.parts; i += 1) if (!auftrag.da.has(i)) fehlend.push(i);
     if (fehlend.length) {
@@ -1064,6 +2129,12 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         `Es fehlen Teile: ${fehlend.slice(0, 10).join(', ')}`,
         { teile: fehlend.slice(0, 10).join(', ') });
     }
+
+    /* Erst NACH der Vollständigkeitsprüfung: wer nur nachfragt und dabei
+       erfährt, dass noch Teile fehlen, soll den Auftrag nicht verbrannt
+       haben — er darf die fehlenden Teile nachschicken und es erneut
+       versuchen. */
+    auftrag.abschluss = true;
 
     const anhangId = newId('at_');
     const ziel = path.join(config.uploadDir, anhangId);
@@ -1202,11 +2273,33 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         huelle: huelleSchreiben(umschlag),
       });
       const belegung = files.usage();
-      /* Alle sollen die neue Datei sofort in der Ablage sehen — alle außer bei
-         einer privaten. Die gehört einem einzigen Konto, und schon ihr Name im
-         Verzeichnis aller anderen wäre mehr, als "privat" verspricht. Die
-         hochladende App bekommt sie in der Antwort und lädt danach ohnehin neu. */
-      if (!gespeichert.privat) broadcastAll({ t: 'file:upsert', file: gespeichert, usage: belegung });
+      /* Alle sollen die neue Datei sofort in der Ablage sehen — aber nur die
+         Dateien, die auch wirklich alle angehen. Hier stand vorher nur
+         `!gespeichert.privat`, und „privat" heißt in dieser Tabelle
+         ausschließlich „für ein einzelnes Konto verschlüsselt"
+         (huelle.art === 'konto'). Eine Datei in einem privaten oder
+         vertraulichen KANAL ist das nicht — ihr Name, ihre Beschreibung und
+         ihre Kanalkennung gingen damit an jedes angemeldete Konto im Haus,
+         obwohl das Lesen (`listFiles()` in services/files.ts) genau dagegen
+         längst abgedichtet war.
+
+         Die Frage stellt jetzt die Ablage selbst (`fuerAlleSichtbar()`),
+         damit Lesen und Rundruf dieselbe Regel benutzen und nicht zwei.
+
+         WARUM NICHT AN DEN KREIS DES KANALS GERUFEN WIRD: dafür bräuchte es
+         einen Rundruf mit Empfängerliste. Das Gateway hat ihn (`broadcast()`
+         mit `empfaengerFuer()`), gibt ihn aber nicht heraus — hierher
+         exportiert ist nur `broadcastAll()`. Für die Mitglieder des Kanals
+         heißt das: die Datei erscheint bei ihnen nicht in derselben Sekunde,
+         sondern beim nächsten Laden der Ablage (`GET /api/files`). Das ist
+         der Preis, und er ist der kleinere — die hochladende App bekommt die
+         Datei ohnehin in der Antwort. Ein Dateiname aus einem vertraulichen
+         Kanal, der bei Unbeteiligten aufblitzt, lässt sich nicht
+         zurücknehmen. Was dabei ebenfalls wartet, ist die Belegungsanzeige
+         der anderen; sie ist eine Zahl ohne Inhalt und kann warten. */
+      if (files.fuerAlleSichtbar(gespeichert)) {
+        broadcastAll({ t: 'file:upsert', file: gespeichert, usage: belegung });
+      }
       return { file: gespeichert, usage: belegung };
     } catch (err) {
       // Kontingent überschritten: die Datei darf nicht liegen bleiben.
@@ -1236,8 +2329,12 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
   /** Was liegt bereit? Braucht keine Rechte — jeder Client fragt das. */
   app.get('/api/releases', async (req) => {
-    requireUser(req);
-    return { releases: releases.listReleases() };
+    const userId = requireUser(req);
+    return {
+      releases: releases.listReleases().map((r) => ({
+        ...r, notes: notizenFuerBetrachter(r.platform, userId, r.notes),
+      })),
+    };
   });
 
   /**
@@ -1245,13 +2342,13 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
    * knapp: der Client soll nicht selbst Versionen vergleichen müssen.
    */
   app.get('/api/releases/check', async (req) => {
-    requireUser(req);
+    const userId = requireUser(req);
     const { platform, version } = req.query as { platform?: string; version?: string };
     if (!platform || !version) return { update: null };
     const vorhanden = releases.getRelease(platform);
     if (!vorhanden || !releases.istNeuer(vorhanden.version, version)) return { update: null };
     const { path: _pfad, ...oeffentlich } = vorhanden;
-    return { update: oeffentlich };
+    return { update: { ...oeffentlich, notes: notizenFuerBetrachter(platform, userId, oeffentlich.notes) } };
   });
 
   /* ── Fernzugang zum Pi ─────────────────────────────────────────
@@ -1557,12 +2654,78 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     requirePermission(userId, 'mail.senden');
     const k = req.body as { adresse?: string; gruppe?: string | null };
     if (!k?.adresse) return fehler(reply, 400, 'fehler.unvollstaendig', 'Eine Adresse ist nötig.');
-    if (k.gruppe && !(PARTNER_GRUPPEN as readonly string[]).includes(k.gruppe)) {
+    // gruppeIstGueltig() statt eines statischen PARTNER_GRUPPEN.includes():
+    // die Liste gültiger Gruppen ist seit den benutzerdefinierten Gruppen
+    // keine feste Konstante mehr (siehe services/post-partnergruppen.ts,
+    // Dateikopf des dortigen Abschnitts). `gruppe` bleibt deshalb bewusst
+    // `string`, nicht der enge `PartnerGruppe`-Typ — ein Cast auf die
+    // eingebaute Union wäre nach dieser Prüfung nicht mehr korrekt, weil sie
+    // auch eine benutzerdefinierte Kennung durchlässt.
+    if (k.gruppe && !partnerGruppen.gruppeIstGueltig(k.gruppe)) {
       return fehler(reply, 400, 'fehler.unbekannteGruppe', 'Diese Gruppe gibt es nicht.');
     }
-    // Geprüft direkt darüber — der Cast macht daraus nur wieder den engen Typ.
-    const gruppe = (k.gruppe || null) as (typeof PARTNER_GRUPPEN)[number] | null;
+    const gruppe = k.gruppe || null;
     return { partner: partnerGruppen.gruppeSetzen(post.nurAdresse(k.adresse), gruppe) };
+  });
+
+  /* ── Postfach: die Gruppen SELBST verwalten ───────────────────
+     Nicht zu verwechseln mit `/api/post/partner/gruppe` oben, das die Gruppe
+     EINES Briefpartners setzt — hier geht es um die Liste der Gruppen (siehe
+     services/post-partnergruppen.ts, Abschnitt „BENUTZERDEFINIERTE GRUPPEN",
+     für Längen-, Eindeutigkeits- und Obergrenzenprüfung; die liegt komplett
+     im Dienst, hier wird nur `weiterreichen()` genutzt, nicht dupliziert).
+
+     Lesen läuft unter `mail.lesen`, derselben Schwelle wie `/api/post/partner`
+     — die Chip-Reihe zu sehen ist Teil des normalen Postfach-Blicks, nicht
+     Einrichtung. Anlegen/Umbenennen/Löschen brauchen dagegen `mail.verwalten`
+     — dieselbe Schwelle wie der Postfach-Zugang selbst, siehe Dateikopf oben
+     bei `/api/post/partner` UND PartnerGruppenPanel.tsx (Dateikopf dort):
+     eine neue oder verschwundene Gruppe sieht jede Person mit Postfach-
+     Zugriff sofort in ihrer eigenen Chip-Reihe, das ist Einrichtung, kein
+     Tagesgeschäft — anders als das Ändern der Gruppe EINES Briefpartners
+     (`mail.senden`, oben), das nur die Zeile betrifft, an der gerade
+     gearbeitet wird. */
+  app.get('/api/post/partnergruppen', async (req) => {
+    requirePermission(requireUser(req), 'mail.lesen');
+    return { gruppen: partnerGruppen.alleGruppen() };
+  });
+
+  app.post('/api/post/partnergruppen', async (req, reply) => {
+    const userId = requireUser(req);
+    requirePermission(userId, 'mail.verwalten');
+    const k = req.body as { name?: string };
+    // Kein eigener „Name fehlt"-Zweig hier: gruppenNamePruefen() im Dienst
+    // liefert für einen leeren Namen bereits die eigene, wörterbuchgeführte
+    // Kennung (`fehler.gruppeNameFehlt`) — ein zweiter, hier erfundener
+    // Fehlertext würde diesen Fall nur doppelt und uneinheitlich behandeln.
+    const roh = typeof k?.name === 'string' ? k.name : '';
+    try {
+      return { gruppe: partnerGruppen.gruppeErstellen(roh, userId) };
+    } catch (err) {
+      return weiterreichen(reply, 400, err);
+    }
+  });
+
+  app.patch('/api/post/partnergruppen/:id', async (req, reply) => {
+    requirePermission(requireUser(req), 'mail.verwalten');
+    const { id } = req.params as { id: string };
+    const k = req.body as { name?: string };
+    const roh = typeof k?.name === 'string' ? k.name : '';
+    try {
+      return { gruppe: partnerGruppen.gruppeUmbenennen(id, roh) };
+    } catch (err) {
+      return weiterreichen(reply, 400, err);
+    }
+  });
+
+  app.delete('/api/post/partnergruppen/:id', async (req, reply) => {
+    requirePermission(requireUser(req), 'mail.verwalten');
+    const { id } = req.params as { id: string };
+    try {
+      return partnerGruppen.gruppeLoeschen(id);
+    } catch (err) {
+      return weiterreichen(reply, 400, err);
+    }
   });
 
   app.post('/api/post/senden', async (req, reply) => {
@@ -1570,6 +2733,14 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     requirePermission(userId, 'mail.senden');
     const k = req.body as {
       fach?: string; an?: string; betreff?: string; text?: string;
+      /* Nur gesetzt, wenn der Text auf einem Vorschlag von „KI schreibt"
+         (post-entwurf-ki.ts, entwurfSchreiben()) beruht — der Wortlaut, wie
+         die KI ihn geliefert hat, BEVOR ein Mensch im Schreibfenster
+         weiterschrieb. Fehlt es, gilt diese Mail als rein von Hand verfasst:
+         `post.senden()` setzt dann keine Fußzeile (Ausgang.textKi dort). Ob
+         der Text danach noch verändert wurde, entscheidet `senden()` selbst
+         durch den Vergleich mit `text` — diese Route rät nicht mit. */
+      textKi?: string | null;
       antwortAuf?: { messageId: string | null; referenzen: string | null; threadId: string | null };
       anhaenge?: string[];
     };
@@ -1578,7 +2749,8 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     }
     try {
       return await post.senden({
-        fach: k.fach, an: k.an, betreff: k.betreff ?? '', text: k.text, antwortAuf: k.antwortAuf,
+        fach: k.fach, an: k.an, betreff: k.betreff ?? '', text: k.text, textKi: k.textKi,
+        antwortAuf: k.antwortAuf,
         anhaenge: Array.isArray(k.anhaenge) ? k.anhaenge : undefined,
       }, userId);
     } catch (f) {
@@ -1806,6 +2978,15 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
    * der tatsächlichen Verwendung wirklich geprüft, nicht nur irgendwann
    * beim Entstehen.
    *
+   * `fach` DAGEGEN DARF sich ändern — anders als der Empfänger bestimmt es
+   * nur die eigene Absenderadresse, kein Ziel, das sich missbrauchen ließe.
+   * Vorgabe ist das Fach der URSPRUNGSMAIL (`mail.fach`, siehe unten) —
+   * dieselbe Vorbelegung wie im Freigabe-Kasten der Oberfläche (EntwurfKarte
+   * in PostPanel.tsx). Ein aus der Anfrage mitgegebenes Fach ersetzt diese
+   * Vorgabe, wird aber genau wie überall sonst NICHT hier, sondern in
+   * `post.senden()` selbst gegen `FAECHER` geprüft (siehe dort) — ein
+   * erfundenes Fach oder `sonstiges` kommt dort nicht durch.
+   *
    * Reihenfolge weiterhin absichtlich: erst `requirePermission`, DANN der
    * bearbeitete Text FESTGEHALTEN (`entwurfBearbeiten()` — sonst stünde im
    * Verlauf hinterher etwas anderes als das, was tatsächlich hinausging),
@@ -1821,7 +3002,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     requirePermission(userId, 'mail.senden');
     const { id } = req.params as { id: string };
 
-    const k = req.body as { text?: string; betreff?: string; anhaenge?: string[] };
+    const k = req.body as { text?: string; betreff?: string; anhaenge?: string[]; fach?: string };
     const text = (k?.text ?? '').trim();
     const betreff = (k?.betreff ?? '').trim();
     if (!text || !betreff) {
@@ -1830,7 +3011,15 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
     const entwurf = postSichtung.entwurfLesen(id);
     if (!entwurf) return fehler(reply, 404, 'fehler.nichtGefunden', 'Diesen Entwurf gibt es nicht.');
-    if (entwurf.zustand !== 'offen') {
+    /* Hier wird nur abgewiesen, worüber wirklich ENTSCHIEDEN ist. Über
+       `sendet` entscheidet allein `entwurfBearbeiten()` weiter unten — und
+       zwar mit demselben bedingten UPDATE, das auch den Anspruch vergibt.
+       Zwei Stellen, die dieselbe Frage beantworten, waren hier schon einmal
+       eine zu viel: stünde die Abweisung auch hier, käme ein Entwurf, dessen
+       Anspruch nach einem Serverabsturz verfallen ist, nie wieder hinaus —
+       `offeneEntwuerfe()` zeigt ihn nach der Frist wieder an (siehe dort),
+       und der Mensch klickte dann auf einen Knopf, der immer 409 sagt. */
+    if (entwurf.zustand !== 'offen' && entwurf.zustand !== 'sendet') {
       return fehler(reply, 409, 'fehler.entwurfEntschieden', 'Über diesen Entwurf ist schon entschieden.');
     }
     // Letzte Prüfung der gespeicherten Empfängeradresse, unmittelbar bevor
@@ -1844,28 +3033,49 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         'Der gespeicherte Entwurf hat keine gültige Empfängeradresse.');
     }
 
-    // Festhalten VOR dem Versand: sonst stünde im Verlauf hinterher etwas
-    // anderes als das, was tatsächlich gesendet wurde (siehe entwurfBearbeiten()
-    // in post-sichtung.ts). `false` heißt: zwischen dem entwurfLesen() oben und
-    // hier ist der Entwurf schon entschieden worden — sauber abgebrochen,
-    // BEVOR irgendetwas an den Versanddienst geht.
+    /* Festhalten UND BEANSPRUCHEN, beides vor dem Versand und beides in einem
+       einzigen bedingten UPDATE (siehe entwurfBearbeiten() in
+       post-sichtung.ts). Festhalten, damit im Verlauf hinterher nicht etwas
+       anderes steht als das, was tatsächlich hinausging. Beanspruchen, weil
+       die Prüfung auf `zustand === 'offen'` weiter oben allein nichts
+       aufhält: von dort bis zum `await` unten ist alles synchron, zwei fast
+       gleichzeitige Anfragen kamen deshalb beide hier durch und riefen beide
+       den Versanddienst auf — der Kunde bekam dieselbe Antwort zweimal.
+
+       `false` heißt jetzt zweierlei: entweder ist über den Entwurf inzwischen
+       entschieden, oder ein anderer Aufruf hat ihn gerade in der Mache. Für
+       den Menschen davor ist das dasselbe — er soll nicht noch einmal
+       klicken. */
     if (!postSichtung.entwurfBearbeiten(id, { text, betreff })) {
       return fehler(reply, 409, 'fehler.entwurfEntschieden', 'Über diesen Entwurf ist schon entschieden.');
     }
 
-    // Woher geschrieben wird (`fach`) kommt aus der URSPRUNGSMAIL — also aus
-    // dem Fach, an das der Kunde geschrieben hat, nicht aus dem Entwurf: der
-    // kennt gar kein eigenes Fach (siehe entwurfAnlegen() in post-sichtung.ts).
+    // Woher geschrieben wird (`fach`) kommt VORRANGIG aus der URSPRUNGSMAIL
+    // — also aus dem Fach, an das der Kunde geschrieben hat, nicht aus dem
+    // Entwurf: der kennt gar kein eigenes Fach (siehe entwurfAnlegen() in
+    // post-sichtung.ts). Ein in der Anfrage mitgegebenes Fach (Auswahl im
+    // Freigabe-Kasten) geht vor — siehe Dateikopf dieser Route für die
+    // Begründung, warum das für `fach` anders gehandhabt wird als für `an`.
     const mail = post.nachricht(entwurf.mailId);
-    if (!mail) return fehler(reply, 404, 'fehler.nichtGefunden', 'Die Ursprungsmail gibt es nicht mehr.');
+    if (!mail) {
+      // Der Anspruch von eben gehört zurück — hier geht nichts hinaus, und
+      // der Entwurf soll nicht fünf Minuten lang unsendbar bleiben.
+      postSichtung.entwurfAnspruchLoesen(id);
+      return fehler(reply, 404, 'fehler.nichtGefunden', 'Die Ursprungsmail gibt es nicht mehr.');
+    }
 
     let versandt: { id: string };
     try {
       versandt = await post.senden({
-        fach: mail.an,
+        fach: k.fach || mail.fach,
         an: entwurf.an,
         betreff,
         text,
+        // Der Wortlaut, wie die KI ihn geschrieben hat — nie überschrieben
+        // (schema.sql, `mail_entwuerfe.text_ki`). `post.senden()` vergleicht
+        // ihn selbst gegen `text` (den möglicherweise bearbeiteten, gerade
+        // freigegebenen Wortlaut) und setzt daraus die Fußzeile der Mail.
+        textKi: entwurf.textKi,
         antwortAuf: { messageId: mail.messageId, referenzen: mail.referenzen, threadId: entwurf.threadId },
         // Wie beim freien Antworten (`/api/post/senden` oben): Kennungen
         // zuvor hochgeladener, noch nicht verknüpfter Anhänge — `userId` als
@@ -1876,17 +3086,41 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         anhaenge: Array.isArray(k.anhaenge) ? k.anhaenge : undefined,
       }, userId);
     } catch (f) {
+      /* Der Versand ist gescheitert, also war der Anspruch umsonst: zurück
+         auf `offen`, damit derselbe Mensch es sofort noch einmal versuchen
+         kann. Ohne das wäre jeder Aussetzer des Versanddienstes eine Sperre
+         von fünf Minuten auf einem Entwurf, der nie hinausging.
+
+         Nur HIER, und ausdrücklich nirgends weiter unten: was nach einem
+         erfolgreichen Versand noch schiefgeht, darf den Entwurf nie wieder
+         auf `offen` zurückstellen — sonst schickt ihn jemand guten Glaubens
+         ein zweites Mal, und genau das soll diese ganze Änderung
+         verhindern. */
+      postSichtung.entwurfAnspruchLoesen(id);
       const e = f as { code?: string; status?: number; message?: string };
       return fehler(reply, e.status ?? 502, e.code ?? 'fehler.post',
         e.message ?? 'Senden fehlgeschlagen.');
     }
 
-    /* Die Mail ist jetzt hinaus — alles Weitere ist nur noch Buchführung. Ein
-       'nichtOffen' oder 'keinRecht' an dieser Stelle wäre eine seltene
-       Verwicklung (ein zweiter, fast gleichzeitiger Klick; ein Rechteentzug
-       im selben Sekundenbruchteil) und ändert nichts mehr am Versand — der
-       ist bereits geschehen. Nur protokolliert, nicht dem Menschen als Fehler
-       gezeigt: der hat gerade erfolgreich gesendet. */
+    /* Die Mail ist jetzt hinaus — alles Weitere ist nur noch Buchführung.
+       Der Entwurf steht seit dem entwurfBearbeiten() oben auf `sendet` und
+       gehört diesem Aufruf; entwurfAbschliessen() nimmt genau diesen Zustand
+       ausdrücklich an (siehe dort).
+
+       HIER STAND EINMAL, ein zweiter, fast gleichzeitiger Klick sei an
+       dieser Stelle bloß eine seltene Verwicklung ohne Folgen. Das war
+       falsch, und zwar genau andersherum: der zweite Klick meldete hier brav
+       'nichtOffen' — nachdem seine eigene Mail beim Kunden bereits
+       angekommen war. Die Meldung kam, als nichts mehr zu retten war. Ein
+       zweiter Versand wird deshalb nicht mehr hier bemerkt, sondern oben
+       verhindert, bevor er stattfindet.
+
+       Was hier übrig bleibt, ist wirklich harmlos: ein 'keinRecht', weil im
+       selben Sekundenbruchteil ein Recht entzogen wurde, oder ein
+       'nichtOffen', weil nach fünf Minuten jemand den Anspruch übernommen
+       hat. Beides ändert nichts mehr am Versand — der ist geschehen. Nur
+       protokolliert, nicht dem Menschen als Fehler gezeigt: der hat gerade
+       erfolgreich gesendet. */
     const ergebnis = postSichtung.entwurfAbschliessen({
       entwurfId: id, userId, ergebnis: 'gesendet', gesendetId: versandt.id,
     });
@@ -2093,6 +3327,93 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     };
   });
 
+  /**
+   * "Ein Kauf ist passiert" — der Verlauf für den neuen Reiter
+   * (components/VerkaufMeldungen.tsx). Neueste zuerst, `vor` zum Nachladen —
+   * dieselbe Kennung wie bei `/api/post/meldungen`: der `erkanntAm`-Wert der
+   * letzten schon geladenen Zeile.
+   *
+   * `verkauf.sehen`, dieselbe Schwelle wie bei `/api/verkauf/uebersicht`
+   * direkt darüber: wer die Verkaufszahlen selbst ansehen darf, darf auch
+   * erfahren, dass sich daran gerade etwas geändert hat — keine engere Rolle,
+   * kein zweites Recht dafür (siehe services/verkaufBenachrichtigung.ts,
+   * empfaengerkreis()).
+   */
+  app.get('/api/verkauf/meldungen', async (req) => {
+    requirePermission(requireUser(req), 'verkauf.sehen');
+    const q = req.query as { anzahl?: string; vor?: string };
+    return {
+      meldungen: verkaufBenachrichtigung.meldungenListe(Number(q.anzahl) || 50, q.vor ? Number(q.vor) : undefined),
+    };
+  });
+
+  /* ── Bank: der PayPal-Kontostand ─────────────────────────────
+   * Reines Ansehen — kein Weg hier bewegt Geld (siehe services/paypal.ts,
+   * Dateikopf, „DIE GRENZE, DIE NICHT VERHANDELBAR IST"). `zugang`,
+   * `diagnose` und `aktualisieren` verlangen ausschließlich `bank.verwalten`
+   * — dieselbe Schwelle wie bei `fern.verwalten` und `mail.verwalten`: wer
+   * die Zugangsdaten selbst nicht einsehen darf (auch der Inhaber bekommt
+   * `clientSecret` nie wieder zu sehen, siehe paypalZugangStand()), soll
+   * auch keinen Prüflauf oder Sofortabruf gegen PayPal auslösen können.
+   *
+   * `uebersicht` allein verlangt `bank.sehen` ODER `bank.verwalten` — wer
+   * den Zugang einrichten darf, muss auch sehen können, ob er funktioniert,
+   * sonst richtet er blind ein. Derselbe Kniff wie bei `/api/releases/…`
+   * weiter oben: `requirePermission()` wirft mit der Meldung des ZWEITEN
+   * Rechts, wenn auch das fehlt.
+   */
+  app.get('/api/bank/paypal/uebersicht', async (req) => {
+    const userId = requireUser(req);
+    if (!users.may(userId, 'bank.sehen')) requirePermission(userId, 'bank.verwalten');
+    /* paypalUebersicht() fragt PayPal NIE selbst — sie liest nur den
+       Zwischenspeicher, den startPaypalJob() im Hintergrund füllt (siehe
+       ws/gateway.ts). Deshalb kommt hier IMMER ein 200 zurück, auch für
+       „nicht eingerichtet" und „letzter Abruf fehlgeschlagen": beides sind
+       eigene, benannte Zustände (`zustand` im Antwortkörper, siehe
+       PaypalUebersicht), keine Fehlerfälle. Ein 503 sähe für die Tafel
+       identisch aus wie „der eigene Server ist nicht erreichbar"
+       (PaypalPanel.tsx unterscheidet genau danach) — und „noch nicht
+       eingerichtet" ist kein Fehlschlag, sondern ein Ausgangszustand. */
+    return paypal.paypalUebersicht();
+  });
+
+  app.get('/api/bank/paypal/zugang', async (req) => {
+    const userId = requireUser(req);
+    requirePermission(userId, 'bank.verwalten');
+    return paypal.paypalZugangStand();
+  });
+
+  app.post('/api/bank/paypal/zugang', async (req) => {
+    const userId = requireUser(req);
+    requirePermission(userId, 'bank.verwalten');
+    const körper = req.body as { clientId?: string; clientSecret?: string; umgebung?: string };
+    paypal.paypalZugangSetzen(körper ?? {}, userId);
+    return paypal.paypalZugangStand();
+  });
+
+  /**
+   * Prüflauf gegen die echte PayPal-Schnittstelle: Token holen, Rechte
+   * auslesen, Salden und ein kurzes Bewegungsfenster abrufen. Liefert
+   * ausschließlich Auskünfte zurück — Zähler, Ja/Nein, Zeitpunkte, PayPals
+   * eigener Wortlaut, PayPals Korrelationskennung —, nie Client-ID, Secret
+   * oder Token (siehe paypalDiagnose() in services/paypal.ts).
+   */
+  app.get('/api/bank/paypal/diagnose', async (req) => {
+    const userId = requireUser(req);
+    requirePermission(userId, 'bank.verwalten');
+    return paypal.paypalDiagnose();
+  });
+
+  /** Ein Abrufdurchgang von Hand, außerhalb des Taktes aus startPaypalJob()
+   *  — für „sofort prüfen, ob es jetzt klappt", ohne auf den nächsten
+   *  Hintergrundlauf zu warten. Dieselbe Einzelspur wie im Hintergrundlauf:
+   *  läuft bereits einer, wird er mitbenutzt, nicht doppelt gestartet. */
+  app.post('/api/bank/paypal/aktualisieren', async (req) => {
+    const userId = requireUser(req);
+    requirePermission(userId, 'bank.verwalten');
+    return paypal.paypalAktualisieren();
+  });
+
   /* ── Postfach: Zugangsdaten ──────────────────────────────────
      Genau wie beim Fernzugang: hinterlegen darf nur der Inhaber, ANSEHEN
      kann es niemand. Zurück kommt bloß, DASS etwas hinterlegt ist. Ein
@@ -2103,12 +3424,31 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     return mailzugang.zugangStand();
   });
 
+  /** Eine Domäne, keine vollständige Adresse: kein "@", keine Leerzeichen,
+      mindestens ein Punkt, nur die Zeichen, aus denen ein Hostname wirklich
+      besteht. Geprüft hier in der Route, nicht in mailzugang.ts — dieselbe
+      Aufteilung wie bei der Mindestlänge des Eingangsgeheimnisses direkt
+      darunter (siehe zugangSetzen() in mailzugang.ts für die Begründung). */
+  const DOMAENE_FORM = /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$/i;
+
   app.post('/api/post/zugang', async (req, reply) => {
     const userId = requireUser(req);
     requirePermission(userId, 'mail.verwalten');
     const körper = req.body as {
-      absender?: string; name?: string; versandSchluessel?: string; eingangGeheimnis?: string;
+      domaene?: string; name?: string; versandSchluessel?: string; eingangGeheimnis?: string;
     };
+    /* Nur die Domäne, nie eine vollständige Adresse — der lokale Teil kommt
+       ab jetzt ausschließlich aus dem Fach beim Versand (siehe
+       services/post.ts, senden()). Eine Adresse mit "@" hier durchzulassen
+       hieße, denselben Fehler nur an anderer Stelle wieder einzubauen: das
+       "@" und alles davor würde beim Versand ohnehin verworfen (siehe
+       fachKennung() in post.ts) — wer trotzdem eine Adresse einträgt, soll
+       das lieber hier erfahren als sich später über eine Absenderadresse
+       wundern, die nicht die eingetippte ist. */
+    if (körper?.domaene && !DOMAENE_FORM.test(körper.domaene.trim())) {
+      return fehler(reply, 400, 'post.domaeneUngueltig',
+        'Das sieht nicht nach einer Domäne aus — ohne "@", ohne Leerzeichen, etwa "stellium.club".');
+    }
     /* Ein zu kurzes Eingangsgeheimnis ist schlimmer als keins: es sieht nach
        Schutz aus. Der Worker legt es jeder Anfrage bei, und dieser Endpunkt
        hängt öffentlich am Tunnel. */
@@ -2175,9 +3515,18 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         tempPath: temp,
         publishedBy: userId,
       });
-      // Alle laufenden Clients sollen die neue Version sofort bemerken.
+      // Alle laufenden Clients sollen die neue Version sofort bemerken. Roh,
+      // ohne Übersetzung: dieses Ereignis stößt beim Empfänger nur eine neue
+      // Prüfung an (siehe state/store.ts, 'release:available') und zeigt
+      // `release` selbst nirgends an — dort holt sich jede Person die
+      // Notizen anschließend über /api/releases/check in ihrer Sprache.
       broadcastAll({ t: 'release:available', release: info });
-      return { release: info, releases: releases.listReleases() };
+      return {
+        release: { ...info, notes: notizenFuerBetrachter(platform, userId, info.notes) },
+        releases: releases.listReleases().map((r) => ({
+          ...r, notes: notizenFuerBetrachter(r.platform, userId, r.notes),
+        })),
+      };
     } catch (err) {
       await fs.promises.rm(temp, { force: true });
       return weiterreichen(reply, 400, err);
@@ -2188,7 +3537,11 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const userId = requireUser(req);
     if (!users.may(userId, 'user.manage')) requirePermission(userId, 'release.publish');
     releases.removeRelease((req.params as { platform: string }).platform);
-    return { releases: releases.listReleases() };
+    return {
+      releases: releases.listReleases().map((r) => ({
+        ...r, notes: notizenFuerBetrachter(r.platform, userId, r.notes),
+      })),
+    };
   });
 
   /**
@@ -2200,16 +3553,27 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
    * stehen (`?token=`), weil ein Browserfenster keinen Kopf mitschickt.
    */
   app.get('/download', async (req, reply) => {
-    if (!bearerOderAdresse(req)) {
+    const userId = bearerOderAdresse(req);
+    if (!userId) {
       // Zur Anmeldung schicken statt eine leere Seite zu zeigen.
       return reply.redirect('/');
     }
     const ua = String((req.headers['user-agent'] ?? ''));
+    // Kein Accept-Language-Aushandeln nötig: wer hier ankommt, hat sich schon
+    // ausgewiesen (Bearer oder ?token=, sonst der Redirect oben) — genau die
+    // Kennung, mit der auch notizenFuerBetrachter() unten übersetzt. Dieselbe
+    // Sprache, die die Person sich in den Einstellungen ausgesucht hat, ist
+    // treffsicherer als eine aus Kopfzeilen geratene; siehe seite.ts für die
+    // ausführliche Begründung.
     return reply.type('text/html; charset=utf-8').send(downloadSeite({
-      releases: releases.listReleases(),
+      releases: releases.listReleases().map((r) => ({
+        ...r, notes: notizenFuerBetrachter(r.platform, userId, r.notes),
+      })),
       erkannt: systemErkennen(ua),
       arbeitsbereich: config.workspaceName,
       token: (req.query as { token?: string } | undefined)?.token ?? '',
+      sprache: store.uiLanguageOf(userId),
+      zeitzone: store.timezoneOf(userId),
     }));
   });
 

@@ -41,14 +41,28 @@
  * der Knopf zunächst ein eigenes, kleines Feld für die Themenangabe, statt
  * irgendetwas zu erfinden (siehe post-entwurf-ki.ts: „Erfinde keine Fakten").
  *
- * Die Kennzeichnung „von StelliumAI erzeugt" steckt im Text, den die KI
- * liefert, bytegleich unter `kiKennzeichnung` gemerkt. Verschwindet sie beim
- * Bearbeiten aus dem Textfeld — ob durch eine kleine Änderung oder weil neu
- * geschrieben wurde, lässt sich von hier aus nicht unterscheiden —, fragt
- * `senden()` unten einmal nach, statt es stillschweigend durchgehen zu
- * lassen oder stillschweigend zu erzwingen. Das ist die Antwort auf „was
- * gilt, wenn ein Mensch den Entwurf danach überarbeitet": nie SILENT, in
- * jedem Fall eine bewusste Entscheidung der sendenden Person.
+ * Die Kennzeichnung „von StelliumAI erzeugt"/„mithilfe von … bearbeitet"
+ * steht NICHT mehr im Text dieses Fensters — sie ist eine Fußzeile, die
+ * `post.ts::senden()` server-seitig anhängt, erst nach dem eigentlichen
+ * Text, siehe post-fussnote.ts. Diese Tafel hier merkt sich nur, bytegleich
+ * unter `textKi`, was die KI zuletzt geliefert hat (`r.text` aus
+ * `kiEntwurfHolen()`), und reicht das beim Senden als `textKi` an
+ * `/api/post/senden` weiter — DORT, nicht hier, entscheidet
+ * `kiHerkunft()` durch einen Wortvergleich zwischen `textKi` und dem
+ * tatsächlich gesendeten Text, ob und welche Fußzeile es gibt.
+ *
+ * `textKi` MUSS deshalb geleert werden, sobald das Textfeld nicht mehr von
+ * diesem Entwurf abstammt — sonst vergliche der Server zwei unabhängige
+ * Texte und behauptete fälschlich „mithilfe von KI bearbeitet", obwohl gar
+ * keine KI beteiligt war. Drei Stellen tun das hier: ein neuer Entwurf
+ * ersetzt `textKi` gleich mit (kiSchreiben() unten), ein vollständig
+ * geleertes Textfeld setzt `textKi` mit zurück auf `null` (Textarea
+ * weiter unten), und das Schließen des Fensters räumt ohnehin alles ab,
+ * weil `SchreibFenster` beim nächsten Öffnen frisch gemountet wird (siehe
+ * `PostSchreiben` oben: `{offen && <SchreibFenster .../>}`). Bloßes
+ * Weiterbearbeiten eines Entwurfs — und sei die Änderung noch so groß —
+ * leert `textKi` dagegen bewusst NICHT: genau diese Bearbeitung ist der
+ * Fall „mithilfe von … bearbeitet", den es zu erkennen gilt.
  */
 import { useEffect, useRef, useState } from 'react';
 import {
@@ -59,6 +73,7 @@ import { t as tStatisch, useT, spracheName, type TranslationKey } from '../i18n/
 import { Shell } from './Panels.jsx';
 import { ApiError, serverUrl, token } from '../net/api.js';
 import { fileSize } from '../lib/format.js';
+import { textKiNachTextaenderung } from '../lib/post-schreiben-entwurf.js';
 import '../styles/post-schreiben.css';
 
 /* ── Abruf ───────────────────────────────────────────────────────
@@ -102,8 +117,14 @@ async function postFetch<T>(pfad: string, init: RequestInit = {}): Promise<T> {
   return antwort.status === 204 ? (undefined as T) : ((await antwort.json()) as T);
 }
 
-async function faecherHolen(): Promise<string[]> {
-  const r = await postFetch<{ faecher: string[] }>('/api/post/schreibfaecher');
+/** Ein Fach zur Auswahl: `fach` ist die Kennung, die tatsächlich gesendet
+    wird (etwa `"support"`), `adresse` die vollständige Adresse nur für die
+    Anzeige (etwa `"support@stellium.club"`) — dieselbe Hülle, die
+    `services/post.ts::absenderFaecher()` liefert. */
+interface SchreibFach { fach: string; adresse: string }
+
+async function faecherHolen(): Promise<SchreibFach[]> {
+  const r = await postFetch<{ faecher: SchreibFach[] }>('/api/post/schreibfaecher');
   return r.faecher;
 }
 
@@ -112,7 +133,7 @@ async function spracheHolen(adresse: string): Promise<string> {
   return r.sprache;
 }
 
-interface KiEntwurf { text: string; sprache: string; modell: string | null; kennzeichnung: string }
+interface KiEntwurf { text: string; sprache: string; modell: string | null }
 
 async function kiEntwurfHolen(eingabe: { fach: string; an: string; thema: string }): Promise<KiEntwurf> {
   return postFetch<KiEntwurf>('/api/post/ki-entwurf', {
@@ -122,7 +143,14 @@ async function kiEntwurfHolen(eingabe: { fach: string; an: string; thema: string
 }
 
 async function neueMailSenden(
-  eingabe: { fach: string; an: string; betreff: string; text: string; anhaenge?: string[] },
+  eingabe: {
+    fach: string; an: string; betreff: string; text: string; anhaenge?: string[];
+    /** Der zuletzt gelieferte KI-Entwurf, roh — fehlt oder `null`, wenn diese
+        Mail nicht (mehr) von einem Entwurf abstammt. Siehe Dateikopf und
+        Ausgang.textKi in services/post.ts: der Server entscheidet aus dem
+        Vergleich mit `text`, ob und welche Fußzeile die Mail bekommt. */
+    textKi?: string | null;
+  },
 ): Promise<{ id: string }> {
   return postFetch<{ id: string }>('/api/post/senden', { method: 'POST', body: JSON.stringify(eingabe) });
 }
@@ -209,7 +237,7 @@ export function PostSchreiben({ onGesendet }: { onGesendet: () => void }) {
 function SchreibFenster({ onClose, onGesendet }: { onClose: () => void; onGesendet: () => void }) {
   const t = useT();
 
-  const [faecher, setFaecher] = useState<string[] | null>(null);
+  const [faecher, setFaecher] = useState<SchreibFach[] | null>(null);
   const [faecherFehler, setFaecherFehler] = useState<string | null>(null);
   // Die letzte Wahl merken: das Absenderfach ist eine echte Entscheidung
   // (siehe Dateikopf), keine Nebensache, die bei jedem Öffnen neu getroffen
@@ -227,9 +255,9 @@ function SchreibFenster({ onClose, onGesendet }: { onClose: () => void; onGesend
   const [kiOffen, setKiOffen] = useState(false);
   const [thema, setThema] = useState('');
   const [kiLaedt, setKiLaedt] = useState(false);
-  // Bytegleicher Wortlaut der zuletzt von der KI gelieferten Kennzeichnung —
-  // für die Warnung in senden() weiter unten, siehe Dateikopf.
-  const [kiKennzeichnung, setKiKennzeichnung] = useState<string | null>(null);
+  // Bytegleicher Wortlaut des zuletzt von der KI gelieferten Entwurfs — geht
+  // beim Senden als `textKi` hinaus, siehe Dateikopf für die Räumpflicht.
+  const [textKi, setTextKi] = useState<string | null>(null);
 
   const [anhaenge, setAnhaenge] = useState<AusgehenderAnhang[]>([]);
   const [hochladend, setHochladend] = useState(0);
@@ -273,7 +301,9 @@ function SchreibFenster({ onClose, onGesendet }: { onClose: () => void; onGesend
       try {
         const liste = await faecherHolen();
         setFaecher(liste);
-        setAbsenderFach((bisher) => (bisher && liste.includes(bisher)) ? bisher : (liste[0] ?? ''));
+        setAbsenderFach((bisher) => (
+          bisher && liste.some((f) => f.fach === bisher) ? bisher : (liste[0]?.fach ?? '')
+        ));
       } catch (err) {
         setFaecherFehler((err as Error).message);
       }
@@ -313,7 +343,9 @@ function SchreibFenster({ onClose, onGesendet }: { onClose: () => void; onGesend
     try {
       const r = await kiEntwurfHolen({ fach: absenderFach, an: an.trim(), thema: themaText });
       setText(r.text);
-      setKiKennzeichnung(r.kennzeichnung);
+      // Ersetzt einen älteren Entwurf gleich mit — kein separates Leeren
+      // nötig, der neue Wortlaut ist ab hier der einzig gültige Bezug.
+      setTextKi(r.text);
       setKiOffen(false);
     } catch (err) {
       // `thema` bleibt stehen — nichts wird bei einem Fehlschlag geleert,
@@ -327,13 +359,10 @@ function SchreibFenster({ onClose, onGesendet }: { onClose: () => void; onGesend
   };
 
   const senden = async () => {
-    if (kiKennzeichnung && !text.includes(kiKennzeichnung)) {
-      if (!window.confirm(t('post.kiKennzeichnungWarnung'))) return;
-    }
     setSendenLaedt(true);
     try {
       await neueMailSenden({
-        fach: absenderFach, an: an.trim(), betreff: betreff.trim(), text,
+        fach: absenderFach, an: an.trim(), betreff: betreff.trim(), text, textKi,
         anhaenge: anhaenge.length ? anhaenge.map((a) => a.id) : undefined,
       });
       useStore.getState().toast({ kind: 'ok', title: t('post.gesendet') });
@@ -362,7 +391,7 @@ function SchreibFenster({ onClose, onGesendet }: { onClose: () => void; onGesend
           {faecher && !faecher.length && <p className="field__hint">{t('post.keineFaecher')}</p>}
           {faecher && !!faecher.length && (
             <select className="select" value={absenderFach} onChange={(e) => absenderWaehlen(e.target.value)}>
-              {faecher.map((f) => <option key={f} value={f}>{f}</option>)}
+              {faecher.map((f) => <option key={f.fach} value={f.fach}>{f.adresse}</option>)}
             </select>
           )}
         </div>
@@ -404,7 +433,13 @@ function SchreibFenster({ onClose, onGesendet }: { onClose: () => void; onGesend
             placeholder={t('post.neuTextPlatzhalter')}
             rows={9}
             value={text}
-            onChange={(e) => setText(e.target.value)}
+            onChange={(e) => {
+              const wert = e.target.value;
+              setText(wert);
+              // Regel + Begründung stehen in lib/post-schreiben-entwurf.ts,
+              // dort auch ohne React geprüft (siehe Dateikopf, „Räumpflicht").
+              setTextKi((bisher) => textKiNachTextaenderung(bisher, wert));
+            }}
             onKeyDown={(e) => {
               if ((e.metaKey || e.ctrlKey) && e.key === 'Enter' && !sendenGesperrt) { e.preventDefault(); void senden(); }
             }}

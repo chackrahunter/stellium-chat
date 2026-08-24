@@ -118,6 +118,33 @@ export interface ManagedUser {
   /** Schublade in der Verwaltung. Leer heißt: von selbst einsortieren. */
   kategorie: KontoKategorie | null;
   mustChangePassword: boolean;
+  /**
+   * Hat dieses Konto einen Notzugang? Mehr nicht — nicht wer Anteile hält,
+   * nicht wie viele noch tragen.
+   *
+   * Die Verwaltung braucht genau diese eine Auskunft, und zwar im Augenblick
+   * des Zurücksetzens: mit Notzugang SCHONT das Zurücksetzen den
+   * Kontoschlüssel (services/kontoschluessel.ts, verwerfen()), das alte
+   * Passwort öffnet die Notiz- und Tresorpakete also weiterhin, sobald
+   * jemand an eine Sicherung kommt. Bei einem DURCHGESICKERTEN Passwort ist
+   * das der falsche Weg — dort gehört erst der Notzugang aufgehoben. Ohne
+   * dieses Feld setzt eine Verwaltung zurück und glaubt, der alte Schlüssel
+   * sei verbrannt.
+   */
+  hatNotzugang: boolean;
+  /**
+   * Würde „Notzugang aufheben" für DIESES Konto JETZT den Kontoschlüssel
+   * niederbrennen, statt nur die Rettungsleine zu kappen?
+   *
+   * Eine engere, zweite Auskunft neben `hatNotzugang` — nicht WER Anteile
+   * hält, nicht WIE VIELE noch tragen, sondern die unmittelbare Folge des
+   * einen Knopfs, den TeamAdmin.tsx zeigt. Ohne dieses Feld sah die
+   * Verwaltung ein und denselben Knopf mit ein und derselben Beschriftung,
+   * der je nach Zustand des Ziels entweder nur eine künftige Absicherung
+   * kappt oder Notizen und Passwort-Tresor sofort und endgültig vernichtet
+   * — und konnte die beiden vor dem Klick nicht unterscheiden.
+   */
+  notzugangAufhebenVerbrennt: boolean;
   lastSeenAt: number | null;
   createdAt: number;
   createdBy: string | null;
@@ -932,27 +959,177 @@ export interface Notiz {
   erstelltAm: number;
 }
 
+/* ── Passwort-Tresor ──────────────────────────────────────────── */
+
+/**
+ * Ein Tresoreintrag — Ende-zu-Ende verschlüsselt nach genau demselben Muster
+ * wie eine {@link Notiz}: dieselben Tabellen (Eintrag, Mitglieder,
+ * Geräteweg-Pakete, Kontoweg-Pakete), dieselbe `E2ENutzlast`-Hülle, derselbe
+ * Server, der `chiffrat` nie im Klartext sieht. Was den Tresor von einer
+ * Notiz unterscheidet: der Inhalt ist auf ZWEI Hüllen verteilt (Schaufenster
+ * hier, Geheimnis in passwort_geheimnisse), und jede Aushändigung des
+ * Geheimnisses wird protokolliert — siehe `PasswortOffenlegung` unten.
+ */
+export interface Passworteintrag {
+  id: string;
+  ownerId: string;
+  /**
+   * DAS SCHAUFENSTER, NICHT DER GANZE EINTRAG.
+   *
+   * "e1:<fassung>:<iv>:<daten>" — enthält als JSON nur, was die LISTE
+   * braucht: { label, benutzername, notiz, url, totpKontoId }. Ein
+   * `passwort`-Feld steht hier nicht mehr drin. Wer die Tafel öffnet,
+   * entschlüsselt damit kein einziges Passwort — das war vorher anders und
+   * ist der Grund für die Trennung (siehe schema.sql,
+   * passwort_geheimnisse).
+   *
+   * Das Passwort liegt in einer zweiten Hülle und kommt ausschließlich über
+   * POST /api/passwoerter/:id/geheimnis heraus — ein Weg, der beim
+   * Ausliefern selbst eine {@link PasswortOffenlegung} schreibt.
+   *
+   * LEER bei einem Eintrag aus dem Altbestand (`altbestand: true`): dessen
+   * eine alte Hülle enthält das Passwort noch mit, und der Server reicht sie
+   * deshalb nicht über die Liste heraus, sondern nur über denselben
+   * vermerkten Weg wie ein Geheimnis.
+   */
+  chiffrat: string;
+  /**
+   * Noch in der alten Form von vor der Trennung: eine Hülle mit allem drin,
+   * keine Zeile in passwort_geheimnisse. `chiffrat` ist dann leer.
+   *
+   * Umgestellt wird ein solcher Eintrag vom ersten Gerät, das ihn ohnehin
+   * schon öffnen kann — derselbe Gedanke wie beim Kontoweg-Nachtragen. Der
+   * Server kann es nicht selbst: er hat keinen der Schlüssel.
+   */
+  altbestand: boolean;
+  version: number;
+  /** Siehe Notiz.schluesselFassung — dieselbe Bedeutung, derselbe Anlass. */
+  schluesselFassung: number;
+  /** Wer außer der besitzenden Person diesen Eintrag lesen und bearbeiten
+   *  darf — nie "alle", immer einzeln ausgewählt. */
+  memberIds: string[];
+  ehemaligeMitglieder: { userId: string; entferntAm: number }[];
+  geaendertVon: string;
+  geaendertAm: number;
+  erstelltAm: number;
+}
+
+/**
+ * Dass jemand auf „aufdecken" oder „kopieren" gedrückt hat — nie, bei welchem
+ * Wert.
+ *
+ * WAS SIE BELEGT: dass der Server dieser Person zu diesem Zeitpunkt das
+ * Geheimnis dieses Eintrags AUSGEHÄNDIGT hat. Sie entsteht in derselben
+ * Transaktion wie die Auslieferung (server/services/passwoerter.ts,
+ * geheimnisAusliefern()) — es gibt keinen Weg an ihr vorbei: wer die Anfrage
+ * unterdrückt, bekommt kein Passwort, und ohne Anfrage hat niemand eines.
+ * Die Tafel entschlüsselt beim Öffnen nur noch das Schaufenster; ein
+ * Passwort steht dort erst, wenn eine dieser Zeilen dazu existiert.
+ *
+ * WAS SIE WEITERHIN NICHT BELEGT — und das ist keine Kleinigkeit: was NACH
+ * der Aushändigung geschah. Wer einmal geholt hat, hat den Wert; ob er ihn
+ * abschrieb, weitergab oder nur ansah, steht hier nicht und kann hier nicht
+ * stehen. Die Zeile bezeugt das Holen, nicht das Wissen. Wer ein Passwort
+ * überhaupt HABEN kann, sagt ohnehin nicht diese Zeile, sondern die
+ * Mitgliederliste des Eintrags — sie bleibt die eigentliche Eingrenzung.
+ *
+ * Ein Wert stünde dem im Weg, nicht im Dienst: er wäre selbst das Geheimnis,
+ * das dieser Datensatz nur bezeugen soll.
+ */
+export interface PasswortOffenlegung {
+  id: string;
+  eintragId: string;
+  userId: string;
+  am: number;
+}
+
 /* ── Briefpartner: Gruppen im Unternehmenspostfach ───────────────
  *
- * Fest, nicht frei. Eine freie Liste wäre flexibler, aber die KI kann nur in
- * eine Gruppe einordnen, die sie kennt — bei freien Namen bliebe ihr nur
- * Raten oder ständiges Neuerfinden ähnlicher Namen ("Kunde" neben "Kunden"
- * neben "Kundschaft"). Der feste Grundstock hier deckt, was ein
- * Firmenpostfach an Briefpartnern kennt; wer mehr braucht, ändert diese
- * Liste im Quelltext (plus Wörterbucheintrag je Sprache) statt eine eigene
- * Verwaltungsoberfläche für Gruppen zu bauen, die dieses Ausmaß an Aufwand
- * nicht rechtfertigt. `sonstige` ist der Auffangkorb und immer vorhanden —
- * er verhindert, dass die KI etwas erfindet, weil keine der übrigen fünf
- * passt.
+ * ZWEI SCHICHTEN, EIN GRUND
+ *
+ * Ursprünglich war diese Liste vollständig fest — die KI kann nur in eine
+ * Gruppe einordnen, die sie kennt, und bei frei erfundenen Namen bliebe ihr
+ * nur Raten oder ständiges Neuerfinden ähnlicher Namen ("Kunde" neben
+ * "Kunden" neben "Kundschaft"). Diese Eigenschaft gilt weiterhin — nur nicht
+ * mehr für ALLE Gruppen:
+ *
+ *   · EINGEBAUTE Gruppen (diese Liste hier, `PARTNER_GRUPPEN`) sind fest im
+ *     Quelltext, haben eine Übersetzung in allen 22 Sprachen
+ *     (`partnerGruppen.gruppe.<id>` im Wörterbuch) und sind der KI namentlich
+ *     bekannt. `sonstige` ist ihr Auffangkorb und immer vorhanden — er
+ *     verhindert, dass die KI etwas erfindet, weil keine der übrigen passt.
+ *     `intern` ist ebenfalls eingebaut, aber ein Sonderfall: siehe dort.
+ *     Eingebaute Gruppen lassen sich nicht umbenennen (ihr Name kommt aus
+ *     dem Wörterbuch, nicht aus einer Datenbankzeile) und nicht löschen (die
+ *     KI und `gruppeFuer()` & Co. verweisen fest auf ihre Kennung).
+ *
+ *   · BENUTZERDEFINIERTE Gruppen sind DATEN, keine Konstante — eine Zeile in
+ *     `post_partnergruppen` (packages/server/src/services/
+ *     post-partnergruppen.ts, `gruppeErstellen()`/`gruppeUmbenennen()`/
+ *     `gruppeLoeschen()`), angelegt von einem Menschen mit `mail.verwalten`.
+ *     Ihr Name ist genau der Wortlaut, den diese Person eingegeben hat — in
+ *     KEINER Sprache übersetzt, weil er in keiner geschrieben wurde. Genau
+ *     deshalb NIE als Wörterbuchschlüssel behandeln und NIE durch `t()`
+ *     schicken: das wäre eine Übersetzung erfinden, wo keine existiert. Die
+ *     KI erfährt bei jedem Lauf die AKTUELLE Liste (siehe dort) und darf
+ *     auch in eine benutzerdefinierte Gruppe einordnen — nur `intern` bleibt
+ *     ihr für immer verschlossen.
+ *
+ * Beide Schichten zusammen ergeben EINE Liste für die Oberfläche —
+ * `PartnerGruppeInfo` weiter unten ist die gemeinsame Form, in der der
+ * Server sie ausliefert (`GET /api/post/partnergruppen`).
+ *
+ * INTERN — GEPRÜFT, NICHT GERATEN UND NICHT GEGLAUBT
+ *
+ * Anders als die übrigen sechs wird `intern` nie von der KI vorgeschlagen:
+ * ob eine Adresse auf der eigenen Versanddomäne liegt (services/
+ * mailzugang.ts, `mail.domaene`), entscheidet post-partnergruppen.ts mit
+ * einem Domänenvergleich, bevor die KI überhaupt gefragt wird.
+ *
+ * Der Vergleich allein genügt aber nicht: er liest den `From:`-Kopf, und den
+ * schreibt der Absender selbst — jeder Fremde kann eine Adresse auf der
+ * Firmendomäne behaupten. Erst der Absenderbeleg derselben Mail
+ * (`dmarc=pass`, siehe packages/server/src/util/absenderbeleg.ts) macht aus
+ * der Behauptung einen Sachverhalt. Nur DANN gilt „intern" ohne Nachfrage
+ * und ohne die EINE Gelegenheit der KI zu verbrauchen; ohne Beleg wird die
+ * Adresse einem Menschen vorgelegt (siehe `gruppeBeleg` bei `MailPartner`
+ * weiter unten und `internZuweisen()` dort). Abgewiesen wird deswegen keine
+ * Mail — die Prüfung ist ein Signal, keine Sperre.
  */
 export const PARTNER_GRUPPEN = [
-  'kunden', 'firmen', 'lieferanten', 'bewerber', 'behoerden', 'sonstige',
+  'intern', 'kunden', 'firmen', 'lieferanten', 'bewerber', 'behoerden', 'sonstige',
 ] as const;
 export type PartnerGruppe = (typeof PARTNER_GRUPPEN)[number];
 
 /**
+ * Eine Gruppe, wie die Oberfläche sie zur Auswahl anbietet — eingebaut oder
+ * von einem Menschen angelegt (siehe Dateikopf für den Unterschied).
+ */
+export interface PartnerGruppeInfo {
+  id: string;
+  eingebaut: boolean;
+  /** Nur bei benutzerdefinierten Gruppen gesetzt (`eingebaut === false`) —
+      der Wortlaut, wie die Person ihn eingegeben hat, unübersetzt. Bei
+      eingebauten `null`: der Name kommt über `partnerGruppen.gruppe.<id>`
+      aus dem Wörterbuch. */
+  name: string | null;
+  /** Bei eingebauten Gruppen `0` — sie haben kein echtes Anlegedatum. */
+  erstelltAm: number;
+  /** Nur bei benutzerdefinierten Gruppen gesetzt. */
+  erstelltVon: string | null;
+  /** Wie viele Briefpartner gerade in dieser Gruppe stehen. */
+  anzahl: number;
+}
+
+/**
  * Ein Briefpartner, so wie die Oberfläche ihn sieht — eine Zeile aus
  * `mail_partner` (packages/server/src/services/post-partnergruppen.ts).
+ *
+ * `gruppe` ist bewusst `string`, nicht `PartnerGruppe`: es kann ebenso gut
+ * die Kennung einer benutzerdefinierten Gruppe sein (siehe Dateikopf). Ob ein
+ * Wert eine eingebaute oder eine benutzerdefinierte Gruppe meint, entscheidet
+ * seine Mitgliedschaft in `PARTNER_GRUPPEN` — oder ein Blick in die Liste aus
+ * `GET /api/post/partnergruppen` (`PartnerGruppeInfo`).
  *
  * `gruppeVonKi` unterscheidet Vorschlag von Tatsache: `true` heißt, die
  * Gruppe steht so da, wie die KI sie einmalig vorgeschlagen hat, und noch
@@ -960,15 +1137,112 @@ export type PartnerGruppe = (typeof PARTNER_GRUPPEN)[number];
  * unabhängig davon der Zeitpunkt der EINEN Gelegenheit, die die KI je
  * Adresse hat — er bleibt stehen, auch wenn `gruppe` später von Hand
  * geändert wird, und verhindert genau dadurch jeden weiteren Vorschlag.
+ *
+ * `intern` ist dabei der eine Sonderfall, und `gruppeBeleg` sagt, welcher
+ * Art: eine BELEGTE Zuordnung (`gruppeBeleg: 'dmarc'`) zählt wie eine
+ * menschliche Entscheidung (`gruppeVonKi: false`) — die Absenderdomäne
+ * wurde nicht bloß gelesen, sondern geprüft. Fehlt der Beleg oder fiel er
+ * durch (`'ungeprueft'`, `'altbestand'`), steht die Zeile als VORSCHLAG da
+ * (`gruppeVonKi: true`) und wartet auf einen Menschen: der `From:`-Kopf, an
+ * dem die Domäne hängt, ist eine Behauptung des Absenders, und jeder Fremde
+ * kann eine Adresse auf der eigenen Firmendomäne behaupten.
  */
 export interface MailPartner {
   adresse: string;
-  gruppe: PartnerGruppe | null;
+  gruppe: string | null;
   gruppeVonKi: boolean;
   gruppeVorschlagAm: number | null;
   /** Ein Satz der KI, warum sie so entschieden hat — nur bei `gruppeVonKi`. */
   begruendung: string | null;
+  /**
+   * Worauf eine AUTOMATISCHE `intern`-Einordnung beruht (siehe Dateikopf
+   * dieses Abschnitts). `null`: diese Zeile kam nicht über den Domänenweg —
+   * KI-Vorschlag, menschliche Entscheidung oder noch gar keine Gruppe.
+   *
+   * Die Oberfläche wertet das Feld heute noch nicht aus; der Server liefert
+   * es trotzdem, damit „warum steht hier intern?" überhaupt beantwortbar
+   * ist. Wer es anzeigt, braucht dafür drei Wörterbuchschlüssel in allen 22
+   * Sprachen — der Wert selbst ist eine Kennung, nie ein anzeigbarer Text.
+   */
+  gruppeBeleg: 'dmarc' | 'ungeprueft' | 'altbestand' | null;
   sprache: string;
   /** Seit wann diese Adresse bekannt ist (erster Kontakt oder erste Zuordnung). */
   seit: number;
+}
+
+/* ── Das Gedächtnis der Firmenpost ──────────────────────────────
+ *
+ * Zwei Formen, und der Unterschied zwischen ihnen ist die ganze Sperre:
+ * ein `WissenEintrag` GILT und geht in die Anweisung ans Modell; ein
+ * `WissenVorschlag` ist eine Bitte der KI, etwas merken zu dürfen, und wirkt
+ * auf keine einzige Antwort, bis ein Mensch zugestimmt hat.
+ *
+ * Beide stehen hier statt je einmal auf Server und Oberfläche: sie gehen als
+ * JSON über dieselbe Leitung, und zwei Beschreibungen desselben Objekts
+ * laufen mit der Zeit auseinander. Der Server (services/post-wissen.ts) baut
+ * sie, die Oberfläche (components/PostGedaechtnis.tsx) zeigt sie.
+ */
+
+/** `wissen` = Tatsache über die Firma, `stil` = Schreibgewohnheit. */
+export type WissenArt = 'wissen' | 'stil';
+
+export interface WissenEintrag {
+  id: string;
+  art: WissenArt;
+  /** Überschrift und zugleich der Griff, über den zur Mail passendes Wissen gefunden wird. */
+  thema: string;
+  inhalt: string;
+  /** Kommaliste. Fängt, was im Thema nicht wörtlich vorkommt. */
+  stichworte: string;
+  /** Grundwissen: geht mit, auch wenn die Mail das Thema nicht erwähnt. */
+  immer: boolean;
+  /** Nur für dieses Fach gültig (lokaler Teil), oder null für alle. */
+  fach: string | null;
+  /** Woher das stammt — ohne Herkunft lässt sich nicht beurteilen, ob es stimmt. */
+  quelle: string | null;
+  angelegtVon: string | null;
+  angelegtAm: number;
+  geaendertAm: number | null;
+  /** Welchen Eintrag dieser hier abgelöst hat. */
+  ersetztId: string | null;
+  /** Gesetzt heißt: gilt nicht mehr. Bleibt trotzdem lesbar. */
+  ersetztAm: number | null;
+  ersetztDurch: string | null;
+}
+
+/** Woher ein Vorschlag stammt — im Wortlaut nachprüfbar, nicht als Behauptung. */
+export interface WissenHerkunft {
+  /** 'bearbeitet': ein Mensch hat einen KI-Entwurf vor dem Senden geändert. */
+  art: 'bearbeitet' | 'gesendet';
+  mailId: string;
+  entwurfId: string | null;
+  betreff: string;
+  an: string;
+  /** Was die KI geschrieben hatte — nur bei 'bearbeitet'. */
+  textKi: string | null;
+  /** Was tatsächlich hinausging. */
+  textGesendet: string;
+}
+
+export interface WissenVorschlag {
+  id: string;
+  art: WissenArt;
+  thema: string;
+  inhalt: string;
+  /** Ein Satz der KI: warum das dauerhaft gilt. */
+  begruendung: string | null;
+  herkunft: WissenHerkunft | null;
+  /**
+   * Ein GELTENDER Eintrag zum selben Thema, samt Wortlaut.
+   *
+   * Gesetzt heißt: hier widerspricht sich etwas. Beide Fassungen gehören
+   * nebeneinander vor den Menschen, der entscheidet — das Alte wird nie
+   * stillschweigend überschrieben.
+   */
+  widerspruchZu: { id: string; thema: string; inhalt: string } | null;
+  zustand: 'offen' | 'angenommen' | 'abgelehnt';
+  erstelltAm: number;
+  entschiedenAm: number | null;
+  entschiedenVon: string | null;
+  eintragId: string | null;
 }

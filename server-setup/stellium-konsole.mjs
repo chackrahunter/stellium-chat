@@ -298,13 +298,60 @@ function ablage() {
   return { belegt, dateien, frei: Math.max(0, grenze - belegt), gesamt: grenze, plattenrest };
 }
 
+/**
+ * Welche Rollen als „technisches Konto" gelten — für `kontenBedingung()`
+ * unten und für nichts sonst.
+ *
+ * Ruft der Server dieses Skript (systemwerte.ts, execFile), reicht er die
+ * echte Liste aus `ROLES`/`technical` (@stellium/shared, siehe TeamAdmin.tsx
+ * ZUWEISBARE_ROLLEN für dieselbe Quelle) als Umgebungsvariable durch — genau
+ * wie den Gumroad-Token oben in dieser Datei, aus demselben Grund: ein
+ * eigenständiges .mjs-Skript, per `node` gestartet, kennt das TypeScript-Paket
+ * zur Laufzeit nicht. Wer die Konsole von Hand per SSH aufruft, ohne dass der
+ * Server die Variable gesetzt hat, bekommt die Vorgabe 'bot' — heute die
+ * einzige technische Rolle im Katalog.
+ */
+function technischeRollen() {
+  const gesetzt = process.env.STELLIUM_TECHNISCHE_ROLLEN;
+  const liste = (gesetzt ?? 'bot').split(',').map((r) => r.trim()).filter((r) => /^[a-z_]+$/.test(r));
+  // Vom Server ausdrücklich gesetzt (auch als leere Liste) gilt immer —
+  // nur ohne jede Angabe (SSH von Hand) greift die Vorgabe unten.
+  if (gesetzt !== undefined) return liste;
+  return liste.length ? liste : ['bot'];
+}
+
+/**
+ * Nur Konten, die wirklich zum Team gehören: kein technisches Konto (Bot,
+ * KI-Assistent, künftige Integrationen), keins, das gesperrt oder gelöscht
+ * ist. Speist „Konten" in der Konsole *und*, über systemwerte.ts, den
+ * Nenner des „Team online"-Bogens in der App (SystemPanel.tsx liest
+ * `inhalt.users` für beides — ein Feld, zwei Anzeigen).
+ *
+ * Dieselbe Regel wie toUser() (packages/server/src/services/store.ts, Feld
+ * `technisch`): eine gewählte Kategorie schlägt die Vermutung aus der Rolle.
+ */
+function kontenBedingung() {
+  const rollen = technischeRollen().map((r) => `'${r}'`).join(',');
+  const rollenBedingung = rollen.length ? `role IN (${rollen})` : '0';
+  return ` WHERE deleted_at IS NULL AND disabled = 0
+    AND NOT (
+      (kategorie IS NOT NULL AND kategorie = 'technisch')
+      OR (kategorie IS NULL AND ${rollenBedingung})
+    )`;
+}
+
 function zahlen() {
   const datei = `${DATEN}/stellium.db`;
   if (!fs.existsSync(datei)) return null;
   const felder = ['users', 'channels', 'messages', 'tasks', 'events', 'files', 'ideas'];
   const ergebnis = {};
   for (const t of felder) {
-    const aus = ruf('sqlite3', ['-readonly', datei, `SELECT COUNT(*) FROM ${t};`]);
+    const sql = t === 'users' ? `SELECT COUNT(*) FROM users${kontenBedingung()};` : `SELECT COUNT(*) FROM ${t};`;
+    let aus = ruf('sqlite3', ['-readonly', datei, sql]);
+    /* Sehr alte Datenbank, disabled/deleted_at/kategorie fehlen noch (siehe
+       migrate.ts, Nachrüstung, "Nachrüstung" in CLAUDE.md) — dann lieber die
+       rohe Zahl als gar keine. */
+    if (aus === null && t === 'users') aus = ruf('sqlite3', ['-readonly', datei, 'SELECT COUNT(*) FROM users;']);
     if (aus !== null && aus !== '') ergebnis[t] = Number(aus);
   }
   try { ergebnis.groesse = fs.statSync(datei).size; } catch { /* egal */ }

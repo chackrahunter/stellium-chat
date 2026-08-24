@@ -28,6 +28,20 @@ export function TaskExtractPop({ ankerRef, onClose }: {
   const ref = useRef<HTMLDivElement>(null);
   const [ort, setOrt] = useState<{ left: number; top: number } | null>(null);
 
+  /* `onClose` kommt aus ChannelHeader.tsx als frische Closure bei JEDEM
+     Rendern (dort rund um `extractOffen`/`clearExtractedTasks` gebaut,
+     nirgends mit useCallback stabilisiert) — und ChannelHeader liest
+     `useStore((s) => s.users)`, ein Objekt, das bei JEDER
+     Anwesenheitsänderung irgendeines Teammitglieds komplett ersetzt wird,
+     auch wenn niemand aus diesem Kanal betroffen ist. Stünde `onClose` unten
+     direkt in der Abhängigkeitsliste des Auto-Schließen-Effekts, risse jede
+     fremde Anwesenheitsänderung dessen 3,2-Sekunden-Timer neu an — in einem
+     belebten Team blieb das leere Pop dann praktisch endlos stehen, statt
+     nach gut drei Sekunden zu verschwinden. Die Ref hält immer die aktuellste
+     Funktion, ohne dass ihr Identitätswechsel den Timer selbst neu startet. */
+  const onCloseRef = useRef(onClose);
+  useEffect(() => { onCloseRef.current = onClose; }, [onClose]);
+
   /* Am Kopfbereich hängt ein backdrop-filter — darin wäre selbst „fixed“
      relativ zum Kopf statt zum Fenster. Darum am <body>, von Hand platziert. */
   useLayoutEffect(() => {
@@ -64,9 +78,15 @@ export function TaskExtractPop({ ankerRef, onClose }: {
   const leer = !laeuft && !fehler && ergebnis && !ergebnis.vorgeschlagen;
   useEffect(() => {
     if (!leer) return;
-    const timer = window.setTimeout(onClose, 3200);
+    // `onCloseRef.current()` statt `onClose` direkt und `onClose` bewusst
+    // nicht in der Abhängigkeitsliste (siehe Ref-Kommentar weiter oben): die
+    // 3,2 Sekunden zählen ab dem Moment, in dem der Leerzustand erscheint —
+    // unabhängig davon, wie oft ChannelHeader in der Zwischenzeit aus
+    // fachfremdem Grund neu rendert.
+    const timer = window.setTimeout(() => onCloseRef.current(), 3200);
     return () => clearTimeout(timer);
-  }, [leer, onClose]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [leer]);
 
   const anzahl = ergebnis?.vorgeschlagen ?? 0;
 

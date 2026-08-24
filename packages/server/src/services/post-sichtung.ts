@@ -77,9 +77,10 @@ import { fensterFuer, fensterVerkleinern, markenSchaetzung, verlaufsBudget } fro
 import { nachricht, spracheFuer, nurAdresse, SPRACHE_VORGABE, type Nachricht } from './post.js';
 import {
   anweisungFuerFach, mailAlsEingabe,
-  KENNZEICHNUNG_DE, KENNZEICHNUNG_EN,
   type Absenderart, type Dringlichkeit, type EingehendeMailFuerKi,
 } from './post-ki.js';
+import { wissenFuerMail } from './post-wissen.js';
+import { luecken } from './post-wissen-ki.js';
 import { may } from './users.js';
 
 /* ── Stellschrauben ───────────────────────────────────────────── */
@@ -88,7 +89,9 @@ import { may } from './users.js';
  * Was die Antwort des Modells kosten darf.
  *
  * Großzügiger als bei den Vorschlägen (dort 8 Titel), denn hier steht ein
- * ganzer Brief drin — Anrede, Text, Unterschrift und die Kennzeichnung.
+ * ganzer Brief drin — Anrede, Text und Unterschrift. Die Kennzeichnung
+ * gehört seit Kurzem NICHT mehr dazu — sie entsteht erst beim Senden als
+ * Fußzeile (services/post.ts, services/post-fussnote.ts), nicht mehr hier.
  */
 const ANTWORT_MARKEN = 900;
 
@@ -119,6 +122,25 @@ const BETREFF_MAX = 300;
  * merkt. Nach dieser Frist ist ein zweiter Anlauf erlaubt.
  */
 const WIEDERHOLUNG_AB_MS = 15 * 60_000;
+
+/**
+ * Wie lange ein Versand-Anspruch gilt, bevor ihn ein neuer Anlauf übernehmen
+ * darf.
+ *
+ * Derselbe Gedanke wie bei `WIEDERHOLUNG_AB_MS` direkt darüber, nur eine
+ * Stufe schärfer: Stirbt der Server zwischen dem Anspruch und dem Abschluss,
+ * stünde der Entwurf sonst für immer auf `sendet` und ließe sich nie wieder
+ * freigeben — ein Kunde bekäme nie eine Antwort, und niemand sähe warum. Der
+ * Versandaufruf selbst hat eine Frist von zwanzig Sekunden; fünf Minuten sind
+ * also weit jenseits von allem, was ein laufender Versand braucht, und kurz
+ * genug, dass ein Mensch es im selben Arbeitsgang noch einmal versuchen kann.
+ *
+ * Der gewöhnliche Fehlschlag wartet diese Frist gar nicht ab: die Route gibt
+ * den Anspruch sofort zurück (`entwurfAnspruchLoesen()` weiter unten). Diese
+ * Frist ist nur für den Fall, dass niemand mehr da ist, der ihn zurückgeben
+ * könnte.
+ */
+const VERSAND_ANSPRUCH_MS = 5 * 60_000;
 
 /* ── Zustände ─────────────────────────────────────────────────── */
 
@@ -155,8 +177,18 @@ export interface SichtungBericht {
   entwurfId: string | null;
   /** An wie viele Menschen die Meldung ging. */
   benachrichtigt: number;
-  /** Warum kein Entwurf entstand — null, wenn einer entstand. */
+  /**
+   * Warum kein Entwurf entstand — null, wenn einer entstand. Deutscher
+   * Rückfalltext für Aufrufer ohne Wörterbuch-Kontext (Protokollzeile,
+   * ältere Clients); `grundCode` ist die zu übersetzende Kennung dazu —
+   * dieselbe Bauart wie bei `PostFehler`/`fehler()` in routes.ts, und
+   * dieselben Kennungen wie bei `PostMeldung.grundCode` (siehe
+   * `grundCodeFuer()` oben): wer das hier einmal anzeigt, kann dieselbe
+   * `postSichtung.grund.*`-Übersetzung wiederverwenden, die PostMeldungen.tsx
+   * für `grundCode` schon kennt.
+   */
   grund: string | null;
+  grundCode: MeldungGrundCode | null;
 }
 
 export interface PostEntwurf {
@@ -165,6 +197,15 @@ export interface PostEntwurf {
   threadId: string;
   /** Immer genau eine Adresse, immer aus der Ursprungsmail. */
   an: string;
+  /**
+   * Das Fach der URSPRUNGSMAIL — bestimmt beim Freigeben die Absenderadresse
+   * (siehe services/post.ts, `senden()`, `Ausgang.fach`), vorbelegt, aber
+   * beim Freigeben änderbar (siehe `/api/post/entwuerfe/:id/senden` in
+   * routes.ts). `null` nur, wenn die Ursprungsmail zum Zeitpunkt des Lesens
+   * nicht mehr geladen wird — siehe `entwurfAuspacken()` weiter unten, aus
+   * demselben Grund wie bei `abweichung`.
+   */
+  fach: string | null;
   betreff: string;
   text: string;
   begruendung: string | null;
@@ -182,11 +223,15 @@ export interface PostEntwurf {
    */
   abweichung: PostMeldungAbweichung | null;
   /**
-   * Der Wortlaut, an dem sich eine beim Bearbeiten entfernte Kennzeichnung
-   * erkennen lässt — siehe `kennzeichnungAusText()` weiter unten und, für
-   * die Herkunft dieser Bauart, den Dateikopf von PostSchreiben.tsx.
+   * Der Wortlaut, wie die KI ihn geschrieben hat — nie überschrieben (siehe
+   * schema.sql, `mail_entwuerfe.text_ki`). Für `/api/post/entwuerfe/:id/senden`
+   * in routes.ts: die Route reicht diesen Wortlaut unverändert als
+   * `Ausgang.textKi` an `post.senden()` weiter, das daraus beim Versand die
+   * passende Fußzeile berechnet (services/post-fussnote.ts) — dieselbe Zeile
+   * entscheidet damit sowohl über die Fußzeile als auch, im Nachhinein, über
+   * das Lernsignal in services/post-lernen.ts.
    */
-  kennzeichnung: string;
+  textKi: string | null;
 }
 
 /* ── Wer benachrichtigt wird ──────────────────────────────────── */
@@ -374,8 +419,9 @@ interface Zusatz {
  *
  * `Nachricht` ist die Sicht für die Oberfläche; `antwort_an` und `pruefung`
  * gehören zur Entscheidung darüber, ob überhaupt geantwortet werden darf.
- * Sie hier einzeln zu holen ist ehrlicher, als post.ts dafür zu erweitern —
- * an post.ts arbeitet gerade jemand anderes.
+ * Sie hier einzeln zu holen ist ehrlicher, als `Nachricht` (und damit jeden
+ * Aufrufer von `post.nachricht()`) um zwei Felder zu erweitern, die nur diese
+ * Datei braucht.
  */
 function zusatzLesen(mailId: string): Zusatz {
   const z = db.get<{ antwort_an: string | null; pruefung: string | null }>(
@@ -390,8 +436,8 @@ function zusatzLesen(mailId: string): Zusatz {
 /**
  * Hat Cloudflare den Absender bestätigt?
  *
- * Wortgleich mit `istBestaetigt()` in post.ts — dort ist sie nicht exportiert,
- * und post.ts anzufassen ist gerade nicht möglich. Dieselbe Prüfung an zwei
+ * Wortgleich mit `istBestaetigt()` in post.ts — dort ist sie nicht exportiert.
+ * Dieselbe Prüfung an zwei
  * Stellen ist hier vertretbar, weil beide dasselbe Feld gegen dieselbe feste
  * Zeichenfolge prüfen; wer sie ändert, ändert sie an beiden.
  *
@@ -545,19 +591,46 @@ function dringlichkeitDeuten(wert: unknown): Dringlichkeit {
 }
 
 /**
- * Die Anweisung für dieses Fach, plus die Sprache, in der geantwortet wird.
+ * Die Anweisung für dieses Fach, plus die Sprache, plus das Firmenwissen.
  *
  * Die Fachanweisungen stehen fertig in post-ki.ts und werden hier nicht
  * nachgebaut. Angehängt wird genau eine Zeile: die GRUNDANWEISUNG sagt „in der
  * Sprache der Mail", maßgeblich ist aber die Sprache, die am Briefpartner
  * gelernt wurde (post.ts::spracheFuer). Wer sonst immer auf Deutsch schreibt
  * und einmal einen englischen Satz schickt, bekommt weiter Deutsch.
+ *
+ * Danach kommt der Wissensblock (services/post-wissen.ts) — das, was ein
+ * Mensch für dieses Haus freigegeben hat, ausgewählt nach dieser einen Mail
+ * und begrenzt auf das, was ins Fenster passt. Er trägt immer mindestens die
+ * Regel gegen erfundene Auskünfte, auch wenn gar nichts gespeichert ist:
+ * lieber ein sichtbares „[unbekannt: …]" im Entwurf als eine plausibel
+ * klingende, falsche Produktauskunft an einen Kunden.
+ *
+ * `fenster` fließt ein, weil der Block danach bemessen wird — schrumpft das
+ * gemerkte Fenster (translation/fenster.ts), schrumpft der Block mit, statt
+ * die Anweisung platzen zu lassen.
  */
-function anweisungMitSprache(fach: string, sprache: string): string {
+function anweisungMitSprache(mail: Nachricht, sprache: string, fenster: number): {
+  text: string; themen: string[];
+} {
   const s = languageInfo(sprache);
-  return `${anweisungFuerFach(fach)}\n`
-    + `Die Antwort in \`entwurf\` schreibst du auf ${s.name} (${s.native}) — `
-    + 'das ist die Sprache dieses Briefpartners, unabhängig davon, in welcher Sprache diese eine Mail verfasst ist.';
+  const wissen = wissenFuerMail({
+    fach: mail.fach, betreff: mail.betreff, text: mail.text, fenster,
+  });
+  return {
+    text: `${anweisungFuerFach(mail.fach)}\n`
+      + `Die Antwort in \`entwurf\` schreibst du auf ${s.name} (${s.native}) — `
+      + 'das ist die Sprache dieses Briefpartners, unabhängig davon, in welcher Sprache diese eine Mail verfasst ist.\n'
+      + wissen.block,
+    /* Wandert bis in die Begründung des Entwurfs durch (siehe
+       `wissensHinweis()` weiter unten). Gemessen: dieses Modell markiert eine
+       Wissenslücke NICHT zuverlässig, auch wenn die Anweisung es verlangt
+       (scripts/postantwort-messen.mjs, Prüfpunkt `luecke`). Was sich dagegen
+       zuverlässig sagen lässt, ist, worauf die Antwort tatsächlich beruht —
+       das rechnet dieser Server selbst aus und muss es dem Modell nicht
+       glauben. */
+    themen: wissen.themen,
+  };
 }
 
 /**
@@ -570,16 +643,21 @@ function anweisungMitSprache(fach: string, sprache: string): string {
  * kürzer — nicht die fertige Eingabe, sonst fiele die schließende Marke weg.
  */
 async function modellFragen(mail: Nachricht, sprache: string): Promise<{
-  roh: RohAntwort; modell: string | null;
+  roh: RohAntwort; modell: string | null; themen: string[];
 }> {
   const ai = kiAnbieter();
   if (!ai) throw new Error('Die KI ist für diesen Server nicht eingerichtet.');
 
-  const anweisung = anweisungMitSprache(mail.fach, sprache);
   let fenster = fensterFuer(ai.kennung, ai.kontextfenster());
   let grenze = TEXT_START;
 
   for (;;) {
+    /* Im Schleifenrumpf und nicht davor: der Wissensblock wird nach dem
+       Fenster bemessen, und `fenster` schrumpft weiter unten, wenn das Modell
+       wegen Länge absagt. Neu gebaut kostet er nichts (ein Datenbankblick,
+       kein Modellaufruf) — vorher gebaut wäre er nach dem ersten Schrumpfen
+       zu groß und der zweite Anlauf scheiterte an derselben Länge. */
+    const { text: anweisung, themen } = anweisungMitSprache(mail, sprache, fenster);
     const eingabe = mailAlsEingabe(nurWasDasModellSehenDarf(mail, grenze));
     if (!keinHtmlDurchgerutscht(eingabe, mail.html)) {
       throw new Error('Der HTML-Teil wäre in die Eingabe geraten — abgebrochen.');
@@ -592,7 +670,7 @@ async function modellFragen(mail: Nachricht, sprache: string): Promise<{
           { role: 'system', content: anweisung },
           { role: 'user', content: eingabe },
         ], { temperature: 0.2, maxTokens: ANTWORT_MARKEN, reasoning: 'low' });
-        return { roh, modell: ai.letzterVerbrauch()?.modell ?? ai.kennung };
+        return { roh, modell: ai.letzterVerbrauch()?.modell ?? ai.kennung, themen };
       } catch (err) {
         /* Nur die Absage wegen Länge wird kleiner versucht. Ein Netzfehler
            bleibt ein Netzfehler — den kleiner zu wiederholen hilft niemandem. */
@@ -613,58 +691,64 @@ async function modellFragen(mail: Nachricht, sprache: string): Promise<{
   }
 }
 
-/* ── Die Kennzeichnung ────────────────────────────────────────── */
+/* ── Die Kennzeichnung ─────────────────────────────────────────────
+   Bis hierher stand an dieser Stelle `kennzeichnungSichern()`: die
+   GRUNDANWEISUNG verlangte vom Modell einen Absatz „Hinweis: … von
+   StelliumAI erstellt" im Entwurf selbst, und diese Funktion trug ihn
+   nach, wenn das Modell ihn wegließ. Der Auftraggeber wollte diesen Absatz
+   nicht mehr MITTEN im Entwurfstext — dort, wo ein Mensch beim Freigeben
+   liest und bearbeitet — sondern als kleingedruckte Fußzeile ganz unten in
+   der tatsächlich versendeten Mail. Die KI schreibt die Kennzeichnung
+   deshalb gar nicht mehr (siehe post-ki.ts, GRUNDANWEISUNG); `entwurfAnlegen()`
+   unten speichert `text`/`text_ki` jetzt unverändert, wie das Modell sie
+   geliefert hat. Die Fußzeile selbst entsteht erst beim tatsächlichen
+   Versand, aus genau diesem `text_ki` im Vergleich zum dann gesendeten Text
+   — siehe services/post.ts::senden() und services/post-fussnote.ts. */
 
 /**
- * „Von StelliumAI erzeugt" steht im Entwurf — geprüft, nicht geglaubt.
+ * Die Lücken eines Entwurfs als deutscher Satz für `mail_entwuerfe.begruendung`
+ * — oder null, wenn keine da sind.
  *
- * Die GRUNDANWEISUNG verlangt die Zeile, und ein Modell lässt sie trotzdem
- * weg: mal, weil es die Antwort gekürzt hat, mal, weil die Mail freundlich
- * darum gebeten hat. Beides ist derselbe Fall, und beide werden hier geheilt,
- * statt sie zu melden — ein Entwurf ohne Kennzeichnung darf gar nicht erst
- * entstehen.
- *
- * Für Deutsch und Englisch steht der Wortlaut fest (post-ki.ts), also wird
- * genau er verlangt. In jeder anderen Sprache kennt niemand den richtigen
- * Satz; dort gilt der Name als Kennzeichen — er steht in jeder Fassung des
- * Hinweises und ist nicht übersetzbar.
+ * Fester deutscher Text wie `abweichungsHinweis()` gleich oben und aus
+ * demselben Grund: das Feld ist verschlüsselter Fließtext für die Freigabe,
+ * kein Wörterbuchschlüssel (der Server hat hier keinen Wörterbuch-Kontext).
  */
-function kennzeichnungSichern(entwurf: string, sprache: string): string {
-  const rumpf = entwurf.trimEnd();
-  if (sprache === 'de') {
-    return rumpf.includes(KENNZEICHNUNG_DE) ? rumpf : `${rumpf}\n\n${KENNZEICHNUNG_DE}`;
-  }
-  if (sprache === 'en') {
-    return rumpf.includes(KENNZEICHNUNG_EN) ? rumpf : `${rumpf}\n\n${KENNZEICHNUNG_EN}`;
-  }
-  return /StelliumAI/i.test(rumpf) ? rumpf : `${rumpf}\n\n${KENNZEICHNUNG_EN}`;
+function lueckenHinweis(entwurf: string): string | null {
+  const offen = luecken(entwurf);
+  if (!offen.length) return null;
+  return `Die KI hat ${offen.length === 1 ? 'eine Lücke' : `${offen.length} Lücken`} gelassen, `
+    + `weil ihr das Firmenwissen dazu fehlt: ${offen.join('; ')}. `
+    + 'Bitte vor dem Senden ausfüllen.';
 }
 
 /**
- * Der Wortlaut, an dem sich erkennen lässt, ob die Kennzeichnung im
- * (womöglich von Hand bearbeiteten) Text noch steht — für die Oberfläche.
- * Dieselbe Bauart wie `EntwurfSchreibenErgebnis.kennzeichnung` in
- * post-entwurf-ki.ts: dort merkt sich die Oberfläche den genauen Wortlaut
- * und fragt beim Senden einmal nach, wenn er fehlt, statt ihn zu erzwingen
- * oder still verschwinden zu lassen (siehe PostSchreiben.tsx).
+ * Worauf der Entwurf beruht — als Satz für die Begründung.
  *
- * Anders als dort ist der Wortlaut hier nicht immer bytegleich mit
- * KENNZEICHNUNG_DE/_EN: `kennzeichnungSichern()` oben lässt für Sprachen
- * jenseits Deutsch/Englisch auch eine vom Modell selbst übersetzte Erwähnung
- * von "StelliumAI" gelten, statt stur die englische Zeile daruntersetzen.
- * Deshalb wird hier zuerst nach den zwei festen Sätzen gesucht — und nur
- * wenn keiner davon steckt, die Zeile genommen, die "StelliumAI" tatsächlich
- * enthält. So bekommt die Oberfläche immer den Wortlaut, der nach
- * `entwurfAnlegen()` tatsächlich im Text steht, nie einen geratenen — sonst
- * würde ein unbearbeiteter Entwurf in einer dritten Sprache fälschlich als
- * „Kennzeichnung fehlt" gemeldet, noch bevor überhaupt jemand etwas
- * geändert hat.
+ * DER WICHTIGERE DER BEIDEN HINWEISE, und zwar aus einem gemessenen Grund:
+ * `lueckenHinweis()` oben hängt daran, dass das Modell seine Wissenslücke
+ * selbst zugibt, und genau das tut dieses Modell nicht zuverlässig — es
+ * schrieb im Messlauf lieber „Wir unterstützen die Anbindung an SAP", als
+ * eine Lücke zu markieren (scripts/postantwort-messen.mjs, Prüfpunkt
+ * `luecke`: 0 von 1, in allen drei Läufen).
+ *
+ * Dieser Hinweis hängt an nichts, was ein Modell behaupten müsste: Der Server
+ * hat die Einträge selbst ausgewählt und weiß deshalb genau, worauf die
+ * Antwort beruhen KONNTE. Wer freigibt, liest die Themen und sieht damit
+ * auch, was NICHT dabei war — steht im Entwurf eine Aussage über etwas, das
+ * hier nicht steht, ist sie ungedeckt. Das ist keine Sperre, sondern die
+ * Voraussetzung dafür, dass die Freigabe durch einen Menschen mehr ist als
+ * ein Abnicken.
+ *
+ * Ohne jeden Treffer ist die Warnung ausdrücklich: dann hat die KI gar keine
+ * Grundlage, und genau dort erfindet sie am ehesten.
  */
-function kennzeichnungAusText(text: string): string {
-  if (text.includes(KENNZEICHNUNG_DE)) return KENNZEICHNUNG_DE;
-  if (text.includes(KENNZEICHNUNG_EN)) return KENNZEICHNUNG_EN;
-  const zeile = text.split('\n').map((z) => z.trim()).reverse().find((z) => /StelliumAI/i.test(z));
-  return zeile || KENNZEICHNUNG_EN;
+function wissensHinweis(themen: readonly string[]): string {
+  if (!themen.length) {
+    return 'Zu dieser Mail passte kein Eintrag aus dem Firmengedächtnis — die KI hatte keine '
+      + 'gesicherte Grundlage. Bitte jede Sachaussage im Entwurf prüfen.';
+  }
+  return `Grundlage aus dem Firmengedächtnis: ${themen.join('; ')}. `
+    + 'Was darüber hinausgeht, ist ungedeckt.';
 }
 
 /** „Re:" genau einmal davor. */
@@ -754,8 +838,9 @@ export async function sichten(mailId: string): Promise<SichtungBericht | null> {
 
   let roh: RohAntwort;
   let modell: string | null;
+  let themen: string[];
   try {
-    ({ roh, modell } = await modellFragen(mail, sprache));
+    ({ roh, modell, themen } = await modellFragen(mail, sprache));
   } catch (err) {
     /* Ein Modell, das nicht antwortet, ist kein Grund, die Mail zu verlieren.
        Zustand vermerken, Menschen benachrichtigen, fertig — `nachzusichten()`
@@ -766,7 +851,7 @@ export async function sichten(mailId: string): Promise<SichtungBericht | null> {
     const benachrichtigt = benachrichtigen(bauMeldung({
       mail, zustand: 'fehler', einordnung: null, gesichtetAm: Date.now(),
     }));
-    return { mailId, zustand: 'fehler', entwurfId: null, benachrichtigt, grund };
+    return { mailId, zustand: 'fehler', entwurfId: null, benachrichtigt, grund, grundCode: 'modellFehler' };
   }
 
   /* `antwortNoetig` muss ein echtes JSON-true sein. Eine Zeichenkette "true"
@@ -801,7 +886,14 @@ export async function sichten(mailId: string): Promise<SichtungBericht | null> {
       mail, zustand: 'gemeldet', einordnung, gesichtetAm: Date.now(),
       an, dmarcOk: absenderBestaetigt(zusatz.pruefung),
     }));
-    return { mailId, zustand: 'gemeldet', entwurfId: null, benachrichtigt, grund };
+    return {
+      mailId, zustand: 'gemeldet', entwurfId: null, benachrichtigt, grund,
+      // Derselbe Dreiweg-Entscheid wie zwei Zeilen weiter oben, nur als
+      // Kennung statt als Satz — grundCodeFuer() ist die eine Stelle, die
+      // ihn kennt (siehe dort), damit hier keine zweite, unabhängige Kopie
+      // der Rangfolge entsteht.
+      grundCode: grundCodeFuer('gemeldet', einordnung, absenderBestaetigt(zusatz.pruefung), an),
+    };
   }
 
   /* Entwurf und Zustand in einem Zug. Bräche es dazwischen ab, stünde ein
@@ -809,9 +901,20 @@ export async function sichten(mailId: string): Promise<SichtungBericht | null> {
      und der Nachlauf legte nach der Frist einen zweiten daneben. */
   const entwurfId = db.transaction(() => {
     const id = entwurfAnlegen({
-      mail, threadId, an, sprache,
+      mail, threadId, an,
       text: entwurfstext,
-      begruendung: [einordnung.begruendung, abweichungsHinweis(mail, an)].filter(Boolean).join(' '),
+      begruendung: [
+        einordnung.begruendung,
+        abweichungsHinweis(mail, an),
+        /* Was die KI nicht wusste, steht bei der Freigabe daneben — nicht nur
+           mitten im Text. Die Regel dazu (services/post-wissen-ki.ts) lässt
+           sie eine Lücke markieren statt etwas zu erfinden; wer den Entwurf
+           freigibt, soll die Liste dieser Lücken vor Augen haben, bevor er
+           liest. Eine erfundene Produktauskunft ist der teuerste Fehler
+           dieses Systems, eine übersehene Lücke der zweitteuerste. */
+        lueckenHinweis(entwurfstext),
+        wissensHinweis(themen),
+      ].filter(Boolean).join(' '),
     });
     sichtungFesthalten(mailId, 'entwurf', einordnung);
     return id;
@@ -827,7 +930,7 @@ export async function sichten(mailId: string): Promise<SichtungBericht | null> {
     mail, zustand: 'entwurf', einordnung, gesichtetAm: Date.now(), an,
   }));
 
-  return { mailId, zustand: 'entwurf', entwurfId, benachrichtigt, grund: null };
+  return { mailId, zustand: 'entwurf', entwurfId, benachrichtigt, grund: null, grundCode: null };
 }
 
 /**
@@ -845,24 +948,36 @@ export async function sichten(mailId: string): Promise<SichtungBericht | null> {
  *     hat kein Feld dafür.
  *   · Der Betreff entsteht aus dem Betreff der Ursprungsmail, nicht aus der
  *     Antwort des Modells.
- *   · Die Kennzeichnung wird ergänzt, wenn sie fehlt.
+ *   · Text und `text_ki` sind der reine Wortlaut des Modells — KEINE
+ *     Kennzeichnung wird hier mehr ergänzt (siehe „Die Kennzeichnung" weiter
+ *     oben). Sie entsteht erst beim tatsächlichen Versand als Fußzeile.
  *
  * Zustand `offen`: von hier führt kein Weg nach draußen, der nicht über einen
  * Menschen mit `mail.senden` geht.
  */
 function entwurfAnlegen(input: {
-  mail: Nachricht; threadId: string; an: string; sprache: string;
+  mail: Nachricht; threadId: string; an: string;
   text: string; begruendung: string;
 }): string {
   const id = newId('pe_');
   db.run(
     `INSERT INTO mail_entwuerfe
-       (id, mail_id, thread_id, an, betreff, text, begruendung, zustand, erstellt_am)
-     VALUES (?,?,?,?,?,?,?,'offen',?)`,
+       (id, mail_id, thread_id, an, betreff, text, text_ki, begruendung, zustand, erstellt_am)
+     VALUES (?,?,?,?,?,?,?,?,'offen',?)`,
     id, input.mail.id, input.threadId,
     verschluesseln(input.an),
     verschluesseln(antwortBetreff(input.mail.betreff)),
-    verschluesseln(kennzeichnungSichern(input.text, input.sprache)),
+    verschluesseln(input.text),
+    /* Dieselbe Zeichenkette ein zweites Mal — und das ist der Punkt: `text`
+       wird beim Freigeben mit dem überschrieben, was ein Mensch tatsächlich
+       hinausschickt (`entwurfBearbeiten()` weiter unten), `text_ki` bleibt
+       für immer stehen. Der Unterschied zwischen beiden entscheidet später
+       services/post.ts::senden() über die Fußzeile der Mail (services/
+       post-fussnote.ts) und services/post-lernen.ts darüber, dass an dieser
+       Mail eine KI mitgeschrieben hat und deshalb NICHT gelernt werden darf
+       (siehe dort). Ohne diese Kopie wäre der Unterschied im Moment des
+       Sendens spurlos weg. */
+    verschluesseln(input.text),
     verschluesseln(input.begruendung),
     Date.now(),
   );
@@ -913,24 +1028,26 @@ export function sichtungAnstossen(mailId: string, verzoegerungMs = 250): void {
 /** Eine Zeile aus `mail_entwuerfe`, so wie sie in der Datenbank steht. */
 interface EntwurfZeile {
   id: string; mail_id: string; thread_id: string; an: string; betreff: string;
-  text: string; begruendung: string | null; zustand: string; erstellt_am: number;
+  text: string; text_ki: string | null; begruendung: string | null; zustand: string; erstellt_am: number;
   entschieden_am: number | null; entschieden_von: string | null; gesendet_id: string | null;
 }
 
 function entwurfAuspacken(z: EntwurfZeile): PostEntwurf {
   const text = entschluesseln(z.text);
   const an = entschluesseln(z.an);
-  /* Für die Abweichungswarnung wird die Ursprungsmail noch einmal gebraucht,
-     genau wie in meldungenListe() weiter unten — und aus demselben Grund nur
-     dort abgefragt, wo sie überhaupt noch etwas bedeutet (siehe PostEntwurf
-     oben): ein bereits entschiedener Entwurf bekommt gar nicht erst einen
-     zusätzlichen Lesezugriff auf `mail_nachrichten` spendiert. */
-  const mail = z.zustand === 'offen' ? nachricht(z.mail_id) : null;
+  /* Für die Abweichungswarnung UND das Fach wird die Ursprungsmail noch
+     einmal gebraucht, genau wie in meldungenListe() weiter unten — und aus
+     demselben Grund nur dort abgefragt, wo sie überhaupt noch etwas bedeutet
+     (siehe PostEntwurf oben): ein bereits entschiedener Entwurf bekommt gar
+     nicht erst einen zusätzlichen Lesezugriff auf `mail_nachrichten`
+     spendiert. */
+  const mail = (z.zustand === 'offen' || z.zustand === 'sendet') ? nachricht(z.mail_id) : null;
   return {
     id: z.id,
     mailId: z.mail_id,
     threadId: z.thread_id,
     an,
+    fach: mail?.fach ?? null,
     betreff: entschluesseln(z.betreff),
     text,
     begruendung: z.begruendung ? entschluesseln(z.begruendung) : null,
@@ -940,7 +1057,7 @@ function entwurfAuspacken(z: EntwurfZeile): PostEntwurf {
     entschiedenVon: z.entschieden_von,
     gesendetId: z.gesendet_id,
     abweichung: mail ? abweichungAdressen(mail, an) : null,
-    kennzeichnung: kennzeichnungAusText(text),
+    textKi: z.text_ki ? entschluesseln(z.text_ki) : null,
   };
 }
 
@@ -959,12 +1076,27 @@ export function entwurfLesen(id: string): PostEntwurf | null {
   return z ? entwurfAuspacken(z) : null;
 }
 
-/** Alles, was auf eine Entscheidung wartet — das Älteste zuerst. */
+/**
+ * Alles, was auf eine Entscheidung wartet — das Älteste zuerst.
+ *
+ * `sendet` gehört ausdrücklich dazu, sobald der Anspruch alt genug ist. Ohne
+ * diese zweite Bedingung wäre der Schutz gegen den Doppelversand
+ * (`entwurfBearbeiten()` weiter unten) an einer Stelle zu scharf: stirbt der
+ * Server mitten im Versand, bliebe der Entwurf auf `sendet` stehen, und diese
+ * Liste — die einzige, aus der ein Mensch einen Entwurf überhaupt aufruft —
+ * zeigte ihn nie wieder. Der Brief wäre nie beantwortet, und niemand sähe
+ * warum. Die Frist ist dieselbe, mit der `entwurfBearbeiten()` einen alten
+ * Anspruch übernimmt; beide Zahlen müssen dieselbe sein, sonst zeigt die
+ * Liste etwas an, das sich noch nicht freigeben lässt.
+ */
 export function offeneEntwuerfe(anzahl = 50): PostEntwurf[] {
   const grenze = Math.min(Math.max(1, Math.trunc(anzahl) || 50), 200);
   return db.all<EntwurfZeile>(
-    `SELECT * FROM mail_entwuerfe WHERE zustand = 'offen'
-      ORDER BY erstellt_am ASC LIMIT ?`, grenze,
+    `SELECT * FROM mail_entwuerfe
+      WHERE zustand = 'offen'
+         OR (zustand = 'sendet' AND entschieden_am IS NOT NULL AND entschieden_am < ?)
+      ORDER BY erstellt_am ASC LIMIT ?`,
+    Date.now() - VERSAND_ANSPRUCH_MS, grenze,
   ).map(entwurfAuspacken);
 }
 
@@ -1122,18 +1254,88 @@ export function nachzusichten(anzahl = 20): string[] {
  * Dateikopf: „an kommt niemals aus dem Modell" — und jetzt zusätzlich: nie
  * aus einer Anfrage, auch wenn ein Mensch mit `mail.senden` dahintersteht).
  *
- * `WHERE zustand = 'offen'` ist derselbe Schutz wie in `entwurfAbschliessen()`
- * weiter unten: lief zwischen dem `entwurfLesen()` der Route und diesem
- * Aufruf schon eine zweite Entscheidung durch, ändert diese Funktion nichts
- * (`changes` bleibt 0) — die Route bricht dann ab, BEVOR irgendetwas an den
- * Versanddienst geht. Anders als eine Verwicklung NACH dem Versand (siehe
- * der Kommentar dort) lässt sich das hier noch sauber verhindern.
+ * DIESE FUNKTION HÄLT NICHT NUR FEST, SIE BEANSPRUCHT AUCH
+ *
+ * Sie schreibt `zustand = 'sendet'`. Das ist neu, und es ist der eigentliche
+ * Punkt: vorher setzte sie NUR `text` und `betreff` und ließ den Zustand auf
+ * `offen` stehen. Ihr `WHERE zustand = 'offen'` sah damit für JEDEN Aufrufer
+ * gleich aus, solange keiner fertig war — und fertig wurde erst
+ * `entwurfAbschliessen()`, nach dem Versand. Alles zwischen dem
+ * `entwurfLesen()` der Route und dem `await post.senden()` ist synchron; zwei
+ * fast gleichzeitige Anfragen liefen deshalb beide durch diese Prüfung, und
+ * beide riefen den Versanddienst auf. Nachgestellt: zwei echte Sendungen, und
+ * das `entwurfAbschliessen()` der zweiten meldete brav `nichtOffen` — da war
+ * die Mail beim Kunden schon zweimal angekommen. Ein Doppelklick oder ein
+ * Client, der nach einem Zeitablauf noch einmal fragt, genügt. Eine
+ * Kennung, an der Resend eine Wiederholung erkennen könnte, gibt es nicht.
+ *
+ * Jetzt schließt derselbe UPDATE die Tür, durch die er gerade gegangen ist:
+ * er ändert den Zustand mit, also findet der zweite Aufruf kein `offen` mehr
+ * vor und bekommt `false`. Dieselbe Bauart wie `beanspruchen()` weiter oben
+ * — ein bedingter UPDATE, dessen `changes` entscheidet, wer weitermachen
+ * darf —, und aus demselben Grund auch dessen Frist: ein Anspruch, den
+ * niemand mehr zurückgeben kann, weil der Server dazwischen gestorben ist,
+ * darf nicht ewig gelten (siehe `VERSAND_ANSPRUCH_MS`). Der gewöhnliche
+ * Fehlschlag wartet nicht so lange — die Route gibt den Anspruch sofort
+ * zurück (`entwurfAnspruchLoesen()` gleich unten).
+ *
+ * `sendet` ist bewusst ein Zustand und keine zweite Tabelle: eine neue
+ * Tabelle wäre eine Wanderung (db/migrate.ts), die Spalte hat kein CHECK,
+ * und `offeneEntwuerfe()` filtert ohnehin auf `offen` — ein Entwurf, der
+ * gerade hinausgeht, verschwindet also für die paar Sekunden aus der Liste
+ * der zu Entscheidenden und kommt zurück, wenn der Versand scheitert. Genau
+ * das soll er.
+ *
+ * `entschieden_am` trägt in diesem Zustand die Uhrzeit des Anspruchs, nicht
+ * die einer Entscheidung. Beim Abschluss wird sie mit der echten
+ * überschrieben, und solange `sendet` gilt, ist der Entwurf für die
+ * Oberfläche gar nicht sichtbar.
+ *
+ * Der alte `WHERE zustand = 'offen'`-Schutz bleibt darin enthalten: lief
+ * zwischen dem `entwurfLesen()` der Route und diesem Aufruf schon eine
+ * zweite Entscheidung durch, ändert diese Funktion nichts (`changes` bleibt
+ * 0) — die Route bricht ab, BEVOR irgendetwas an den Versanddienst geht.
+ *
+ * `text_ki` steht bewusst NICHT in diesem UPDATE. Dort liegt, was die KI
+ * geschrieben hatte (siehe `entwurfAnlegen()` oben); überschriebe man es hier
+ * mit, wäre der Unterschied zwischen Vorschlag und Freigabe genau in dem
+ * Moment weg, in dem er entsteht — und das ist das stärkste Lernsignal, das
+ * dieses Haus hat (services/post-lernen.ts).
  */
 export function entwurfBearbeiten(entwurfId: string, eingabe: { text: string; betreff: string }): boolean {
+  const jetzt = Date.now();
+  /* Die erste Zeile bleibt bewusst EINE Zeile: der Prüflauf
+     (scripts/e2e-postgedaechtnis.mjs) liest genau diese Anweisung aus dem
+     Quelltext und stellt sicher, dass hier kein `text_ki` steht. Wer sie
+     umbricht, nimmt dieser Zusage still ihren Wächter. */
   return db.run(
-    `UPDATE mail_entwuerfe SET text = ?, betreff = ? WHERE id = ? AND zustand = 'offen'`,
-    verschluesseln(eingabe.text), verschluesseln(eingabe.betreff), entwurfId,
+    `UPDATE mail_entwuerfe SET text = ?, betreff = ?, zustand = 'sendet', entschieden_am = ?
+      WHERE id = ?
+        AND (zustand = 'offen'
+             OR (zustand = 'sendet' AND entschieden_am IS NOT NULL AND entschieden_am < ?))`,
+    verschluesseln(eingabe.text), verschluesseln(eingabe.betreff), jetzt,
+    entwurfId, jetzt - VERSAND_ANSPRUCH_MS,
   ).changes > 0;
+}
+
+/**
+ * Einen Versand-Anspruch wieder hergeben.
+ *
+ * Geht der Versand schief, war der Anspruch umsonst — der Entwurf gehört
+ * zurück auf `offen`, damit derselbe Mensch es sofort noch einmal versuchen
+ * kann. Ohne das wäre jeder Aussetzer des Versanddienstes eine fünf Minuten
+ * lange Sperre auf einem Entwurf, der nie hinausging.
+ *
+ * `WHERE zustand = 'sendet'` ist die Sicherung: hat inzwischen ein anderer
+ * Lauf den Anspruch übernommen und ist schon fertig (`gesendet`), darf dieser
+ * hier ihn nicht nachträglich wieder aufmachen.
+ */
+export function entwurfAnspruchLoesen(entwurfId: string): void {
+  db.run(
+    `UPDATE mail_entwuerfe SET zustand = 'offen', entschieden_am = NULL
+      WHERE id = ? AND zustand = 'sendet'`,
+    entwurfId,
+  );
 }
 
 /**
@@ -1163,7 +1365,17 @@ export function entwurfAbschliessen(input: {
 }): 'ok' | 'unbekannt' | 'nichtOffen' | 'keinRecht' {
   const entwurf = entwurfLesen(input.entwurfId);
   if (!entwurf) return 'unbekannt';
-  if (entwurf.zustand !== 'offen') return 'nichtOffen';
+  /* Welchen Zustand dieses Ergebnis abschließen darf, ist NICHT dasselbe:
+     `gesendet` kommt aus der Freigabe-Route und findet den Entwurf dort auf
+     `sendet` vor — sie hat ihn selbst gerade dafür beansprucht (siehe
+     `entwurfBearbeiten()` oben). `abgelehnt` darf das ausdrücklich NICHT:
+     einen Entwurf wegzuwerfen, während er gerade beim Versanddienst liegt,
+     hieße, ihn als abgelehnt zu verbuchen, obwohl er in derselben Sekunde
+     beim Kunden ankommt. Wer ablehnen will, muss ihn offen vorfinden. */
+  const darfSendend = input.ergebnis === 'gesendet';
+  if (entwurf.zustand !== 'offen' && !(darfSendend && entwurf.zustand === 'sendet')) {
+    return 'nichtOffen';
+  }
   /* Zwischen Entwurf und Versand steht ein Mensch mit `mail.senden`. Ablehnen
      darf, wer die Post lesen darf — etwas wegzuwerfen, das nie hinausging,
      ist kein Versand. */
@@ -1174,10 +1386,11 @@ export function entwurfAbschliessen(input: {
     db.run(
       `UPDATE mail_entwuerfe
           SET zustand = ?, entschieden_am = ?, entschieden_von = ?, gesendet_id = ?
-        WHERE id = ? AND zustand = 'offen'`,
+        WHERE id = ?
+          AND (zustand = 'offen' OR (zustand = 'sendet' AND ? = 1))`,
       input.ergebnis, Date.now(), input.userId,
       input.ergebnis === 'gesendet' ? input.gesendetId ?? null : null,
-      input.entwurfId,
+      input.entwurfId, darfSendend ? 1 : 0,
     );
     /* Die Sichtung zieht mit: `gesendet` und `abgelehnt` stehen dort als
        „entschieden" (db/schema.sql). Sonst hinge am Brief für immer „ein

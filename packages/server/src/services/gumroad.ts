@@ -36,6 +36,7 @@
 import { db } from '../db/index.js';
 import { tokenLesen } from './verkaufzugang.js';
 import { kursFuerDatum, kursZaehlerZuruecksetzen } from './wechselkurse.js';
+import { ereignisseVerarbeiten, type VerkaufEreignisEingabe } from './verkaufBenachrichtigung.js';
 
 const API_BASE = 'https://api.gumroad.com/v2';
 const ZEITLIMIT_MS = 15_000;
@@ -314,7 +315,15 @@ export async function gumroadSyncLauf(): Promise<GumroadSyncErgebnis> {
 
   try {
     const produkteAntwort = await abruf('/products', token);
-    const produkte: { id: string; currency?: string | null }[] = (produkteAntwort?.products ?? []).slice(0, MAX_PRODUKTE);
+    /* `name` ist ein bestätigtes Feld von /v2/products — live geprüft, siehe
+       server-setup/stellium-konsole.mjs, gumroadDiagnose() ("Katalog des
+       Kontos ... eigene Produkte des Verkäufers, keine Kundendaten"). Nur für
+       die Verkaufsmeldung gebraucht (siehe unten); nirgends sonst in dieser
+       Datei verwendet, deshalb keine eigene Ablage dafür — der Name wird
+       direkt aus DIESEM Abruf gelesen, nicht aus einer zweiten, potenziell
+       veralteten Kopie. */
+    const produkte: { id: string; name?: string | null; currency?: string | null }[] =
+      (produkteAntwort?.products ?? []).slice(0, MAX_PRODUKTE);
     /* Vereinfachung: EINE Leitwährung fürs ganze Konto (die des ersten
        Produkts) statt einer Karte je Produkt-ID. Bei praktisch jedem
        Gumroad-Konto stimmt das — ein Verkäufer stellt sein Konto auf eine
@@ -342,6 +351,52 @@ export async function gumroadSyncLauf(): Promise<GumroadSyncErgebnis> {
     } catch {
       /* Auszahlungen sind ein Zusatz, kein Kernstück — ein Fehlschlag hier
          soll Verkäufe und Abonnenten nicht mit hinreißen. */
+    }
+
+    /* Verkaufsmeldung: "ein Kauf ist passiert" — siehe
+       services/verkaufBenachrichtigung.ts für die Dublettensperre und die
+       Bündelung. Läuft NACH dem Abonnenten-Block oben, ausdrücklich nicht
+       davor: `probe_bis` unten muss der Stand NACH diesem Sync-Lauf sein,
+       nicht der von vor einer Minute. In try/catch wie der
+       Auszahlungen-Block — ein Fehler hier ist ein Fehler in der Meldung
+       über einen Verkauf, nicht im Verkauf selbst, und darf das Ergebnis
+       dieses Sync-Laufs nicht mit sich reißen. Absichtlich NICHT Teil von
+       gumroadVerkaeufeSpeichern() selbst: das bleibt die reine
+       Ablage-Funktion, unverändert von pruefungen/verkaufsstatistik.mts
+       direkt gegen sie geprüft. */
+    try {
+      const produktName = new Map(produkte.map((p) => [p.id, p.name ?? null]));
+      const eingaben: VerkaufEreignisEingabe[] = [];
+      for (const v of sales) {
+        if (!v.id || !zaehltAlsUmsatz(v)) continue;
+        const abo = v.subscription_id ?? null;
+        /* Neuer Abonnent oder Verlängerung? Verlängerungen legen eine NEUE
+           Zeile mit demselben subscription_id an (siehe Dateikopf, Punkt zu
+           laufzeitVonVerkauf/subscription_duration weiter unten in dieser
+           Datei) — trägt `verkauf_gumroad_verkaeufe` schon eine ANDERE Zeile
+           mit demselben subscription_id, ist dies nicht die erste Abbuchung. */
+        const art = !abo ? 'einmalig' as const
+          : ((db.get<{ n: number }>(
+              'SELECT COUNT(*) as n FROM verkauf_gumroad_verkaeufe WHERE subscription_id = ? AND id != ?',
+              abo, v.id,
+            )?.n ?? 0) > 0 ? 'verlaengerung' as const : 'neu' as const);
+        const probeBis = abo
+          ? db.get<{ probe_bis: number | null }>(
+              'SELECT probe_bis FROM verkauf_gumroad_abonnenten WHERE id = ?', abo,
+            )?.probe_bis ?? null
+          : null;
+        eingaben.push({
+          fingerabdruck: `gumroad:verkauf:${v.id}`,
+          art,
+          produktName: produktName.get(v.product_id ?? '') ?? null,
+          betragCent: zahl(v.price),
+          waehrung,
+          inProbe: probeBis !== null ? probeBis > Date.now() : null,
+        });
+      }
+      ereignisseVerarbeiten('gumroad', eingaben);
+    } catch (err) {
+      console.error('[gumroad] Verkaufsmeldung:', (err as Error)?.message ?? err);
     }
 
     return {

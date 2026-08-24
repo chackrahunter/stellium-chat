@@ -1,0 +1,10 @@
+{
+  "__hinweis": [
+    "Wird von scripts/woerterbuecher-stimmigkeit-pruefen.mjs gelesen und mit",
+    "--schwelle-aktualisieren geschrieben. Zaehlt Funde je Datei UND Regel, nicht global —",
+    "ein neuer Fund in ar.ts darf sich nicht hinter einer Reparatur in pt.ts verstecken.",
+    "Darf je Eintrag nur sinken; ein Anstieg ist im Gate ein Hardstop."
+  ],
+  "erzeugtAm": "2026-08-23",
+  "stellen": {}
+}

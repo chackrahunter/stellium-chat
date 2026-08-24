@@ -108,6 +108,7 @@ export function UpdateBanner() {
               <button
                 className="icon-btn icon-btn--sm"
                 title={t('update.bandLater')}
+                aria-label={t('update.bandLater')}
                 onClick={() => setWeggeklickt(update.version ?? null)}
               >
                 <X size={14} />
@@ -131,7 +132,34 @@ export function UpdateWillkommen() {
   const [stand, setStand] = useState<{ version: string; notes: string | null } | null>(null);
 
   useEffect(() => {
-    void window.stellium?.lastUpdate?.().then((v) => { if (v) setStand(v); });
+    // Zwei getrennte Fälle, nicht einer — beide sahen vorher gleich aus
+    // (gar nichts passierte), waren es aber nicht:
+    //
+    // 1) Die Brücke fehlt (`lastUpdate` ist `undefined` — reiner
+    //    Browser-Build ohne window.stellium, oder eine ältere App-Fassung,
+    //    die diesen Aufruf noch nicht kannte). `?.` an DIESER Stelle kürzt
+    //    dann die GESAMTE restliche Kette ab, einschließlich eines
+    //    angehängten `.then()` — ein `.catch()` danach würde nie erreicht,
+    //    weil die Kette schon vorher als `undefined` ausgewertet wird und
+    //    gar nicht erst bei `.then()`/`.catch()` ankommt. Deshalb hier vorab
+    //    geprüft und mit `return` beendet, statt auf ein Catch zu hoffen,
+    //    das nie zum Zug käme.
+    // 2) Die Brücke ist da, aber der Aufruf schlägt fehl (IPC-Problem im
+    //    Hauptprozess). Das ist ein echter Fehlschlag und verdient ein
+    //    `.catch()` — vorher war er unbehandelt, eine Ablehnung sah exakt
+    //    wie "nichts Neues zu zeigen" aus.
+    const lastUpdate = window.stellium?.lastUpdate;
+    if (!lastUpdate) return; // Fall 1 — kein Fehler, nur nichts zu holen.
+    void lastUpdate()
+      .then((v) => { if (v) setStand(v); })
+      .catch((fehler) => {
+        // Still bleibt hier trotzdem richtig: diese Karte ist eine
+        // Kür ("was hat sich getan"), keine Pflicht — niemand wartet aktiv
+        // auf sie, und ein Toast für ihr Ausbleiben wäre lauter als ihr
+        // Inhalt. console.warn reicht, damit es beim Entwickeln auffällt
+        // (dieselbe Bauart wie lib/benachrichtigung.ts, `pushAbonnieren()`).
+        console.warn('[update] letzter Update-Stand nicht abrufbar:', (fehler as Error).message);
+      });
   }, []);
 
   if (!stand) return null;

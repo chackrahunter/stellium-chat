@@ -15,10 +15,23 @@
  */
 import { execFile } from 'node:child_process';
 import fs from 'node:fs';
+import { ROLES } from '@stellium/shared';
 import { tokenLesen } from './verkaufzugang.js';
 
 const SKRIPT = process.env.STELLIUM_KONSOLE
   ?? '/opt/stellium/server-setup/stellium-konsole.mjs';
+
+/*
+ * Welche Rollen `stellium-konsole.mjs` (dort `kontenBedingung()`) aus
+ * „Konten" und aus dem Nenner von „Team online" herausrechnet — abgeleitet
+ * von ROLES/technical (@stellium/shared, derselben Quelle wie TeamAdmin.tsx
+ * ZUWEISBARE_ROLLEN), nicht von Hand gepflegt. Das Skript ist ein
+ * eigenständiger `node`-Aufruf ohne Zugriff auf dieses TypeScript-Paket,
+ * deshalb geht die Liste als Umgebungsvariable mit — genau wie GUMROAD_TOKEN
+ * unten, aus demselben Grund. Statisch berechnet: ROLES ändert sich nur mit
+ * einer neuen Fassung, nicht zur Laufzeit.
+ */
+const TECHNISCHE_ROLLEN = ROLES.filter((r) => r.technical).map((r) => r.name).join(',');
 
 /* Vier Sekunden: die Konsole selbst zeichnet alle drei Sekunden neu, und
    schneller ändern sich Auslastung und Temperatur ohnehin nicht sinnvoll. */
@@ -49,7 +62,11 @@ function holen(): Promise<unknown> {
     execFile('node', [SKRIPT, 'json'], {
       timeout: 20_000,
       maxBuffer: 8 * 1024 * 1024,
-      env: gumroad ? { ...process.env, GUMROAD_TOKEN: gumroad } : process.env,
+      env: {
+        ...process.env,
+        ...(gumroad ? { GUMROAD_TOKEN: gumroad } : {}),
+        STELLIUM_TECHNISCHE_ROLLEN: TECHNISCHE_ROLLEN,
+      },
     },
       (fehler, aus) => {
         if (fehler) { scheitern(fehler); return; }

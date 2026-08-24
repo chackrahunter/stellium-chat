@@ -23,6 +23,8 @@ import { db, reindexMail, removeMailFromIndex } from '../db/index.js';
 import { newId } from '../util/id.js';
 import { verschluesseln, entschluesseln } from '../crypto/nachrichten.js';
 import { zugangLesen, zugangStand } from './mailzugang.js';
+import { teamNameFuerFach } from './post-ki.js';
+import { kiHerkunft, fussnoteFuer } from './post-fussnote.js';
 import { config } from '../config.js';
 import * as ablage from './ablage.js';
 import { saubererDateiname } from '../util/dateiname.js';
@@ -207,7 +209,14 @@ function verlaufErlaubt(threadId: string, absender: string, bestaetigt: boolean)
     || entschluesseln(z.an).toLowerCase().endsWith(`@${domaene}`));
 }
 
-/** Hat Cloudflare den Absender bestätigt? Signal, keine Sperre. */
+/** Hat Cloudflare den Absender bestätigt? Signal, keine Sperre.
+ *
+ *  Beantwortet die schwächere der beiden Fragen: "trägt diese Mail überhaupt
+ *  ein bestandenes DMARC?" — genug für verlaufErlaubt() oben, wo daneben
+ *  ohnehin noch die Domäne eines bestehenden Teilnehmers stimmen muss.
+ *  Für die Gruppe "intern" reicht das NICHT: dort hängt an der Antwort, ob
+ *  eine Adresse ungefragt als Kollege gilt, und der Beleg muss zu GENAU
+ *  DIESER Adresse gehören. Siehe util/absenderbeleg.ts. */
 function istBestaetigt(pruefung: unknown): boolean {
   return typeof pruefung === 'string' && /dmarc=pass/i.test(pruefung);
 }
@@ -396,7 +405,14 @@ export function eingangAufnehmen(roh: EingangRoh, zustellSchluessel?: string):
 /* ── Ausgang ─────────────────────────────────────────────────── */
 
 export interface Ausgang {
-  /** Aus welchem Fach geschrieben wird — bestimmt die Absenderadresse. */
+  /** Aus welchem Fach geschrieben wird — bestimmt die vollständige
+      Absenderadresse (Fach @ hinterlegte Domäne) UND den angezeigten Namen
+      davor (siehe `senden()` weiter unten, `teamNameFuerFach()`). Nur die
+      Kennung, etwa `'info'` — keine vollständige Adresse, und keine fremde
+      Domäne lässt sich hier einschmuggeln: `senden()` verwirft alles außer
+      dem Teil vor einem „@"/„+" und prüft ihn gegen `FAECHER`. Fehlt das Fach
+      oder ist es nicht einer der acht bekannten (`sonstiges` eingeschlossen),
+      bricht `senden()` ab — es gibt keine globale Rückfalladresse mehr. */
   fach?: string;
   /* Die Sprache steht am Briefpartner, nicht an dieser Nachricht — wer sie
      braucht, holt sie über `spracheFuer(empfaenger)`. Sie hier noch einmal
@@ -404,12 +420,92 @@ export interface Ausgang {
   an: string;
   betreff: string;
   text: string;
+  /**
+   * Der Wortlaut, wie die KI ihn geschrieben hat — fehlt oder `null`, wenn
+   * keine KI beteiligt war (rein von Hand geschrieben). Gesetzt heißt NICHT
+   * zwingend „unverändert": `senden()` vergleicht `textKi` selbst gegen
+   * `text` (services/post-fussnote.ts, `kiHerkunft()`) und setzt daraus die
+   * passende Fußzeile — „automatisch erstellt" bei einer Übereinstimmung,
+   * „mithilfe von … bearbeitet" bei einer inhaltlichen Änderung. Zwei Quellen
+   * füllen dieses Feld: die Freigabe eines Entwurfs aus `mail_entwuerfe`
+   * (`text_ki`, nie überschrieben — siehe schema.sql) und der Knopf
+   * „KI schreibt" (post-entwurf-ki.ts, `entwurfSchreiben()`), der keine
+   * eigene Tabellenzeile anlegt und den Wortlaut deshalb hier mitgeben muss.
+   * Frei verfasste Post ohne KI-Beteiligung lässt dieses Feld weg — dann
+   * bekommt die Mail keine Fußzeile, so wie der Auftraggeber es für den
+   * dritten Fall ausdrücklich verlangt hat.
+   */
+  textKi?: string | null;
   /** Für eine Antwort: die Kennungen der Ursprungsnachricht. */
   antwortAuf?: { messageId: string | null; referenzen: string | null; threadId: string | null };
   /** Kennungen zuvor hochgeladener, noch nicht verknüpfter mail_anhaenge-
       Zeilen (siehe ausgehenderAnhangAnlegen() weiter unten) — höchstens 25,
       Reihenfolge = Reihenfolge in der Mail. */
   anhaenge?: string[];
+}
+
+/* ── Die Fußzeile einer KI-beteiligten Antwort ────────────────────
+   `senden()` weiter unten ist der EINE Ort, der diese Bausteine tatsächlich
+   zusammensetzt — siehe Dateikopf für den Grund. Getrennt in zwei Teile,
+   weil eine Mail immer zu zweit hinausgeht (Resend verlangt beides, wenn
+   überhaupt HTML dabei ist — nur `html` ohne `text` ließe jedes Postfach
+   ohne HTML-Ansicht leer zurück): eine einfache, angehängte Zeile für den
+   Textteil, ein klein und blass gesetzter Absatz für den HTML-Teil. */
+
+/** Text, wie ihn ein Postfach ohne HTML-Ansicht zeigt: klein und farbig gibt
+    es dort nicht, also bleibt nur eine eigene, durch eine Leerzeile
+    abgesetzte Schlusszeile — nach der Unterschrift, ganz am Ende, wie eine
+    zweite, kürzere Signaturzeile. */
+function textMitFussnote(text: string, fussnote: string | null): string {
+  return fussnote ? `${text.trimEnd()}\n\n${fussnote}` : text;
+}
+
+/** Schützt vor eingeschleustem Markup: der Text stammt von einem Kollegen
+    ODER von einem Sprachmodell, das eine fremde Mail gelesen hat — beides
+    kein Text, dem blind vertraut wird, sobald er als HTML herausgeht. */
+function htmlEscape(wert: string): string {
+  return wert
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+/** Absätze (Leerzeile = Absatzgrenze) mit `<br>` für einfache Zeilenumbrüche
+    innerhalb eines Absatzes — die einzige Formatierung, die reiner
+    Mailtext überhaupt kennt. */
+function textAlsHtmlAbsaetze(text: string): string {
+  return text
+    .split(/\n{2,}/)
+    .map((absatz) => `<p style="margin:0 0 1em 0;">${htmlEscape(absatz).split('\n').join('<br>')}</p>`)
+    .join('');
+}
+
+/**
+ * Der HTML-Teil einer ausgehenden Mail — nur gebaut, wenn eine Fußzeile
+ * hinzukommt (siehe `senden()`: reine Handschrift bekommt gar keinen
+ * HTML-Teil, der bisherige `text`-only-Versand bleibt für sie unverändert).
+ *
+ * Die Fußzeile ist klein und blassgrau, aber ausdrücklich LESBAR: kein
+ * `display:none`, kein `visibility:hidden`, keine Schriftgröße von 0, keine
+ * Farbe, die mit dem Hintergrund verschmilzt. `#767676` auf Weiß hat ein
+ * Kontrastverhältnis von rund 4,5:1 — genau die WCAG-AA-Schwelle für
+ * Fließtext, deutlich blasser als der Fließtext selbst und trotzdem klar
+ * lesbar, wenn jemand hinsieht. Eine versteckte Kennzeichnung wäre schlechter
+ * für den Auftraggeber als gar keine — siehe Auftrag.
+ *
+ * Inline-Stile auf dem Element selbst, kein `<style>`-Block und keine Klasse:
+ * Mailprogramme entfernen oder verwerfen beides zuverlässig, ein
+ * `style`-Attribut dagegen bleibt so gut wie überall erhalten.
+ */
+function mailAlsHtml(text: string, fussnote: string | null): string {
+  const fuss = fussnote
+    ? `<p style="margin:1.5em 0 0 0;padding-top:0.75em;border-top:1px solid #e2e2e2;`
+      + `font-size:12px;line-height:1.4;color:#767676;">${htmlEscape(fussnote)}</p>`
+    : '';
+  return `<div style="font-family:-apple-system,Helvetica,Arial,sans-serif;font-size:14px;`
+    + `line-height:1.5;color:#1a1a1a;">${textAlsHtmlAbsaetze(text)}${fuss}</div>`;
 }
 
 /**
@@ -430,11 +526,9 @@ const AUSGANG_ANHAENGE_MAX_GESAMT = 20 * 1024 * 1024;
 /**
  * Genau eine Mailadresse — wortgleich mit der Prüfung in post-sichtung.ts.
  *
- * Duplikat statt Import: post-sichtung.ts exportiert sie nicht, und die Datei
- * dort anzufassen ist gerade nicht möglich — dieselbe Lage wie bei
- * `absenderBestaetigt()` dort, nur seitenverkehrt (siehe der Kommentar an
- * jener Stelle: „post.ts anzufassen ist gerade nicht möglich"; hier ist es
- * post-sichtung.ts).
+ * Duplikat statt Import: post-sichtung.ts exportiert sie nicht — dieselbe
+ * Lage wie bei `absenderBestaetigt()` dort, nur seitenverkehrt (siehe der
+ * Kommentar an jener Stelle).
  *
  * „kunde@firma.de, angreifer@boese.tld" käme sonst unverändert durch
  * `nurAdresse()` (die nur „Name <a@b.de>" auspackt, aber nicht prüft, ob am
@@ -451,19 +545,44 @@ const AUSGANG_ANHAENGE_MAX_GESAMT = 20 * 1024 * 1024;
 const EINE_ADRESSE = /^[^\s@,;:<>"'()[\]\\]+@[^\s@,;:<>"'()[\]\\]+\.[^\s@,;:<>"'()[\]\\]{2,}$/;
 
 /**
+ * Nur der Fach-Teil vor einem "@" oder "+" — dieselbe Normalisierung wie
+ * `anweisungFuerFach()` in post-ki.ts, damit ein Fach überall im Haus gleich
+ * gelesen wird.
+ *
+ * Wichtig für `senden()` weiter unten: JEDE Domäne, die ein Aufruf hier
+ * mitschickt (etwa `fach: "support@fremd.example"`), wird dabei verworfen —
+ * die tatsächliche Absenderadresse entsteht dort ausschließlich aus dieser
+ * Kennung und der EIGENEN, in den Einstellungen hinterlegten Domäne, nie aus
+ * einer Domäne, die eine Anfrage vorgibt zu kennen.
+ */
+function fachKennung(wert: string): string {
+  return wert.trim().toLowerCase().split('@')[0].split('+')[0];
+}
+
+/** Ein Fach für den Versand — die Kennung (für `senden()`/`weiterleiten()`)
+    und die vollständige Adresse (für die Anzeige). */
+export interface AbsenderFach { fach: string; adresse: string }
+
+/**
  * Die acht Fächer als vollständige Adressen — für die Auswahl beim freien
- * Verfassen einer neuen Mail.
+ * Verfassen einer neuen Mail, beim Weiterleiten und beim Antworten.
  *
  * Die Domäne kommt aus `zugangStand()`, nicht aus `zugangLesen()`: die Liste
  * soll auch erscheinen, wenn der Versandschlüssel (noch) fehlt — sonst sähe
  * die schreibende Person gar keine Fächer und wüsste nicht, woran das liegt.
  * `senden()` meldet den fehlenden Schlüssel dann für sich, beim Versuch zu
- * senden. Ist gar keine Absenderadresse hinterlegt, gibt es noch keine
- * Domäne und damit auch keine Liste — leer statt geraten.
+ * senden. Ist gar keine Domäne hinterlegt, gibt es auch keine Liste — leer
+ * statt geraten.
+ *
+ * Absichtlich NUR die acht echten Fächer, nie `sonstiges`: das ist der
+ * Auffangkorb für Post an eine unbekannte Adresse, kein eigenes Postfach —
+ * daraus zu senden hieße, unter einer erfundenen Identität zu schreiben.
+ * `senden()` weist ein `fach: 'sonstiges'` deshalb unabhängig davon noch
+ * einmal zurück, auch wenn diese Liste es ohnehin nie anbietet.
  */
-export function absenderFaecher(): string[] {
-  const domaene = zugangStand().absender?.split('@')[1];
-  return domaene ? FAECHER.map((lokal) => `${lokal}@${domaene}`) : [];
+export function absenderFaecher(): AbsenderFach[] {
+  const domaene = zugangStand().domaene;
+  return domaene ? FAECHER.map((fach) => ({ fach, adresse: `${fach}@${domaene}` })) : [];
 }
 
 interface AnhangZumVersand { id: string; name: string; mime: string; size: number; inhaltBase64: string }
@@ -523,15 +642,15 @@ export async function senden(m: Ausgang, hochgeladenVon?: string): Promise<{ id:
   const z = zugangLesen();
   if (!z) {
     /* „Kein Versandweg hinterlegt" allein sagt nicht, WAS fehlt — und
-       Schlüssel und Absenderadresse werden an zwei verschiedenen Stellen im
-       Reiter „Post" eingetragen (siehe zugangStand() in mailzugang.ts). Wer
-       nur den Schlüssel gesetzt hat, aber keinen Absender, soll das lesen
-       können, statt aus einer einzigen pauschalen Meldung zu raten. */
+       Schlüssel und Domäne werden an zwei verschiedenen Stellen im Reiter
+       „Post" eingetragen (siehe zugangStand() in mailzugang.ts). Wer nur den
+       Schlüssel gesetzt hat, aber keine Domäne, soll das lesen können, statt
+       aus einer einzigen pauschalen Meldung zu raten. */
     const stand = zugangStand();
     if (!stand.versandBereit) {
       throw new PostFehler('post.keinSchluessel', 'Kein Versandschlüssel hinterlegt.', 400);
     }
-    throw new PostFehler('post.keinAbsender', 'Keine Absenderadresse für den Versand hinterlegt.', 400);
+    throw new PostFehler('post.keineDomaene', 'Keine Absenderdomäne für den Versand hinterlegt.', 400);
   }
 
   /* Die einzige Adresse, die tatsächlich verschickt wird — normalisiert wie
@@ -544,10 +663,57 @@ export async function senden(m: Ausgang, hochgeladenVon?: string): Promise<{ id:
       'Das ist keine einzelne, gültige Mailadresse.', 400);
   }
 
-  /* Aus dem Fach antworten, in dem die Frage ankam: wer an `support@`
-     schreibt, soll die Antwort von `support@` bekommen und nicht von
-     `info@`. Fehlt das Fach, gilt die hinterlegte Standardadresse. */
-  const absender = m.fach && m.fach.includes('@') ? m.fach : z.absender;
+  /*
+   * DER ABSENDER FOLGT DEM FACH — nicht mehr einer globalen Einstellung.
+   *
+   * Wer an `support@` schreibt, soll die Antwort von `support@` bekommen und
+   * nicht von `info@` oder einer irgendwo fest eingetragenen Adresse. Vorher
+   * stand hier `m.fach.includes('@') ? m.fach : z.absender` — jede Zeichenkette
+   * mit einem "@" ging UNGEPRÜFT als Absender hinaus, unabhängig davon, ob es
+   * dafür überhaupt ein eingerichtetes Postfach gab. Jetzt gilt:
+   *
+   *   1. `fachKennung()` nimmt NUR den Teil vor einem "@"/"+" — eine
+   *      mitgeschickte Domäne (echt oder erfunden) fällt dabei grundsätzlich
+   *      weg, sie zählt nie.
+   *   2. Das Ergebnis muss eins der acht wirklich eingerichteten Fächer sein
+   *      (`FAECHER`) — ausdrücklich NICHT `sonstiges`: das ist der
+   *      Auffangkorb für Post an unbekannte Adressen, kein Postfach, aus dem
+   *      sich schreiben ließe (siehe FAECHER/ALLE_FAECHER weiter oben).
+   *      `noreply` steht aus demselben Grund erst gar nicht in `FAECHER`:
+   *      Cloudflare stellt die Adresse auf „verwerfen", eine Antwort dorthin
+   *      käme nie an.
+   *   3. Die tatsächliche Adresse entsteht ANSCHLIESSEND aus dieser Kennung
+   *      und der EIGENEN, in den Einstellungen hinterlegten Domäne
+   *      (`z.domaene`) — nie aus einer Domäne, die die Anfrage vorgibt zu
+   *      kennen. Aus `fach: "support@fremd.example"` wird also `support@` +
+   *      die eigene Domäne, nie `support@fremd.example`.
+   */
+  const fach = fachKennung(m.fach ?? '');
+  if (!fach || !(FAECHER as readonly string[]).includes(fach)) {
+    throw new PostFehler('post.unbekanntesFach',
+      'Aus diesem Fach lässt sich nicht senden — bitte ein eingerichtetes Postfach wählen.', 400);
+  }
+  const absender = `${fach}@${z.domaene}`;
+  /* Derselbe Name, mit dem ein KI-Entwurf für dieses Fach unterschreibt
+     (post-ki.ts, teamNameFuerFach()) — sonst käme eine Mail im Postfach als
+     "Stellium Support Team" an und unterschriebe unten als "Stellium Info
+     Team". `z.name` ist der Rückfall für ein Fach ohne eigenen Teamnamen;
+     bei einem der acht Fächer oben wird er nie gebraucht, siehe dort. */
+  const anzeigename = teamNameFuerFach(fach, z.name);
+
+  /* Die Fußzeile: ob und welche, entscheidet allein `m.textKi` (siehe
+     Ausgang.textKi weiter oben) — nicht `m.fach`, nicht der Aufrufer. Die
+     Sprache holt sich diese Funktion selbst über `spracheFuer(empfaenger)`,
+     dieselbe Quelle, aus der auch die KI beim Schreiben der Antwort ihre
+     Sprache nahm (post-entwurf-ki.ts, post-sichtung.ts) — Fließtext und
+     Fußzeile weichen dadurch nie in der Sprache voneinander ab. Ohne
+     `textKi` bleibt `kiArt` `null`: keine Fußzeile, kein HTML-Teil, `text`
+     geht unverändert hinaus — genau der dritte Fall aus dem Auftrag ("rein
+     von Hand geschrieben -> nichts"). */
+  const kiArt = kiHerkunft(m.textKi, m.text);
+  const fussnote = kiArt ? fussnoteFuer(kiArt, spracheFuer(empfaenger)) : null;
+  const textAusgehend = textMitFussnote(m.text, fussnote);
+  const htmlAusgehend = fussnote ? mailAlsHtml(m.text, fussnote) : null;
 
   const kopf: Record<string, string> = {};
   if (m.antwortAuf?.messageId) {
@@ -578,10 +744,11 @@ export async function senden(m: Ausgang, hochgeladenVon?: string): Promise<{ id:
       'content-type': 'application/json',
     },
     body: JSON.stringify({
-      from: `${z.name} <${absender}>`,
+      from: `${anzeigename} <${absender}>`,
       to: [empfaenger],
       subject: m.betreff,
-      text: m.text,
+      text: textAusgehend,
+      ...(htmlAusgehend ? { html: htmlAusgehend } : {}),
       ...(Object.keys(kopf).length ? { headers: kopf } : {}),
       /* `content` (Base64) statt `path`: die Datei liegt in unserem eigenen
          Blockspeicher, nicht unter einer öffentlich erreichbaren Adresse, die
@@ -666,11 +833,22 @@ export async function senden(m: Ausgang, hochgeladenVon?: string): Promise<{ id:
   db.run(
     `INSERT INTO mail_nachrichten
        (id, fach, richtung, von, an, betreff, text, html,
-        message_id, referenzen, thread_id, am, gelesen, anhaenge)
-     VALUES (?,?,'aus',?,?,?,?,NULL,?,?,?,?,1,?)`,
-    id, absender.toLowerCase(),
+        message_id, referenzen, thread_id, am, gelesen, anhaenge, ki_art)
+     VALUES (?,?,'aus',?,?,?,?,?,?,?,?,?,1,?,?)`,
+    /* Dieselbe Kennung wie bei eingehender Post (fachPruefen() in
+       eingangAufnehmen() oben legt dort ebenfalls nur den lokalen Teil ab,
+       nie eine vollständige Adresse) — sonst zählte faecher() weiter unten
+       eine eingegangene und eine gesendete Mail desselben Fachs in zwei
+       verschiedenen Gruppen, weil die eine "support" und die andere
+       "support@stellium.club" hieße. */
+    id, fach,
     verschluesseln(absender), verschluesseln(empfaenger),
-    verschluesseln(m.betreff), verschluesseln(m.text),
+    /* `text`/`html` sind das, was WIRKLICH hinausging — inklusive Fußzeile,
+       genau wie oben an Resend geschickt (`textAusgehend`/`htmlAusgehend`).
+       Alles andere hieße, im eigenen Postfach etwas anderes zu zeigen als
+       das, was beim Empfänger ankam. */
+    verschluesseln(m.betreff), verschluesseln(textAusgehend),
+    htmlAusgehend ? verschluesseln(htmlAusgehend) : null,
     d.id ?? null, kopf.References ?? null,
     m.antwortAuf?.threadId ?? d.id ?? null,
     Date.now(),
@@ -681,6 +859,12 @@ export async function senden(m: Ausgang, hochgeladenVon?: string): Promise<{ id:
     verschluesseln(JSON.stringify(anhaengeZeilen.map((a) => (
       { name: a.name, typ: a.mime, groesse: a.size, uebergross: false, id: a.id }
     )))),
+    /* Unverschlüsselt wie `zustand`/`gelesen` — kein Schriftwechselinhalt,
+       nur ein Fakt darüber (siehe schema.sql/migrate.ts, `ki_art`). `null`
+       heißt „keine KI beteiligt", nicht „unbekannt": alles, was diese
+       Funktion sendet, hat entweder ein `textKi` (dann steht hier 'ki' oder
+       'ki_bearbeitet') oder eben keins. */
+    kiArt,
   );
 
   /* Erst NACH der Zeile oben verknüpfen -- dieselbe Fremdschlüssel-Reihenfolge
@@ -713,14 +897,17 @@ export async function senden(m: Ausgang, hochgeladenVon?: string): Promise<{ id:
  *    entscheidet, keine Sonderregel für Weiterleitungen.
  *
  * 2. AUS WELCHEM FACH SIE HINAUSGEHT, ENTSCHEIDET, WOHIN GEANTWORTET WIRD.
- *    Das Fach kommt deshalb NICHT automatisch aus der Ursprungsmail, sondern
- *    von der Aufrufstelle (siehe `fach` unten) — die Route lässt es wählen,
- *    mit dem Fach der Ursprungsmail nur als VORGABE (siehe dort). Genau wie
- *    beim freien Verfassen wird das hier nicht noch einmal geprüft — dieselbe,
- *    schon bestehende Lücke wie in `/api/post/senden` (siehe dort: `fach`
- *    landet ungeprüft im „From", solange es ein '@' enthält). Sie zu schließen
- *    ist nicht Teil dieses Auftrags; Weiterleiten öffnet sie nicht neu, sie
- *    war schon vorher da.
+ *    Das Fach kommt in erster Linie von der Aufrufstelle (siehe `fach`
+ *    unten) — die Oberfläche lässt es wählen, mit dem Fach der Ursprungsmail
+ *    nur als VORGABE. Fehlt es (kein Aufruf setzt es, ein älterer Client),
+ *    fällt diese Funktion auf `original.fach` zurück — dieselbe Vorgabe wie
+ *    in der Oberfläche, nur noch einmal serverseitig. Genau wie beim freien
+ *    Verfassen prüft `senden()` das gewählte Fach dann UNABHÄNGIG gegen
+ *    `FAECHER`: eine Weiterleitung geht nie aus einer erfundenen Adresse oder
+ *    aus `sonstiges` hinaus, selbst wenn `original.fach` selbst `sonstiges`
+ *    wäre (unzugeordnete Post landet dort, ist aber kein Postfach, aus dem
+ *    sich schreiben ließe) — dann bricht `senden()` ab, und die Oberfläche
+ *    muss ein echtes Fach wählen.
  *
  * 3. DER TEXT STAMMT VON EINEM FREMDEN. `senden()` setzt `kopf['In-Reply-To']`
  *    und `kopf.References` ausschließlich aus `antwortAuf` — und genau DAS
@@ -769,7 +956,11 @@ export async function weiterleiten(
   const betreff = /^(fwd|wg)[:.]/i.test(betreffOhnePrefix) ? betreffOhnePrefix : `Fwd: ${betreffOhnePrefix}`;
 
   return senden({
-    fach: eingabe.fach,
+    // Vorgabe wie in der Oberfläche: dasselbe Fach, an das die Ursprungsmail
+    // ging — serverseitig noch einmal, für jeden Aufruf ohne eigene Wahl
+    // (siehe Dateikopf, Punkt 2). `senden()` prüft das Ergebnis in jedem
+    // Fall gegen `FAECHER`, unabhängig davon, woher es kam.
+    fach: eingabe.fach || original.fach,
     an: eingabe.an,
     betreff,
     text: original.text,

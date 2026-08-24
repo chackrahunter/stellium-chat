@@ -163,6 +163,37 @@ export const MessageItem = memo(function MessageItem({ message, grouped, inThrea
   const kiVorschlag = useKiVorschlag(message.id);
   const kiDarfGefragtWerden = !vertraulich && Boolean(self?.permissions['ai.assistant']);
 
+  /* WARUM HIER UND NICHT WEITER UNTEN, NEBEN beiTipp:
+     Dieser Hook stand früher NACH den drei Rückgaben unten
+     (hiddenForMe/deletedAt/systemKind) — und genau das hat am 22.08.2026 die
+     App zum Absturz gebracht: „Minified React error #300 — Rendered fewer
+     hooks than expected". Hooks müssen bei JEDEM Durchlauf einer Instanz in
+     exakt derselben Reihenfolge aufgerufen werden; React zählt sie nur durch,
+     ohne ihre Namen zu kennen. Eine Rückgabe VOR einem Hook nimmt ihn für
+     diesen Durchlauf aus der Zählung — reicht ein Durchlauf mehr Hooks als
+     der nächste, reißt React den ganzen Baum ein. Das traf hier nicht nur
+     einen Neuaufbau: MessageList.tsx:207 gibt dieselbe Nachrichten-ID über
+     einen Löschvorgang hinweg an dieselbe Instanz weiter (state/store.ts,
+     'message:deleted' mischt deletedAt in die BESTEHENDE Nachricht), trifft
+     also eine bereits fertig gerenderte Nachricht mitten im Betrieb. Deshalb
+     steht dieser Hook jetzt VOR den drei Rückgaben, ohne jede Bedingung —
+     wer ihn wieder nach unten schiebt, baut denselben Absturz erneut ein. */
+  /* Auf Touch gibt es kein Überfahren. iOS tut zwar so (klebriger
+     :hover nach jedem Tipp) — aber genau das ließ über den Nachrichten
+     lauter offene Aktionsleisten zurück, die niemand bestellt hatte.
+     Deshalb: auf groben Zeigern öffnet ein Tipp auf die Nachricht die
+     Leiste, ein zweiter (oder ein Tipp auf eine andere Nachricht)
+     schließt sie. Maus-Geräte behalten das Überfahren. */
+  const [aktionenOffen, setAktionenOffen] = useState(false);
+  useEffect(() => {
+    if (!aktionenOffen) return;
+    const zu = (e: Event) => {
+      if ((e as CustomEvent).detail !== message.id) setAktionenOffen(false);
+    };
+    document.addEventListener('msg-aktionen', zu);
+    return () => document.removeEventListener('msg-aktionen', zu);
+  }, [aktionenOffen, message.id]);
+
   // Für mich ausgeblendet: nur ein dezenter Hinweis, kein Inhalt.
   if (message.hiddenForMe) {
     return (
@@ -209,22 +240,6 @@ export const MessageItem = memo(function MessageItem({ message, grouped, inThrea
      Zustand — sonst bearbeitete man Base64. */
   const bearbeitenStarten = () => { setDraft(klartext); setEditing(true); };
 
-  /* Auf Touch gibt es kein Überfahren. iOS tut zwar so (klebriger
-     :hover nach jedem Tipp) — aber genau das ließ über den Nachrichten
-     lauter offene Aktionsleisten zurück, die niemand bestellt hatte.
-     Deshalb: auf groben Zeigern öffnet ein Tipp auf die Nachricht die
-     Leiste, ein zweiter (oder ein Tipp auf eine andere Nachricht)
-     schließt sie. Maus-Geräte behalten das Überfahren. */
-  const [aktionenOffen, setAktionenOffen] = useState(false);
-  useEffect(() => {
-    if (!aktionenOffen) return;
-    const zu = (e: Event) => {
-      if ((e as CustomEvent).detail !== message.id) setAktionenOffen(false);
-    };
-    document.addEventListener('msg-aktionen', zu);
-    return () => document.removeEventListener('msg-aktionen', zu);
-  }, [aktionenOffen, message.id]);
-
   const beiTipp = (e: React.MouseEvent) => {
     if (!window.matchMedia('(pointer: coarse)').matches) return;
     /* Knöpfe, Links und Eingaben in der Nachricht behalten ihren Sinn. */
@@ -256,7 +271,11 @@ export const MessageItem = memo(function MessageItem({ message, grouped, inThrea
         {grouped
           ? <span className="msg__time-hover">{timeOfDay(message.createdAt)}</span>
           : (
-            <button onClick={() => setProfileUser(message.userId)} title={t('profile.of', { name: author?.displayName ?? '' })}>
+            <button
+              onClick={() => setProfileUser(message.userId)}
+              title={t('profile.of', { name: author?.displayName ?? '' })}
+              aria-label={t('profile.of', { name: author?.displayName ?? '' })}
+            >
               <Avatar user={author} size={38} showPresence />
             </button>
           )}
@@ -442,7 +461,12 @@ export const MessageItem = memo(function MessageItem({ message, grouped, inThrea
                 <span className="reaction__count">{r.userIds.length}</span>
               </motion.button>
             ))}
-            <button className="reaction" onClick={() => setPickerOpen(true)} title={t('msg.pickReaction')}>
+            <button
+              className="reaction"
+              onClick={() => setPickerOpen(true)}
+              title={t('msg.pickReaction')}
+              aria-label={t('msg.pickReaction')}
+            >
               <Smile size={13} />
             </button>
           </div>
@@ -455,7 +479,7 @@ export const MessageItem = memo(function MessageItem({ message, grouped, inThrea
                 <Avatar key={id} user={useStore.getState().users[id]} size={20} />
               ))}
             </span>
-            {message.replyCount} {message.replyCount === 1 ? t('msg.reply') : t('msg.replies')}
+            {t('msg.replyCount', { n: message.replyCount })}
           </button>
         )}
 
@@ -473,19 +497,19 @@ export const MessageItem = memo(function MessageItem({ message, grouped, inThrea
             <span style={{ fontSize: 15 }}>{emoji}</span>
           </button>
         ))}
-        <button className="icon-btn icon-btn--sm" onClick={() => setPickerOpen(true)} title={t('msg.pickReaction')}><Smile size={15} /></button>
+        <button className="icon-btn icon-btn--sm" onClick={() => setPickerOpen(true)} title={t('msg.pickReaction')} aria-label={t('msg.pickReaction')}><Smile size={15} /></button>
         {!inThread && (
-          <button className="icon-btn icon-btn--sm" onClick={() => openThread(message.id)} title={t('msg.replyInThread')}><MessageSquare size={15} /></button>
+          <button className="icon-btn icon-btn--sm" onClick={() => openThread(message.id)} title={t('msg.replyInThread')} aria-label={t('msg.replyInThread')}><MessageSquare size={15} /></button>
         )}
         {/* Übersetzen und Weiterleiten brauchen Klartext auf dem Server. In
             einem vertraulichen Kanal gibt es dort keinen — der Knopf könnte
             nur scheitern. */}
         {!vertraulich && (hasTranslation ? (
-          <button className="icon-btn icon-btn--sm" onClick={() => requestRoundTrip(message.id)} title={t('msg.checkBackTranslation')}><RefreshCw size={15} /></button>
+          <button className="icon-btn icon-btn--sm" onClick={() => requestRoundTrip(message.id)} title={t('msg.checkBackTranslation')} aria-label={t('msg.checkBackTranslation')}><RefreshCw size={15} /></button>
         ) : (
-          <button className="icon-btn icon-btn--sm" onClick={() => requestTranslation(message.id)} title={t('msg.translateToMine')}><Languages size={15} /></button>
+          <button className="icon-btn icon-btn--sm" onClick={() => requestTranslation(message.id)} title={t('msg.translateToMine')} aria-label={t('msg.translateToMine')}><Languages size={15} /></button>
         ))}
-        <button ref={moreBtnRef} className="icon-btn icon-btn--sm" onClick={() => setMenuOpen((v) => !v)} title={t('msg.more')}><MoreHorizontal size={15} /></button>
+        <button ref={moreBtnRef} className="icon-btn icon-btn--sm" onClick={() => setMenuOpen((v) => !v)} title={t('msg.more')} aria-label={t('msg.more')}><MoreHorizontal size={15} /></button>
 
         {createPortal(
           <AnimatePresence>
@@ -680,6 +704,7 @@ function Lesebestaetigung({ message }: { message: Message }) {
         onFocus={oeffnen}
         onClick={oeffnen}
         title={t('msg.readByCount', { n: receipts.length })}
+        aria-label={t('msg.readByCount', { n: receipts.length })}
       >
         <CheckCheck size={12} />
         <span>{receipts.length}</span>

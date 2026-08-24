@@ -26,10 +26,40 @@
  * `fehler.` oder `hinweis.` beginnt, ist eine Kennung. Das ist die
  * Verabredung im Code, und sie ist eng genug, dass nichts anderes
  * hineinrutscht — anders als bei einer Liste kann sie nicht veralten.
+ *
+ * ZWEI WEITERE LÜCKEN, GESCHLOSSEN
+ *
+ * Eingesammelt wurde bis hierher über eine Regex auf dem rohen Dateitext —
+ * die kennt keinen Unterschied zwischen Code und Kommentar. Eine Kennung,
+ * die nur zur Erklärung in Anführungszeichen in einem Kommentar stand (z. B.
+ * 'fehler.keinRechtName' als Beispiel im Fließtext in http/routes.ts, oder
+ * 'fehler.loginFalsch' in net/api.ts), zählte als verschickt bzw. benutzt.
+ * `packages/server/src/index.ts` umging das bis hierher von Hand — die
+ * Kennung `fehler.einrichtungOffen` steht dort ABSICHTLICH ohne
+ * Anführungszeichen (siehe die Erklärung an der Stelle). Jetzt läuft die
+ * Suche über den echten Syntaxbaum (`typescript`, derselbe Weg wie in
+ * scripts/deutsch-finden.mjs — Grund dort im Dateikopf): Kommentare werden
+ * nie als Knoten gebaut, ein Zeichenkettenliteral kann also nie aus einem
+ * Kommentar stammen. Den Umweg in index.ts braucht deshalb niemand mehr.
+ *
+ * Zweitens: sechs Kennungen aus http/posteingang.ts (dem eingehenden
+ * Cloudflare-Worker-Webhook, den nie ein Mensch liest) galten als
+ * verschickt und fehlten zu Recht in keinem Wörterbuch — die Prüfung schlug
+ * trotzdem an, weil sie scripts/deutsch-ausnahmen.mjs nie befragte, obwohl
+ * genau diese Stelle dort bereits mit Begründung eingetragen ist. Dieses
+ * Skript importiert jetzt dieselbe Ausnahmeliste (STELLEN), statt eine
+ * zweite zu führen — eine neue Ausnahme dort gilt automatisch auch hier.
  */
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
+import ts from 'typescript';
 import { probeserver } from './probeserver.mjs';
+import { STELLEN as AUSNAHME_STELLEN, pruefeAusnahmen } from './deutsch-ausnahmen.mjs';
+
+// Wirft laut beim Start, wenn dort ein Eintrag ohne Grund steht — dieselbe
+// Wache wie in deutsch-finden.mjs, hier noch einmal, weil dieses Skript ein
+// eigener Prozess ist und die Liste nicht ungeprüft übernehmen soll.
+pruefeAusnahmen();
 
 const ergebnisse = [];
 const pruefe = async (n, f) => {
@@ -40,7 +70,7 @@ const muss = (b, m) => { if (!b) throw new Error(m); };
 
 /* ── Kennungen einsammeln ────────────────────────────────────── */
 
-const KENNUNG = /'((?:fehler|hinweis)\.[A-Za-z][A-Za-z0-9]*)'/g;
+const KENNUNG_MUSTER = /^(?:fehler|hinweis)\.[A-Za-z][A-Za-z0-9]*$/;
 const I18N = 'packages/desktop/src/i18n';
 
 function dateien(ordner, endung = /\.tsx?$/) {
@@ -53,13 +83,59 @@ function dateien(ordner, endung = /\.tsx?$/) {
   return raus;
 }
 
-/** Alle Kennungen in einem Baum, samt Fundstelle. */
+/**
+ * Dieselbe Abgleich-Regel wie ausgenommeneStelle() in deutsch-finden.mjs (dort
+ * nicht exportiert, deshalb hier nachgebaut) — aber auf AUSNAHME_STELLEN aus
+ * genau derselben Datei, nicht auf einer zweiten Liste: ein Ordnereintrag
+ * endet auf "/**" und gilt als Präfix für alles darunter; eine Datei ohne
+ * `zeile` gilt ganz, mit `zeile` nur für genau diese eine Zeile.
+ */
+function ausgenommen(dateiRel, zeile) {
+  return AUSNAHME_STELLEN.some((e) => {
+    const ordnerWeit = e.datei.endsWith('/**');
+    const praefix = ordnerWeit ? e.datei.slice(0, -2) : e.datei;
+    const dateiPasst = ordnerWeit ? dateiRel.startsWith(praefix) : dateiRel === e.datei;
+    if (!dateiPasst) return false;
+    return e.zeile === undefined || e.zeile === zeile;
+  });
+}
+
+/**
+ * Kennungen in genau einer Datei, samt Zeile — über den echten Syntaxbaum,
+ * nicht über eine Regex auf dem rohen Dateitext. Ein Kommentar wird nie als
+ * Knoten gebaut, ein Zeichenkettenliteral kann also nie aus einem Kommentar
+ * stammen (siehe Dateikopf). `.tsx`-Dateien im TSX-Modus, `.ts`-Dateien im
+ * TS-Modus — genau die Aufteilung, die scripts/deutsch-finden.mjs schon
+ * vormacht (pruefeClientArtigeDatei() vs. pruefeServerDatei()): der
+ * TSX-Modus liest `<Foo>bar` als JSX statt als den alten Typ-Cast, den
+ * reines TypeScript im Server-Baum durchaus benutzen könnte.
+ */
+function kennungenInDatei(pfad) {
+  const inhalt = readFileSync(pfad, 'utf8');
+  const art = pfad.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS;
+  const quelle = ts.createSourceFile(pfad, inhalt, ts.ScriptTarget.Latest, true, art);
+  const treffer = [];
+  const gehe = (knoten) => {
+    if ((ts.isStringLiteral(knoten) || ts.isNoSubstitutionTemplateLiteral(knoten))
+        && KENNUNG_MUSTER.test(knoten.text)) {
+      const zeile = quelle.getLineAndCharacterOfPosition(knoten.getStart(quelle)).line + 1;
+      treffer.push({ kennung: knoten.text, zeile });
+    }
+    ts.forEachChild(knoten, gehe);
+  };
+  ts.forEachChild(quelle, gehe);
+  return treffer;
+}
+
+/** Alle Kennungen in einem Baum, samt Fundstelle. Eine Stelle, die
+    scripts/deutsch-ausnahmen.mjs mit Begründung ausnimmt (Server-zu-Server-
+    Wege, die nie ein Mensch liest), zählt hier nicht als Absender. */
 function kennungenIn(wurzel, ueberspringen = () => false) {
   const gefunden = new Map();
   for (const pfad of dateien(wurzel)) {
     if (ueberspringen(pfad)) continue;
-    const inhalt = readFileSync(pfad, 'utf8');
-    for (const [, kennung] of inhalt.matchAll(KENNUNG)) {
+    for (const { kennung, zeile } of kennungenInDatei(pfad)) {
+      if (ausgenommen(pfad, zeile)) continue;
       if (!gefunden.has(kennung)) gefunden.set(kennung, pfad);
     }
   }

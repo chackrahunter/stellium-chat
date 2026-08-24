@@ -65,6 +65,14 @@ self.addEventListener('notificationclick', (e) => {
  * Push-Dienst dazwischen kann sie nicht lesen); an dieser Stelle liegt sie
  * bereits entschlüsselt vor. Form siehe services/push.ts: { titel, text,
  * kanalId, gruppe }.
+ *
+ * `titel`/`text` kommen bereits in der Sprache der empfangenden Person an —
+ * der Server löst das auf (services/push.ts, textAufloesen(), mit
+ * store.uiLanguageOf() und einem eigenen kleinen Wörterbuch in
+ * services/push-i18n.ts), nicht dieser Worker hier. Dieser Datei fehlt damit
+ * absichtlich jedes Wörterbuch und jede Sprachlogik: sie zeigt an, was
+ * ankommt, mehr nicht — ein veralteter, noch nicht ersetzter Stand dieser
+ * Datei zeigt eine Übersetzung darum genauso richtig an wie der aktuellste.
  */
 self.addEventListener('push', (e) => {
   e.waitUntil((async () => {

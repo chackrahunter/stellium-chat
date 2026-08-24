@@ -213,8 +213,9 @@
 .icon-btn--gefahr:hover { background: color-mix(in srgb, var(--rose) 16%, transparent); color: var(--rose); }
 
 /* Aufbewahrungsfrist dieser einen Mail — sichtbar, bevor sie zuschlägt
-   (siehe services/post.ts, Feld verfaelltAm). Schlichte Auskunft, keine
-   Warnfarbe: eine gesetzte Frist ist eine bewusste Entscheidung. */
+   (siehe services/post.ts, Feld verfaelltAm; Text und Farbe kommen aus
+   PostFristAnzeige.tsx). Nur Layout hier: die Farbe je nach Restzeit setzt
+   die Komponente selbst per Inline-Style (restfristFarbe(), lib/post-farben.ts). */
 .post__eintrag-frist {
   display: flex;
   align-items: center;

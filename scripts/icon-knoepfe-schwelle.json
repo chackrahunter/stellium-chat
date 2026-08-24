@@ -1,0 +1,13 @@
+{
+  "__hinweis": [
+    "Wird von scripts/icon-knoepfe-pruefen.mjs gelesen und mit --schwelle-aktualisieren geschrieben.",
+    "Zaehlt Icon-only-Knoepfe ohne aria-label je Datei, nicht global — ein neuer Fund in Datei A",
+    "darf sich nicht hinter einer Reparatur in Datei B verstecken. Darf je Datei nur sinken; ein",
+    "Anstieg ist im Gate ein Hardstop. Erhoehungen gehen nur per Hand-Edit dieser Datei (sichtbar",
+    "im Diff), nicht per Kommandozeile — siehe Kopf von scripts/icon-knoepfe-pruefen.mjs.",
+    "mitTitleOhneAria: hat title, aber (noch) kein aria-label — Konsistenz-Luecke, kein Notfall.",
+    "ohneJedeBenennung: hat WEDER title NOCH aria-label — dort fehlt wirklich jeder Name."
+  ],
+  "erzeugtAm": "2026-08-23",
+  "dateien": {}
+}

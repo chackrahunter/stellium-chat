@@ -1,7 +1,7 @@
 /** WebSocket-Protokoll zwischen Desktop-Client und Server. */
 
 import type {
-  Freigabe, FreigabeSchluessel, OeffentlicherSchluessel, SchluesselPaket,
+  Freigabe, FreigabeSchluessel, KontoPaket, OeffentlicherSchluessel, SchluesselPaket,
 } from './vertraulich.js';
 import type {
   AiSummary, CalendarEvent, Channel, ChannelState, Draft, LinkPreview, Message,
@@ -228,7 +228,16 @@ export type ClientEvent =
    * (128 Bit Zufall) — und selbst eine Kollision schlüge nur als gewöhnlicher
    * INSERT-Fehler fehl, nie als stille Überschreibung einer fremden Notiz.
    */
-  | { t: 'notiz:anlegen'; requestId: string; id: string; chiffrat: string; paket: SchluesselPaket }
+  | { t: 'notiz:anlegen'; requestId: string; id: string; chiffrat: string; paket: SchluesselPaket;
+      /**
+       * Dasselbe, ein zweites Mal — verpackt mit dem Kontoschlüssel statt mit
+       * dem ECDH-Teil DIESES Geräts. Wahlfrei, weil ein Gerät, das seit
+       * dieser Fassung nie eine Anmeldung gesehen hat, keinen Kontoschlüssel
+       * haben kann (er entsteht nur, wo das Passwort im Klartext vorliegt).
+       * Fehlt es hier, holt es der Kontoweg später nach — siehe
+       * notiz:konto-fehlt.
+       */
+      kontoPaket?: KontoPaket }
   /**
    * Speichern — mit dem Stand, von dem aus die App losgeschrieben hat.
    * Weicht er vom aktuellen ab, lehnt der Server ab (notiz:konflikt) statt
@@ -254,6 +263,19 @@ export type ClientEvent =
       pakete: { userId: string; paket: SchluesselPaket }[] }
   /** Antwort auf notiz:pakete-fehlen: der Schlüssel ist jetzt für diese Person verpackt. */
   | { t: 'notiz:pakete-nachreichen'; notizId: string; userId: string; paket: SchluesselPaket }
+  /**
+   * Ein Notizschlüssel, mit dem eigenen Kontoschlüssel verpackt.
+   *
+   * Immer nur für sich selbst — es gibt kein Ereignis, das ein Kontopaket für
+   * eine andere Person schriebe, und der Server nimmt auch keines an: den
+   * Kontoschlüssel einer anderen Person hat niemand.
+   *
+   * Wird ausschließlich geschickt, NACHDEM das Gerät den Notizschlüssel am
+   * Chiffrat der Notiz selbst erprobt hat (siehe lib/notizen.ts). Ohne diese
+   * Regel könnte hier ein Paket ankommen, das in der Datenbank richtig
+   * aussieht und sich nie öffnen lässt.
+   */
+  | { t: 'notiz:konto-paket-setzen'; notizId: string; fassung: number; paket: KontoPaket }
 
   /* ── Web Push ─────────────────────────────────────────────── */
 
@@ -291,7 +313,22 @@ export type ServerEvent =
    * kennen. So muss der Server nicht wissen, welche Sprache am anderen Ende
    * läuft.
    */
-  | { t: 'error'; code?: string; message: string; werte?: Record<string, string>; requestId?: string }
+  /**
+   * `clientId` ist optional und neu: sie sagt, welche gerade geschickte
+   * `message:send` diesen Fehler ausgelöst hat — der Server kennt sie längst
+   * (`message:send` trägt sie schon lange hin), er hat sie beim Abweisen nur
+   * nie zurückgegeben. Ohne sie ließ sich ein kennungsloser Fehler nur raten
+   * (welche Nachricht war's?), mit ihr ist die Zuordnung exakt.
+   *
+   * Ein alter Server kennt das Feld nicht und lässt es einfach weg — ein
+   * neuer Client muss das aushalten und degradiert dann auf den alten Weg
+   * (Protokoll abbrechen, falls eins wartet), nicht auf einen Absturz. Ein
+   * alter Client wiederum ignoriert ein unbekanntes Feld ohnehin. `requestId`
+   * bleibt daneben bestehen — sie deckt die Anfragen ab, die eine haben
+   * (KI-Hilfen, Notizen, …), `clientId` die eine, die nie eine `requestId`
+   * bekommen hat: `message:send`.
+   */
+  | { t: 'error'; code?: string; message: string; werte?: Record<string, string>; requestId?: string; clientId?: string }
   | { t: 'channel:history'; channelId: string; messages: Message[]; hasMore: boolean }
   | { t: 'channel:upsert'; channel: Channel }
   | { t: 'channel:removed'; channelId: string }
@@ -458,6 +495,17 @@ export type ServerEvent =
   | { t: 'notiz:entfernt'; notizId: string }
   /** Das eigene Schlüsselpaket dieser Notiz — nach Aufnahme oder Wechsel. */
   | { t: 'notiz:schluessel'; notizId: string; fassung: number; paket: SchluesselPaket }
+  /** Dasselbe über den Kontoweg — jedes Gerät desselben Kontos kann es öffnen. */
+  | { t: 'notiz:konto-paket'; notizId: string; fassung: number; paket: KontoPaket }
+  /**
+   * Notizen, für die diese Person zwar ein Gerätepaket hat, aber (noch) kein
+   * gültiges Kontopaket — die Liste, mit der der Altbestand nachwächst.
+   *
+   * Vom Server errechnet und nicht vom Client geraten: nur der Server weiß,
+   * welche Zeilen wirklich dastehen und ob ihre `konto_fassung` noch die
+   * aktuelle ist.
+   */
+  | { t: 'notiz:konto-fehlt'; notizIds: string[] }
   /**
    * Speichern abgelehnt: der mitgeschickte Stand ist nicht mehr aktuell.
    * `aktuell` trägt die Notiz, wie sie gerade auf dem Server steht — die App

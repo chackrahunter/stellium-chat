@@ -1,0 +1,212 @@
+/* ── Gedächtnis der Firmenpost — was die KI weiß und was sie lernen will ──
+   Nutzt ausschließlich Farbtoken, Radien und Abstände aus tokens.css und
+   allgemeine Klassen aus app.css (.btn, .input, .select, .pill, .muted,
+   .empty-state, .spin). Die Filterleiste und die Zeit-/Fachbeschriftung
+   kommen unverändert aus post-meldungen.css (.postsicht-leiste,
+   .postsicht-tab, .postsicht-liste, .postsicht-karte__zeit,
+   .postsicht-karte__fach) — ein zweiter Reiter zur selben Sache soll nicht
+   aussehen wie aus einem anderen Programm. Diese Datei fügt nur hinzu, was
+   die Karten hier zusätzlich brauchen.
+
+   FARBE NACH BEDEUTUNG, KEINE NEUE FARBWELT:
+     · Violett = die KI hat etwas beigetragen (dieselbe Bedeutung wie beim
+       Vorschlag-Kennzeichen der Briefpartner-Gruppen).
+     · Amber = Widerspruch, hier ist eine Entscheidung nötig — dieselbe
+       Warnfarbe wie bei der abweichenden Antwortadresse in der Post-Sichtung.
+     · Grün/Rot nur am schon Entschiedenen, wo sie nichts mehr auffordern. */
+
+.gedaechtnis__hinweis {
+  margin: 0 0 12px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--tx-lo);
+}
+
+.gedaechtnis__zaehler {
+  margin: 0 0 8px;
+  font-size: 11px;
+  color: var(--tx-lo);
+}
+
+.gedaechtnis__werkzeug {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.gedaechtnis__schalter {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  color: var(--tx-mid);
+}
+
+.gedaechtnis__feld {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 11.5px;
+  color: var(--tx-lo);
+}
+
+.gedaechtnis__verlauf {
+  margin-top: 14px;
+  font-size: 12px;
+  color: var(--tx-lo);
+}
+.gedaechtnis__verlauf > summary {
+  cursor: pointer;
+  padding: 6px 0;
+}
+
+/* ── Karte ─────────────────────────────────────────────────────── */
+
+.gedaechtnis-karte {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  width: 100%;
+  padding: 12px 14px;
+  border-radius: var(--r-md);
+  border: 1px solid var(--line);
+  border-inline-start: 3px solid var(--violet);
+  background: var(--bg-panel-2);
+  text-align: start;
+  color: var(--tx-mid);
+}
+
+/* Widerspruch fordert zum Handeln auf — deshalb dieselbe Warnfarbe wie
+   sonst im Postfach, nicht eine eigene. */
+.gedaechtnis-karte--widerspruch { border-inline-start-color: var(--amber); }
+
+/* Schon entschieden oder abgelöst: es steht noch da, fordert aber nichts
+   mehr. Gedämpft statt farbig. */
+.gedaechtnis-karte--still {
+  border-inline-start-color: var(--line-strong);
+  opacity: 0.72;
+}
+
+.gedaechtnis-karte--formular { border-inline-start-color: var(--line-strong); }
+
+.gedaechtnis-karte__kopf {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.gedaechtnis-karte__thema {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--tx-hi);
+}
+
+.gedaechtnis-karte__inhalt {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+}
+
+.gedaechtnis-karte__grund {
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--tx-lo);
+}
+
+.gedaechtnis-karte__feld { width: 100%; }
+
+.gedaechtnis-karte__knoepfe {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-wrap: wrap;
+  margin-top: 3px;
+}
+
+/* ── Widerspruch: beide Fassungen nebeneinander ─────────────────── */
+
+.gedaechtnis-karte__widerspruch {
+  padding: 9px 11px;
+  border-radius: var(--r-sm);
+  background: var(--bg-panel);
+  border: 1px solid var(--line);
+}
+
+.gedaechtnis-karte__widerspruch-kopf {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 6px;
+  font-size: 11.5px;
+  color: var(--amber);
+}
+
+.gedaechtnis-karte__bisher > strong {
+  display: block;
+  font-size: 12px;
+  color: var(--tx-hi);
+}
+.gedaechtnis-karte__bisher > p {
+  margin: 2px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.gedaechtnis-karte__marke {
+  display: block;
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--tx-lo);
+  margin-bottom: 3px;
+}
+
+/* ── Herkunft ──────────────────────────────────────────────────── */
+
+.gedaechtnis-karte__herkunft { font-size: 11.5px; }
+
+.gedaechtnis-karte__herkunft-knopf {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0;
+  font-size: 11.5px;
+  color: var(--tx-lo);
+  text-align: start;
+  background: none;
+  border: 0;
+}
+.gedaechtnis-karte__herkunft-knopf:hover { color: var(--tx-hi); }
+
+.gedaechtnis-karte__quelltexte {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  margin-top: 7px;
+}
+.gedaechtnis-karte__quelltexte pre {
+  margin: 0;
+  max-height: 190px;
+  overflow: auto;
+  padding: 8px 10px;
+  border-radius: var(--r-sm);
+  background: var(--bg-panel);
+  border: 1px solid var(--line);
+  font-family: inherit;
+  font-size: 11.5px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+/* ── Kennzeichen ───────────────────────────────────────────────── */
+
+.gedaechtnis-pill--art { color: var(--violet); border-color: var(--violet); }
+.gedaechtnis-pill--immer { color: var(--tx-hi); }
+.gedaechtnis-pill--ja { color: var(--mint); border-color: var(--mint); }
+.gedaechtnis-pill--nein { color: var(--tx-lo); }

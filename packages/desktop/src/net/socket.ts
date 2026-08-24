@@ -177,6 +177,34 @@ class Socket {
 
   get queuedCount(): number { return this.outbox.length; }
 
+  /**
+   * Eine noch nicht verschickte `message:send` in der Warteschlange
+   * nachträglich ändern.
+   *
+   * Ein Anhang kann fertig werden — oder endgültig aufgeben werden —,
+   * während seine Nachricht offline noch in der Warteschlange steht (siehe
+   * Composer.tsx, `aufgeben()` und `einzeln()`). Ohne diese Stelle ginge
+   * beim nächsten `flush()` ein Platzhalter für eine Datei hinaus, die es
+   * entweder nie geben wird oder die längst eine echte Kennung hat — und
+   * niemand könnte das je nachtragen, denn das Zeitfenster dafür
+   * (`kennungAbwarten`, 60 s) ist zu dem Zeitpunkt schon abgelaufen.
+   *
+   * Gibt zurück, ob die Nachricht überhaupt noch in der Warteschlange stand
+   * — war sie längst hinaus, gibt es hier nichts mehr zu tun, und der
+   * Aufrufer muss den regulären Weg über eine Nachricht-Kennung gehen.
+   */
+  patchQueuedMessage(
+    clientId: string,
+    patch: (ev: Extract<ClientEvent, { t: 'message:send' }>) => void,
+  ): boolean {
+    const ev = this.outbox.find(
+      (e): e is Extract<ClientEvent, { t: 'message:send' }> => e.t === 'message:send' && e.clientId === clientId,
+    );
+    if (!ev) return false;
+    patch(ev);
+    return true;
+  }
+
   /** Nach dem Aufwachen aus dem Ruhezustand sofort neu verbinden. */
   wake(): void {
     if (this.state === 'open' || this.closedByUs) return;

@@ -4,7 +4,8 @@ import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { spawn, execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { app, shell, type BrowserWindow } from 'electron';
+import { app, dialog, shell, type BrowserWindow } from 'electron';
+import { t, zahlFormatieren, type MainKey } from './i18n.js';
 
 const ausfuehren = promisify(execFile);
 
@@ -37,6 +38,47 @@ interface Vermerk {
   version: string;
   notes: string | null;
   installiertAm: number;
+}
+
+/**
+ * Ein Fehlschlag, der der Person angezeigt werden soll — trägt einen
+ * Wörterbuch-Schlüssel statt eines fertigen deutschen Satzes.
+ *
+ * WARUM: der Hauptprozess kennt die Sprache der angemeldeten Person nicht,
+ * nur die Ansicht kennt sie (state/store.ts). `throw new Error('Im Abbild
+ * ist keine App enthalten.')` landete bisher unverändert in {grund} von
+ * update.installFailed — für eine englische Ansicht damit ein Satz, der zur
+ * Hälfte Deutsch blieb (das englische "Installation failed: …" gefolgt von
+ * deutschem Fließtext). UpdateFehler trägt stattdessen einen MainKey (siehe
+ * electron/i18n.ts); fehlerNutzlast() unten löst ihn in die aktuell bekannte
+ * Sprache auf, BEVOR er den Hauptprozess über IPC verlässt.
+ *
+ * Nicht jeder Fehlschlag hier bekommt einen: ein von hdiutil/ditto/fetch
+ * selbst gemeldeter Fehler (Systembefehl, Netzwerk) bleibt unverändert
+ * technischer Text — den zu übersetzen wäre nicht mehr Übersetzung, sondern
+ * Erfindung, siehe fehlerNutzlast() unten.
+ */
+class UpdateFehler extends Error {
+  constructor(public readonly key: MainKey, public readonly werte?: Record<string, string | number>) {
+    super(key);
+    this.name = 'UpdateFehler';
+  }
+}
+
+/**
+ * Baut aus einem gefangenen Fehler die Nutzlast für
+ * melden('update:error' | 'update:retry', …): `message` steht schon in der
+ * aktuellen Hauptprozess-Sprache (electron/i18n.ts, t()), dazu Schlüssel und
+ * Werte für den Fall, dass die Ansicht sie künftig selbst auflöst —
+ * src/lib/updates.ts tut das heute nur für 'error', nicht für 'retry',
+ * darum trägt `message` hier schon den fertigen Text und nicht nur den
+ * Schlüssel.
+ */
+function fehlerNutzlast(err: unknown): { message: string; key?: MainKey; params?: Record<string, string | number> } {
+  if (err instanceof UpdateFehler) {
+    return { message: t(err.key, err.werte), key: err.key, params: err.werte };
+  }
+  return { message: (err as Error).message };
 }
 
 // Nachfragen: beim Start bald, danach viertelstündlich. Kurz genug, dass ein
@@ -139,15 +181,104 @@ function alsDateiname(roh: string, ersatz: string): string {
   return sauber || ersatz;
 }
 
+/**
+ * Der Ursprung, von dem diese Installation Updates laden darf — einmal
+ * gebunden, nicht mehr leise änderbar.
+ *
+ * WARUM DAS ÜBERHAUPT NÖTIG IST: `updaterAnmelden()` bekommt seine Adresse
+ * vom Renderer (siehe main.ts, `update:signin`), und der Renderer hat im
+ * Hauptprozess grundsätzlich keinen Vertrauensvorschuss. Das wiegt hier
+ * schwerer als anderswo, weil am Ende dieser Kette ein heruntergeladenes
+ * Programm OHNE Rückfrage ausgeführt wird (siehe installieren() unten: auf
+ * macOS wird die Quarantäne-Markierung entfernt, unter Windows läuft der
+ * Installer mit `/S` still). Bislang genügte ein einziger Aufruf
+ * `window.stellium.updateSignIn('https://böse.example', 'irgendwas')` aus
+ * dem Renderer, um genau diesen Weg auf einen fremden Server umzubiegen —
+ * nach heutigem Stand findet sich kein Weg, im Renderer eigenen Code
+ * auszuführen (die Postvorschau läuft sandboxed, siehe PostPanel.tsx, und
+ * der Vorspann ist schmal, siehe preload.ts), aber genau DAS soll ein
+ * künftiger Fehler an anderer Stelle nicht automatisch mit ausnutzen können.
+ *
+ * Ein hartes Verbot wäre falsch — Stellium ist selbst gehostet, es gibt
+ * keine feste Adresse, die sich vorab hartkodieren ließe, und ein
+ * Unternehmen kann seinen Server durchaus einmal umziehen. Die Lösung hier:
+ * die Adresse wird bei der ERSTEN erfolgreichen Anmeldung dieser
+ * Installation abgelegt (dorthin kommt der Renderer nicht heran — kein `fs`
+ * im Vorspann), und jede spätere Anmeldung mit einem ANDEREN Ursprung
+ * braucht eine ausdrückliche Bestätigung über einen echten Systemdialog,
+ * nicht irgendein Feld, das ein Skript selbst ausfüllen könnte.
+ *
+ * WAS DAS SCHÜTZT: ein Skript im Renderer kann den Update-Ursprung nicht
+ * mehr leise umbiegen — es müsste die Person vor dem Bildschirm dazu
+ * bringen, einen sichtbaren Dialog mit einer fremden Adresse aktiv zu
+ * bestätigen.
+ * WAS DAS NICHT SCHÜTZT: das ist keine Echtheitsprüfung der
+ * heruntergeladenen Datei — die sha256-Summe weiter unten stammt vom selben
+ * Server wie die Datei und beweist nur, dass beim Herunterladen nichts
+ * verändert wurde, nicht, dass der Server vertrauenswürdig ist. Es gibt
+ * weiterhin keine Codesignatur und keine Signaturprüfung der Fassung
+ * selbst — das bleibt hier absichtlich unangetastet, weil es Schlüssel-
+ * material und eine andere Veröffentlichungskette braucht und eine
+ * Entscheidung der Projektleitung ist, keine, die sich nebenbei in dieser
+ * Änderung treffen ließe. Und wer die allererste Anmeldung dieser
+ * Installation überhaupt auslöst, bestimmt auch den ersten gebundenen
+ * Ursprung — dieser eine Augenblick bleibt ungeprüft, weil er mit der
+ * eigenen Anmeldehandlung der Person zusammenfällt.
+ */
+function herkunftDatei(): string {
+  return path.join(app.getPath('userData'), 'update-herkunft.json');
+}
+
+function gespeicherteHerkunft(): string | null {
+  try {
+    const inhalt = JSON.parse(fs.readFileSync(herkunftDatei(), 'utf8')) as { origin?: string };
+    return inhalt.origin || null;
+  } catch { return null; }
+}
+
+function herkunftSpeichern(origin: string): void {
+  try { fs.writeFileSync(herkunftDatei(), JSON.stringify({ origin }), 'utf8'); }
+  catch { /* dann fragt es beim nächsten Mal erneut nach — kein Beinbruch */ }
+}
+
+/** Fragt über einen echten Systemdialog nach, wenn sich der Update-Ursprung
+ *  ändert. Ein Skript im Renderer kann diesen Dialog nicht selbst wegklicken. */
+async function herkunftWechselBestaetigen(alt: string, neu: string): Promise<boolean> {
+  const abbrechen = t('common.cancel');
+  const optionen = {
+    type: 'warning' as const,
+    buttons: [abbrechen, t('update.originChangeConfirm')],
+    defaultId: 0,
+    cancelId: 0,
+    title: t('update.originChangeTitle'),
+    message: t('update.originChangeMessage'),
+    detail: t('update.originChangeDetail', { alt, neu, abbrechen }),
+  };
+  const antwort = fenster && !fenster.isDestroyed()
+    ? await dialog.showMessageBox(fenster, optionen)
+    : await dialog.showMessageBox(optionen);
+  return antwort.response === 1;
+}
+
 /** Der Renderer meldet sich, sobald jemand angemeldet ist. */
-export function updaterAnmelden(url: string, tok: string): void {
+export async function updaterAnmelden(url: string, tok: string): Promise<boolean> {
   /* Auch diese Adresse ist nichts, worauf man sich verlassen kann: sie kommt
      aus dem Renderer, und was von dort kommt, hat im Hauptprozess keinen
      Vertrauensvorschuss. Von dieser Adresse wird gleich eine Datei geladen und
      ausgeführt — http(s) ist dafür das Mindeste, was geprüft gehört. */
   let geprueft: URL;
-  try { geprueft = new URL(url); } catch { return; }
-  if (geprueft.protocol !== 'http:' && geprueft.protocol !== 'https:') return;
+  try { geprueft = new URL(url); } catch { return false; }
+  if (geprueft.protocol !== 'http:' && geprueft.protocol !== 'https:') return false;
+
+  /* Der Ursprung wird gebunden — siehe der lange Kommentar oben. Stimmt er
+     mit dem gemerkten überein (der Alltag: derselbe Server bei jeder
+     Anmeldung), geht es sofort weiter. Weicht er ab, entscheidet die
+     Person, nicht der Aufrufer. */
+  const bekannteHerkunft = gespeicherteHerkunft();
+  if (bekannteHerkunft && bekannteHerkunft !== geprueft.origin) {
+    if (!(await herkunftWechselBestaetigen(bekannteHerkunft, geprueft.origin))) return false;
+  }
+  if (bekannteHerkunft !== geprueft.origin) herkunftSpeichern(geprueft.origin);
 
   serverUrl = url.replace(/\/+$/, '');
   token = tok;
@@ -155,6 +286,7 @@ export function updaterAnmelden(url: string, tok: string): void {
   timer = setInterval(() => { void pruefen(); }, INTERVALL);
   // Kurz warten: beim Start ist die Verbindung oft noch nicht stabil.
   setTimeout(() => { void pruefen(); }, 8_000);
+  return true;
 }
 
 export function updaterAbmelden(): void {
@@ -238,7 +370,9 @@ async function laden(update: Fern): Promise<void> {
   if (frei !== null && frei < noetig) {
     melden('update:error', {
       key: 'update.notEnoughSpace',
-      params: { noetig: (noetig / 1e9).toFixed(1), frei: (frei / 1e9).toFixed(1) },
+      // Intl.NumberFormat statt .toFixed(1): Letzteres liefert immer einen
+      // Punkt als Trennzeichen, auch für Sprachen, die ein Komma erwarten.
+      params: { noetig: zahlFormatieren(noetig / 1e9), frei: zahlFormatieren(frei / 1e9) },
     });
     return;
   }
@@ -256,13 +390,13 @@ async function laden(update: Fern): Promise<void> {
       if (!installiertBeimBeenden) fristStarten();
       return;
     } catch (err) {
-      const grund = (err as Error).message;
+      const info = fehlerNutzlast(err);
       if (versuch === 3) {
         fs.rmSync(halb, { force: true });
-        melden('update:error', { message: grund });
+        melden('update:error', info);
         return;
       }
-      melden('update:retry', { versuch, message: grund });
+      melden('update:retry', { versuch, ...info });
       await new Promise((f) => setTimeout(f, versuch * 4000));
     }
   }
@@ -311,12 +445,12 @@ async function ladenVersuch(update: Fern, halb: string, ziel: string): Promise<v
      hätte den Download woandershin geführt. */
   const quelle = new URL(update.url, `${serverUrl}/`);
   if (quelle.origin !== new URL(`${serverUrl}/`).origin) {
-    throw new Error('Die Adresse der Fassung zeigt nicht auf diesen Server.');
+    throw new UpdateFehler('update.reason.urlMismatch');
   }
 
   try {
     const antwort = await fetch(quelle, { headers: kopf, signal: abbruch.signal });
-    if (!antwort.ok || !antwort.body) throw new Error(`Download fehlgeschlagen (${antwort.status})`);
+    if (!antwort.ok || !antwort.body) throw new UpdateFehler('update.reason.downloadFailed', { status: antwort.status });
 
     // Beantwortet der Server den Bereich nicht, fangen wir eben von vorn an.
     const setztFort = antwort.status === 206 && schon > 0;
@@ -346,14 +480,14 @@ async function ladenVersuch(update: Fern, halb: string, ziel: string): Promise<v
     });
 
     const gross = fs.statSync(halb).size;
-    if (gross !== update.size) throw new Error(`Unvollständig: ${gross} von ${update.size} Bytes.`);
+    if (gross !== update.size) throw new UpdateFehler('update.reason.incomplete', { erhalten: gross, gesamt: update.size });
 
     // Erst prüfen, dann an den endgültigen Platz — eine halbe Datei darf nie
     // wie eine fertige aussehen.
     const summe = await summeVonDatei(halb);
     if (summe !== update.sha256) {
       fs.rmSync(halb, { force: true });
-      throw new Error('Die geladene Datei stimmt nicht mit der Prüfsumme überein.');
+      throw new UpdateFehler('update.reason.checksumMismatch');
     }
 
     fs.rmSync(ziel, { force: true });
@@ -484,7 +618,7 @@ async function installiereMacAusAbbild(datei: string): Promise<void> {
   const eintraege = fs.readdirSync(einhaengepunkt).filter((n) => n.endsWith('.app'));
   if (!eintraege.length) {
     await ausfuehren('hdiutil', ['detach', einhaengepunkt, '-force']).catch(() => {});
-    throw new Error('Im Abbild ist keine App enthalten.');
+    throw new UpdateFehler('update.reason.noAppInImage');
   }
 
   const neu = path.join(einhaengepunkt, eintraege[0]);
@@ -521,13 +655,15 @@ async function installiereMacAusZip(datei: string): Promise<void> {
     await ausfuehren('ditto', ['-x', '-k', datei, zielOrdner]);
   } catch (err) {
     fs.rmSync(zielOrdner, { recursive: true, force: true });
-    throw new Error(`Entpacken fehlgeschlagen (${(err as Error).message}).`);
+    // (err as Error).message kommt von ditto selbst (Systembefehl) — bleibt
+    // als technisches Detail unübersetzt, siehe UpdateFehler oben.
+    throw new UpdateFehler('update.reason.unpackFailed', { grund: (err as Error).message });
   }
 
   const eintraege = fs.readdirSync(zielOrdner).filter((n) => n.endsWith('.app'));
   if (!eintraege.length) {
     fs.rmSync(zielOrdner, { recursive: true, force: true });
-    throw new Error('Im geladenen Paket ist keine App enthalten.');
+    throw new UpdateFehler('update.reason.noAppInPackage');
   }
 
   const neu = path.join(zielOrdner, eintraege[0]);
@@ -553,13 +689,13 @@ async function installiereWindows(datei: string): Promise<void> {
  */
 async function installiereLinux(datei: string): Promise<void> {
   const appimage = process.env.APPIMAGE;
-  if (!appimage) throw new Error('Kein AppImage — bitte das Paket von Hand installieren.');
+  if (!appimage) throw new UpdateFehler('update.reason.noAppImage');
 
   /* Für Linux gibt es serverseitig nur einen Platz, und dort kann auch ein .deb
      liegen. Über ein laufendes AppImage kopiert, wäre die App unwiderruflich
      hin — ein Debian-Paket startet nicht. Lieber von Hand installieren. */
   if (!/\.appimage$/i.test(datei)) {
-    throw new Error('Die geladene Datei ist kein AppImage — bitte von Hand installieren.');
+    throw new UpdateFehler('update.reason.notAppImage');
   }
 
   const skript = path.join(os.tmpdir(), `stellium-update-${Date.now()}.sh`);
@@ -600,9 +736,7 @@ export async function installieren(): Promise<boolean> {
         fs.rmSync(bereit.datei, { force: true });
         bereit = null;
         installiertGerade = false;
-        melden('update:error', {
-          message: 'Die geladene Datei hat sich verändert und wurde verworfen. Stellium lädt sie neu.',
-        });
+        melden('update:error', fehlerNutzlast(new UpdateFehler('update.reason.fileChanged')));
         return false;
       }
     }
@@ -627,7 +761,10 @@ export async function installieren(): Promise<boolean> {
     gescheitertSeit = Date.now();
     melden('update:error', {
       key: 'update.installFailed',
-      params: { grund: (err as Error).message },
+      // fehlerNutzlast(err).message ist bei einem UpdateFehler schon der
+      // übersetzte Grund (siehe UpdateFehler oben) — bei jedem anderen
+      // Fehler unverändert dessen (technische) .message.
+      params: { grund: fehlerNutzlast(err).message },
     });
     // Nur der Prüfsummen-Zweig oben setzt `bereit` auf null, und der kehrt
     // sofort zurück — hier ist die Datei also da. Die Abfrage steht für den

@@ -23,7 +23,7 @@ export function ThreadPanel({ parentId }: { parentId: string }) {
         <span className="muted" style={{ fontSize: 12.5 }}>
           {t('msg.replyCount', { n: Math.max(0, messages.length - 1) })}
         </span>
-        <button className="icon-btn" style={{ marginLeft: 'auto' }} onClick={() => openThread(null)} title={t('common.close')}>
+        <button className="icon-btn" style={{ marginLeft: 'auto' }} onClick={() => openThread(null)} title={t('common.close')} aria-label={t('common.close')}>
           <X size={17} />
         </button>
       </div>

@@ -28,6 +28,7 @@ import { t as tStatisch, useT, type TranslationKey } from '../i18n/index.js';
 import { Shell } from './Panels.jsx';
 import { PostSchreiben } from './PostSchreiben.jsx';
 import { PostAnhaenge } from './PostAnhaenge.jsx';
+import { PostFristAnzeige } from './PostFristAnzeige.jsx';
 import { ApiError, serverUrl, token } from '../net/api.js';
 import { clsx, dateTime, fileSize, relativeTime } from '../lib/format.js';
 import { dringlichkeitFarbe } from '../lib/post-farben.js';
@@ -108,8 +109,11 @@ interface SichtungKurz {
  * Ein KI-Antwortentwurf, so wie `GET /api/post/entwuerfe` ihn liefert — lokal
  * gespiegelt wie `PostNachricht` oben, aus demselben Grund: kein Import aus
  * dem Server-Paket (`PostEntwurf` dort trägt zusätzliche, unverschlüsselte
- * Felder wie `abweichung`/`kennzeichnung`, die post-sichtung.ts erst beim
- * Auspacken berechnet — hier steht nur die Hülle, wie sie über HTTP ankommt).
+ * Felder wie `abweichung`, die post-sichtung.ts erst beim Auspacken
+ * berechnet — hier steht nur die Hülle, wie sie über HTTP ankommt). Den
+ * rohen KI-Wortlaut (`text_ki`) bekommt diese Tafel bewusst nie zu sehen —
+ * er bleibt am Entwurf in der Datenbank, `post.senden()` liest ihn dort
+ * selbst nach, siehe die Route `/api/post/entwuerfe/:id/senden`.
  *
  * `abweichung` ist derselbe Werte-Typ wie `PostMeldung.abweichung` — beide
  * füllen denselben Wörterbucheintrag `postSichtung.abweichung`, deshalb aus
@@ -120,15 +124,15 @@ interface PostEntwurf {
   mailId: string;
   threadId: string;
   an: string;
+  /** Das Fach der Ursprungsmail — Vorgabe für den Absender beim Freigeben,
+      änderbar (siehe EntwurfKarte weiter unten). `null` nur in Randfällen,
+      siehe post-sichtung.ts, PostEntwurf.fach. */
+  fach: string | null;
   betreff: string;
   text: string;
   begruendung: string | null;
   zustand: string;
   abweichung: PostMeldungAbweichung | null;
-  /** Wortlaut, an dem sich eine beim Bearbeiten entfernte KI-Kennzeichnung
-      erkennen lässt — siehe kennzeichnungAusText() in post-sichtung.ts und,
-      für die Herkunft dieser Bauart, den Dateikopf von PostSchreiben.tsx. */
-  kennzeichnung: string;
 }
 
 const SEITENGROESSE = 50;
@@ -230,10 +234,18 @@ async function weiterleitenApi(id: string, eingabe: { fach: string; an: string }
   });
 }
 
+/** Ein Fach zur Auswahl: `fach` ist die Kennung, die tatsächlich gesendet
+    wird (etwa `"support"`), `adresse` die vollständige Adresse nur für die
+    Anzeige (etwa `"support@stellium.club"`) — dieselbe Hülle, die
+    `services/post.ts::absenderFaecher()` liefert. Wortgleich mit
+    `SchreibFach` in PostSchreiben.tsx, hier noch einmal aus demselben Grund
+    wie postFetch() selbst (siehe dort). */
+interface AbsenderFach { fach: string; adresse: string }
+
 /** Dieselbe Route wie im Schreibfenster (PostSchreiben.tsx) — eigenständig
     hier aus demselben Grund wie postFetch() selbst (siehe dort). */
-async function schreibfaecherHolen(): Promise<string[]> {
-  const r = await postFetch<{ faecher: string[] }>('/api/post/schreibfaecher');
+async function schreibfaecherHolen(): Promise<AbsenderFach[]> {
+  const r = await postFetch<{ faecher: AbsenderFach[] }>('/api/post/schreibfaecher');
   return r.faecher;
 }
 
@@ -361,9 +373,11 @@ async function entwuerfeHolen(): Promise<PostEntwurf[]> {
 
 /** Freigeben und senden — mit dem (womöglich bearbeiteten) Text aus dem
     Feld. `an` fehlt hier bewusst: die Route nimmt die Empfängeradresse
-    ausschließlich aus dem gespeicherten Entwurf, siehe routes.ts. */
+    ausschließlich aus dem gespeicherten Entwurf, siehe routes.ts. `fach`
+    dagegen darf mit — bestimmt nur den eigenen Absender, kein Ziel (siehe
+    Dateikopf der Route `/api/post/entwuerfe/:id/senden`). */
 async function entwurfFreigeben(
-  id: string, eingabe: { betreff: string; text: string; anhaenge?: string[] },
+  id: string, eingabe: { betreff: string; text: string; anhaenge?: string[]; fach?: string },
 ): Promise<{ ok: true; gesendetId: string }> {
   return postFetch(`/api/post/entwuerfe/${encodeURIComponent(id)}/senden`, {
     method: 'POST', body: JSON.stringify(eingabe),
@@ -476,6 +490,20 @@ export function PostPanel({ onClose }: { onClose: () => void }) {
   const [antwortAnhaenge, setAntwortAnhaenge] = useState<AusgehenderAnhang[]>([]);
   const [antwortHochladend, setAntwortHochladend] = useState(0);
   const antwortDateiInput = useRef<HTMLInputElement>(null);
+  /* Aus welchem Fach die Antwort UND ein freigegebener KI-Entwurf hinausgehen
+     — vorbelegt mit dem Fach der jeweiligen Ursprungsmail, aber änderbar
+     (siehe Auftrag: „das Fach ist vorbelegt … und lässt sich ändern").
+     EINE Liste für beide Kästen (Antwort-Box weiter unten, EntwurfKarte als
+     Prop) statt zweier unabhängiger Abrufe — dieselbe Route wie im
+     Schreibfenster und beim Weiterleiten (`/api/post/schreibfaecher`),
+     „nimm dieselbe Machart, erfinde keine zweite". */
+  const [antwortFach, setAntwortFach] = useState<string | null>(null);
+  const [sendeFaecher, setSendeFaecher] = useState<AbsenderFach[] | null>(null);
+  const [sendeFaecherFehler, setSendeFaecherFehler] = useState<string | null>(null);
+
+  useEffect(() => {
+    schreibfaecherHolen().then(setSendeFaecher).catch((err) => setSendeFaecherFehler((err as Error).message));
+  }, []);
 
   const verlaufRef = useRef<HTMLDivElement>(null);
 
@@ -678,10 +706,32 @@ export function PostPanel({ onClose }: { onClose: () => void }) {
   // knüpft am jüngsten Glied der Kette an, nicht am angeklickten.
   const letzte = verlauf.length ? verlauf[verlauf.length - 1] : null;
   const zielAdresse = letzte ? (letzte.richtung === 'ein' ? letzte.von : letzte.an) : null;
-  const absenderFach = letzte?.fach ?? null;
   const betreffVorschlag = letzte
     ? (/^re:/i.test(letzte.betreff.trim()) ? letzte.betreff : `Re: ${letzte.betreff}`)
     : '';
+
+  /* `antwortFach` folgt dem Fach der Ursprungsmail, sobald sich ein anderer
+     Verlauf öffnet (`ausgewaehlteId`) ODER dieser Verlauf fertig geladen ist
+     und ein anderes Fach zeigt (`letzte?.fach`) — beide zusammen, weil der
+     Verlaufsabruf async läuft: unmittelbar nach dem Wechsel von
+     `ausgewaehlteId` trägt `letzte` unter Umständen noch den alten Stand,
+     bis `verlauf` nachgeladen ist (siehe `letzte` oben) und `letzte?.fach`
+     ein zweites Mal auslöst. `sendeFaecher` steht in der Abhängigkeit, weil
+     der Vorschlag erst KORRIGIERT werden kann, sobald die Liste der
+     sendbaren Fächer da ist: landete die Ursprungsmail in `sonstiges` (kein
+     eigenes Postfach, siehe services/post.ts, absenderFaecher()), taugt ihr
+     Fach nicht als Vorgabe — dann greift stattdessen das erste sendbare Fach,
+     genau wie beim Weiterleiten (siehe WeiterleitenFenster oben). Danach
+     bleibt eine von Hand getroffene Wahl stehen, bis der Verlauf wirklich
+     wechselt — kein Zurückspringen bei jedem Tastendruck im Antwortfeld. */
+  useEffect(() => {
+    const vorschlag = letzte?.fach ?? null;
+    const gueltig = sendeFaecher && sendeFaecher.length
+      ? (vorschlag && sendeFaecher.some((f) => f.fach === vorschlag) ? vorschlag : sendeFaecher[0].fach)
+      : vorschlag;
+    setAntwortFach(gueltig);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ausgewaehlteId, letzte?.fach, sendeFaecher]);
 
   /* ── Anhänge für die Antwort ───────────────────────────────────
      Wortgleiches Muster wie in PostSchreiben.tsx (siehe Dateikopf dort):
@@ -709,11 +759,11 @@ export function PostPanel({ onClose }: { onClose: () => void }) {
 
   const senden = async () => {
     const text = antwortText.trim();
-    if (!text || !letzte || !zielAdresse || !absenderFach) return;
+    if (!text || !letzte || !zielAdresse || !antwortFach) return;
     setSendenLaedt(true);
     try {
       await antwortSenden({
-        fach: absenderFach,
+        fach: antwortFach,
         an: zielAdresse,
         betreff: betreffVorschlag,
         text,
@@ -843,6 +893,7 @@ export function PostPanel({ onClose }: { onClose: () => void }) {
           <button
             className="icon-btn"
             title={t('post.aktualisieren')}
+            aria-label={t('post.aktualisieren')}
             onClick={() => { void faecherLaden(); void listeLaden(aktivesFach); void entwuerfeLaden(); }}
           >
             <RefreshCw size={15} />
@@ -1055,6 +1106,7 @@ export function PostPanel({ onClose }: { onClose: () => void }) {
                         <EntwurfKarte
                           entwurf={entwurf}
                           t={t}
+                          faecher={sendeFaecher}
                           onEntschieden={(gesendet) => entwurfEntschieden(entwurf, gesendet)}
                         />
                       )}
@@ -1064,9 +1116,25 @@ export function PostPanel({ onClose }: { onClose: () => void }) {
               </div>
 
               <div className="post__antwort">
-                <p className="muted post__antwort-ziel">
-                  {t('post.antwortVon', { fach: absenderFach ?? '' })}
-                </p>
+                <div className="field post__antwort-fach">
+                  <label className="field__label">{t('post.absenderfach')}</label>
+                  {sendeFaecherFehler && (
+                    <p className="field__hint post-schreiben__warnung">{sendeFaecherFehler}</p>
+                  )}
+                  {!sendeFaecherFehler && sendeFaecher && !!sendeFaecher.length && (
+                    <select
+                      className="select"
+                      aria-label={t('post.absenderfach')}
+                      value={antwortFach ?? ''}
+                      onChange={(e) => setAntwortFach(e.target.value)}
+                    >
+                      {sendeFaecher.map((f) => <option key={f.fach} value={f.fach}>{f.adresse}</option>)}
+                    </select>
+                  )}
+                  {!sendeFaecherFehler && sendeFaecher && !sendeFaecher.length && (
+                    <p className="field__hint">{t('post.keineFaecher')}</p>
+                  )}
+                </div>
                 <textarea
                   className="textarea"
                   aria-label={t('post.antwortLabel')}
@@ -1123,7 +1191,7 @@ export function PostPanel({ onClose }: { onClose: () => void }) {
                   <span className="muted post__antwort-hinweis">{t('post.sendenHinweis')}</span>
                   <button
                     className="btn btn--primary"
-                    disabled={!antwortText.trim() || sendenLaedt}
+                    disabled={!antwortText.trim() || !antwortFach || sendenLaedt}
                     onClick={() => void senden()}
                   >
                     {sendenLaedt ? <Loader2 size={14} className="spin" /> : <Send size={14} />}
@@ -1304,16 +1372,11 @@ function VerlaufEintrag({
         </span>
       </div>
 
-      {/* Verfällt diese Mail einer Aufbewahrungsfrist, muss das sichtbar
-          sein, BEVOR sie zuschlägt — siehe services/post.ts, Nachricht,
-          Feld verfaelltAm. Nicht als Warnung (Amber), sondern als schlichte
-          Auskunft: eine gesetzte Frist ist eine bewusste Entscheidung der
-          Verwaltung, keine Störung. */}
-      {n.verfaelltAm !== null && (
-        <p className="post__eintrag-frist muted">
-          <CalendarClock size={11} /> {t('post.verfaelltAm', { datum: dateTime(n.verfaelltAm) })}
-        </p>
-      )}
+      {/* Eigene Komponente (siehe PostFristAnzeige.tsx) — kennt Text
+          (Einheit nach Restzeit) und Farbe (je näher, desto auffälliger)
+          vollständig selbst; rendert nichts, solange keine Frist gesetzt
+          ist. */}
+      <PostFristAnzeige verfaelltAm={n.verfaelltAm} />
 
       {/* Eigene Komponente (siehe PostAnhaenge.tsx) — kennt Herunterladen,
           fehlende Bytes und den Hinweis "kein Virenschutz" vollständig
@@ -1364,7 +1427,7 @@ function VerlaufEintrag({
 function WeiterleitenFenster({ n, t, onClose }: {
   n: PostNachricht; t: (key: TranslationKey, werte?: Record<string, string | number>) => string; onClose: () => void;
 }) {
-  const [faecher, setFaecher] = useState<string[] | null>(null);
+  const [faecher, setFaecher] = useState<AbsenderFach[] | null>(null);
   const [faecherFehler, setFaecherFehler] = useState<string | null>(null);
   const [fach, setFach] = useState('');
   const [an, setAn] = useState('');
@@ -1378,8 +1441,8 @@ function WeiterleitenFenster({ n, t, onClose }: {
         setFaecher(liste);
         // Vorgabe: dasselbe Fach, an das die Ursprungsmail ging — siehe
         // Auftrag: „Lass es wählen und setz eine sinnvolle Vorgabe."
-        const passend = liste.find((f) => f.split('@')[0] === n.fach);
-        setFach(passend ?? liste[0] ?? '');
+        const passend = liste.find((f) => f.fach === n.fach);
+        setFach(passend?.fach ?? liste[0]?.fach ?? '');
       } catch (err) {
         setFaecherFehler((err as Error).message);
       }
@@ -1413,7 +1476,7 @@ function WeiterleitenFenster({ n, t, onClose }: {
           {faecher && !faecher.length && <p className="field__hint">{t('post.keineFaecher')}</p>}
           {faecher && !!faecher.length && (
             <select className="select" value={fach} onChange={(e) => setFach(e.target.value)}>
-              {faecher.map((f) => <option key={f} value={f}>{f}</option>)}
+              {faecher.map((f) => <option key={f.fach} value={f.fach}>{f.adresse}</option>)}
             </select>
           )}
         </div>
@@ -1608,20 +1671,36 @@ function FristenFenster({ t, onClose }: {
  *
  * DIE KI-KENNZEICHNUNG
  *
- * Dasselbe Muster wie beim Knopf „KI schreibt" im Schreibfenster
- * (PostSchreiben.tsx, siehe dort den Dateikopf): der genaue Wortlaut, an dem
- * sich die Kennzeichnung erkennen lässt, kommt vom Server (`entwurf.
- * kennzeichnung`, siehe kennzeichnungAusText() in post-sichtung.ts) und wird
- * beim Freigeben genau einmal geprüft. Fehlt er im (bearbeiteten) Text, wird
- * nachgefragt — nicht erzwungen, nicht still verschwinden gelassen.
+ * Steckt nicht mehr im Text und wird hier nicht mehr geprüft — sie ist eine
+ * Fußzeile, die `post.ts::senden()` server-seitig anhängt (post-fussnote.ts).
+ * Die Route `/api/post/entwuerfe/:id/senden` liest dafür den nie
+ * überschriebenen `text_ki` des Entwurfs selbst aus der Datenbank und
+ * vergleicht ihn dort gegen den (womöglich bearbeiteten) Text aus diesem
+ * Feld — diese Tafel muss dafür nichts mitschicken und nichts prüfen.
  */
-function EntwurfKarte({ entwurf, t, onEntschieden }: {
+function EntwurfKarte({ entwurf, t, faecher, onEntschieden }: {
   entwurf: PostEntwurf;
   t: (key: TranslationKey, werte?: Record<string, string | number>) => string;
+  /** Dieselbe, einmal geladene Liste wie für die Antwort-Box (siehe
+      PostPanel, `sendeFaecher`) — kann beim Erscheinen dieser Karte noch
+      `null` sein, siehe der Korrektur-Effekt gleich unten. */
+  faecher: AbsenderFach[] | null;
   onEntschieden: (gesendet: boolean) => void;
 }) {
   const [betreff, setBetreff] = useState(entwurf.betreff);
   const [text, setText] = useState(entwurf.text);
+  /* Vorbelegt mit dem Fach der Ursprungsmail, änderbar (siehe Auftrag: „das
+     Fach ist … vorbelegt … und lässt sich ändern"). `faecher` kann bei
+     Erststellung dieser Karte noch nicht geladen sein (async, siehe
+     PostPanel) — der Effekt korrigiert auf ein wirklich sendbares Fach,
+     sobald die Liste da ist (dieselbe Bauart wie bei WeiterleitenFenster:
+     landete die Ursprungsmail in `sonstiges`, taugt ihr Fach nicht als
+     Vorgabe, dann greift das erste sendbare). */
+  const [fach, setFach] = useState<string | null>(entwurf.fach);
+  useEffect(() => {
+    if (!faecher || !faecher.length) return;
+    setFach((bisher) => (bisher && faecher.some((f) => f.fach === bisher) ? bisher : faecher[0].fach));
+  }, [faecher]);
   const [freigebenLaedt, setFreigebenLaedt] = useState(false);
   const [ablehnenLaedt, setAblehnenLaedt] = useState(false);
   const [fehler, setFehler] = useState<string | null>(null);
@@ -1657,13 +1736,11 @@ function EntwurfKarte({ entwurf, t, onEntschieden }: {
   };
 
   const freigeben = async () => {
-    if (!text.includes(entwurf.kennzeichnung) && !window.confirm(t('post.kiKennzeichnungWarnung'))) {
-      return;
-    }
     setFreigebenLaedt(true); setFehler(null);
     try {
       await entwurfFreigeben(entwurf.id, {
         betreff: betreff.trim(), text, anhaenge: anhaenge.length ? anhaenge.map((a) => a.id) : undefined,
+        fach: fach ?? undefined,
       });
       useStore.getState().toast({ kind: 'ok', title: t('post.gesendet') });
       onEntschieden(true);
@@ -1713,6 +1790,21 @@ function EntwurfKarte({ entwurf, t, onEntschieden }: {
           {t('postSichtung.abweichung', { an: entwurf.abweichung.an, von: entwurf.abweichung.von })}
         </p>
       )}
+
+      <div className="field">
+        <label className="field__label" htmlFor={`entwurf-fach-${entwurf.id}`}>{t('post.absenderfach')}</label>
+        {faecher && !!faecher.length && (
+          <select
+            id={`entwurf-fach-${entwurf.id}`}
+            className="select"
+            value={fach ?? ''}
+            onChange={(e) => setFach(e.target.value)}
+          >
+            {faecher.map((f) => <option key={f.fach} value={f.fach}>{f.adresse}</option>)}
+          </select>
+        )}
+        {(!faecher || !faecher.length) && <p className="field__hint">{fach ?? ''}</p>}
+      </div>
 
       <div className="field">
         <span className="field__label">{t('post.empfaenger')}</span>
@@ -1793,7 +1885,7 @@ function EntwurfKarte({ entwurf, t, onEntschieden }: {
           </button>
           <button
             className="btn btn--primary"
-            disabled={gesperrt || !betreff.trim() || !text.trim()}
+            disabled={gesperrt || !betreff.trim() || !text.trim() || !fach}
             onClick={() => void freigeben()}
           >
             {freigebenLaedt ? <Loader2 size={14} className="spin" /> : <Send size={14} />}

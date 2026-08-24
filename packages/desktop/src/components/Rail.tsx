@@ -1,13 +1,19 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { Bell, Bookmark, Bot, CalendarDays, Download, FolderOpen, Gauge, Inbox, Lightbulb, ListChecks, Mail, MailSearch, MessageSquare, Monitor, NotebookPen, Settings, ShieldCheck, Sparkles, Star, Users } from 'lucide-react';
+import { Bell, Bookmark, Bot, Brain, CalendarDays, Download, FolderOpen, Gauge, Inbox, KeyRound, Landmark, LifeBuoy, Lightbulb, ListChecks, Lock, Mail, MailSearch, MessageSquare, Monitor, NotebookPen, Settings, ShieldCheck, ShoppingBag, Sparkles, Star, Users } from 'lucide-react';
 import { useStore } from '../state/store.js';
-import { useT } from '../i18n/index.js';
+import { useT, type TranslationKey } from '../i18n/index.js';
 import { imBrowser } from './DownloadPanel.jsx';
 import { StatusMenu } from './StatusMenu.jsx';
 import { useKiKanaele } from '../lib/ai-channels.js';
 import { useVorschlaege } from '../state/vorschlaege.js';
 import { usePartnerGruppenUi } from '../state/partnergruppen.js';
+import { useGedaechtnisUi } from '../state/gedaechtnis.js';
+import { useEinmalcodeUi } from '../state/einmalcode.js';
+import { usePasswortUi } from '../state/passwort.js';
+import { useNotzugangUi } from '../state/notzugang.js';
+import { usePaypalUi } from '../state/paypal.js';
+import { useVerkaufMeldungenUi } from '../state/verkaufMeldungen.js';
 import { counterLabel } from '../lib/format.js';
 
 /**
@@ -33,7 +39,12 @@ import { counterLabel } from '../lib/format.js';
  * `StatusMenu` geht denselben Weg, aus demselben Grund.
  */
 function SternMenue({ eintraege }: {
-  eintraege: Array<{ id: string; symbol: ReactNode; text: string; tun: () => void }>;
+  /** `abzeichen`: eine Zahl größer 0 markiert diese Zeile UND den Stern
+   *  selbst (siehe unten, `hatAbzeichen`) — heute nur von der
+   *  Verkaufsmeldung benutzt (state/verkaufMeldungen.ts, `juengste`), aber
+   *  bewusst generisch am Eintrag selbst und nicht am Stern festgemacht,
+   *  falls ein künftiger Eintrag hier dasselbe braucht. */
+  eintraege: Array<{ id: string; symbol: ReactNode; text: string; tun: () => void; abzeichen?: number }>;
 }) {
   const t = useT();
   const [offen, setOffen] = useState(false);
@@ -157,18 +168,24 @@ function SternMenue({ eintraege }: {
     );
   }
 
+  // Egal, welcher Eintrag es trägt — der Stern selbst zeigt schon von
+  // außen an, dass IRGENDETWAS im geschlossenen Menü auf einen Blick wartet.
+  const hatAbzeichen = eintraege.some((e) => (e.abzeichen ?? 0) > 0);
+
   return (
     <>
       <button
         ref={knopf}
-        className="rail__logo rail__logo--knopf no-drag"
+        className="rail__logo rail__logo--knopf no-drag verkaufmeldung-sternanker"
         data-tour="stern"
         aria-haspopup="menu"
         aria-expanded={offen}
         title={t('nav.mehr')}
+        aria-label={t('nav.mehr')}
         onClick={() => setOffen((v) => !v)}
       >
         <Star size={21} color="#fff" fill="#fff" />
+        {hatAbzeichen && <span className="verkaufmeldung-punkt" aria-hidden="true" />}
       </button>
 
       {offen && ort && createPortal(
@@ -188,6 +205,9 @@ function SternMenue({ eintraege }: {
             >
               <span className="sternmenue__symbol">{e.symbol}</span>
               {e.text}
+              {(e.abzeichen ?? 0) > 0 && (
+                <span className="verkaufmeldung-zeilenabzeichen"><bdi>{counterLabel(e.abzeichen!)}</bdi></span>
+              )}
             </button>
           ))}
         </div>,
@@ -212,6 +232,29 @@ export function Rail() {
   const activeId = useStore((s) => s.activeChannelId);
   const { istKi, chatId: kiChatId } = useKiKanaele();
   const { setOverlay } = useStore.getState();
+
+  /* "Ein Kauf ist passiert" — siehe state/verkaufMeldungen.ts für die
+     ausführliche Begründung (eigener Laden statt store.ts, Abfrage statt
+     WebSocket/Push, warum der erste Abruf nie einen Toast auslöst).
+     `verkaufJuengste` kommt aus demselben Laden wie der Öffnen-Knopf im
+     Stern-Menü unten und trägt hier nur die Zahl fürs Abzeichen. Die Tafel
+     selbst (`VerkaufMeldungen`) rendert NICHT hier, sondern in App.tsx im
+     eingebetteten Fangkorb: welcher Fangkorb einen Fehler fängt, richtet
+     sich nach der Stelle im React-Baum, an der eine Komponente gerendert
+     wird — nicht danach, wohin sie am Ende auf der Seite gemalt wird. Ein
+     `createPortal(..., document.body)` in Shell (Panels.tsx) ändert daran
+     nichts: seine Kinder bleiben React-Kinder der Komponente, die sie
+     gerendert hat, egal wo sie im DOM landen. Hier gerendert, wäre ein
+     Fehler beim Zeichnen der Tafel beim äußersten Fangkorb (main.tsx)
+     gelandet und hätte die ganze App mitgerissen. */
+  const verkaufJuengste = useVerkaufMeldungenUi((s) => s.juengste);
+  const darfVerkaufSehen = self?.permissions['verkauf.sehen'] === true;
+  useEffect(() => {
+    // Nur starten, wer das Recht dazu hat — sonst fragte jede Person ohne
+    // verkauf.sehen alle drei Minuten einen Weg an, der ihr ohnehin mit 403
+    // antwortet.
+    if (darfVerkaufSehen) useVerkaufMeldungenUi.getState().starten();
+  }, [darfVerkaufSehen]);
 
   // Chat und KI sind zwei Reiter derselben Leiste — genau einer ist aktiv.
   const kiAktiv = istKi(activeId);
@@ -243,6 +286,50 @@ export function Rail() {
              dem Hauptprozess, den es im Browser nicht gibt. */
           ...(!imBrowser() ? [{ id: 'fern', symbol: <Monitor size={17} />, text: t('fern.titel'),
             tun: () => setOverlay('fern') }] : []),
+          /* Der zweite Faktor fürs Firmenkonto, im Chat statt auf einem
+             fremden Telefon. */
+          ...(self?.permissions['einmalcode.nutzen'] ? [{ id: 'einmalcode', symbol: <KeyRound size={17} />,
+            text: t('einmalcode.nav'), tun: () => useEinmalcodeUi.getState().oeffnen() }] : []),
+          /* Der Passwort-Tresor der Firma — Google, PayPal, Gumroad, Resend,
+             Patreon. Eigenes Recht (`passwort.nutzen`, siehe permissions.ts),
+             nirgends über eine Rollenvorlage vergeben, damit niemand ihn
+             ungefragt bekommt. Ende-zu-Ende verschlüsselt wie Notizen, siehe
+             lib/passwoerter.ts. */
+          ...(self?.permissions['passwort.nutzen'] ? [{ id: 'passwort', symbol: <Lock size={17} />,
+            text: t('passwort.nav'), tun: () => usePasswortUi.getState().oeffnen() }] : []),
+          /* Der Notzugang — „3 von 5". Als einziger Eintrag hier OHNE
+             Rechteprüfung, und das mit Absicht: er sichert die EIGENEN
+             Notizen und den EIGENEN Tresor, und Anteile für andere hält
+             irgendwer im Team. Ein Recht davor hieße, dass eine Person ihre
+             eigenen Daten nicht absichern und einer Kollegin nicht helfen
+             dürfte. Siehe lib/notzugang.ts. */
+          { id: 'notzugang', symbol: <LifeBuoy size={17} />,
+            text: t('notzugang.nav'), tun: () => useNotzugangUi.getState().oeffnen() },
+          /* Der PayPal-Kontostand der Firma — reines Ansehen, kein Reiter des
+             Tagesgeschäfts, deshalb im Stern statt unten in der Leiste, wie
+             die Einträge daneben. Entschieden wird ohnehin auf dem Server
+             (routes.ts, /api/bank/paypal/…); hier geht es nur darum, dass
+             niemand gegen eine Wand läuft. `bank.verwalten` schließt
+             `bank.sehen` NICHT automatisch mit ein (siehe permissions.ts) —
+             wer nur einrichten darf, muss den Knopf also genauso sehen wie
+             wer nur ansehen darf, deshalb das ODER. */
+          ...(self?.permissions['bank.sehen'] || self?.permissions['bank.verwalten']
+            ? [{ id: 'bank', symbol: <Landmark size={17} />,
+              text: t('bank.nav'), tun: () => usePaypalUi.getState().oeffnen() }] : []),
+          /* "Ein Kauf ist passiert" — direkt neben dem Bankreiter, aus
+             demselben Grund: ein gelegentlicher Blick aufs Geschäft, kein
+             Tagesgeschäft. `verkauf.sehen`, dieselbe Schwelle wie beim
+             Ansehen der Zahlen selbst (SystemPanel.tsx/VerkaufDetailPanel.tsx)
+             — bewusst NICHT hinter PostMeldungen/`mail.lesen` versteckt, das
+             ist ein unabhängiges Recht (siehe Dateikopf von
+             VerkaufMeldungen.tsx). Das Abzeichen zeigt die Zahl der jüngsten
+             Meldungen, die dieser Laden gerade kennt — dieselbe Bauart wie
+             `offeneVorschlaege`/`offeneAufgaben` unten, nur aus einem Abruf
+             statt aus einem WebSocket-Ereignis gespeist. */
+          ...(darfVerkaufSehen
+            ? [{ id: 'verkaufMeldungen', symbol: <ShoppingBag size={17} />,
+              text: t('verkaufMeldung.nav' as TranslationKey), abzeichen: verkaufJuengste.length,
+              tun: () => useVerkaufMeldungenUi.getState().oeffnen() }] : []),
           ...(darfSystem ? [{ id: 'system', symbol: <Gauge size={17} />, text: t('system.titel'),
             tun: () => setOverlay('system') }] : []),
           ...(self?.permissions['user.manage'] ? [{ id: 'team', symbol: <ShieldCheck size={17} />, text: t('nav.team'),
@@ -256,6 +343,15 @@ export function Rail() {
              beim Postfach selbst: `mail.lesen` genügt zum Ansehen. */
           ...(self?.permissions['mail.lesen'] ? [{ id: 'partnerGruppen', symbol: <Users size={17} />,
             text: t('partnerGruppen.nav'), tun: () => usePartnerGruppenUi.getState().oeffnen() }] : []),
+          /* Was die KI über die Firma weiß — und was sie sich merken möchte.
+             Wie die Briefpartner-Tafel darüber: seltenes, gezieltes Pflegen,
+             deshalb im Stern statt unten in der Leiste. `mail.lesen` genügt
+             zum Ansehen; entschieden und geändert wird mit `mail.verwalten`,
+             das prüft der Server (http/postgedaechtnis.ts). Ansehen bewusst
+             für den größeren Kreis: wer die Post bearbeitet, muss nachsehen
+             können, woher ein Satz im Entwurf stammt. */
+          ...(self?.permissions['mail.lesen'] ? [{ id: 'gedaechtnis', symbol: <Brain size={17} />,
+            text: t('gedaechtnis.nav'), tun: () => useGedaechtnisUi.getState().oeffnen() }] : []),
           /* Umgekehrt: wer die App schon hat, braucht keinen Weg zum
              Herunterladen. */
           ...(imBrowser() ? [{ id: 'download', symbol: <Download size={17} />, text: t('download.nav'),
@@ -269,6 +365,7 @@ export function Rail() {
         aria-pressed={!kiAktiv}
         onClick={() => useStore.getState().openLastHumanChannel()}
         title={t('nav.chat')}
+        aria-label={t('nav.chat')}
       >
         <MessageSquare size={20} />
         {(totalMentions || totalUnread) > 0 && (
@@ -282,6 +379,7 @@ export function Rail() {
         aria-pressed={kiAktiv}
         onClick={() => (kiChatId ? useStore.getState().openChannel(kiChatId) : useStore.getState().openAiChat())}
         title={t('nav.aiChat')}
+        aria-label={t('nav.aiChat')}
       >
         <Bot size={20} />
       </button>
@@ -296,6 +394,7 @@ export function Rail() {
           data-tour="vorschlaege"
           onClick={() => useVorschlaege.getState().oeffnen()}
           title={t('vorschlaege.nav')}
+          aria-label={t('vorschlaege.nav')}
         >
           <Inbox size={20} />
           {offeneVorschlaege > 0 && (
@@ -304,7 +403,7 @@ export function Rail() {
         </button>
       )}
 
-      <button className="rail-btn no-drag" data-tour="tasks" onClick={() => setOverlay('tasks')} title={t('nav.tasks')}>
+      <button className="rail-btn no-drag" data-tour="tasks" onClick={() => setOverlay('tasks')} title={t('nav.tasks')} aria-label={t('nav.tasks')}>
         <ListChecks size={20} />
         {offeneAufgaben > 0 && <span className="rail-btn__dot"><bdi>{counterLabel(offeneAufgaben)}</bdi></span>}
       </button>
@@ -314,7 +413,7 @@ export function Rail() {
           Wer `mail.lesen` nicht hat, sieht den Reiter gar nicht — eine leere
           Tafel wäre schlechter als keine. */}
       {self?.permissions['mail.lesen'] && (
-        <button className="rail-btn no-drag" onClick={() => setOverlay('post')} title={t('post.titel')}>
+        <button className="rail-btn no-drag" onClick={() => setOverlay('post')} title={t('post.titel')} aria-label={t('post.titel')}>
           <Mail size={20} />
         </button>
       )}
@@ -324,35 +423,35 @@ export function Rail() {
           Blick. Dieselbe Schwelle wie beim Postfach selbst: `mail.lesen`, kein
           engeres Recht (siehe routes.ts, GET /api/post/meldungen). */}
       {self?.permissions['mail.lesen'] && (
-        <button className="rail-btn no-drag" onClick={() => setOverlay('postMeldungen')} title={t('postSichtung.titel')}>
+        <button className="rail-btn no-drag" onClick={() => setOverlay('postMeldungen')} title={t('postSichtung.titel')} aria-label={t('postSichtung.titel')}>
           <MailSearch size={20} />
         </button>
       )}
 
-      <button className="rail-btn no-drag" data-tour="calendar" onClick={() => setOverlay('calendar')} title={t('nav.calendar')}>
+      <button className="rail-btn no-drag" data-tour="calendar" onClick={() => setOverlay('calendar')} title={t('nav.calendar')} aria-label={t('nav.calendar')}>
         <CalendarDays size={20} />
       </button>
 
-      <button className="rail-btn no-drag" data-tour="files" onClick={() => setOverlay('files')} title={t('nav.files')}>
+      <button className="rail-btn no-drag" data-tour="files" onClick={() => setOverlay('files')} title={t('nav.files')} aria-label={t('nav.files')}>
         <FolderOpen size={20} />
       </button>
 
-      <button className="rail-btn no-drag" data-tour="ideas" onClick={() => setOverlay('ideas')} title={t('nav.ideas')}>
+      <button className="rail-btn no-drag" data-tour="ideas" onClick={() => setOverlay('ideas')} title={t('nav.ideas')} aria-label={t('nav.ideas')}>
         <Lightbulb size={20} />
       </button>
 
-      <button className="rail-btn no-drag" data-tour="reminders" onClick={() => setOverlay('reminders')} title={t('nav.reminders')}>
+      <button className="rail-btn no-drag" data-tour="reminders" onClick={() => setOverlay('reminders')} title={t('nav.reminders')} aria-label={t('nav.reminders')}>
         <Bell size={20} />
         {reminders.length > 0 && <span className="rail-btn__dot">{reminders.length}</span>}
       </button>
 
-      <button className="rail-btn no-drag" data-tour="notizen" onClick={() => setOverlay('notizen')} title={t('nav.notizen')}>
+      <button className="rail-btn no-drag" data-tour="notizen" onClick={() => setOverlay('notizen')} title={t('nav.notizen')} aria-label={t('nav.notizen')}>
         <NotebookPen size={20} />
       </button>
 
       <span className="rail__spacer" />
 
-      <button className="rail-btn no-drag" data-tour="settings" onClick={() => setOverlay('settings')} title={t('nav.settings')}>
+      <button className="rail-btn no-drag" data-tour="settings" onClick={() => setOverlay('settings')} title={t('nav.settings')} aria-label={t('nav.settings')}>
         <Settings size={20} />
       </button>
       <StatusMenu />

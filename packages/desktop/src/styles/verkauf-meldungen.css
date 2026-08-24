@@ -1,0 +1,89 @@
+/**
+ * Reiter "Verkaufsmeldungen" — eigene, kleine Stilblätter statt Ergänzungen
+ * in app.css. Dieselbe Begründung wie bei styles/paypal.css/
+ * post-gedaechtnis.css/einmalcode.css: app.css wird gerade an anderer
+ * Stelle bearbeitet, und diese Handvoll Regeln braucht die gemeinsame Datei
+ * nicht anzufassen.
+ *
+ * Die Karten übernehmen bewusst dieselbe IDEE wie .postsicht-karte in
+ * post-meldungen.css (farbiger Rand, Kopfzeile mit Zeitpunkt, Text darunter)
+ * — derselbe Anblick für "strukturierte Liste dessen, was passiert ist",
+ * nur eigene Klassennamen: die beiden Reiter teilen sich keine Daten und
+ * sollen sich deshalb auch keine Regeln teilen, die sich später
+ * unabhängig voneinander ändern müssen.
+ */
+
+.verkaufmeldung-liste {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.verkaufmeldung-karte {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border-inline-start: 3px solid var(--violet-soft, #9d8cff);
+  border-radius: var(--r-sm);
+  background: var(--bg-sunken);
+  text-align: start;
+}
+
+.verkaufmeldung-karte__kopf {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--tx-mid);
+}
+
+.verkaufmeldung-karte__anbieter {
+  font-weight: 620;
+  color: var(--tx-hi);
+}
+
+.verkaufmeldung-karte__zeit { margin-inline-start: auto; }
+
+.verkaufmeldung-karte__name {
+  font-size: 13.5px;
+  color: var(--tx-hi);
+}
+
+.verkaufmeldung-karte__zeile {
+  font-size: 12.5px;
+  color: var(--tx-mid);
+}
+
+/* ── Abzeichen im Stern-Menü — dieselbe Optik wie .rail-btn__dot in app.css,
+   eigens hier definiert statt dort ergänzt (siehe Dateikopf). Der
+   Stern-Knopf selbst braucht einen eigenen Bezugsrahmen für die absolute
+   Position — .rail__logo/.rail__logo--knopf in app.css legen dafür keinen
+   an, darum hier zusätzlich (additiv, keine bestehende Regel wird
+   angefasst). ────────────────────────────────────────────────────────── */
+.verkaufmeldung-sternanker { position: relative; }
+
+.verkaufmeldung-punkt {
+  position: absolute;
+  top: 7px;
+  inset-inline-end: 7px;
+  width: 9px;
+  height: 9px;
+  border-radius: 99px;
+  background: var(--rose);
+  box-shadow: 0 0 0 2px var(--bg-deep);
+}
+
+.verkaufmeldung-zeilenabzeichen {
+  margin-inline-start: auto;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 4px;
+  display: grid;
+  place-items: center;
+  border-radius: 99px;
+  background: var(--rose);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+}

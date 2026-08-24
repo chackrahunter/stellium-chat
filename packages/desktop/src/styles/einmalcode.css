@@ -1,0 +1,336 @@
+/* ── Einmalcodes ───────────────────────────────────────────────────
+   Nutzt ausschließlich Farbtoken, Radien und Abstände aus tokens.css sowie
+   allgemeine Klassen aus app.css (.btn, .input, .field, .icon-btn, .pill,
+   .empty-state, .muted, .spin, .hstack — siehe dort). Diese Datei fügt nur
+   hinzu, was für diese Tafel eigen ist.
+
+   Logische Eigenschaften durchweg (inline-size, margin-block, padding-inline,
+   border-inline-start), nicht width/left/right: Arabisch ist eine der 22
+   Sprachen, und dort steht die Oberfläche auf `dir="rtl"`. */
+
+.einmalcode {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+
+.einmalcode__laden {
+  display: flex;
+  justify-content: center;
+  padding: var(--sp-5) 0;
+  color: var(--tx-lo);
+}
+
+/* ── Hinweis über den Uhren ─────────────────────────────────────── */
+
+.einmalcode__uhr {
+  display: flex;
+  gap: var(--sp-2);
+  align-items: flex-start;
+  padding: 10px 12px;
+  border-radius: var(--r-md);
+  background: rgba(251, 191, 36, 0.10);
+  border: 1px solid rgba(251, 191, 36, 0.30);
+  color: var(--amber);
+}
+
+/* Die Serveruhr ist nachweislich falsch: dann geht gar nichts, und das darf
+   auch so aussehen. Der leichte Fall (die eigene Uhr) bleibt bernsteinfarben
+   — er kostet nur den Balken, nicht den Code. */
+.einmalcode__uhr--schwer {
+  background: rgba(251, 113, 133, 0.10);
+  border-color: rgba(251, 113, 133, 0.34);
+  color: var(--rose);
+}
+
+.einmalcode__uhr-titel {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.einmalcode__uhr-text {
+  margin: 3px 0 0;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--tx-mid);
+}
+
+/* ── Liste der Konten ───────────────────────────────────────────── */
+
+.einmalcode__liste {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.einmalcode__zeile {
+  padding: var(--sp-3);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--bg-panel);
+  transition: border-color .3s ease, box-shadow .3s ease;
+}
+
+/* Angesprungen aus dem Passwort-Tresor (PasswortPanel.tsx) — hebt nur die
+   Umrandung hervor, deckt nie einen Code auf. */
+.einmalcode__zeile--hervorgehoben {
+  border-color: var(--accent, #6d8dfc);
+  box-shadow: 0 0 0 2px var(--accent, #6d8dfc) inset;
+}
+
+.einmalcode__kopf {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-2);
+  justify-content: space-between;
+}
+
+.einmalcode__namen {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.einmalcode__name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--tx-hi);
+  overflow-wrap: anywhere;
+}
+
+.einmalcode__konto {
+  font-size: 12px;
+  color: var(--tx-lo);
+  overflow-wrap: anywhere;
+}
+
+/* ── Zugedeckt ──────────────────────────────────────────────────── */
+
+.einmalcode__zu {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  margin-block-start: var(--sp-3);
+}
+
+.einmalcode__zu-text {
+  font-size: 12px;
+  color: var(--tx-lo);
+}
+
+/* ── Aufgedeckt ─────────────────────────────────────────────────── */
+
+.einmalcode__auf { margin-block-start: var(--sp-3); }
+
+.einmalcode__zahl-reihe {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+}
+
+/* Der Code selbst ist ein Knopf: ein Klick darauf kopiert. Sechs Ziffern
+   abzutippen ist die Stelle, an der man sich vertut, und dafür ist die
+   Fläche groß genug, dass man sie auch auf dem Telefon trifft. */
+.einmalcode__zahl {
+  font-family: var(--font-mono);
+  /* Ziffern gleich breit: sonst springt die Zahl bei jedem Wechsel, weil
+     eine "1" schmaler ist als eine "8". */
+  font-variant-numeric: tabular-nums;
+  font-size: 30px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  color: var(--tx-hi);
+  background: none;
+  border: none;
+  padding: 2px 0;
+  cursor: pointer;
+  /* Der eine Wert im Haus, der ausdrücklich markierbar bleiben soll — man
+     tippt ihn ab oder kopiert ihn, sonst nützt er nichts. */
+  user-select: all;
+}
+.einmalcode__zahl:hover { color: var(--violet-soft); }
+
+.einmalcode__knoepfe {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+/* ── Der Balken ─────────────────────────────────────────────────── */
+
+.einmalcode__balken {
+  block-size: 4px;
+  border-radius: 999px;
+  background: var(--bg-panel-2);
+  overflow: hidden;
+  margin-block-start: var(--sp-2);
+}
+
+.einmalcode__balken-fuellung {
+  block-size: 100%;
+  background: var(--grad-nebula);
+  /* Linear und genau so lang wie ein Takt der Zeile (250 ms): dann läuft der
+     Balken gleichmäßig, statt viermal in der Sekunde zu ruckeln. */
+  transition: inline-size 250ms linear;
+}
+
+.einmalcode__balken-fuellung--knapp { background: var(--rose); }
+
+.einmalcode__rest {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin: 6px 0 0;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--tx-lo);
+}
+
+.einmalcode__rest--knapp { color: var(--rose); }
+
+/* ── Kein Code — und warum ──────────────────────────────────────── */
+
+.einmalcode__gesperrt {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  padding: 10px 12px;
+  border-radius: var(--r-sm);
+  background: rgba(251, 113, 133, 0.09);
+  border: 1px solid rgba(251, 113, 133, 0.28);
+  color: var(--rose);
+  font-size: 13px;
+}
+
+.einmalcode__ohneVerbindung {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin: var(--sp-2) 0 0;
+  font-size: 11.5px;
+  color: var(--amber);
+}
+
+.einmalcode__fehler {
+  margin: var(--sp-2) 0 0;
+  font-size: 12.5px;
+  color: var(--rose);
+}
+
+/* ── Löschen bestätigen ─────────────────────────────────────────── */
+
+/* Umhüllt Frage-Zeile und Fehlermeldung als EIN Flex-Kind von
+   .einmalcode__kopf -- ohne diese Spalte würde ein Fragment aus beiden
+   Kinder von .einmalcode__kopf selbst, und die Fehlermeldung landete neben
+   statt unter der Frage-Zeile. */
+.einmalcode__fragtSpalte {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  /* Kein eigenes `gap`: .einmalcode__fehler bringt schon einen oberen
+     Rand mit, derselbe wie überall sonst in dieser Datei. */
+}
+
+.einmalcode__fragt {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--tx-mid);
+}
+
+/* ── Einrichten ─────────────────────────────────────────────────── */
+
+.einmalcode__neu { align-self: flex-start; }
+
+.einmalcode__form {
+  padding: var(--sp-3);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--bg-panel);
+}
+
+/* Der Satz, der erklärt, was man da gerade weggibt. Absichtlich auffällig:
+   wer hier etwas einträgt, macht den Chat zum Träger des zweiten Faktors. */
+.einmalcode__warnung {
+  display: flex;
+  gap: var(--sp-2);
+  align-items: flex-start;
+  padding: 10px 12px;
+  margin-block-end: var(--sp-3);
+  border-radius: var(--r-sm);
+  background: rgba(124, 92, 255, 0.10);
+  border-inline-start: 2px solid var(--violet);
+  color: var(--violet-soft);
+}
+
+.einmalcode__warnung p {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--tx-mid);
+}
+
+/* ── Abrufe ─────────────────────────────────────────────────────── */
+
+.einmalcode__abrufe {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding-block-start: var(--sp-2);
+  border-block-start: 1px solid var(--line);
+}
+
+.einmalcode__abrufe-hinweis {
+  margin: 0;
+  font-size: 12px;
+  color: var(--tx-lo);
+}
+
+.einmalcode__abrufe-liste {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  max-block-size: 220px;
+  overflow-y: auto;
+}
+
+.einmalcode__abrufe-liste li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  gap: var(--sp-2);
+  align-items: baseline;
+  padding: 6px 0;
+  font-size: 12.5px;
+  border-block-end: 1px solid var(--line);
+}
+.einmalcode__abrufe-liste li:last-child { border-block-end: none; }
+
+.einmalcode__abruf-wer { color: var(--tx-hi); font-weight: 500; }
+.einmalcode__abruf-was { color: var(--tx-mid); overflow-wrap: anywhere; }
+.einmalcode__abruf-wann { white-space: nowrap; font-size: 11.5px; }
+
+/* ── Schmale Fenster ────────────────────────────────────────────── */
+
+@media (max-width: 520px) {
+  .einmalcode__zahl { font-size: 26px; }
+  .einmalcode__abrufe-liste li {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  /* Auf dem Telefon fällt das Etikett weg statt zu quetschen — wer und wann
+     sind die beiden Angaben, für die man diese Liste aufmacht. */
+  .einmalcode__abruf-was { display: none; }
+}
+
+/* Wer Bewegung ausgestellt hat, bekommt den Balken in Sprüngen statt
+   fließend — die Auskunft bleibt, die Animation geht. */
+@media (prefers-reduced-motion: reduce) {
+  .einmalcode__balken-fuellung { transition: none; }
+}

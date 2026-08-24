@@ -134,7 +134,7 @@ export function VoiceRecorder({ channelId, parentId, onDone }: Props) {
     return (
       <div className="recorder recorder--error">
         <span>{error}</span>
-        <button className="icon-btn icon-btn--sm" onClick={onDone}><Trash2 size={14} /></button>
+        <button className="icon-btn icon-btn--sm" onClick={onDone} aria-label={t('voice.discard')}><Trash2 size={14} /></button>
       </div>
     );
   }
@@ -171,8 +171,8 @@ export function VoiceRecorder({ channelId, parentId, onDone }: Props) {
       )}
       {state === 'fertig' && (
         <>
-          <button className="icon-btn" onClick={onDone} title={t('voice.discard')}><Trash2 size={16} /></button>
-          <button className="send-btn" onClick={() => void send()} title={t('voice.send')}>
+          <button className="icon-btn" onClick={onDone} title={t('voice.discard')} aria-label={t('voice.discard')}><Trash2 size={16} /></button>
+          <button className="send-btn" onClick={() => void send()} title={t('voice.send')} aria-label={t('voice.send')}>
             <Send size={16} />
           </button>
         </>

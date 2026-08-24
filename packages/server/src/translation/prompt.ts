@@ -62,6 +62,20 @@ export function uebersetzungsRegeln(req: TranslateRequest): string[] {
   }
   if (req.context) {
     regeln.push(`Kontext des Gesprächs (nur zur Orientierung, nicht übersetzen): ${req.context}`);
+    /* Nur, wenn Kontext dasteht: gemessen (scripts/uebersetzung-messen.mjs,
+       KONTEXT_KORPUS) hilft dieser Satz ohne vorherige Nachricht nicht —
+       der Auftraggeber-Fall ("mache ich kein problem" -> "I'm not making a
+       problem") blieb ohne Verlauf falsch, selbst mit diesem Satz. Erst mit
+       einer vorherigen Nachricht als Kontext UND diesem Satz kippte die
+       Übersetzung erkennbar in Richtung Zusage. Deshalb hier verankert statt
+       als eigene, immer aktive Regel — die zusätzliche Zeile soll nur dort
+       kosten (Marken, Risiko einer neuen Fehlübersetzung), wo tatsächlich
+       Verlauf zur Verfügung steht. */
+    regeln.push(
+      'Nutze den Gesprächskontext, um zu erkennen, ob eine kurze Antwort eine Zusage, Absage oder Frage ist, '
+      + 'und übersetze den vollen Sinn, nicht nur die Einzelwörter. Kurze Antworten ohne Satzzeichen sind im '
+      + 'Chat oft mehrere knappe Aussagen ohne Komma (zum Beispiel Zusage und Beruhigung in einem Atemzug).',
+    );
   }
   regeln.push('Antworte ausschließlich als JSON: {"translation": "...", "detected_source_language": "<ISO-639-1>", "confidence": <0..1>}');
 
@@ -72,10 +86,21 @@ export function uebersetzungsRegeln(req: TranslateRequest): string[] {
  * Wie viele Tokens die Übersetzung höchstens brauchen darf.
  * Faustregel: rund ein Token pro drei Zeichen, dazu Luft für JSON-Gerüst und
  * die internen Denkschritte der Reasoning-Modelle.
+ *
+ * Der feste Deckel von 8192 ist hier bewusst raus: er hatte nichts mit dem
+ * tatsächlichen Kontextfenster des jeweiligen Modells zu tun (das reicht von
+ * 8k bei einem kleinen lokalen Modell bis 128k+ bei Groq) und zählte
+ * außerdem nur die Antwort, nie die Anfrage selbst dazu — bei rund 4300
+ * Zeichen reservierte die alte Formel schon mehr Antwort-Marken, als nach
+ * Abzug der Anfrage überhaupt noch im Fenster übrig blieben, und jede
+ * längere Nachricht scheiterte deshalb unabhängig vom Anbieter. Das
+ * eigentliche Fenster kennt jetzt providers/openai-compatible.ts (kennt das
+ * Modell) und begrenzt hiermit zusammen mit dem Platz, den die Anfrage
+ * selbst schon braucht — siehe dort.
  */
 export function translationBudget(text: string): number {
   const geschaetzt = Math.ceil(text.length / 3);
-  return Math.min(8192, Math.max(1500, geschaetzt * 4 + 800));
+  return Math.max(1500, geschaetzt * 4 + 800);
 }
 
 /**

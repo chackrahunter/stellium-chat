@@ -47,7 +47,6 @@
   width: 100%;
   border: 0;
   background: none;
-  outline: 0;
   font-size: 18px;
   font-weight: 700;
   letter-spacing: -0.01em;
@@ -55,13 +54,15 @@
 }
 .notizen__titel-feld::placeholder { color: var(--tx-lo); font-weight: 600; }
 
+/* Beide Felder hier ohne eigenen Rahmen — vorher stand bei beiden zusätzlich
+   `outline: 0` ohne Ersatz (dieselbe Lücke wie bei `.input--bare` in
+   app.css). Jetzt greift der globale `:focus-visible`-Ring dort von selbst. */
 .notizen__text-feld {
   flex: 1 1 auto;
   min-height: 0;
   resize: none;
   border: 0;
   background: none;
-  outline: 0;
   padding: 0;
   font: inherit;
   line-height: 1.55;
@@ -108,3 +109,26 @@
 .notizen__chip button:hover { color: var(--rose); }
 
 .notizen__ehemalige { margin-top: var(--sp-2); font-size: 11.5px; color: var(--tx-lo); }
+
+/* ── Schmales Fenster ───────────────────────────────────────────── */
+/* Dieselbe Bauart wie bei .post (post.css): auf dem Handy passen zwei feste
+   Spalten nicht nebeneinander — die zweite verhungerte bislang zu einem
+   schmalen Streifen, in dem selbst der leere Hinweistext
+   ("notizen.keineAusgewaehlt") ein Wort je Zeile umbrach. Liste und Editor
+   laufen ab hier untereinander statt nebeneinander; die Liste bekommt eine
+   feste Höhe zum Scrollen, der Editor darunter die volle Breite. */
+@media (max-width: 720px) {
+  .notizen {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto minmax(0, 1fr);
+    height: auto;
+    max-height: min(78vh, 640px);
+  }
+  .notizen__liste {
+    border-inline-end: 0;
+    border-bottom: 1px solid var(--line);
+    max-height: 180px;
+    padding-inline-end: 0;
+    padding-bottom: 8px;
+  }
+}

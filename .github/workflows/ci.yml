@@ -28,8 +28,26 @@ jobs:
       - name: Bauen
         run: npm run build
 
+      # Kein continue-on-error: der Lauf setzt einen echten Exit-Code (siehe
+      # Kopf von scripts/deutsch-finden.mjs, Abschnitt SCHWELLE). Das ist kein
+      # "irgendein Fund → rot" mehr, sondern ein Ratchet gegen
+      # scripts/deutsch-schwelle.json: bestehender Rückstand ist geduldet,
+      # aber JEDE Datei mit mehr Funden als dort hinterlegt blockt sofort.
+      # Fehlt die Schwelle-Datei (z. B. weil sie nicht committet wurde),
+      # blockt der Lauf ebenso — bewusst, siehe dort. Der Workflow selbst
+      # braucht dafür nichts Zusätzliches: dieselbe einfache "run und Exit-Code
+      # zählt"-Regel wie bei jedem anderen Schritt hier reicht bereits aus.
       - name: Keine fest verdrahteten Texte
         run: node scripts/deutsch-finden.mjs
+
+      # Derselbe Ratchet-Gedanke, nur eine Ebene tiefer: deutsch-finden.mjs
+      # bewacht Texte, die gar nicht erst im Wörterbuch stehen — dieser Lauf
+      # bewacht die WERTE der 22 Wörterbücher selbst (feste Sprachnennung,
+      # deutsches Kürzel, gemischte Sprachvariante, gemischte Anrede). Beides
+      # zusammen deckt erst die ganze Strecke ab; sprachen-vollstaendig.mjs
+      # vergleicht nur Schlüsselmengen und liest keinen einzigen Wert.
+      - name: Wörterbücher inhaltlich stimmig
+        run: node scripts/woerterbuecher-stimmigkeit-pruefen.mjs
 
       - name: Server startet und antwortet
         run: |

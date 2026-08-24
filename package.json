@@ -2,6 +2,7 @@
   "name": "stellium-chat",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "description": "Stellium — Team-Chat mit Live-Übersetzung und KI (macOS Intel/ARM, Windows, Linux)",
   "workspaces": [
     "packages/shared",
@@ -22,13 +23,18 @@
     "dist:win": "npm run build && npm run dist:win -w @stellium/desktop",
     "dist:linux": "npm run build && npm run dist:linux -w @stellium/desktop",
     "start:server": "npm run start -w @stellium/server",
+    "lint": "eslint",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "e2e": "node scripts/e2e.mjs",
     "e2e:sichtbar": "node scripts/e2e.mjs --sichtbar",
     "build:server": "npm run build:shared && npm run build -w @stellium/server && npm run build:web -w @stellium/desktop"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@typescript-eslint/parser": "^8.67.0",
     "concurrently": "^9.1.2",
+    "eslint": "^10.9.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
     "typescript": "^5.7.3"
   }
 }

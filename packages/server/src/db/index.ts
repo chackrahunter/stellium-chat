@@ -67,9 +67,164 @@ class Db {
 export const db = new Db(config.dbFile);
 export const placeholders = Db.placeholders;
 
+/**
+ * Kommentare — Zeilenkommentare (zwei Bindestriche) UND Blockkommentare
+ * (Schrägstrich-Stern … Stern-Schrägstrich) — und der Inhalt von
+ * Zeichenketten (`'...'`/`"..."`) durch Leerzeichen ersetzt, Zeilenumbrüche
+ * erhalten —
+ * Länge und Zeilennummern bleiben dadurch deckungsgleich mit dem Original,
+ * nur eben ohne Semikola oder Klammern, die zufällig in einem Kommentar oder
+ * einem Text-Default stehen (z. B. `DEFAULT 'a;b'`) und sonst als
+ * Anweisungsgrenze missverstanden würden. Verdoppelte Anführungszeichen
+ * (`''`/`""`) sind SQLites eigene Schreibweise für ein escapetes
+ * Anführungszeichen IN der Zeichenkette — die Kette geht dann weiter, statt
+ * dort zu enden.
+ *
+ * Exportiert: sqlAnweisungen() unten baut direkt darauf auf, und
+ * pruefungen/tabellen-abgleich.mts braucht dieselbe Maskierung, um zwei
+ * CREATE-TABLE-Texte (schema.sql/migrate.ts) vergleichbar zu machen, ohne
+ * dass unterschiedliche Kommentare den Vergleich verfälschen. Kein Grund,
+ * dieselben fünfundzwanzig Zeilen ein zweites Mal zu schreiben.
+ */
+export function maskieren(sql: string): string {
+  let out = '';
+  let i = 0;
+  const n = sql.length;
+  while (i < n) {
+    if (sql[i] === '-' && sql[i + 1] === '-') {
+      const ende = sql.indexOf('\n', i);
+      const bis = ende === -1 ? n : ende;
+      out += sql.slice(i, bis).replace(/[^\n]/g, ' ');
+      i = bis;
+    } else if (sql[i] === '/' && sql[i + 1] === '*') {
+      const ende = sql.indexOf('*/', i + 2);
+      const bis = ende === -1 ? n : ende + 2;
+      out += sql.slice(i, bis).replace(/[^\n]/g, ' ');
+      i = bis;
+    } else if (sql[i] === "'" || sql[i] === '"') {
+      const anfuehrung = sql[i];
+      let j = i + 1;
+      for (;;) {
+        const q = sql.indexOf(anfuehrung, j);
+        if (q === -1) { j = n; break; }
+        if (sql[q + 1] === anfuehrung) { j = q + 2; continue; }   // verdoppelt: String geht weiter
+        j = q + 1;
+        break;
+      }
+      out += sql.slice(i, j).replace(/[^\n]/g, ' ');
+      i = j;
+    } else {
+      out += sql[i];
+      i++;
+    }
+  }
+  return out;
+}
+
+/**
+ * Zerlegt ein SQL-Skript in seine einzelnen Anweisungen — kommentar- und
+ * string-bewusst (siehe maskieren() oben), damit ein Semikolon in einem
+ * Kommentar oder einem Text-Default keine Anweisung mittendurch
+ * zerschneidet. Kein SQL-Parser: nur so viel Textverständnis, wie nötig ist,
+ * um Anweisungsgrenzen zu finden — SQLite selbst prüft jede Anweisung beim
+ * Ausführen ohnehin vollständig.
+ *
+ * Geprüft gegen das heutige schema.sql: identische Tabellen- UND Indexliste
+ * wie beim bisherigen einzelnen `db.exec(schema)` auf einer frischen
+ * Datenbank (65 Tabellen, 112 Indizes) — die Zerlegung ändert am Ergebnis
+ * im Erfolgsfall nichts, nur am Verhalten im Fehlerfall (siehe initDb()).
+ *
+ * Exportiert, weil dieselbe Zerlegung auch pruefungen/tabellen-abgleich.mts
+ * braucht — dort nicht zum Ausführen, sondern um je zwei CREATE-TABLE-Texte
+ * (schema.sql/migrate.ts) auf dieselbe Spaltenliste zu prüfen.
+ */
+export function sqlAnweisungen(sql: string): string[] {
+  const maske = maskieren(sql);
+  const anweisungen: string[] = [];
+  let start = 0;
+  let i = maske.indexOf(';');
+  while (i !== -1) {
+    const stueck = sql.slice(start, i).trim();
+    if (stueck) anweisungen.push(stueck);
+    start = i + 1;
+    i = maske.indexOf(';', start);
+  }
+  const rest = sql.slice(start).trim();
+  if (rest) anweisungen.push(rest);
+  return anweisungen;
+}
+
+/** Kurzer, lesbarer Name für eine Anweisung in einer Fehlermeldung — die
+ *  erste inhaltliche Zeile, nicht der ganze (oft mehrzeilige) Text. */
+function anweisungSignatur(anweisung: string): string {
+  const zeile = anweisung.split('\n').find((z) => z.trim().length > 0) ?? anweisung;
+  return zeile.trim().slice(0, 100);
+}
+
+/**
+ * schema.sql als EINEN einzigen db.exec()-Aufruf auszuführen hieß bislang:
+ * die erste fehlschlagende Anweisung reißt JEDE folgende mit sich — das ist
+ * kein Verdacht, sondern nachgemessen (ein Index auf eine noch fehlende
+ * Spalte, künstlich mitten in die Datei gesetzt, kostete beim einzelnen
+ * exec() zehn von fünfundsechzig Tabellen, darunter jede, die textlich
+ * dahinter stand — u. a. mail_wissen und mail_nachrichten). Für eine Datei
+ * mit über sechzig CREATE TABLE und ebenso vielen CREATE INDEX, von denen
+ * praktisch jedes ein in sich geschlossenes "IF NOT EXISTS"-Vorhaben ist,
+ * ist ein Alles-oder-nichts-Ausfall der falsche Ausfall: EINE Anweisung, die
+ * auf einer alten Datenbank stolpert (nahezu immer ein Index auf eine
+ * Spalte, die erst migrate.ts nachrüstet — "no such column"), darf nicht
+ * jede andere, völlig unbeteiligte Tabelle mitreißen. Genau daran ist der
+ * Server schon mehrfach nicht hochgekommen (siehe die Kommentare bei
+ * idx_tasks_projekt und idx_mail_zustell in migrate.ts). Aktuell steht kein
+ * solcher Fall mehr offen — jeder bekannte wurde nach migrate.ts verschoben
+ * — aber "aktuell keiner offen" ist keine Eigenschaft, die von selbst
+ * bestehen bleibt, sobald schema.sql die nächste Zeile bekommt.
+ *
+ * Deshalb läuft schema.sql hier Anweisung für Anweisung statt als ein
+ * einziger Block. Eine fehlschlagende Anweisung wird gemeldet — mit ihrem
+ * eigenen Anfang, nicht nur mit der SQLite-Fehlermeldung, damit klar ist,
+ * WELCHE der über hundert Anweisungen es war — und der Rest der Datei läuft
+ * trotzdem weiter. migrate() bekommt danach unverändert seine Chance,
+ * fehlende Spalten nachzutragen; ein Index, der selbst noch fehlt, weil er
+ * auf eine solche Spalte zeigt, gehört ohnehin nach migrate.ts (siehe dort)
+ * — diese Schleife repariert das nicht rückwirkend, sie verhindert nur, dass
+ * EINE solche Anweisung alle ANDEREN mit sich reißt.
+ *
+ * Bewusst NICHT gewählt: ein Build-/Testzeit-Wächter, der einen Index auf
+ * eine COLUMNS-Spalte in schema.sql von vornherein verbietet. Er hätte den
+ * MECHANISMUS nicht sicherer gemacht, nur eine zusätzliche, eigene Prüfung
+ * gebraucht, die selbst wieder pflegen will (welche Ausdrücke zählen als
+ * "referenziert eine COLUMNS-Spalte"? Auch in einer WHERE-Klausel eines
+ * Teilindex? In einem CHECK?) — und deckt nur EINE der möglichen Ursachen ab
+ * (Spalten), nicht z. B. einen schlicht fehlerhaften CREATE-TABLE-Tippfehler.
+ * Diese Schleife hier hilft dagegen unabhängig von der Fehlerursache: sie
+ * begrenzt den SCHADEN einer beliebigen fehlschlagenden Anweisung auf genau
+ * diese eine, egal wodurch sie ausgelöst wurde.
+ *
+ * Kosten: ein einmaliger Textdurchlauf über eine gut 1250 Zeilen lange Datei
+ * beim Start (sqlAnweisungen() oben) plus gut hundert einzelne
+ * db.exec()-Aufrufe statt einem einzigen — neben den ohnehin folgenden
+ * Dutzenden einzelnen db.exec()-Aufrufen in migrate() auf dem Pi nicht
+ * messbar.
+ */
 export function initDb(): void {
   const schema = fs.readFileSync(path.join(here, 'schema.sql'), 'utf8');
-  db.exec(schema);
+  const anweisungen = sqlAnweisungen(schema);
+  let fehlgeschlagen = 0;
+  for (const anweisung of anweisungen) {
+    try {
+      db.exec(anweisung);
+    } catch (err) {
+      fehlgeschlagen++;
+      console.warn(
+        `[db] schema.sql: Anweisung übersprungen — "${anweisungSignatur(anweisung)}"\n`
+        + `     ${(err as Error).message}`,
+      );
+    }
+  }
+  if (fehlgeschlagen) {
+    console.warn(`[db] schema.sql: ${fehlgeschlagen} von ${anweisungen.length} Anweisungen übersprungen, der Rest der Datei lief trotzdem. migrate() läuft als Nächstes und trägt nach, was fehlt.`);
+  }
   /* Vor jeder Nachrüstung: passt das Masterpasswort noch zu den Daten?
      Steht die Prüfung dahinter, hat migrate() bei einem Schlüsselwechsel
      schon den Übersetzungsspeicher geleert. */

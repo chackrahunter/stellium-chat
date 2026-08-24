@@ -243,6 +243,7 @@ export function UpdatePanel() {
                     <button
                       className="icon-btn icon-btn--danger"
                       title={t('update.remove')}
+                      aria-label={t('update.remove')}
                       onClick={async () => {
                         if (!confirm(t('update.removeConfirm', { platform: p.name }))) return;
                         setReleases((await api.removeRelease(p.id)).releases);

@@ -222,7 +222,7 @@ export function GlossaryPanel({ onClose }: { onClose: () => void }) {
               {entry.translations && ` · ${Object.entries(entry.translations).map(([k, v]) => `${languageInfo(k).flag} ${v}`).join('  ')}`}
             </div>
           </div>
-          <button className="icon-btn" onClick={() => void remove(entry.id)} title={t('glossary.remove')}>
+          <button className="icon-btn" onClick={() => void remove(entry.id)} title={t('glossary.remove')} aria-label={t('glossary.remove')}>
             <Trash2 size={15} />
           </button>
         </div>
@@ -341,6 +341,25 @@ export function Shell({ title, icon, onClose, width, subtitle, actions, children
   const kasten = useRef<HTMLDivElement>(null);
   useFokusfalle(kasten);
 
+  /* Escape darf nur das oberste Fenster schließen — das verlangt eine
+     STABILE Platznummer je Shell-Instanz, vergeben genau einmal beim
+     tatsächlichen Einhängen. Der Effekt darunter hing früher an `[onClose]`:
+     die meisten Aufrufer geben dafür einen Inline-Pfeil mit, der bei JEDEM
+     Wiederzeichnen des Elternteils neu entsteht — und ein Fenster mit einer
+     eingebetteten Unter-Schale (TasksBoard → TaskDetail, beide je eine
+     Shell, echte Eltern-Kind-Beziehung im Baum, nicht nur im DOM per
+     createPortal) bekam dadurch in EINEM Durchlauf für BEIDE eine neue
+     Nummer: React räumt in einem Durchlauf erst ALLE passiven
+     Aufräumfunktionen ab (Kind vor Eltern), dann vergibt es ALLE neuen
+     (wieder Kind vor Eltern). Räumen beide gleichzeitig auf, bekommt danach
+     das Kind (die zuoberst liegende Schale) die NIEDRIGERE Nummer und das
+     Elternteil die HÖHERE — Escape hätte dann das Brett geschlossen statt
+     die Aufgabe obendrauf, mitsamt einem halb getippten Kommentar darin.
+     Der Ref hält darum immer den NEUESTEN `onClose` fest, ohne dass der
+     Effekt, der die Nummer vergibt, deswegen noch einmal laufen muss. */
+  const onCloseRef = useRef(onClose);
+  useEffect(() => { onCloseRef.current = onClose; });
+
   useEffect(() => {
     stapel += 1;
     ebene.current = stapel;
@@ -348,7 +367,7 @@ export function Shell({ title, icon, onClose, width, subtitle, actions, children
       if (e.key !== 'Escape' || ebene.current !== stapel) return;
       e.preventDefault();
       e.stopPropagation();
-      onClose();
+      onCloseRef.current();
     };
     // Capture, damit die allgemeine Escape-Behandlung der App nicht zuerst greift.
     window.addEventListener('keydown', onKey, true);
@@ -356,7 +375,8 @@ export function Shell({ title, icon, onClose, width, subtitle, actions, children
       window.removeEventListener('keydown', onKey, true);
       stapel -= 1;
     };
-  }, [onClose]);
+    // Bewusst nur beim echten Ein-/Aushängen — siehe Begründung oben.
+  }, []);
 
   // Am <body>, nicht dort wo es im Baum steht. Fenster über Fenstern — etwa
   // die Einzelansicht einer Aufgabe über dem Brett — steckten sonst im

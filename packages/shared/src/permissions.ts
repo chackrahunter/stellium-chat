@@ -54,6 +54,8 @@ export type PermissionKey =
   | 'system.ansehen'
   | 'verkauf.sehen'
   | 'verkauf.verwalten'
+  | 'bank.sehen'
+  | 'bank.verwalten'
   /* Post */
   | 'mail.lesen'
   | 'mail.senden'
@@ -61,6 +63,11 @@ export type PermissionKey =
   /* Fernzugriff */
   | 'fern.zugriff'
   | 'fern.verwalten'
+  /* Einmalcodes */
+  | 'einmalcode.nutzen'
+  | 'einmalcode.verwalten'
+  /* Passwort-Tresor */
+  | 'passwort.nutzen'
   /* Verwaltung */
   | 'release.publish'
   | 'user.invite'
@@ -138,6 +145,38 @@ export const PERMISSIONS: PermissionInfo[] = [
   { key: 'mail.verwalten', group: 'post', ownerOnly: true, labelDe: 'Postfach einrichten' },
 
   { key: 'verkauf.verwalten', group: 'system', ownerOnly: true, labelDe: 'Verkaufszugang einrichten' },
+
+  /* Bewusst NICHT Teil von `verkauf.sehen`: dieses Recht steckt bereits im
+     Rechteprofil TEAMLEITUNG. Es dafür mitzunutzen gäbe jeder Teamleitung den
+     Kontostand des Unternehmens mit — auf einem Recht, das für einen anderen
+     Zweck vergeben wurde.
+     Administratoren tragen beide Schlüssel trotzdem automatisch mit — bewusst
+     NICHT in den Ausschluss von `ADMIN` weiter unten aufgenommen; die
+     Begründung dafür steht dort, an derselben Stelle wie der Mechanismus. */
+  { key: 'bank.sehen', group: 'system', ownerOnly: true, labelDe: 'Kontostand ansehen' },
+  { key: 'bank.verwalten', group: 'system', ownerOnly: true, labelDe: 'Bankzugang einrichten' },
+
+  /* Bewusst KEIN Eintrag in ROLE_DEFAULTS: dies ist das einzige Recht im
+     Katalog, das einen Authentisierungsfaktor weitergibt statt Zugang zu
+     Daten — es wird je Person in der Rechte-Tafel vergeben, nicht über eine
+     Rollenvorlage. Owner und Administratoren erhalten beide Schlüssel
+     trotzdem automatisch: der Owner über `[...ALLE]`, Administratoren über
+     `ADMIN = ALLE.filter(...)` weiter unten — beide leiten sich aus
+     PERMISSION_KEYS ab, in das dieser Eintrag hier automatisch eingeht. */
+  { key: 'einmalcode.nutzen', group: 'system', labelDe: 'Einmalcodes nutzen' },
+  { key: 'einmalcode.verwalten', group: 'system', ownerOnly: true, labelDe: 'Einmalcodes einrichten' },
+
+  /* Bewusst KEIN Eintrag in ROLE_DEFAULTS — aus demselben Grund wie bei
+     `einmalcode.nutzen` direkt darüber, nur dass hier nicht ein zweiter
+     Faktor weitergegeben wird, sondern der Zugang zu den Firmenkonten
+     selbst (Google, PayPal, Gumroad, Resend, Patreon). Wer die Tafel sehen
+     soll, bekommt dieses Recht einzeln in der Rechte-Tafel — nie über eine
+     Rollenvorlage, sonst stünde der Tresor plötzlich jedem "Mitglied" offen.
+     Owner und Administratoren erhalten es trotzdem automatisch: der Owner
+     über `[...ALLE]`, Administratoren über `ADMIN = ALLE.filter(...)`
+     weiter unten — beide leiten sich aus PERMISSION_KEYS ab, in das dieser
+     Eintrag hier automatisch eingeht. */
+  { key: 'passwort.nutzen', group: 'system', labelDe: 'Passwort-Tresor nutzen' },
 
   { key: 'fern.zugriff', group: 'fernzugriff', labelDe: 'Pi fernsteuern' },
   { key: 'fern.verwalten', group: 'fernzugriff', ownerOnly: true, labelDe: 'Fernzugang einrichten' },
@@ -255,6 +294,52 @@ const TEAMLEITUNG: PermissionKey[] = [
  * Das Freigaberecht bleibt drin: "die Verwaltung" im Sinne der Freigabe ist
  * genau dieser Kreis. Wer ihn kleiner haben will, nimmt einzelnen Konten das
  * Recht — dafür gibt es die persönlichen Ausnahmen.
+ *
+ * OPT-OUT, NICHT OPT-IN: `ALLE.filter(...)` heißt, diese Liste startet mit
+ * JEDEM Eintrag aus PERMISSION_KEYS und zieht nur die drei genannten wieder
+ * ab. Ein neues Recht im Katalog landet damit automatisch — ohne eigene
+ * Zeile, ohne dass irgendwer das an dieser Stelle bestätigt — bei jedem
+ * Administrator. Wer eine neue PermissionKey einträgt, muss deshalb HIER
+ * bewusst entscheiden, ob Administratoren sie auch bekommen sollen, statt es
+ * stillschweigend über diesen Mechanismus laufen zu lassen — und sie im
+ * Zweifel ausdrücklich mit aufnehmen.
+ *
+ * BEISPIEL FÜR DIESE ENTSCHEIDUNG: `bank.sehen`/`bank.verwalten` (der
+ * PayPal-Kontostand) stehen ABSICHTLICH NICHT in dieser Liste, obwohl beide
+ * `ownerOnly` sind. Ein Administrator trägt ohnehin schon `fern.zugriff` und
+ * `fern.verwalten` — Fernzugriff auf den Pi selbst. Wer die Maschine
+ * erreicht, liest die Datenbank auch ohne diese beiden Rechte; sie ihm
+ * vorzuenthalten wäre ein Schloss an einer Tür ohne Wand daneben. Sie
+ * trotzdem hier einzutragen würde außerdem das Muster brechen, dem
+ * `mail.verwalten`, `verkauf.verwalten` und `fern.verwalten` alle folgen —
+ * und ein Rechtemodell mit Ausnahmen von der eigenen Regel ist schwerer zu
+ * durchschauen als eines, das ein wenig großzügiger, aber konsistent ist.
+ * `ownerOnly` erfüllt seinen eigentlichen Zweck trotzdem: nur der Inhaber
+ * darf diese beiden Rechte an jemand ANDEREN vergeben.
+ *
+ * WARUM DIESELBE BEGRÜNDUNG FÜR `passwort.nutzen` NICHT TRÄGT — UND WARUM
+ * DAS RECHT TROTZDEM HIER BLEIBT
+ *
+ * `passwort.nutzen` fällt über den Opt-out oben ebenfalls jedem Administrator
+ * zu. Das Argument von gerade eben („wer die Maschine erreicht, liest die
+ * Datenbank ohnehin") gilt dafür AUSDRÜCKLICH NICHT: der Tresor ist
+ * Ende-zu-Ende verschlüsselt. In der Datenbank steht nur Chiffrat, und die
+ * Schlüssel dazu liegen ausschließlich in Paketen, die auf den privaten Teil
+ * eines Geräts oder auf den passwortabgeleiteten Kontoschlüssel einer
+ * bestimmten Person rechnen (services/passwoerter.ts,
+ * services/kontoschluessel.ts). Wer die Platte hat, hat den Tresor gerade
+ * nicht — das ist der ganze Sinn des Aufbaus, und ihn hier als Nebensatz
+ * wegzureden hieße, ihn zu untergraben.
+ *
+ * Der Schluss stimmt trotzdem, nur aus einem anderen Grund: `passwort.nutzen`
+ * ist ein Recht auf die TAFEL, kein Recht auf die EINTRÄGE. Es öffnet
+ * ausschließlich, was einem ohnehin gehört oder was einem jemand ausdrücklich
+ * freigegeben hat — die Liste kommt aus `owner_id = ich OR ich stehe in
+ * passwort_mitglieder`, und ohne Schlüsselpaket ist selbst ein
+ * mitgeliefertes Chiffrat nur Rauschen. Ein Administrator ohne Freigabe sieht
+ * mit diesem Recht seinen eigenen, leeren Tresor. Das Recht, das wirklich
+ * etwas verteilt, ist keins: es ist das TEILEN, und teilen darf allein die
+ * besitzende Person jedes Eintrags.
  */
 const ADMIN: PermissionKey[] = ALLE.filter(
   (k) => k !== 'user.delete' && k !== 'permission.manage' && k !== 'channel.delete',

@@ -9,6 +9,9 @@ import {
   b64u, eigenerOeffentlicherSchluessel, fremderOeffentlicherSchluessel,
   habeSchluessel, paketAuspacken, paketPacken, schluesselAnfordern, unb64u,
 } from './vertraulich.js';
+import {
+  hatKontoSchluessel, notizKontoAuspacken, notizKontoPacken,
+} from './kontoschluessel.js';
 
 /**
  * Notizen — dieselbe Schlüsselarbeit wie in lib/vertraulich.ts, nur für
@@ -50,8 +53,71 @@ function neueRequestId(): string {
 
 /** Entschlüsselte Notizschlüssel, nur im Speicher — wie kanalSchluessel in
  *  lib/vertraulich.ts: auf der Platte bleiben nur die Pakete, der Server
- *  liefert sie bei jedem Start neu. */
-const notizSchluessel = new Map<string, { fassung: number; key: CryptoKey }>();
+ *  liefert sie bei jedem Start neu.
+ *
+ *  `bewaehrt` heißt: mit diesem Schlüssel ließ sich das Chiffrat DIESER Notiz
+ *  wirklich öffnen. Das ist der Schiedsrichter zwischen den beiden Wegen
+ *  (Gerät und Konto): kommen sie je zu verschiedenen Schlüsseln, gewinnt
+ *  nicht der zuletzt eingetroffene, sondern der, der die Notiz nachweislich
+ *  aufmacht. Siehe DIE ZWEI WEGE weiter unten. */
+const notizSchluessel = new Map<string, { fassung: number; key: CryptoKey; bewaehrt: boolean }>();
+
+/* ── DIE ZWEI WEGE ─────────────────────────────────────────────
+   Zu jedem Notizschlüssel führen zwei voneinander unabhängige Wege:
+
+     GERÄTEWEG   ECDH mit dem privaten Teil DIESES Geräts
+                 (notiz:schluessel, lib/vertraulich.ts). Alt, bewährt — und
+                 genau deshalb unbrauchbar für ein ZWEITES Gerät desselben
+                 Kontos: dessen privater Teil ist ein anderer.
+
+     KONTOWEG    AES-GCM mit einem Schlüssel, den jedes Gerät des Kontos aus
+                 dem Passwort herleitet (notiz:konto-paket,
+                 lib/kontoschluessel.ts). Neu, und der eigentliche Grund
+                 dafür, dass eine auf dem Mac angelegte Notiz sich auch auf
+                 dem Handy öffnen lässt.
+
+   Der Geräteweg wird NICHT ersetzt. Zwei Wege heißen: fällt einer aus, ist
+   keine Notiz verloren.
+
+   Sind sie sich uneinig — beide liefern einen Schlüssel, aber verschiedene —,
+   entscheidet nicht das Protokoll, sondern die Notiz selbst: wer sie
+   aufbekommt, hat recht (`bewaehrt` oben). Der unterlegene Kontoweg wird
+   danach mit dem bewährten Schlüssel überschrieben, statt als stille
+   Fehlerquelle stehen zu bleiben (siehe kontoLuecken). */
+
+/**
+ * Notizen, für die dem Server ein gültiges Kontopaket fehlt.
+ *
+ * Kommt als Ganzes vom Server (notiz:konto-fehlt) und wird nicht geraten:
+ * nur er weiß, welche Zeilen wirklich dastehen und ob ihre Fassungen noch
+ * passen. Hier steht sie, damit ein Gerät, das den Schlüssel gerade ERPROBT
+ * hat, die Lücke gleich schließt — der Weg, auf dem der Altbestand
+ * nachwächst.
+ */
+let kontoLuecken = new Set<string>();
+
+/**
+ * Eine Lücke schließen — aber nur mit einem Schlüssel, der die Notiz eben
+ * WIRKLICH geöffnet hat.
+ *
+ * Diese Bedingung ist der Kern. Ein Kontopaket, das aus einem ungeprüften
+ * Schlüssel entsteht, sähe in der Datenbank tadellos aus und ließe sich nie
+ * öffnen — schlimmer als die ehrliche Lücke, die es zu schließen vorgibt,
+ * weil eine Lücke sich später von selbst füllt und ein falsches Paket nie.
+ * Deshalb wird von hier aus nur nach einer geglückten Entschlüsselung
+ * gerufen, und nur mit genau dem Schlüssel, mit dem sie geglückt ist.
+ */
+async function kontoLueckeSchliessen(notizId: string, fassung: number, key: CryptoKey): Promise<void> {
+  if (!kontoLuecken.has(notizId) || !hatKontoSchluessel()) return;
+  kontoLuecken.delete(notizId); // erst austragen, dann senden — sonst schickt der nächste Lauf dasselbe noch einmal
+  try {
+    const paket = await notizKontoPacken(key, notizId, fassung);
+    socket.send({ t: 'notiz:konto-paket-setzen', notizId, fassung, paket });
+  } catch (err) {
+    kontoLuecken.add(notizId); // hat nicht geklappt — beim nächsten Mal wieder versuchen
+    console.warn('[notizen] Kontopaket nachtragen:', (err as Error).message);
+  }
+}
 
 /* ── Inhalt ver- und entschlüsseln ────────────────────────────── */
 
@@ -99,15 +165,75 @@ async function decodiereUndSpeichere(notiz: Notiz): Promise<void> {
   const eintrag = notizSchluessel.get(notiz.id);
   if (!eintrag || eintrag.fassung !== notiz.schluesselFassung) {
     useStore.setState((s) => ({ notizenKlartext: { ...s.notizenKlartext, [notiz.id]: null } }));
+    // Kann sich in Minuten von selbst lösen (ein anderes Gerät verpackt
+    // nach) oder nie — schluesselWartenStarten() setzt die Grenze, ab der
+    // die Oberfläche das eine vom anderen unterscheidet.
+    schluesselWartenStarten(notiz.id);
     return;
   }
+  // Die richtige Fassung liegt vor — was als Nächstes fehlschlägt (siehe
+  // inhaltEntschluesseln), ist ein beschädigtes Chiffrat, kein fehlender
+  // Schlüssel mehr. Deshalb hier auflösen, nicht erst nach dem Entschlüsseln.
+  schluesselWartenAufloesen(notiz.id);
   const inhalt = await inhaltEntschluesseln(eintrag.key, notiz.chiffrat);
+  if (inhalt) {
+    // Ab hier ist dieser Schlüssel kein Kandidat mehr, sondern belegt.
+    eintrag.bewaehrt = true;
+    void kontoLueckeSchliessen(notiz.id, eintrag.fassung, eintrag.key);
+  }
   useStore.setState((s) => ({
     notizenKlartext: {
       ...s.notizenKlartext,
       [notiz.id]: inhalt ? { ...inhalt, version: notiz.version } : null,
     },
   }));
+}
+
+/**
+ * Wie lange die Oberfläche einen fehlenden Notizschlüssel als „kommt noch"
+ * statt als „kommt nicht mehr" behandelt.
+ *
+ * Großzügig genug für den vollen Umweg, den notiz:pakete-fehlen und
+ * notiz:pakete-nachreichen brauchen (ein anderes Gerät muss online sein,
+ * seinen eigenen Schlüssel laden — notfalls erst vom Server nachladen, siehe
+ * eigenenNotizSchluesselNachladen() —, den fremden öffentlichen Teil holen,
+ * verpacken und zurückschicken), knapp genug, dass eine Person nicht
+ * unnötig lang vor einem stummen Kreisel sitzt.
+ *
+ * Über `globalThis.__NOTIZ_SCHLUESSEL_WARTEZEIT_MS__` von außen verkürzbar —
+ * ausschließlich für scripts/notiz-schluessel-nachreichen-pruefen.mjs, das
+ * sonst auf einen echten 15-Sekunden-Ablauf warten müsste, um den
+ * Fehlzustand zu erreichen. Derselbe Kniff wie
+ * `__VERSCHLUESSELN_SCHEITERT__` in scripts/nachricht-fehler-zuordnung-
+ * pruefen.mjs.
+ */
+function schluesselWartezeitMs(): number {
+  const ueberschrieben = (globalThis as { __NOTIZ_SCHLUESSEL_WARTEZEIT_MS__?: number }).__NOTIZ_SCHLUESSEL_WARTEZEIT_MS__;
+  return typeof ueberschrieben === 'number' ? ueberschrieben : 15_000;
+}
+
+/** Zeitgeber je Notiz, die gerade auf ihren Schlüssel wartet. */
+const schluesselWartezeit = new Map<string, number>();
+
+function schluesselWartenStarten(notizId: string): void {
+  if (schluesselWartezeit.has(notizId)) return; // läuft schon
+  const timer = window.setTimeout(() => {
+    schluesselWartezeit.delete(notizId);
+    useStore.setState((s) => ({ notizenSchluesselFehlt: { ...s.notizenSchluesselFehlt, [notizId]: true } }));
+  }, schluesselWartezeitMs());
+  schluesselWartezeit.set(notizId, timer);
+}
+
+/** Den Zeitgeber abbrechen und eine schon gezeigte Fehlmeldung zurücknehmen
+ *  — der Schlüssel ist (wieder) da, oder die Notiz ist weg. */
+function schluesselWartenAufloesen(notizId: string): void {
+  const timer = schluesselWartezeit.get(notizId);
+  if (timer !== undefined) { window.clearTimeout(timer); schluesselWartezeit.delete(notizId); }
+  useStore.setState((s) => {
+    if (!(notizId in s.notizenSchluesselFehlt)) return {};
+    const notizenSchluesselFehlt = { ...s.notizenSchluesselFehlt }; delete notizenSchluesselFehlt[notizId];
+    return { notizenSchluesselFehlt };
+  });
 }
 
 /**
@@ -161,6 +287,36 @@ export function notizenAnfordern(): void {
   socket.send({ t: 'notiz:list' });
 }
 
+/**
+ * Den eigenen Notizschlüssel nachladen, ohne dass die Notiz vorher auf
+ * diesem Gerät geöffnet worden wäre.
+ *
+ * notizSchluessel (oben) füllt sich sonst ausschließlich, während die Tafel
+ * offen ist: notiz:list löst dort für jede eigene Notiz ein eigenes
+ * notiz:schluessel aus (siehe case 'notiz:list' unten und paketeFuerAlle()
+ * auf dem Server). Ein Gerät, das zwar verbunden, dessen Tafel seit dem
+ * Start aber nie offen war, hat also nichts im Speicher — obwohl das eigene
+ * Paket beim Server längst liegt (aus notizErstellen() oder einem früheren
+ * notiz:mitglied-hinzufuegen). notiz:list einfach noch einmal zu schicken
+ * holt genau das nach, für alle eigenen Notizen auf einmal — bei der
+ * überschaubaren Zahl eigener Notizen kein Gewicht.
+ *
+ * Kein eigenes Anfrage/Antwort-Paar dafür: notiz:list trägt keine
+ * requestId (sie kommt beim Tafel-Öffnen ungebeten), deshalb wird hier
+ * stattdessen kurz auf das Ergebnis gewartet — derselbe Kniff wie
+ * klartextFuerVersionWarten() weiter oben. case 'notiz:schluessel' im
+ * Ereignishörer unten füllt notizSchluessel währenddessen ganz normal.
+ */
+async function eigenenNotizSchluesselNachladen(notizId: string): Promise<{ fassung: number; key: CryptoKey; bewaehrt: boolean } | undefined> {
+  notizenAnfordern();
+  for (let i = 0; i < 50; i++) {
+    const eintrag = notizSchluessel.get(notizId);
+    if (eintrag) return eintrag;
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  return undefined;
+}
+
 /* ── Anlegen ───────────────────────────────────────────────────── */
 
 export async function notizErstellen(titel: string, text: string): Promise<Notiz> {
@@ -175,10 +331,17 @@ export async function notizErstellen(titel: string, text: string): Promise<Notiz
   const key = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, true, ['encrypt', 'decrypt']);
   const chiffrat = await inhaltVerschluesseln(1, key, { titel, text });
   const paket = await paketPacken(key, meinJwk, notizKontext(id, 1, self.id, self.id));
-  notizSchluessel.set(id, { fassung: 1, key });
+  /* Der zweite Weg gleich mit — und zwar SOFORT, nicht später nachgetragen.
+     Genau dieser Augenblick war der gemeldete Fehler: eine Notiz, die auf
+     dem einen Gerät entsteht, muss auf dem anderen aufgehen, ohne dass das
+     erste je wieder online sein müsste. `key` ist hier zwangsläufig der
+     richtige — er ist gerade in dieser Funktion entstanden und hat das
+     Chiffrat zwei Zeilen darüber selbst erzeugt. */
+  const kontoPaket = hatKontoSchluessel() ? await notizKontoPacken(key, id, 1) : undefined;
+  notizSchluessel.set(id, { fassung: 1, key, bewaehrt: true });
 
   const requestId = neueRequestId();
-  const antwort = await anfrageSenden({ t: 'notiz:anlegen', requestId, id, chiffrat, paket });
+  const antwort = await anfrageSenden({ t: 'notiz:anlegen', requestId, id, chiffrat, paket, kontoPaket });
   if (antwort.t !== 'notiz:erstellt') throw new Error(txt('fehler.keineAntwort'));
   return antwort.notiz;
 }
@@ -336,7 +499,18 @@ export async function notizMitgliedEntfernen(notizId: string, zielUserId: string
       throw fehler;
     }
     if (antwort.t === 'notiz:upsert') {
-      notizSchluessel.set(notizId, { fassung: neueFassung, key: neuerSchluessel });
+      notizSchluessel.set(notizId, { fassung: neueFassung, key: neuerSchluessel, bewaehrt: true });
+      /* Der Schlüsselwechsel hat alle Kontopakete dieser Notiz weggeräumt
+         (services/notizen.ts) — sie trugen die alte Fassung. Das eigene
+         gleich neu, sonst stünde das ZWEITE Gerät dieser Person bis zum
+         nächsten Rundgang vor einer Notiz, die es eben noch lesen konnte.
+         Für die übrigen Mitglieder lässt sich hier nichts packen: ihren
+         Kontoschlüssel hat niemand außer ihnen. Deren Pakete wachsen über
+         notiz:konto-fehlt nach. */
+      if (hatKontoSchluessel()) {
+        kontoLuecken.add(notizId);
+        await kontoLueckeSchliessen(notizId, neueFassung, neuerSchluessel);
+      }
       return;
     }
     throw new Error(txt('fehler.keineAntwort'));
@@ -384,6 +558,7 @@ async function verarbeiten(ev: ServerEvent): Promise<void> {
 
       case 'notiz:entfernt':
         notizSchluessel.delete(ev.notizId);
+        schluesselWartenAufloesen(ev.notizId); // sonst schlägt ein längst gelöschter Zeitgeber später noch zu
         useStore.setState((s) => {
           const notizen = { ...s.notizen }; delete notizen[ev.notizId];
           const notizenKlartext = { ...s.notizenKlartext }; delete notizenKlartext[ev.notizId];
@@ -408,22 +583,100 @@ async function verarbeiten(ev: ServerEvent): Promise<void> {
         return;
 
       case 'notiz:schluessel': {
-        const key = await paketAuspacken(ev.paket, notizKontext(ev.notizId, ev.fassung, ev.paket.von, useStore.getState().self?.id ?? ''));
-        notizSchluessel.set(ev.notizId, { fassung: ev.fassung, key });
+        /* Der Geräteweg. Auf einem ZWEITEN Gerät desselben Kontos schlägt er
+           zwangsläufig fehl — das Paket wurde mit dem privaten Teil des
+           ersten gerechnet. Das ist seit dieser Fassung kein Fehler mehr,
+           sondern der erwartete Normalfall, und es wäre eine Warnung je Notiz
+           und Sitzung: deshalb still übergehen, sofern der Kontoweg schon
+           einen Schlüssel geliefert hat. */
+        const vorhanden = notizSchluessel.get(ev.notizId);
+        let key: CryptoKey;
+        try {
+          key = await paketAuspacken(ev.paket, notizKontext(ev.notizId, ev.fassung, ev.paket.von, useStore.getState().self?.id ?? ''));
+        } catch (err) {
+          if (vorhanden?.fassung === ev.fassung) return;
+          throw err;
+        }
+        // Ein bewährter Schlüssel derselben Fassung wird nicht verdrängt —
+        // siehe DIE ZWEI WEGE oben.
+        if (!(vorhanden?.fassung === ev.fassung && vorhanden.bewaehrt)) {
+          notizSchluessel.set(ev.notizId, { fassung: ev.fassung, key, bewaehrt: false });
+        }
+        const notiz = useStore.getState().notizen[ev.notizId];
+        if (notiz) void decodiereUndSpeichere({ ...notiz, schluesselFassung: ev.fassung });
+        return;
+      }
+
+      case 'notiz:konto-fehlt':
+        // Vollbild vom Server, kein Zuwachs — was hier NICHT drinsteht, hat
+        // ein gültiges Kontopaket und braucht keines mehr.
+        kontoLuecken = new Set(ev.notizIds);
+        return;
+
+      case 'notiz:konto-paket': {
+        const vorhanden = notizSchluessel.get(ev.notizId);
+        const key = await notizKontoAuspacken(ev.paket, ev.notizId, ev.fassung);
+        if (vorhanden?.fassung === ev.fassung && vorhanden.bewaehrt) {
+          /* Es liegt schon ein Schlüssel, der diese Notiz nachweislich
+             aufmacht. Trägt das Kontopaket denselben, ist nichts zu tun.
+             Trägt es einen ANDEREN, ist es falsch — dann darf es nicht
+             stehen bleiben, sondern wird als Lücke geführt und beim nächsten
+             geglückten Entschlüsseln mit dem bewährten Schlüssel
+             überschrieben. */
+          const [a, b] = await Promise.all([
+            crypto.subtle.exportKey('raw', vorhanden.key), crypto.subtle.exportKey('raw', key),
+          ]);
+          const gleich = b64u(new Uint8Array(a)) === b64u(new Uint8Array(b));
+          if (!gleich) {
+            console.warn('[notizen] Kontopaket weicht vom bewährten Schlüssel ab, notizId', ev.notizId);
+            kontoLuecken.add(ev.notizId);
+            const notiz = useStore.getState().notizen[ev.notizId];
+            if (notiz) void decodiereUndSpeichere(notiz);
+          }
+          return;
+        }
+        notizSchluessel.set(ev.notizId, { fassung: ev.fassung, key, bewaehrt: false });
+        kontoLuecken.delete(ev.notizId);
         const notiz = useStore.getState().notizen[ev.notizId];
         if (notiz) void decodiereUndSpeichere({ ...notiz, schluesselFassung: ev.fassung });
         return;
       }
 
       case 'notiz:pakete-fehlen': {
-        // Diese Person hat gerade erst einen Schlüssel hinterlegt — jetzt
-        // nachverpacken, genau wie beim ersten Hinzufügen.
-        const eintrag = notizSchluessel.get(ev.notizId);
+        // Diese Person hat gerade erst einen Schlüssel hinterlegt (oder die
+        // besitzende Person ist gerade erst wieder verbunden, siehe
+        // ws/gateway.ts, ready() — derselbe Anlass, nur verspätet nachgeholt)
+        // — jetzt nachverpacken, genau wie beim ersten Hinzufügen.
         const self = useStore.getState().self;
-        if (!eintrag || !self) return;
+        if (!self) {
+          // Kommt praktisch nicht vor (das Ereignis setzt eine angemeldete
+          // Verbindung voraus), aber lieber sichtbar verworfen als still —
+          // sonst sähe man später nur, dass niemand je geantwortet hat, ohne
+          // zu wissen, an welcher Stelle es lag.
+          console.warn('[notizen] pakete-fehlen ohne angemeldete Person, notizId', ev.notizId);
+          return;
+        }
+        // Vorher: fehlte der Eintrag hier (weil diese Notiz auf diesem Gerät
+        // seit dem Start nie geöffnet wurde), gab die Funktion still auf —
+        // die anfragende Person wartete dann für immer, siehe DIE FALLEN.
+        // eigenenNotizSchluesselNachladen() holt das eigene, längst beim
+        // Server liegende Paket nach, ohne dass die Notiz je offen gewesen
+        // sein müsste.
+        let eintrag = notizSchluessel.get(ev.notizId);
+        if (!eintrag) eintrag = await eigenenNotizSchluesselNachladen(ev.notizId);
+        if (!eintrag) {
+          console.warn(
+            '[notizen] pakete-fehlen: eigener Notizschlüssel nicht verfügbar, notizId', ev.notizId,
+            'für', ev.userId, '— dieses Gerät kann nicht nachverpacken.',
+          );
+          return;
+        }
         await schluesselAnfordern([ev.userId]);
         const jwk = fremderOeffentlicherSchluessel(ev.userId);
-        if (!jwk) return;
+        if (!jwk) {
+          console.warn('[notizen] pakete-fehlen: kein öffentlicher Schlüssel für', ev.userId, '— nichts zu verpacken.');
+          return;
+        }
         const paket = await paketPacken(eintrag.key, jwk, notizKontext(ev.notizId, eintrag.fassung, self.id, ev.userId));
         socket.send({ t: 'notiz:pakete-nachreichen', notizId: ev.notizId, userId: ev.userId, paket });
         return;

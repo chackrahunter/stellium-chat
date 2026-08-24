@@ -80,9 +80,10 @@ node scripts/e2e-verschluesselung.mjs
 node scripts/e2e-upload.mjs
 node scripts/e2e-nachruesten.mjs   # Server auf einer ALTEN Datenbank
 node scripts/schluesselwechsel-pruefen.mjs   # falsches Masterpasswort
+node scripts/notzugang-pruefen.mjs           # „3 von 5" — Notzugang
 ```
 
-Die letzten beiden brauchen keinen laufenden Server. `e2e-nachruesten` baut
+Die letzten drei brauchen keinen laufenden Server. `e2e-nachruesten` baut
 eine Datenbank nach dem Schema der letzten Fassung und startet den heutigen
 Server darauf. Alle anderen Läufe legen ihre Datenbank frisch an — dort bringt
 `CREATE TABLE` jede neue Spalte gleich mit, und ein Fehler in `db/migrate.ts`
@@ -92,6 +93,14 @@ fällt erst auf dem Server auf. Wer eine Spalte ergänzt, prüft damit.
 richtigen und einmal mit einem anderen Masterpasswort: der zweite Start muss
 abbrechen. Wer an `crypto/pii.ts`, `crypto/nachrichten.ts` oder der
 Schlüsselableitung dreht, prüft damit.
+
+`notzugang-pruefen` misst zuerst die Geheimnisteilung
+(`shared/geheimnisteilung.ts`) gegen die AES-S-Box, die Rundenkonstanten und
+gegen OpenSSL — eine falsche Multiplikation in GF(2^8) sieht sonst aus wie
+eine richtige. Danach den ganzen Weg gegen eine Wegwerf-Datenbank: drei von
+fünf Anteilen holen den Kontoschlüssel zurück, zwei nie, und `fassung` bewegt
+sich dabei nicht. Wer an `services/kontoschluessel.ts`, `services/notzugang.ts`
+oder `lib/notzugang.ts` dreht, prüft damit.
 
 ## Sprache im Code
 

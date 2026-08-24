@@ -16,9 +16,11 @@
  * 1280x720 in RGBA sind 3,7 MB je Bild.
  */
 import crypto from 'node:crypto';
-import { app, BrowserWindow, clipboard, ipcMain } from 'electron';
+import fs from 'node:fs';
+import { app, BrowserWindow, clipboard, dialog, ipcMain, shell } from 'electron';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { t } from './i18n.js';
 
 /*
  * Benutzt wird das **eingebaute** WebSocket von Node, nicht das Paket `ws`.
@@ -100,31 +102,68 @@ let lage: Lage = 'getrennt';
 let letzterFehler = '';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const DEV_URL = process.env.VITE_DEV_SERVER_URL ?? 'http://localhost:5173';
+const istDev = !app.isPackaged;
+/* Dieselbe Datei wie in main.ts (dist/index.html) — der Betrachter lädt sie
+   nur mit einem anderen Hash (#fern). */
+const EIGENER_EINTRAG = pathToFileURL(path.join(here, '../dist/index.html'));
+
+/**
+ * Dieselbe Schranke wie beim Hauptfenster — siehe navigationsEntscheidung()
+ * in main.ts für die ausführliche Begründung. Hier noch einmal lokal
+ * nachgebaut statt importiert: main.ts bindet bereits diese Datei ein
+ * (fernsteuerungEinrichten/fernsteuerungBeenden), ein Import in die
+ * Gegenrichtung wäre ein Ringschluss zwischen den beiden Modulen. Ändert
+ * sich die eine Fassung, gehört die andere mitgezogen.
+ *
+ * Kurzfassung der Falle, damit sie hier nicht separat wieder hineinrutscht:
+ * `new URL('file:///x').origin` ist NICHT `"file://"`, sondern wörtlich
+ * `"null"` — file: hat keinen Host und darum keinen vergleichbaren Ursprung.
+ * Ein Vergleich über `.origin` schlägt für file: darum immer fehl; hier wird
+ * stattdessen der Pfad verglichen.
+ */
+function istHttpUrl(url: string): boolean {
+  try { return /^https?:$/.test(new URL(url).protocol); } catch { return false; }
+}
+
+function navigationsEntscheidung(url: string): 'erlauben' | 'extern' | 'verweigern' {
+  let ziel: URL;
+  try { ziel = new URL(url); } catch { return 'verweigern'; }
+
+  const erlaubt = istDev
+    ? ziel.origin === new URL(DEV_URL).origin
+    : ziel.protocol === 'file:' && ziel.pathname === EIGENER_EINTRAG.pathname;
+  if (erlaubt) return 'erlauben';
+
+  return istHttpUrl(url) ? 'extern' : 'verweigern';
+}
 
 /**
  * Anfänglicher Fenstertitel des Betrachters — sichtbar, sobald das Fenster
  * entsteht (Titelleiste, Fenstermenü, Mission Control zeigen ihn schon vor
  * dem ersten Zeichnen der Seite).
  *
- * Nur Deutsch/Englisch von Hand, nicht alle 22 Sprachen: der Hauptprozess
- * kann `src/i18n` nicht importieren (siehe Kommentar bei `anschlussFrist`
- * oben), von Hand in 22 Sprachen mitgepflegt zu werden liefe genau der Idee
- * eines einzigen Wörterbuchs zuwider. `app.getLocale()` ist die Systemsprache
- * des Macs, nicht die eingestellte Oberflächensprache — hier unvermeidlich,
- * weil zu diesem Zeitpunkt noch kein Chat-Konto geladen ist.
+ * t('fern.titel') aus electron/i18n.ts — derselbe Schlüssel, den
+ * `Fernsteuerung.tsx` gleich danach selbst über `document.title` setzt (und
+ * den Electron dadurch automatisch als echten Fenstertitel übernimmt, siehe
+ * unten). Bis dahin gilt hier die zuletzt bekannte Hauptprozess-Sprache
+ * (electron/i18n.ts, spracheSetzen) — bei einem frischen Start also die
+ * Systemsprache, sobald ein Konto angemeldet war schon dessen eingestellte
+ * Oberflächensprache (siehe main.ts, 'app:language'). Vorher stand hier fest
+ * Deutsch/Englisch, weil `src/i18n` aus dem Hauptprozess heraus nicht
+ * importierbar ist (siehe Kommentar bei `anschlussFrist` unten) — das hat
+ * sich nicht geändert, nur electron/i18n.ts trägt inzwischen alle 22
+ * Sprachen statt nur zwei von Hand gepflegter.
  *
  * Das ist ausdrücklich nur der ERSTE Augenblick: Sobald die Seite geladen hat
  * und `Fernsteuerung.tsx` seinerseits `document.title = t('fern.titel')`
  * setzt, übernimmt Electron das automatisch als echten Fenstertitel (Electron
  * synchronisiert den Fenstertitel standardmäßig mit `document.title`, sofern
  * niemand `page-title-updated` abfängt — das tut hier niemand). Ab da zählt
- * die eingestellte Oberflächensprache, nicht mehr die Systemsprache.
+ * die eingestellte Oberflächensprache aus der Ansicht, nicht mehr die hier
+ * bekannte.
  */
 function fensterTitel(): string {
-  const kurz = app.getLocale().split(/[-_]/)[0].toLowerCase();
-  // Werte identisch zu i18n/de.ts bzw. i18n/en.ts, Schlüssel `fern.titel` —
-  // von Hand synchron halten, falls sich der Wortlaut dort ändert.
-  return kurz === 'de' ? 'Pi fernsteuern' : 'Control Pi remotely';
+  return t('fern.titel');
 }
 
 let fenster: (() => BrowserWindow | null) | null = null;
@@ -192,6 +231,83 @@ function senden(art: number, inhalt: Buffer): void {
   try { ws.send(hinaus.zu(art, inhalt)); } catch { /* Leitung weg */ }
 }
 
+/* ── Ziel-Bestätigung ────────────────────────────────────────── */
+
+/**
+ * Die zuletzt bestätigte Adresse für die Fernsteuerung — dasselbe Muster wie
+ * der Update-Ursprung in updater.ts (siehe dort die ausführliche Begründung),
+ * hier für ein eigenständiges Problem:
+ *
+ * `verbinden()` bekommt Adresse UND Passwort vom Aufrufer — beides, siehe
+ * `window.stellium.fern.verbinden` in preload.ts. Der verschlüsselte
+ * Handschlag (scrypt + ECDH) prüft nur, ob GEGENSTELLE UND ANRUFER dasselbe
+ * Passwort kennen; er prüft nicht, ob die Gegenstelle überhaupt der eigene
+ * Pi ist. Wer beide Seiten kontrolliert — Adresse UND Passwort —, besteht
+ * den Handschlag mit sich selbst, und ab dann läuft `ablageBeobachten()` los
+ * und schickt zweimal die Sekunde die Zwischenablage dorthin, während
+ * `N_ABLAGE`-Nachrichten von dort ungeprüft in die eigene Ablage zurück-
+ * geschrieben werden.
+ *
+ * In der Praxis kommt die Adresse bei jedem Klick aufs Neue vom eigenen
+ * Server (siehe Fernsteuerung.tsx, `api.fernZugang()`) und ändert sich so
+ * gut wie nie. Darum: die zuletzt bestätigte Adresse liegt hier im
+ * Hauptprozess (kein `fs` im Vorspann — der Renderer kommt an diese Datei
+ * nicht heran). Stimmt eine neue Adresse damit überein, geht es ohne
+ * Rückfrage weiter. Weicht sie ab — auch beim allerersten Mal, wenn noch
+ * keine gemerkt ist —, sieht die Person vor dem Wählen ein echtes
+ * Systemfenster mit der Adresse.
+ *
+ * WAS DAS SCHÜTZT: ein Aufruf von `fern.verbinden()` mit einer fremden
+ * Adresse — ob durch ein künftiges Skript im Renderer oder sonst einen
+ * Fehler — dialt nicht mehr leise. Die Person müsste eine ihr unbekannte
+ * Adresse ausdrücklich bestätigen.
+ * WAS DAS NICHT SCHÜTZT: das ist eine Sichtbarkeitsschranke, keine
+ * Authentifizierung — sie beweist nicht, dass die bestätigte Adresse
+ * wirklich der eigene Pi ist, nur dass jemand vor dem Bildschirm sie
+ * gesehen und angenommen hat. Das Passwort bleibt bewusst ungebunden: es
+ * kommt vom Server und darf sich dort jederzeit ändern, ohne dass diese
+ * Schranke das für eine Adressänderung hält.
+ */
+function vertraueteAdresseDatei(): string {
+  return path.join(app.getPath('userData'), 'fern-vertraute-adresse.json');
+}
+
+function vertraueteAdresse(): string | null {
+  try {
+    const inhalt = JSON.parse(fs.readFileSync(vertraueteAdresseDatei(), 'utf8')) as { adresse?: string };
+    return inhalt.adresse || null;
+  } catch { return null; }
+}
+
+function adresseVertrauen(adresse: string): void {
+  try { fs.writeFileSync(vertraueteAdresseDatei(), JSON.stringify({ adresse }), 'utf8'); }
+  catch { /* dann fragt es beim nächsten Mal erneut nach — kein Beinbruch */ }
+}
+
+/** Fragt über einen echten Systemdialog nach, wenn das Fernsteuerungs-Ziel
+ *  vom zuletzt bestätigten abweicht. Kein Skript kann diesen Dialog selbst
+ *  wegklicken. */
+async function zielBestaetigen(neu: string, bekannt: string | null): Promise<boolean> {
+  const optionen = {
+    type: 'warning' as const,
+    buttons: [t('common.cancel'), t('fern.verbinden')],
+    defaultId: 0,
+    cancelId: 0,
+    title: t('fern.targetConfirmTitle'),
+    message: bekannt
+      ? t('fern.targetConfirmMessageChanged')
+      : t('fern.targetConfirmMessageFirst'),
+    detail: bekannt
+      ? t('fern.targetConfirmDetailChanged', { bekannt, neu })
+      : t('fern.targetConfirmDetailFirst', { neu }),
+  };
+  const win = fenster?.() ?? null;
+  const antwort = win && !win.isDestroyed()
+    ? await dialog.showMessageBox(win, optionen)
+    : await dialog.showMessageBox(optionen);
+  return antwort.response === 1;
+}
+
 /* ── Verbinden ───────────────────────────────────────────────── */
 
 /**
@@ -200,8 +316,41 @@ function senden(art: number, inhalt: Buffer): void {
  * vor `phase = 'offen'`) — sondern erst über die verschlüsselte Leitung,
  * sobald sie steht. Leer lassen ist in Ordnung: der Pi zeigt dann „unbekannt".
  */
-function verbinden(adresse: string, pw: string, konto: string): void {
+async function verbinden(adresse: string, pw: string, konto: string): Promise<void> {
   schliessen('');
+
+  /* Vor jeder Rückfrage: sieht die Adresse überhaupt wie eine Wahlmöglichkeit
+     aus? Node prüft das Schema beim Erzeugen NICHT selbst — nachgeprüft:
+     `new WebSocket('http://…')` wirft unter Node 25 nicht, sondern scheitert
+     erst beim eigentlichen Verbindungsversuch. Ohne diese Prüfung liefe
+     offensichtlicher Unsinn erst bis zur Bestätigungsabfrage durch, bevor
+     überhaupt etwas auffiele.
+     Absichtlich NICHT `ziel` genannt — das ist schon der Name der Funktion
+     weiter oben, die das Zielfenster für Bild/Zustand liefert, und die wird
+     weiter unten in dieser selben Funktion aufgerufen. Eine lokale
+     `let ziel: URL` hätte sie für den ganzen Rest von verbinden() verdeckt. */
+  let zielUrl: URL;
+  try { zielUrl = new URL(adresse); } catch {
+    lage = 'fehler'; letzterFehler = 'fern.fehler.allgemein'; melden();
+    return;
+  }
+  if (zielUrl.protocol !== 'ws:' && zielUrl.protocol !== 'wss:') {
+    lage = 'fehler'; letzterFehler = 'fern.fehler.allgemein'; melden();
+    return;
+  }
+
+  /* Das eigentliche Tor: siehe der lange Kommentar bei vertraueteAdresse()
+     oben. Weicht das Ziel vom zuletzt bestätigten ab, entscheidet die
+     Person per Systemdialog — nicht der Aufrufer. */
+  const bekannteAdresse = vertraueteAdresse();
+  if (bekannteAdresse !== adresse) {
+    if (!(await zielBestaetigen(adresse, bekannteAdresse))) {
+      lage = 'getrennt'; letzterFehler = ''; melden();
+      return;
+    }
+    adresseVertrauen(adresse);
+  }
+
   passwort = pw;
   lage = 'verbindet'; letzterFehler = ''; melden();
 
@@ -218,12 +367,16 @@ function verbinden(adresse: string, pw: string, konto: string): void {
   /* Wer sich nicht binnen zehn Sekunden meldet, ist nicht da. Das eingebaute
      WebSocket kennt keine eigene Frist dafür.
      `schliessen()`/`letzterFehler` tragen ab hier eine WÖRTERBUCH-KENNUNG,
-     keinen fertigen Satz mehr: Der Hauptprozess hat kein `i18n/` zur
-     Verfügung (tsconfig.electron.json bindet nur "electron" ein, ein Import
-     aus src/ liefe gegen `rootDir`). Übersetzt wird erst in der Ansicht, die
-     `fehler` aus `fern:zustand` bekommt — genau wie es net/socket.ts mit
-     `ABBRUCH_KENNUNGEN` vormacht. Die Schlüssel stehen in i18n/de.ts und
-     en.ts unter `fern.fehler.*`. */
+     keinen fertigen Satz mehr — übersetzt wird erst in der Ansicht, die
+     `fehler` aus `fern:zustand` bekommt, genau wie es net/socket.ts mit
+     `ABBRUCH_KENNUNGEN` vormacht. Das bleibt auch nach electron/i18n.ts so:
+     dieses Wörterbuch trägt nur die ~50 Schlüssel für natives UI (Menü,
+     Tray, Bestätigungsdialoge), das der Hauptprozess wirklich selbst
+     beschriften muss. Diese Verbindungsfehler landen dagegen ausschließlich
+     in der React-Ansicht, die ohnehin das volle Wörterbuch geladen hat —
+     sie dort noch einmal im Hauptprozess aufzulösen wäre unnötige Arbeit.
+     Die Schlüssel stehen unter `fern.fehler.*` in allen 22 Wörterbüchern
+     (src/i18n/*.ts). */
   const anschlussFrist = setTimeout(() => {
     if (lage === 'verbindet') schliessen('fern.fehler.keineAntwort');
   }, 10_000);
@@ -343,7 +496,10 @@ export function fernsteuerungEinrichten(holeFenster: () => BrowserWindow | null)
   fenster = holeFenster;
 
   ipcMain.handle('fern:verbinden', (_e, adresse: string, pw: string, konto: string) => {
-    verbinden(adresse, pw, konto);
+    /* Nicht abwarten: der eigentliche Fortschritt (Bestätigungsdialog,
+       Handschlag, Fehler) geht über 'fern:zustand' an die Ansicht, genau wie
+       vorher. Der Rückgabewert hier zeigt nur, dass die Anfrage ankam. */
+    void verbinden(adresse, pw, konto);
     return true;
   });
   ipcMain.handle('fern:trennen', () => { schliessen(''); return true; });
@@ -379,8 +535,24 @@ export function fernsteuerungEinrichten(holeFenster: () => BrowserWindow | null)
         additionalArguments: [`--stellium-locale=${app.getLocale()}`],
         contextIsolation: true,
         nodeIntegration: false,
+        // sandbox: true wurde erwogen und bewusst zurückgestellt — siehe
+        // dieselbe Abwägung bei mainWindow in main.ts.
         sandbox: false,
       },
+    });
+    /* Dieselbe Schranke wie das Hauptfenster (siehe main.ts) — ohne eigenen
+       setWindowOpenHandler und ohne eigenes will-navigate hätte dieses
+       zweite Fenster die Lücke aus main.ts noch einmal für sich allein
+       gehabt. */
+    betrachter.webContents.setWindowOpenHandler(({ url }) => {
+      if (istHttpUrl(url)) void shell.openExternal(url);
+      return { action: 'deny' };
+    });
+    betrachter.webContents.on('will-navigate', (event, url) => {
+      const entscheidung = navigationsEntscheidung(url);
+      if (entscheidung === 'erlauben') return;
+      event.preventDefault();
+      if (entscheidung === 'extern') void shell.openExternal(url);
     });
     betrachter.once('ready-to-show', () => betrachter?.show());
     /* Zuerst aufräumen, dann den Zustand melden — sonst zeigt das

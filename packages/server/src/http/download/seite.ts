@@ -1,4 +1,5 @@
 import type { ReleaseInfo } from '@stellium/shared';
+import { RTL_SPRACHEN, WOERTERBUECHER, type DownloadKey } from './download-i18n.js';
 
 /**
  * Die Seite zum Herunterladen der Apps.
@@ -6,14 +7,36 @@ import type { ReleaseInfo } from '@stellium/shared';
  * Bewusst eine einzelne, in sich geschlossene Seite ohne Baustein-Gerüst: sie
  * soll auch dann erscheinen, wenn von der Oberfläche noch nichts geladen ist —
  * und wer sie besucht, hat meist noch gar keine App.
+ *
+ * SPRACHE: NICHT AUS DER ANFRAGE GERATEN, SONDERN VOM KONTO
+ * Die Route `/download` in routes.ts lässt niemanden ohne gültigen Nachweis
+ * (Bearer oder `?token=`) bis hierher — ohne ihn schickt sie zur Anmeldung.
+ * Es gibt also, anders als es diese Datei allein vermuten ließe, IMMER ein
+ * bekanntes Konto, bevor dieser Aufbau läuft; `sprache` unten kommt aus
+ * `store.uiLanguageOf(userId)`, derselben Kennung, mit der auch die
+ * Versionshinweise weiter oben in routes.ts (`notizenFuerBetrachter`)
+ * übersetzt werden. Ein Aushandeln über die Kopfzeile `Accept-Language` wäre
+ * hier die falsche Ebene: sie kennt nur, was der Browser gerade mitschickt
+ * (ein fremder Rechner, eine geteilte Werkstatt, ein kurz geliehenes Gerät),
+ * nicht, was die Person sich in ihren Einstellungen tatsächlich ausgesucht
+ * hat — und genau diese Einstellung nutzt der Rest der Oberfläche längst
+ * überall dort, wo (wie hier) keine offene Verbindung zur Verfügung steht
+ * (siehe services/push.ts, ws/gateway.ts).
+ *
+ * ZEITZONE: AUS DEMSELBEN GRUND VOM KONTO, NICHT VOM RECHNER DIESES SERVERS
+ * `zeitzone` kommt aus `store.timezoneOf(userId)`. Ohne sie liefe
+ * `toLocaleDateString`/`Intl.DateTimeFormat` mit `timeZone: undefined` still
+ * auf die Zeitzone DIESES Rechners — der Pi steht in Alaska, die Kolleginnen
+ * und Kollegen nicht. Derselbe Fehler, den lib/format.ts (zeitAusSicht) für
+ * die Oberfläche schon behebt; hier dieselbe Lösung, nur serverseitig.
  */
 
 export type Erkannt = 'darwin' | 'win32' | 'linux' | null;
 
-const NAMEN: Record<string, { name: string; hinweis: string; symbol: string }> = {
-  darwin: { name: 'macOS', hinweis: 'Apple Silicon und Intel', symbol: '🍎' },
-  win32: { name: 'Windows', hinweis: 'Installationsprogramm', symbol: '⊞' },
-  linux: { name: 'Linux', hinweis: 'AppImage', symbol: '🐧' },
+const NAMEN: Record<string, { name: string; hinweisSchluessel: DownloadKey; symbol: string }> = {
+  darwin: { name: 'macOS', hinweisSchluessel: 'download.hintDarwin', symbol: '🍎' },
+  win32: { name: 'Windows', hinweisSchluessel: 'download.hintWin32', symbol: '⊞' },
+  linux: { name: 'Linux', hinweisSchluessel: 'download.hintLinux', symbol: '🐧' },
 };
 
 /** Aus der Kennung des Browsers auf das System schließen. */
@@ -27,10 +50,61 @@ export function systemErkennen(userAgent: string): Erkannt {
   return null;
 }
 
-const groesse = (bytes: number): string => {
-  const mb = bytes / 1024 / 1024;
-  return mb >= 1024 ? `${(mb / 1024).toFixed(1)} GB` : `${Math.round(mb)} MB`;
-};
+/**
+ * Text aus dem kleinen Auszugs-Wörterbuch dieser Seite (download-i18n.ts,
+ * erzeugt aus den 22 Wörterbüchern — siehe scripts/download-woerterbuch-erzeugen.mjs).
+ * Derselbe Aufbau wie translate() in packages/desktop/src/i18n/kern.ts und
+ * textAufloesen() in services/push.ts: erst der genaue Sprachcode, dann
+ * dessen Kurzform ohne Regionsanhang, zuletzt Deutsch als Ausweg — nie eine
+ * leere Zeichenkette oder ein nackter Schlüssel.
+ */
+function text(sprache: string, key: DownloadKey, werte?: Record<string, string>): string {
+  const kurz = sprache.toLowerCase().split(/[-_]/)[0];
+  const wb = WOERTERBUECHER[kurz] ?? WOERTERBUECHER.de;
+  const roh = wb[key] ?? WOERTERBUECHER.de[key];
+  if (!werte) return roh;
+  return roh.replace(/\{\{?(\w+)\}?\}/g, (ganz, name) => werte[name] ?? ganz);
+}
+
+/** Liest diese Sprache von rechts nach links? Gespiegelt aus VON_RECHTS in
+ *  packages/desktop/src/i18n/kern.ts — siehe download-i18n.ts. */
+function istVonRechts(sprache: string): boolean {
+  return RTL_SPRACHEN.includes(sprache.toLowerCase().split(/[-_]/)[0]);
+}
+
+/** Dateigröße lesbar, in der Sprache der Seite — dieselbe Rechnung wie
+ *  fileSize() in packages/desktop/src/lib/format.ts, hier noch einmal, weil
+ *  packages/server nicht auf packages/desktop zugreifen kann (siehe
+ *  download-i18n.ts für dieselbe Mauer bei den Übersetzungen). */
+function groesse(bytes: number, sprache: string): string {
+  const EINHEITEN = ['byte', 'kilobyte', 'megabyte', 'gigabyte', 'terabyte'] as const;
+  let i = 0;
+  let wert = bytes;
+  while (wert >= 1024 && i < EINHEITEN.length - 1) { wert /= 1024; i++; }
+  try {
+    return new Intl.NumberFormat(sprache, {
+      style: 'unit', unit: EINHEITEN[i], unitDisplay: 'short',
+      maximumFractionDigits: i > 0 && wert < 10 ? 1 : 0,
+    }).format(wert);
+  } catch {
+    // Unbekanntes Sprachkürzel — dieselbe Notlösung wie beim Datum unten:
+    // eine lesbare Zahl ist besser als ein Absturz.
+    return `${Math.round(wert)} ${EINHEITEN[i]}`;
+  }
+}
+
+/** Veröffentlichungsdatum in der Sprache und — wichtig für einen Server, der
+ *  nicht dort steht, wo die Leute sitzen — in der Zeitzone des Kontos. */
+function datum(ts: number, sprache: string, zeitzone: string): string {
+  try {
+    return new Intl.DateTimeFormat(sprache, { day: 'numeric', month: 'long', year: 'numeric', timeZone: zeitzone }).format(ts);
+  } catch {
+    // Zeitzone unbekannt/ungültig (z. B. ein verändertes Feld) — UTC statt
+    // der Zeitzone dieses Rechners, aus demselben Grund wie zeitAusSicht()
+    // in lib/format.ts: niemandes echte Ortszeit unter fremdem Namen zeigen.
+    return new Intl.DateTimeFormat(sprache, { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' }).format(ts);
+  }
+}
 
 const schuetzen = (t: string): string =>
   t.replace(/[&<>"']/g, (z) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[z]!));
@@ -41,37 +115,42 @@ export function downloadSeite(input: {
   arbeitsbereich: string;
   /** Wird an die Dateilinks angehängt — ein Klick trägt keinen Kopf mit. */
   token?: string;
+  /** Aus store.uiLanguageOf(userId) — siehe Dateikopf. */
+  sprache: string;
+  /** Aus store.timezoneOf(userId) — siehe Dateikopf. */
+  zeitzone: string;
 }): string {
+  const { sprache, zeitzone } = input;
   const anhang = input.token ? `?token=${encodeURIComponent(input.token)}` : '';
   const apps = input.releases.filter((r) => r.platform !== 'server');
   const empfohlen = apps.find((r) => r.platform === input.erkannt) ?? null;
   const rest = apps.filter((r) => r !== empfohlen);
-  const neueste = apps.map((r) => r.version).sort().pop() ?? null;
 
   const karte = (r: ReleaseInfo, gross: boolean) => {
-    const n = NAMEN[r.platform] ?? { name: r.platform, hinweis: '', symbol: '•' };
-    const datum = new Date(r.publishedAt).toLocaleDateString('de-DE', { day: 'numeric', month: 'long', year: 'numeric' });
+    const n = NAMEN[r.platform] ?? { name: r.platform, hinweisSchluessel: null as DownloadKey | null, symbol: '•' };
+    const hinweis = n.hinweisSchluessel ? text(sprache, n.hinweisSchluessel) : '';
     return `
       <a class="karte${gross ? ' karte--gross' : ''}" href="/download/${r.platform}${anhang}">
         <span class="karte__symbol">${n.symbol}</span>
         <span class="karte__text">
           <strong>${schuetzen(n.name)}</strong>
-          <span class="karte__unten">Version ${schuetzen(r.version)} · ${groesse(r.size)} · ${schuetzen(n.hinweis)}</span>
-          ${gross ? `<span class="karte__datum">veröffentlicht am ${datum}</span>` : ''}
+          <span class="karte__unten">${text(sprache, 'download.version', { version: schuetzen(r.version) })} · ${groesse(r.size, sprache)} · ${schuetzen(hinweis)}</span>
+          ${gross ? `<span class="karte__datum">${text(sprache, 'download.published', { datum: datum(r.publishedAt, sprache, zeitzone) })}</span>` : ''}
         </span>
         <span class="karte__pfeil">↓</span>
       </a>`;
   };
 
   const notizen = (empfohlen ?? apps[0])?.notes?.trim();
+  const dir = istVonRechts(sprache) ? 'rtl' : 'ltr';
 
   return `<!doctype html>
-<html lang="de">
+<html lang="${sprache}" dir="${dir}">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <meta name="robots" content="noindex, nofollow" />
-<title>${schuetzen(input.arbeitsbereich)} herunterladen</title>
+<title>${text(sprache, 'download.pageTitle', { arbeitsbereich: schuetzen(input.arbeitsbereich) })}</title>
 <style>
   :root {
     color-scheme: dark;
@@ -112,7 +191,7 @@ export function downloadSeite(input: {
   .karte:hover .karte__pfeil { color: var(--tinte); }
   .neu { margin: 30px 0 0; padding: 17px 19px; border: 1px solid var(--linie); border-radius: 15px; background: var(--karte); }
   .neu h2 { margin: 0 0 9px; font-size: 13px; letter-spacing: .09em; text-transform: uppercase; color: var(--leise); }
-  .neu ul { margin: 0; padding-left: 19px; }
+  .neu ul { margin: 0; padding-inline-start: 19px; }
   .neu li { margin-bottom: 5px; color: var(--leise); }
   .fuss { margin-top: 34px; color: var(--leise); font-size: 13px; }
   .fuss a { color: var(--tinte); }
@@ -126,29 +205,26 @@ export function downloadSeite(input: {
       <div class="stern">✦</div>
       <div>
         <div style="font-weight:600">${schuetzen(input.arbeitsbereich)}</div>
-        <div style="color:var(--leise);font-size:13px">Team-Chat, der jede Sprache spricht</div>
+        <div style="color:var(--leise);font-size:13px">${text(sprache, 'auth.tagline')}</div>
       </div>
     </div>
 
-    <h1>App herunterladen</h1>
-    <p class="unterzeile">
-      ${neueste ? `Aktuell ist Version ${schuetzen(neueste)}.` : 'Noch ist keine Fassung hinterlegt.'}
-      Nach der Installation hältst sich die App von selbst aktuell.
-    </p>
+    <h1>${text(sprache, 'download.title')}</h1>
+    <p class="unterzeile">${text(sprache, 'update.autoHint')}</p>
 
-    ${apps.length === 0 ? '<div class="leer">Hier liegt noch nichts bereit.</div>' : ''}
+    ${apps.length === 0 ? `<div class="leer">${text(sprache, 'download.empty')}</div>` : ''}
 
-    ${empfohlen ? `<p class="abschnitt">Für dieses Gerät</p>${karte(empfohlen, true)}` : ''}
+    ${empfohlen ? `<p class="abschnitt">${text(sprache, 'download.recommended')}</p>${karte(empfohlen, true)}` : ''}
 
-    ${rest.length ? `<p class="abschnitt" style="margin-top:26px">${empfohlen ? 'Andere Systeme' : 'Alle Systeme'}</p>${rest.map((r) => karte(r, false)).join('')}` : ''}
+    ${rest.length ? `<p class="abschnitt" style="margin-top:26px">${empfohlen ? text(sprache, 'download.otherSystems') : text(sprache, 'download.title')}</p>${rest.map((r) => karte(r, false)).join('')}` : ''}
 
-    ${notizen ? `<div class="neu"><h2>Neu in dieser Fassung</h2><ul>${
+    ${notizen ? `<div class="neu"><h2>${text(sprache, 'download.whatsNew')}</h2><ul>${
       notizen.split('\n').filter(Boolean).slice(0, 8).map((z) => `<li>${schuetzen(z.trim())}</li>`).join('')
     }</ul></div>` : ''}
 
     <p class="fuss">
-      Kein Konto? Die Team-Leitung legt eines an — eine Selbstregistrierung gibt es bewusst nicht.
-      <br />Lieber ohne Installation: <a href="/">im Browser öffnen</a>.
+      ${text(sprache, 'auth.noAccount')}
+      <br />${text(sprache, 'download.viaBrowser')} <a href="/">${text(sprache, 'download.viaBrowserLink')}</a>.
     </p>
   </div>
 </body>

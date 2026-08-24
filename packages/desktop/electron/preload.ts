@@ -20,6 +20,12 @@ const api = {
   }>,
   notify: (payload: { title: string; body: string; silent?: boolean; channelId?: string }) =>
     ipcRenderer.invoke('notify', payload) as Promise<boolean>,
+  /* Native Beschriftungen (Menü, Tray, Bestätigungsdialoge) folgen dieser
+     Sprache — siehe electron/i18n.ts und main.ts ('app:language'). Ein
+     send(), keine Antwort erwartet: die Ansicht ruft dies bei jeder
+     Änderung der eingestellten Oberflächensprache erneut auf (siehe
+     state/store.ts, applyTheme), nicht nur einmal. */
+  setLanguage: (sprache: string) => ipcRenderer.send('app:language', sprache),
   setBadge: (count: number) => ipcRenderer.invoke('badge:set', count) as Promise<boolean>,
   flashWindow: () => ipcRenderer.invoke('window:flash') as Promise<boolean>,
   setTheme: (theme: 'system' | 'dark' | 'light') => ipcRenderer.invoke('theme:set', theme) as Promise<boolean>,
@@ -61,6 +67,32 @@ const api = {
     },
   },
   openExternal: (url: string) => ipcRenderer.invoke('shell:open', url) as Promise<boolean>,
+
+  /* Zwischenablage — ausschließlich für den Passwort-Tresor.
+     Absichtlich ohne ein blankes "lies die Ablage": `leerenWennUnveraendert`
+     schickt den Wert HINEIN und bekommt ein Ja/Nein zurück, der Inhalt der
+     Ablage kommt nie hier an. Die ausführliche Begründung, warum das nicht
+     in der Ansicht laufen kann (Berechtigung, Fokus, Nutzerhandlung), steht
+     bei den beiden Handlern in electron/main.ts. */
+  ablage: {
+    schreiben: (wert: string) => ipcRenderer.invoke('ablage:schreiben', wert) as Promise<boolean>,
+    leerenWennUnveraendert: (wert: string) =>
+      ipcRenderer.invoke('ablage:leerenWennUnveraendert', wert) as Promise<boolean>,
+  },
+
+  /* Der gesprochene Code einer laufenden Wiederherstellung des Notzugangs —
+     im Arbeitsspeicher des Hauptprozesses, damit ein Neuladen des Fensters
+     ihn nicht kostet. Absichtlich NICHT im localStorage: dort liegt schon
+     der private Teil dieses Geräts, und der Code ist das zweite von zwei
+     Schlössern. Die ausführliche Begründung steht bei den drei Handlern in
+     electron/main.ts. Geschrieben wird nichts, gemerkt nur bis zum Beenden. */
+  notzugangCode: {
+    merken: (anfrageId: string, code: string) =>
+      ipcRenderer.invoke('notzugang:code-merken', anfrageId, code) as Promise<boolean>,
+    holen: (anfrageId: string) =>
+      ipcRenderer.invoke('notzugang:code-holen', anfrageId) as Promise<string | null>,
+    vergessen: () => ipcRenderer.invoke('notzugang:code-vergessen') as Promise<boolean>,
+  },
 
   /* Selbstaktualisierung */
   updateSignIn: (url: string, token: string) =>

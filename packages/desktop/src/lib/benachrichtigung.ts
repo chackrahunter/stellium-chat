@@ -73,14 +73,54 @@ export function meldewegVorbereiten(): void {
  * Bis die Antwort da ist, gilt `null` als "geht" — sonst blitzte in den
  * Einstellungen für einen Moment eine Warnung auf, die dann wieder
  * verschwindet.
+ *
+ * `null` und `'unbekannt'` sind ABSICHTLICH zwei verschiedene Werte, auch
+ * wenn beide "noch kein Ja/Nein" heißen. `null` heißt "die Anfrage läuft
+ * gerade, die Antwort kommt gleich" — eine kurze, garantiert endende Lücke
+ * direkt nach dem Start. `'unbekannt'` heißt "es kommt NIE eine Antwort":
+ * entweder bietet diese App-Fassung den Aufruf gar nicht an, oder der Aufruf
+ * ist fehlgeschlagen. Ohne eigenen Wert dafür landete dieser zweite Fall
+ * für immer im ersten — dauerhaft als "geht gleich los" behandelt, obwohl
+ * nichts mehr kommt. Genau das war der Fehler, den dieser Code laut
+ * Kommentar unten schon einmal beheben sollte.
  */
-let appKannMelden: boolean | null = null;
+let appKannMelden: boolean | null | 'unbekannt' = null;
 
 export function meldewegPruefen(): void {
   if (!inDerApp()) return;
-  void window.stellium?.notifyMoeglich?.()
-    .then((geht: boolean) => { appKannMelden = geht; })
-    .catch(() => { /* ältere App-Fassung kennt den Aufruf nicht */ });
+
+  /* DIE FALLE, die hier vorher steckte: `a?.b?.()` ist EINE zusammenhängende
+     "optional chain". Hängen `.then()`/`.catch()` OHNE eigenes `?.` direkt
+     dahinter, zählen sie zu genau dieser Kette dazu. Fehlt `b` (hier:
+     notifyMoeglich, weil ältere App-Fassung), bricht nicht nur `b()` ab,
+     sondern die GESAMTE Kette bis zum Schluss: `.then()` UND `.catch()`
+     laufen dann NIE, der ganze Ausdruck wird still zu `undefined` — kein
+     Wert, keine Ausnahme. Ein `.catch()` hinter einem `?.()` fängt darum
+     genau den Fall NICHT ab, für den es hingeschrieben wurde ("die Bridge
+     kennt den Aufruf nicht") — es fängt nur eine echte Ablehnung jenes
+     Promise ab, das es überhaupt erst gibt, wenn der Aufruf stattgefunden
+     hat. So blieb `appKannMelden` bei einer alten App-Fassung für immer bei
+     `null` stehen, und `erlaubnisStand()` meldete "erlaubt", ohne dass je
+     eine Antwort eingetroffen war — derselbe Fehler wie im Kommentar unter
+     erlaubnisStand(), nur durch eine andere Tür wieder hereingekommen.
+     Deshalb hier ERST synchron prüfen, ob es den Aufruf überhaupt gibt: kein
+     `.catch()` kann eine Kette retten, die nie losläuft. */
+  const pruefen = window.stellium?.notifyMoeglich;
+  if (typeof pruefen !== 'function') {
+    appKannMelden = 'unbekannt';
+    return;
+  }
+
+  void pruefen()
+    .then((geht) => { appKannMelden = geht; })
+    .catch((fehler) => {
+      // Die Bridge gibt es, der Aufruf ist aber fehlgeschlagen — auch das
+      // ist keine Antwort, auf deren Grundlage "erlaubt" behauptet werden
+      // darf. Anders als eine schlicht fehlende Funktion ist das ein
+      // echter Fehler und kein erwarteter Zustand, darum geloggt.
+      console.warn('[benachrichtigung] notifyMoeglich fehlgeschlagen:', (fehler as Error).message);
+      appKannMelden = 'unbekannt';
+    });
 }
 
 /**
@@ -92,9 +132,22 @@ export function meldewegPruefen(): void {
  * ad-hoc signiertes Programm darf senden, es kommt nur nichts an — ohne
  * Fehler und ohne Nachfrage. Die Einstellungen meldeten dann "erlaubt",
  * während in Wahrheit nie etwas erschien.
+ *
+ * `appKannMelden === 'unbekannt'` zählt hier wie `false`, nicht wie `true`
+ * oder wie das noch unentschiedene `null`: Eine App-Fassung ohne
+ * `notifyMoeglich` ist zwangsläufig älter als der Tag, an dem dieser Aufruf
+ * eingeführt wurde — und der wurde genau deshalb eingeführt, weil ältere,
+ * ad-hoc signierte Fassungen bei der Mitteilungszentrale still abgewiesen
+ * wurden (siehe Absatz oben). Wer den Aufruf noch nicht kennt, gehört damit
+ * eher zu der Gruppe, die das Problem hatte, als zu der, die es nicht hat.
+ * "Geht nicht" ist also nicht nur die vorsichtigere, sondern die besser
+ * begründete Annahme — und so oder so ehrlicher, als "erlaubt" auf
+ * Grundlage einer Antwort zu behaupten, die nie eingetroffen ist.
  */
 export function erlaubnisStand(): Erlaubnis {
-  if (inDerApp()) return appKannMelden === false ? 'geht-nicht' : 'erlaubt';
+  if (inDerApp()) {
+    return appKannMelden === false || appKannMelden === 'unbekannt' ? 'geht-nicht' : 'erlaubt';
+  }
   if (typeof Notification === 'undefined') return 'geht-nicht';
   if (Notification.permission === 'granted') return 'erlaubt';
   if (Notification.permission === 'denied') return 'abgelehnt';

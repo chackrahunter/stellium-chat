@@ -148,7 +148,7 @@ export function EmojiPicker({ onPick, onClose, ankerRef, vorschlaege, kiNachfrag
           autoFocus
           onChange={(e) => setQuery(e.target.value)}
         />
-        <button className="icon-btn icon-btn--sm" onClick={onClose}><X size={14} /></button>
+        <button className="icon-btn icon-btn--sm" onClick={onClose} aria-label={t('common.close')}><X size={14} /></button>
       </div>
 
       {(zeigeVorschlaege || zeigeKiErgebnis || zeigeKiKnopf) && (

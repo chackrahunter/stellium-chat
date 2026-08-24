@@ -1,6 +1,7 @@
 import { EVENT_KINDS, type AttendeeResponse, type CalendarEvent, type EventKind } from '@stellium/shared';
 import { db, nurSichtbareKanaele } from '../db/index.js';
 import { newId } from '../util/id.js';
+import { abweisung } from '../util/abweisung.js';
 
 /**
  * Team-Kalender.
@@ -91,14 +92,14 @@ export function createEvent(input: {
   vonKi?: boolean;
 }): CalendarEvent {
   const title = input.title.trim().slice(0, TITEL_MAX);
-  if (title.length < 2) throw new Error('Der Termin braucht einen Titel.');
+  if (title.length < 2) throw abweisung('fehler.terminTitelFehlt', 'Der Termin braucht einen Titel.');
   // Ohne diese Zeile kam ein NaN oder eine Zeichenkette bis in die Spalte:
   // beide Vergleiche darunter sind mit NaN falsch und ließen alles durch.
   if (!Number.isFinite(input.startsAt) || !Number.isFinite(input.endsAt)) {
-    throw new Error('Beginn und Ende müssen Zeitpunkte sein.');
+    throw abweisung('fehler.terminZeitUngueltig', 'Beginn und Ende müssen Zeitpunkte sein.');
   }
-  if (input.endsAt <= input.startsAt) throw new Error('Das Ende muss nach dem Beginn liegen.');
-  if (input.endsAt - input.startsAt > 366 * 86_400_000) throw new Error('Ein Termin darf höchstens ein Jahr dauern.');
+  if (input.endsAt <= input.startsAt) throw abweisung('fehler.terminEndeVorBeginn', 'Das Ende muss nach dem Beginn liegen.');
+  if (input.endsAt - input.startsAt > 366 * 86_400_000) throw abweisung('fehler.terminZuLang', 'Ein Termin darf höchstens ein Jahr dauern.');
 
   const kind = (EVENT_KINDS as string[]).includes(input.kind ?? '') ? input.kind! : 'meeting';
   const id = newId('ev_');
@@ -132,20 +133,20 @@ export function updateEvent(id: string, patch: {
   allDay?: boolean; location?: string | null; kind?: string;
 }): CalendarEvent {
   const alt = getEvent(id);
-  if (!alt) throw new Error('Termin nicht gefunden.');
+  if (!alt) throw abweisung('fehler.terminNichtGefunden', 'Termin nicht gefunden.');
 
   const beginn = patch.startsAt ?? alt.startsAt;
   const ende = patch.endsAt ?? alt.endsAt;
   if (!Number.isFinite(beginn) || !Number.isFinite(ende)) {
-    throw new Error('Beginn und Ende müssen Zeitpunkte sein.');
+    throw abweisung('fehler.terminZeitUngueltig', 'Beginn und Ende müssen Zeitpunkte sein.');
   }
-  if (ende <= beginn) throw new Error('Das Ende muss nach dem Beginn liegen.');
-  if (ende - beginn > 366 * 86_400_000) throw new Error('Ein Termin darf höchstens ein Jahr dauern.');
+  if (ende <= beginn) throw abweisung('fehler.terminEndeVorBeginn', 'Das Ende muss nach dem Beginn liegen.');
+  if (ende - beginn > 366 * 86_400_000) throw abweisung('fehler.terminZuLang', 'Ein Termin darf höchstens ein Jahr dauern.');
 
   const sets: string[] = [];
   const werte: any[] = [];
   if (patch.title !== undefined) {
-    if (patch.title.trim().length < 2) throw new Error('Der Termin braucht einen Titel.');
+    if (patch.title.trim().length < 2) throw abweisung('fehler.terminTitelFehlt', 'Der Termin braucht einen Titel.');
     sets.push('title = ?'); werte.push(patch.title.trim().slice(0, TITEL_MAX));
   }
   if (patch.description !== undefined) { sets.push('description = ?'); werte.push(patch.description?.trim().slice(0, BESCHREIBUNG_MAX) || null); }
@@ -167,8 +168,8 @@ export function respond(eventId: string, userId: string, response: AttendeeRespo
      Zusage dagegen gar nicht — sie ging so, wie sie kam, in die Spalte. Damit
      stand in der Teilnehmerliste, was der Client hineinschrieb, und
      startingSoon() entschied anhand von `=== 'no'`, wen es benachrichtigt. */
-  if (!ANTWORTEN.includes(response)) throw new Error('Unbekannte Antwort.');
-  if (!getEvent(eventId)) throw new Error('Termin nicht gefunden.');
+  if (!ANTWORTEN.includes(response)) throw abweisung('fehler.terminAntwortUnbekannt', 'Unbekannte Antwort.');
+  if (!getEvent(eventId)) throw abweisung('fehler.terminNichtGefunden', 'Termin nicht gefunden.');
   db.run(
     `INSERT INTO event_attendees (event_id, user_id, response) VALUES (?,?,?)
      ON CONFLICT(event_id, user_id) DO UPDATE SET response = excluded.response`,
@@ -179,7 +180,7 @@ export function respond(eventId: string, userId: string, response: AttendeeRespo
 
 export function setAttendees(eventId: string, add: string[] = [], remove: string[] = []): CalendarEvent {
   const ev = getEvent(eventId);
-  if (!ev) throw new Error('Termin nicht gefunden.');
+  if (!ev) throw abweisung('fehler.terminNichtGefunden', 'Termin nicht gefunden.');
   db.transaction(() => {
     for (const uid of add) {
       if (!db.get('SELECT 1 AS x FROM users WHERE id = ?', uid)) continue;

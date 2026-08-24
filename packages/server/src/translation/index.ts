@@ -1,5 +1,5 @@
 import {
-  detectLanguage, dezimaltrennzeichenFuerSprache, findMeasurements, maskText, messwertPlatzhalter,
+  detectLanguage, dezimaltrennzeichenFuerSprache, findMeasurements, istE2EChiffrat, maskText, messwertPlatzhalter,
   messwerteInTextEinsetzen, normalizeLang, placeholdersIntact, PLACEHOLDER, translatableLength, unmaskText,
   type AiCapabilities, type Massregion, type Messwert, type TranslationView,
 } from '@stellium/shared';
@@ -27,6 +27,8 @@ import {
   ausfallMelden, erfolgMelden, lageVergessen, lokaleLage, lokaleLageJetzt, modelleAbfragen,
   type LokaleLage,
 } from './erreichbarkeit.js';
+import { kontextZusammenfuehren, verlaufAlsKontext, type VerlaufZeile } from './verlauf.js';
+import { polaritaetsWiderspruch } from './polaritaet.js';
 import * as stimme from '../services/stimme.js';
 
 /* ── Provider-Auswahl ─────────────────────────────────────────── */
@@ -268,6 +270,14 @@ export function aiCapabilities() {
      dauerhafte „an" von vorher. */
   const lage = lokaleLage();
   const lokalAntwortet = !lage || lage.zustand === 'erreichbar';
+  /* Ob Übersetzen gerade tatsächlich funktioniert, ist eine andere Frage als
+     ob DAS EIGENE Modell antwortet: `lokalAntwortet` prüft nur Letzteres und
+     stand deshalb auf `false`, während eine Vertretung längst erfolgreich
+     übersetzte — die Vorschau im Composer verschwand mitten im Betrieb.
+     Solange irgendwer antwortet (das eigene Modell oder die Vertretung),
+     funktioniert Übersetzen; WER es tut, bleibt allein die Auskunft der
+     `vertretung`-Zeile unten. */
+  const uebersetzungFunktioniert = lokalAntwortet || ersatzLaeuft() !== null;
 
   return {
     provider: provider.name,
@@ -283,8 +293,9 @@ export function aiCapabilities() {
     transcriptionLokal: transcriptionWeg() === 'lokal',
     /* Hing bisher allein am eingestellten Anbieter und war damit für ein
        lokales Modell immer wahr — auch wenn der Rechner schlief. Jetzt hängt
-       es an einer tatsächlichen Antwort. */
-    translation: provider.name !== 'demo' && lokalAntwortet,
+       es an einer tatsächlichen Antwort — vom eigenen Modell ODER von einer
+       eingesprungenen Vertretung (siehe uebersetzungFunktioniert oben). */
+    translation: provider.name !== 'demo' && uebersetzungFunktioniert,
     assistant: a !== null,
     /* Direkt aus den Einstellungen statt über den Vorschlagsdienst: der
        importiert die Übersetzung, und ein Ring aus zwei Modulen bricht beim
@@ -467,6 +478,21 @@ export interface TranslateOptions {
   context?: string | null;
   /** Cache überspringen (z.B. für den Round-Trip-Check). */
   skipCache?: boolean;
+  /**
+   * Erfolgreiches Ergebnis NICHT in memory/translation_memory schreiben.
+   *
+   * translation_memory cacht nach (Anbieter, Sprachen, Text) — OHNE Kontext,
+   * siehe tmKey. Für den kontextreichen Zweig der Polaritäts-Wache in
+   * translateMessage() (siehe dort und polaritaet.ts) ist das Ergebnis aber
+   * gerade NUR für dieses eine Gespräch richtig — ein anderes Gespräch mit
+   * derselben kurzen Nachricht, aber ohne oder mit anderem Kontext, hat
+   * keine Garantie, dieselbe Antwort zu brauchen. Ohne dieses Feld würde der
+   * geteilte Speicher zum Zufallsergebnis eines Wettlaufs zwischen dem
+   * kontextreichen und dem kontextlosen Aufruf (beide laufen parallel, siehe
+   * dort) — mit `skipWrite` bleibt das Schreiben allein dem kontextlosen,
+   * teilbaren Aufruf vorbehalten.
+   */
+  skipWrite?: boolean;
   /**
    * Maßangaben (25 °C, 10 kg, 5 km, …) als Sentinel im Ergebnis stehen
    * lassen, statt sie unverändert im Ausgangswortlaut zu belassen — siehe
@@ -687,16 +713,61 @@ export async function translate(opts: TranslateOptions): Promise<TranslateOutcom
      wenn gerade niemand antwortet. */
   const lage = await lokaleLageJetzt();
   if (lage && lage.zustand !== 'erreichbar') {
+    /* Vor der Absage: kann eine Vertretung einspringen? ersatzUebernimmt()
+       tut nichts, wenn schon eine läuft oder wenn es niemanden gibt, der
+       einspringen könnte (siehe dort) — in beiden Fällen bleibt es bei der
+       schnellen Absage unten, genau wie vorher.
+
+       Der Aufruf gehört HIERHIN und nicht erst in den catch-Zweig weiter
+       unten: dieser Test hier greift schon, BEVOR provider.translate()
+       je gerufen wird — ohne diesen Aufruf hier hätte ein aktiver Ersatz nie
+       eine Chance bekommen, weil die Absage unten jede Übersetzung beendet
+       hat, bevor der eigentliche Aufruf (und mit ihm die einzige andere
+       Stelle, die ausfallMelden() und damit ersatzUebernimmt() auslöst) je
+       stattfand. */
+    ersatzUebernimmt(lage.fehler ?? lage.zustand);
+    if (!ersatzLaeuft()) {
+      console.warn(
+        `[translate] ${lokaleEinstellung().baseUrl}: ${lage.fehler ?? 'antwortet nicht'}`
+        + ' — nicht übersetzt, wird beim nächsten Mal erneut versucht.',
+      );
+      return {
+        ...base, text: mitSentinels, confidence: 0, noop: true, unuebersetzt: true,
+        memoryKey: null, measurements: messwerteRecord,
+      };
+    }
     console.warn(
       `[translate] ${lokaleEinstellung().baseUrl}: ${lage.fehler ?? 'antwortet nicht'}`
-      + ' — nicht übersetzt, wird beim nächsten Mal erneut versucht.',
+      + ` — "${ersatzLaeuft()}" übersetzt, bis das eigene Modell zurück ist.`,
     );
-    return {
-      ...base, text: mitSentinels, confidence: 0, noop: true, unuebersetzt: true,
-      memoryKey: null, measurements: messwerteRecord,
-    };
   }
 
+  /* Wer diese Anfrage tatsächlich beantwortet — die Vertretung oder das
+     eingestellte Modell selbst. Nur im zweiten Fall darf ein Erfolg unten
+     das eigene Modell als erreichbar verbuchen (erfolgMelden()): antwortet
+     die Vertretung, sagt das nichts über das eigene Modell aus. Ohne diese
+     Unterscheidung hätte die allererste erfolgreiche Anfrage über die
+     Vertretung sie sofort wieder abtreten lassen — kaum eingesprungen,
+     gleich wieder weg, weil `provider` (der Proxy) ihren Erfolg als
+     "das eigene Modell antwortet wieder" gemeldet hätte.
+     Absichtlich NICHT hier vor der Anfrage festgehalten: Übersetzungen
+     laufen nebenläufig (ws/gateway.ts übersetzt jede Zielsprache in einem
+     eigenen, nicht abgewarteten Aufruf), und withRetry() unten versucht bis
+     zu dreimal — jeder einzelne Versuch löst `provider.translate` über den
+     Proxy neu auf, also `derzeit()` NEU, ERST ZUM ZEITPUNKT DES VERSUCHS.
+     Stünde die Zuordnung schon hier fest, könnte eine ANDERE, parallel
+     laufende Übersetzung zwischen dem ersten und einem späteren Versuch
+     dieses Aufrufs eine Vertretung installieren — der spätere Versuch ginge
+     dann tatsächlich an die Vertretung, während hier weiter das vorher
+     eingestellte Modell einträte. Ein Erfolg der Vertretung würde dann als
+     Erfolg des eigenen Modells verbucht: `festhalten('erreichbar', …)`
+     bekäme einen falschen Zeitstempel, während der Rechner aus ist, und die
+     Vertretung träte Sekunden nach ihrem Einsatz gleich wieder ab — siehe
+     Auftrag, Fund 1 (Nebenläufigkeit).
+     Stattdessen berichtet jeder Versuch selbst, wer ihn ausgeführt hat:
+     `wer` unten wird nicht über den Proxy gerufen, sondern als das konkrete
+     Objekt festgehalten, DAS DIESEN EINEN VERSUCH tatsächlich ausführt —
+     unabhängig davon, was `derzeit()` hinterher liefert. */
   const anfrage = {
     text: masked,
     targetLang: target,
@@ -705,11 +776,25 @@ export async function translate(opts: TranslateOptions): Promise<TranslateOutcom
     glossary: mapping,
   };
 
+  let antwortendeStelle: TranslationProvider = aktiv;
+  const rufAn = (req: Parameters<TranslationProvider['translate']>[0]) => {
+    const wer = derzeit();
+    antwortendeStelle = wer;
+    return wer.translate(req);
+  };
+
   let result;
   try {
-    result = await withRetry(() => provider.translate(anfrage));
-    // Wer antwortet, ist erreichbar — billiger als jede weitere Nachfrage.
-    erfolgMelden();
+    result = await withRetry(() => rufAn(anfrage));
+    /* Wer antwortet, ist erreichbar — billiger als jede weitere Nachfrage.
+       Aber nur verbuchen, wenn wirklich das eigene Modell geantwortet hat
+       (siehe antwortendeStelle oben): sonst träte eine gerade erst
+       eingesprungene Vertretung mit ihrem ersten Erfolg schon wieder ab.
+       `antwortendeStelle` trägt hier den Stand des Versuchs, der `result`
+       geliefert hat — withRetry() kehrt beim ersten Erfolg sofort zurück,
+       spätere Versuche gibt es dann nicht mehr, die Zuordnung kann also
+       nicht mehr veralten. */
+    if (antwortendeStelle === aktiv) erfolgMelden();
 
     /* Der Eingabetext kam zurück — einmal mit deutlicherer Anweisung
        nachfassen. Ein zweiter Versuch mit demselben Prompt wäre sinnlos:
@@ -721,7 +806,7 @@ export async function translate(opts: TranslateOptions): Promise<TranslateOutcom
        und Nachdruck würde eine Übersetzung erzwingen, die keine ist. */
     const erkannt = result.detectedSourceLang ? normalizeLang(result.detectedSourceLang) : source;
     if (erkannt !== target && istEcho(masked, result.text)) {
-      const zweiter = await withRetry(() => provider.translate({ ...anfrage, nachdruck: true }))
+      const zweiter = await withRetry(() => rufAn({ ...anfrage, nachdruck: true }))
         .catch((err) => {
           console.warn('[translate] Nachfassen fehlgeschlagen:', (err as Error).message);
           return null;
@@ -789,9 +874,27 @@ export async function translate(opts: TranslateOptions): Promise<TranslateOutcom
    * Lieber jedes Mal neu fragen als einmal falsch merken: ein Fehlversuch
    * kostet eine Anfrage, ein gemerkter Fehlversuch kostet die Übersetzung
    * für immer.
-   */
+   *
+   * `echoMerken(key)` gehört hinter dieselbe Bedingung wie `opts.skipWrite`
+   * unten, nicht davor: `key` (tmKey) ist KONTEXTFREI — Anbieter/Sprachen/
+   * maskierter Text, ohne den Gesprächsverlauf, mit dem dieser eine Aufruf
+   * gerade lief (siehe TranslateOptions.skipWrite). Stand der Aufruf hier
+   * unbedingt vor der skipWrite-Prüfung, merkte ein kontextreicher,
+   * NICHT teilbarer Aufruf (translateMessage()s mitWache-Zweig) sein Echo
+   * trotzdem im GETEILTEN echoNotiz — für die nächsten 15 Minuten galt
+   * dieselbe kurze Wortfolge dann auch in jedem anderen Gespräch, ohne
+   * Kontext und ohne dass das Modell dafür gefragt wurde, als unübersetzbar.
+   * Genau die Garantie, die skipWrite für translation_memory schon gab,
+   * fehlte hier für den zweiten geteilten Speicher. */
   if (istEcho(masked, out)) {
-    echoMerken(key);
+    if (!opts.skipWrite) echoMerken(key);
+    return fertig(out, {
+      provider: entry.provider, model: entry.model, confidence: entry.confidence,
+      cached: false, sourceLang: finalSource,
+    });
+  }
+
+  if (opts.skipWrite) {
     return fertig(out, {
       provider: entry.provider, model: entry.model, confidence: entry.confidence,
       cached: false, sourceLang: finalSource,
@@ -836,6 +939,137 @@ async function withRetry<T>(fn: () => Promise<T>, attempts = 3): Promise<T> {
 
 interface MessageRow {
   id: string; channel_id: string; user_id: string; text: string; source_lang: string | null; deleted_at: number | null;
+  /** Nur für verlaufVorNachricht() unten — grenzt den Verlauf auf das ein, was zu diesem Zeitpunkt schon geschrieben war. */
+  created_at: number;
+}
+
+interface VerlaufRow { user_id: string; text: string; display_name: string }
+
+/**
+ * Wie viele vorherige Nachrichten verlaufVorNachricht() höchstens lädt.
+ *
+ * Gemessen (scratch-Vergleich mit drei Verlaufslängen, an qwen3-8b, siehe
+ * Bericht): eine einzige vorangehende Zeile reicht beim direkten Fall
+ * ("kannst du das machen?" -> "mache ich kein problem") aus, ist aber KEINE
+ * verlässliche Untergrenze — bei einem Vorlauf aus mehreren kurzen Zeilen
+ * (Bitte, Rückfrage, Klärung, dann erst die Antwort) lieferte NUR die
+ * unmittelbar letzte Zeile bei einem zweiten Testfall ("geht klar") ein
+ * SCHLECHTERES Ergebnis als GAR KEIN Kontext — die eine Zeile allein legt
+ * dann eine falsche Lesart nahe, statt zu orientieren. Der volle Dreizeiler
+ * war dort wieder so gut wie ganz ohne Kontext. Deshalb 4 statt 1: genug
+ * Spielraum, um nicht an einer einzelnen irreführenden Zwischenzeile hängen
+ * zu bleiben. Löst das NICHT vollständig — ein Fall, bei dem die Bitte zwei
+ * Züge vor der Antwort liegt (Bitte, Rückfrage, Klärung, Antwort), blieb
+ * auch mit allen drei Zeilen falsch; siehe Bericht, ausdrücklich als
+ * ungelöst vermerkt. Mehr als 4 wurde nicht gemessen — auf einem 8k-
+ * Kontextfenster (gemessen an qwen3-8b auf dem Pi) kostet jede zusätzliche
+ * Zeile Marken, ohne dass ein Nutzen dafür belegt wäre.
+ * Bewusst deutlich unter den 12 der Antwortvorschläge (services/ai.ts,
+ * smartReplies): dort werden bis zu 3 neue Sätze GENERIERT und sollen zum
+ * ganzen jüngeren Gesprächsfaden passen, hier wird nur EIN vorhandener Satz
+ * eingeordnet.
+ */
+const VERLAUF_LIMIT = 4;
+
+/**
+ * Ab wie vielen Wörtern eine Nachricht nicht mehr als "kurz" gilt — siehe
+ * kurzUndMitVerlauf in translateMessage() weiter unten.
+ */
+const KURZTEXT_WOERTER_SCHWELLE = 6;
+
+/**
+ * Zielsprachen mit einer GEPRÜFTEN Polaritäts-Wache (siehe polaritaet.ts).
+ *
+ * REGEL: Wache zuerst, dann Kontext — nicht umgekehrt. Der gemeldete Fehler
+ * ("lass mal lieber" kippt mit Kontext zu einer Zusage) hängt nicht an der
+ * Zielsprache Englisch — er entsteht, wenn eine deutsche elliptische Absage
+ * auf Gesprächskontext trifft, und das Modell löst sie falsch auf. Dieser
+ * Vorgang ist in jeder Zielsprache gleich; nur die Prüfbarkeit ändert sich.
+ * Kontext an eine Zielsprache OHNE geprüfte Wache zu geben, hieße also
+ * denselben Fehler ungeprüft auszuliefern statt ihn zu vermeiden — schlimmer
+ * als der Ausgangszustand, nicht gleichwertig (Entscheidung der
+ * Koordination). Für jede Zielsprache HIER NICHT gelistet bekommt eine
+ * kurze Nachricht mit Verlauf deshalb GAR KEINEN Gesprächskontext, auch
+ * wenn verlaufVorNachricht() welchen fände — Kanal-Metadaten (opts.context)
+ * bleiben unberührt, das ist nicht der geprüfte Mechanismus.
+ *
+ * Erweitern: eine Zielsprache kommt erst hier hinein, NACHDEM für sie
+ * dieselbe Übung gelaufen ist wie für Englisch — eigene Absage-/
+ * Zusage-Wortlisten, ein eigener Korpus, eine unabhängige gehaltene
+ * Stichprobe, Trefferquote und Fehlalarmquote gemessen und berichtet.
+ *
+ * Deutsch (EN→DE) wurde genau so geprüft — scripts/polaritaet-de-
+ * entdecken.mjs, scripts/polaritaet-de-messen.mjs, Wortlisten in
+ * polaritaet.ts — und bewusst NICHT geöffnet: 0 % Fehlalarm auf 84
+ * Prüfungen, aber die Trefferquote auf frisch erdachten Fällen sank mit
+ * jeder frischeren Stichprobenrunde (12/12 → 9/9 → 7/9 → 4/10), anders als
+ * bei Englisch (100 % gegen eine bekannte echte Invertierung). Auch fand
+ * sich in keinem der 44 echten EN→DE-Testläufe (inklusive acht bewusst
+ * extrem elliptischer Stichproben ohne jede Verneinung) eine tatsächliche
+ * Invertierung — anders als bei Englisch gibt es also keine bekannte
+ * Bedrohung, an der sich die Trefferquote hätte beweisen können. Eine
+ * Wache, die auf frischen Fällen nur 40 % einer erfundenen Invertierung
+ * fängt, wäre selbst das Risiko, vor dem diese ganze Liste schützen soll —
+ * siehe polaritaet.ts und Bericht für die vollständigen Zahlen. Diese
+ * Entscheidung kann mit der dortigen Grundlage jederzeit anders getroffen
+ * werden.
+ */
+const ZIELSPRACHEN_MIT_GEPRUEFTER_WACHE: readonly string[] = ['en'];
+
+/**
+ * Reine Kennzahlen zur kurz-mit-Verlauf-Bevölkerung — kein Nachrichtentext,
+ * keine Kennung einer Person, eines Kanals oder einer Nachricht. Beantwortet
+ * die Frage aus dem Auftrag ("welcher Anteil des echten Betriebs ist das
+ * wirklich") über Wochen, statt bei einer einmaligen Schätzung zu bleiben.
+ *
+ * Eigene, einfache Zeilen in app_settings statt setSetting()/getSetting()
+ * (services/settings.ts): jene sind für von Hand geänderte Einstellungen
+ * gebaut und tragen eine Person als „updated_by" — hier zählt kein Mensch
+ * etwas, sondern jede Übersetzung automatisch mit.
+ *
+ * Lesbar mit, z. B. per SSH auf dem Pi:
+ *   sqlite3 <DATENBANKDATEI> \
+ *     "SELECT key, value FROM app_settings WHERE key LIKE 'metrik.uebersetzung.%'"
+ */
+const METRIK_UEBERSETZUNGEN_GESAMT = 'metrik.uebersetzung.gesamt';
+const METRIK_KURZ_MIT_VERLAUF = 'metrik.uebersetzung.kurz_mit_verlauf';
+
+function metrikHochzaehlen(key: string): void {
+  db.run(
+    `INSERT INTO app_settings (key, value, updated_by, updated_at) VALUES (?, '1', NULL, ?)
+     ON CONFLICT(key) DO UPDATE SET value = CAST(CAST(value AS INTEGER) + 1 AS TEXT), updated_at = excluded.updated_at`,
+    key, Date.now(),
+  );
+}
+
+/**
+ * Die letzten paar Nachrichten VOR dieser einen, aus demselben Kanal — als
+ * Gesprächskontext fürs Modell (siehe verlauf.ts für das Warum).
+ *
+ * `created_at < vorZeit` statt einfach "die letzten N im Kanal": eine spätere
+ * erzwungene Neuübersetzung (opts.force, z. B. nach Providerwechsel) soll
+ * denselben Verlauf sehen wie beim ersten Mal, nicht Nachrichten, die zum
+ * Zeitpunkt des Originals noch gar nicht geschrieben waren.
+ *
+ * Zweimal gegen Chiffrat geprüft, genau wie services/ai.ts (zeile()): einmal
+ * hier am rohen Datenbankwert (billig, bevor überhaupt entschlüsselt wird),
+ * einmal in verlaufAlsKontext() am Klartext. Diese Funktion wird nie für eine
+ * Nachricht aus einem vertraulichen Kanal aufgerufen (siehe Aufrufer in
+ * translateMessage() — dieselbe Prüfung, die auch die zu übersetzende
+ * Nachricht selbst schützt), das hier ist Rückhalt, kein Ersatz.
+ */
+function verlaufVorNachricht(channelId: string, vorZeit: number, ausgenommenId: string): VerlaufZeile[] {
+  const rows = db.all<VerlaufRow>(
+    `SELECT m.user_id, m.text, u.display_name
+     FROM messages m JOIN users u ON u.id = m.user_id
+     WHERE m.channel_id = ? AND m.id <> ? AND m.created_at < ?
+       AND m.deleted_at IS NULL AND m.system_kind IS NULL
+     ORDER BY m.created_at DESC LIMIT ?`,
+    channelId, ausgenommenId, vorZeit, VERLAUF_LIMIT,
+  ).reverse();
+  return rows
+    .filter((r) => !istE2EChiffrat(r.text))
+    .map((r) => ({ wer: r.display_name || '', text: entschluesseln(r.text) }));
 }
 
 /**
@@ -882,14 +1116,67 @@ export function messwerteRecordFuer(text: string, targetLang: string): Record<nu
   return funde.length ? Object.fromEntries(funde.map((m, i) => [i, m])) : undefined;
 }
 
+/**
+ * Ab hier zählt eine Erkennung überhaupt — darunter ist sie ein Ratespiel.
+ * languages.ts liefert für kurzen, hinweisfreien ASCII-Text unbeirrt
+ * `{ lang: 'en', confidence: 0.15 }` zurück; ohne diese Schwelle wird aus
+ * "keine Ahnung" ein hartes "englisch", und zwei Übersetzungswege bauen
+ * darauf: schon-Zielsprache (dann NOOP, das Original bleibt stehen) und die
+ * Zeile "Ausgangssprache ist X" im Prompt (dann eine Lüge ans Modell). Beide
+ * Male gemeinsam mit quellspracheSchaetzen() unten und
+ * erkennungOderAutorensprache() weiter unten, damit die Grenze überall
+ * dieselbe ist.
+ */
+const SPRACH_SCHWELLE = 0.35;
+
 function quellspracheSchaetzen(text: string, userId: string): string {
   const erkannt = detectLanguage(text);
   const genugText = woerter(text).length >= ECHO_MIN_WOERTER;
-  if (erkannt.lang !== 'unknown' && erkannt.confidence >= 0.35 && genugText) {
+  if (erkannt.lang !== 'unknown' && erkannt.confidence >= SPRACH_SCHWELLE && genugText) {
     return erkannt.lang;
   }
   const eigene = db.get<{ language: string }>('SELECT language FROM users WHERE id = ?', userId)?.language;
   return eigene ? normalizeLang(eigene) : (erkannt.lang !== 'unknown' ? erkannt.lang : 'en');
+}
+
+/**
+ * Dieselbe Schwelle wie quellspracheSchaetzen(), aber für Inhalte ohne
+ * schreibende Person am anderen Ende einer laufenden Unterhaltung: Kanalname/
+ * -thema, eine Umfragenfrage, eine Änderungsliste. translateChannel(),
+ * translatePoll() und translateReleaseNotes() reichten bisher `sourceLang:
+ * null` durch — translate() erkannte dann selbst, aber ungeprüft, siehe
+ * SPRACH_SCHWELLE oben. Reicht die Erkennung nicht, gilt die Sprache, in der
+ * die Autorin/der Autor des Inhalts sonst schreibt (Kontospalte `language`,
+ * Vorgabe 'de', siehe db/schema.sql) — dieselbe Idee wie bei
+ * quellspracheSchaetzen(), nur mit der verfassenden statt der lesenden
+ * Person, weil hier niemand für sich selbst übersetzt bekommt, sondern etwas
+ * veröffentlicht, das alle sehen.
+ */
+function erkennungOderAutorensprache(text: string, autorId: string): string {
+  const erkannt = detectLanguage(text);
+  if (erkannt.lang !== 'unknown' && erkannt.confidence >= SPRACH_SCHWELLE) return erkannt.lang;
+  const autor = db.get<{ language: string }>('SELECT language FROM users WHERE id = ?', autorId)?.language;
+  return autor ? normalizeLang(autor) : (erkannt.lang !== 'unknown' ? erkannt.lang : 'en');
+}
+
+/**
+ * Wählt zwischen der kontextreichen und der kontextlosen Übersetzung, wenn
+ * die Polaritäts-Wache (siehe translateMessage(), polaritaet.ts) beide
+ * parallel angefordert hat. Widersprechen sich beide messbar in der
+ * Polarität, gewinnt die kontextlose Fassung. Schlägt eine Seite fehl
+ * (unübersetzt/noop), zählt — falls möglich — die andere; ein Widerspruch
+ * lässt sich ohnehin nur beurteilen, wenn beide Seiten echten Text tragen.
+ */
+function waehleBeiPolaritaetswache(
+  mitKontext: TranslateOutcome, ohneKontext: TranslateOutcome, zielsprache: string,
+): TranslateOutcome {
+  const mitBrauchbar = !mitKontext.unuebersetzt && !mitKontext.noop;
+  const ohneBrauchbar = !ohneKontext.unuebersetzt && !ohneKontext.noop;
+  if (mitBrauchbar && ohneBrauchbar && polaritaetsWiderspruch(ohneKontext.text, mitKontext.text, zielsprache)) {
+    return ohneKontext;
+  }
+  if (!mitBrauchbar && ohneBrauchbar) return ohneKontext;
+  return mitKontext;
 }
 
 export async function translateMessage(
@@ -899,11 +1186,17 @@ export async function translateMessage(
 ): Promise<TranslationView | null> {
   const target = normalizeLang(targetLang);
   const roh = db.get<MessageRow>(
-    'SELECT id, channel_id, user_id, text, source_lang, deleted_at FROM messages WHERE id = ?', messageId,
+    'SELECT id, channel_id, user_id, text, source_lang, deleted_at, created_at FROM messages WHERE id = ?', messageId,
   );
   if (!roh || roh.deleted_at) return null;
   // In der Tabelle liegt nur das Chiffrat — ab hier wird mit Klartext gearbeitet.
   const msg = { ...roh, text: entschluesseln(roh.text) };
+  /* Rückhalt, kein Ersatz: der Aufrufer (ws/gateway.ts) übersetzt nie aus
+     einem vertraulichen Kanal (istE2EChiffrat(message.text) dort, siehe
+     Auftrag). Diese Prüfung greift am Inhalt und fängt damit auch jeden
+     künftigen Aufrufer, der das vergisst — genau das Muster aus
+     services/ai.ts (zeile()). */
+  if (istE2EChiffrat(msg.text)) return null;
 
   const hash = sha1(msg.text);
 
@@ -922,14 +1215,165 @@ export async function translateMessage(
     }
   }
 
-  const outcome = await translate({
-    text: msg.text,
-    targetLang: target,
-    sourceLang: msg.source_lang ?? quellspracheSchaetzen(msg.text, msg.user_id),
-    context: opts.context ?? null,
-    skipCache: opts.force,
-    messwerte: true,
-  });
+  /* siehe verlauf.ts — opts.context (channelContext() aus ws/gateway.ts) ist
+     bislang Kanalname/Thema/Zweck, nie eine vorherige Nachricht. Ergänzt,
+     nicht ersetzt: ws/gateway.ts ist für die Kanal-Metadaten-Zeile gerade
+     gesperrt (siehe Auftrag).
+
+     NUR für eine Zielsprache mit geprüfter Polaritäts-Wache
+     (ZIELSPRACHEN_MIT_GEPRUEFTER_WACHE oben) — WACHE ZUERST, DANN KONTEXT,
+     NICHT UMGEKEHRT (Entscheidung der Koordination). Der gemeldete Fehler
+     entsteht, wenn eine elliptische Absage auf Gesprächskontext trifft; das
+     hängt an nichts, was mit der Zielsprache zu tun hat, nur die Prüfbarkeit
+     ändert sich von Sprache zu Sprache. Kontext an eine Zielsprache OHNE
+     geprüfte Wache zu geben, hieße also denselben Fehler ungeprüft
+     auszuliefern statt ihn zu vermeiden.
+
+     Für jede andere Zielsprache bleibt `verlauf` deshalb null, und ALLES
+     Folgende in dieser Funktion — kurzUndMitVerlauf, die Wache selbst —
+     kommt dann gar nicht zum Tragen: ein einzelner Aufruf mit den
+     Kanal-Metadaten als einzigem Kontext, exakt der Stand vor jeder
+     Kontext-Änderung. Kein Vorteil, aber auch kein neues Risiko. */
+  const verlauf = ZIELSPRACHEN_MIT_GEPRUEFTER_WACHE.includes(target)
+    ? verlaufAlsKontext(verlaufVorNachricht(msg.channel_id, msg.created_at, msg.id))
+    : null;
+  const kontext = kontextZusammenfuehren(opts.context, verlauf);
+
+  /* translation_memory cacht nach (Anbieter, Sprachen, maskierter Text) —
+     Kontext ist NICHT Teil des Schlüssels (tmKey oben, unverändert: ein
+     Schlüssel je Kontext zerschlagen hätte den Speicher genau für die
+     kurzen, oft wiederholten Phrasen, für die er am meisten spart — "ok",
+     "danke", "np" brauchen ihn nicht neu, egal in welchem Gespräch).
+     Für eine KURZE Nachricht MIT echtem Gesprächsverlauf gilt die Abwägung
+     umgekehrt: "kein Problem", "geht klar", "passt" wiederholen sich
+     wortgleich quer durch viele verschiedene Gespräche, und gerade dort
+     hängt die richtige Übersetzung am Kontext (siehe Auftrag, Beispiel
+     "mache ich kein problem"). Ein Treffer aus einem ANDEREN Gespräch —
+     ohne oder mit anderem Kontext entstanden — würde die Kontext-Ergänzung
+     oben für genau die Fälle wirkungslos machen, für die sie gebaut wurde.
+     Deshalb hier derselbe Weg wie bei einer erzwungenen Neuübersetzung
+     (skipCache) — nur für diese enge Randbedingung: kurz UND Verlauf
+     vorhanden. Für alles andere (die weit überwiegende Mehrheit: längere
+     Nachrichten oder keine vorherige Nachricht im Kanal) bleibt der
+     Modellaufruf so selten wie vorher. */
+  const kurzUndMitVerlauf = Boolean(verlauf) && woerter(msg.text).length <= KURZTEXT_WOERTER_SCHWELLE;
+  const sourceLang = msg.source_lang ?? quellspracheSchaetzen(msg.text, msg.user_id);
+
+  /* Reine Kennzahl — siehe METRIK_* oben. METRIK_UEBERSETZUNGEN_GESAMT zählt
+     jede frische Übersetzungs-Entscheidung (nach dem Cache-Treffer weiter
+     oben), in jeder Zielsprache. METRIK_KURZ_MIT_VERLAUF zählt, wie oft
+     kurzUndMitVerlauf zutrifft — und misst damit den tatsächlichen Anteil
+     der HEUTE AKTIVEN (also: Englisch-)Bevölkerung, NICHT, wie groß sie
+     wäre, gäbe es die Wache schon für jede Sprache: `verlauf` ist für jede
+     andere Zielsprache absichtlich null (siehe oben), also ist
+     kurzUndMitVerlauf dort ebenfalls immer falsch, ganz unabhängig davon,
+     ob echter Gesprächsverlauf vorläge. Der Quotient beider Zahlen
+     beantwortet also "wie oft zahlen wir heute die zweite Anfrage", nicht
+     "wie groß wäre die Bevölkerung über alle Sprachen hinweg". */
+  metrikHochzaehlen(METRIK_UEBERSETZUNGEN_GESAMT);
+  if (kurzUndMitVerlauf) metrikHochzaehlen(METRIK_KURZ_MIT_VERLAUF);
+
+  /* Polaritäts-Wache (siehe polaritaet.ts, Auftrag der Koordination).
+     Gemessen (scripts/polaritaet-messen.mjs, 216 Läufe + Rückfall-Kontrolle):
+     "lass mal lieber" nach einem Vorschlag kippt mit Kontext zuverlässig von
+     einer Absage zu "Let's just do it live" — flüssig, plausibel, falsch
+     herum. Eine Anweisungszeile ("Polarität hat Vorrang") schloss das NICHT
+     und kostete stattdessen den einen sauber belegten Gewinn der
+     Kontext-Ergänzung (den "geht klar"-Fall). Deshalb: nicht verhindern,
+     erkennen. Nur für Englisch (polaritaetsWiderspruch() ist nur dafür
+     geprüft — für jede andere Zielsprache bleibt es beim einfachen Aufruf).
+
+     Zwei Aufrufe GLEICHZEITIG (Promise.all — auf dem Pi gemessen rund
+     1,1 s statt 1,5 s nacheinander, gegenüber rund 0,7-1,0 s für einen
+     einzelnen Aufruf; siehe Bericht). Widersprechen sich die beiden
+     Ergebnisse in der Polarität, gewinnt die kontextlose Fassung — ihr
+     Fehlerbild ist eine Übersetzung, die eine lesende Person hinterfragt
+     ("I'm not making a problem" klingt komisch), nicht eine flüssige
+     Anweisung, die falsch herum ist.
+
+     skipWrite bei der kontextreichen Fassung: ihr Ergebnis gilt nur für
+     DIESES Gespräch, aber translation_memory cacht ohne Kontext im
+     Schlüssel (tmKey oben) — ohne skipWrite würde ein Wettlauf zwischen
+     den beiden PARALLELEN Aufrufen hier entscheiden, welche der beiden
+     Fassungen ein ganz ANDERES Gespräch später aus dem geteilten Speicher
+     bekäme. Die kontextlose Fassung bleibt dagegen teilbar — genau der
+     Aufruf, den es vor der ersten Kontext-Änderung gab.
+
+     Frühere Fassung gab denselben `kontext` (mit echtem Gesprächsverlauf
+     drin) auch unten im else-Zweig weiter — für jede LANGE Nachricht mit
+     Verlauf, für die kurzUndMitVerlauf() nicht gilt — und schaltete
+     folgerichtig auch dort skipWrite scharf. Das drehte translation_memory
+     für JEDE englische Nachricht mit Verlauf ab, unabhängig von der Länge
+     (siehe Auftrag, Fund 7): Der Gewinn der Kontext-Ergänzung ist aber nur
+     für die enge Randbedingung oben gemessen (kurz UND Verlauf, 216 Läufe,
+     scripts/polaritaet-messen.mjs) — für lange Nachrichten liegt dazu keine
+     Messung vor, und eine lange, in sich abgeschlossene Nachricht ist
+     ohnehin nicht die elliptische Absage, an der Kontext hier etwas dreht.
+     Der else-Zweig bekommt deshalb wieder nur die Kanal-Metadaten
+     (`opts.context`) als Kontext — der Stand vor der Verlauf-Ergänzung,
+     ungemessen blieb ungeändert. Ohne echten Gesprächsverlauf im Kontext
+     ist die Übersetzung dort wieder teilbar, also kein skipWrite nötig:
+     die Korrektheitsgarantie (eine mit Kontext erzeugte Übersetzung darf
+     nie ohne diesen Kontext wieder ausgeliefert werden) bleibt gewahrt,
+     weil dort schlicht kein Kontext mehr hineingerät, der sie verletzen
+     könnte. */
+  const mitWache = kurzUndMitVerlauf && ZIELSPRACHEN_MIT_GEPRUEFTER_WACHE.includes(target);
+
+  let outcome: TranslateOutcome;
+  if (mitWache) {
+    const [mitKontext, ohneKontext] = await Promise.all([
+      translate({
+        text: msg.text, targetLang: target, sourceLang, context: kontext,
+        skipCache: true, skipWrite: true, messwerte: true,
+      }),
+      translate({
+        text: msg.text, targetLang: target, sourceLang, context: opts.context ?? null,
+        skipCache: opts.force, messwerte: true,
+      }),
+    ]);
+    outcome = waehleBeiPolaritaetswache(mitKontext, ohneKontext, target);
+  } else {
+    // kurzUndMitVerlauf ist hier immer falsch (sonst wäre mitWache wahr,
+    // siehe oben) — Verlauf im Kontext bleibt also auf den if-Zweig
+    // beschränkt, siehe Begründung oben. Deshalb hier bewusst
+    // `opts.context` statt `kontext`, und kein skipWrite.
+    outcome = await translate({
+      text: msg.text,
+      targetLang: target,
+      sourceLang,
+      context: opts.context ?? null,
+      skipCache: opts.force,
+      messwerte: true,
+    });
+  }
+
+  /* Zwischen dem deleted_at-Check ganz oben und hier liegt ein `await` — bei
+     einem Cache-Fehlschlag geht der zum Übersetzungsanbieter und zurück,
+     keine Kleinigkeit. In dieser Lücke kann deleteMessage() (services/
+     messages.ts) durchlaufen: es setzt deleted_at synchron und ruft dabei
+     dropMessageTranslations(messageId) auf — die findet HIER, in diesem
+     Moment, noch keine Zeile (die INSERT unten ist ja noch nicht passiert)
+     und ist darum ein No-op. Ohne diese zweite Prüfung würde der Rest der
+     Funktion die Löschung schlicht nicht bemerken: erst schriebe sie die
+     erkannte Ausgangssprache auf die gelöschte Zeile, dann — das eigentliche
+     Problem — den vollen Klartext der gelöschten Nachricht per INSERT zurück
+     in message_translations UND translation_memory, obwohl deleted_at längst
+     gesetzt ist. Per Reproduktion bestätigt (siehe Auftrag): ohne diese
+     Prüfung bleibt genau das stehen.
+     Deshalb hier noch einmal denselben Zustand nachsehen, nicht dem
+     msg-Snapshot von vor dem Warten vertrauen — und bei Treffer derselbe
+     frühe Ausstieg wie ganz oben, denn ab hier lohnt sich kein Schreiben
+     mehr. outcome.memoryKey (falls translate() dabei einen neuen
+     Satz-Cache-Eintrag in translation_memory angelegt oder einen
+     bestehenden getroffen hat) bleibt dabei unangetastet: ein frischer
+     Eintrag steht mit verweise=0 da, weil ihn keine message_translations-
+     Zeile referenziert — derselbe, dokumentiert normale Zustand wie bei
+     Umfragen/Kanalangaben, kein Aufruf von tmVerweiseNachrechnen() nötig,
+     um das nachzuziehen. Ein bereits bestehender Treffer bleibt exakt bei
+     dem Verweiszähler, den die ANDEREN, weiter existierenden Nachrichten
+     ihm zurecht geben — auch den fasst dieser Ausstieg nicht an. */
+  const rohJetzt = db.get<{ deleted_at: number | null }>('SELECT deleted_at FROM messages WHERE id = ?', messageId);
+  if (!rohJetzt || rohJetzt.deleted_at) return null;
 
   // Hat das Modell die Ausgangssprache bestimmt, wo wir unsicher waren?
   // Dann festhalten — davon profitieren alle weiteren Empfänger und die Suche.
@@ -1111,9 +1555,11 @@ export function tmVerweiseNachrechnen(keys: Iterable<string | null | undefined>)
  * sieht das als Warnhinweis.
  */
 export async function roundTrip(messageId: string, targetLang: string): Promise<{ backTranslation: string; similarity: number } | null> {
-  const roh = db.get<MessageRow>('SELECT id, channel_id, user_id, text, source_lang, deleted_at FROM messages WHERE id = ?', messageId);
+  const roh = db.get<MessageRow>('SELECT id, channel_id, user_id, text, source_lang, deleted_at, created_at FROM messages WHERE id = ?', messageId);
   if (!roh || roh.deleted_at) return null;
   const msg = { ...roh, text: entschluesseln(roh.text) };
+  // Rückhalt, kein Ersatz — siehe derselbe Zeilenkommentar in translateMessage() oben.
+  if (istE2EChiffrat(msg.text)) return null;
   const gespeichert = db.get<{ text: string }>(
     'SELECT text FROM message_translations WHERE message_id = ? AND lang = ?', messageId, normalizeLang(targetLang),
   );
@@ -1129,6 +1575,21 @@ export async function roundTrip(messageId: string, targetLang: string): Promise<
     sourceLang: normalizeLang(targetLang),
     skipCache: true,
   });
+
+  /* Dieselbe Lücke wie oben in translateMessage() (siehe dortiger
+     Kommentar), nur ohne eigenen Schreibzugriff: roundTrip() legt selbst
+     nichts in message_translations/translation_memory ab, gibt sein
+     Ergebnis aber direkt an ws/gateway.ts zurück, das es 1:1 über die
+     Leitung schickt (t: 'roundtrip'). Fällt deleteMessage() in dieses
+     `await`, wäre der zurückgegebene Klartext sonst das Letzte, was noch
+     verschickt würde, nachdem deleted_at längst gesetzt ist. Darum hier,
+     symmetrisch zum Guard ganz oben, noch ein Blick, bevor überhaupt ein
+     Ergebnis entsteht — ein null hier ist für den Aufrufer kein
+     Sonderfall, roundTrip() lieferte den ohnehin schon (siehe oben:
+     „keine Übersetzung vorhanden"). */
+  const rohJetzt = db.get<{ deleted_at: number | null }>('SELECT deleted_at FROM messages WHERE id = ?', messageId);
+  if (!rohJetzt || rohJetzt.deleted_at) return null;
+
   // Dieselbe Messlatte wie bei der Echo-Erkennung — eine Ähnlichkeit, ein Maß.
   return { backTranslation: back.text, similarity: wortAehnlichkeit(msg.text, back.text) };
 }
@@ -1214,7 +1675,9 @@ export async function translatePoll(
 ): Promise<PollView | null> {
   const target = normalizeLang(targetLang);
 
-  const pollRoh = db.get<{ question: string }>('SELECT question FROM polls WHERE id = ?', pollId);
+  const pollRoh = db.get<{ question: string; created_by: string }>(
+    'SELECT question, created_by FROM polls WHERE id = ?', pollId,
+  );
   if (!pollRoh) return null;
   const poll = { question: entschluesseln(pollRoh.question) };
   const optionen = db.all<{ id: string; text: string }>(
@@ -1235,16 +1698,20 @@ export async function translatePoll(
     }
   }
 
-  // Die Ausgangssprache einmal an der Frage bestimmen und für alle Antworten
-  // übernehmen. Einzeln betrachtet ist "Ja, sehr" zu kurz, um erkannt zu
-  // werden — die Antwort bliebe dann als Einzige stehen.
-  let quellSprache = opts.sourceLang ?? null;
+  /* Die Ausgangssprache einmal an der Frage bestimmen und für alle Antworten
+     übernehmen. Einzeln betrachtet ist "Ja, sehr" zu kurz, um erkannt zu
+     werden — die Antwort bliebe dann als Einzige stehen.
+
+     Ohne ausdrückliche Angabe ging das bisher als `sourceLang: null` an
+     translate() durch, das intern ungeprüft rät (siehe SPRACH_SCHWELLE) —
+     bei einer knappen Frage ohne Anhaltspunkte reichte das für ein falsches
+     "englisch", stumm über das ganze Ergebnis: dieselbe (falsche) Sprache
+     galt dann für jede Antwortmöglichkeit. Reicht die Erkennung nicht, gilt
+     jetzt die Sprache der Person, die die Umfrage angelegt hat. */
+  const quellSprache = opts.sourceLang ?? erkennungOderAutorensprache(poll.question, pollRoh.created_by);
   const frageErgebnis = await translate({
     text: poll.question, targetLang: target, sourceLang: quellSprache, skipCache: opts.force,
   });
-  if (!quellSprache && frageErgebnis.sourceLang && frageErgebnis.sourceLang !== 'unknown') {
-    quellSprache = frageErgebnis.sourceLang;
-  }
 
   const uebersetze = async (text: string): Promise<string | null> => {
     const ergebnis = await translate({
@@ -1318,8 +1785,11 @@ export async function translateChannel(
   opts: { force?: boolean } = {},
 ): Promise<ChannelView | null> {
   const target = normalizeLang(targetLang);
-  const kanal = db.get<{ name: string; topic: string | null; purpose: string | null; kind: string }>(
-    'SELECT name, topic, purpose, kind FROM channels WHERE id = ?', channelId,
+  const kanal = db.get<{
+    name: string; topic: string | null; purpose: string | null; kind: string;
+    primary_language: string | null; created_by: string;
+  }>(
+    'SELECT name, topic, purpose, kind, primary_language, created_by FROM channels WHERE id = ?', channelId,
   );
   if (!kanal || kanal.kind === 'dm') return null;
 
@@ -1337,9 +1807,21 @@ export async function translateChannel(
     }
   }
 
+  /* Name/Thema/Zweck gingen bisher mit `sourceLang: null` an translate() —
+     die interne Erkennung dort prüft ihre eigene Zuversicht nicht (siehe
+     SPRACH_SCHWELLE): ein kurzes, hinweisfreies Thema landete als "englisch"
+     und blieb bei Zielsprache Englisch fälschlich unübersetzt stehen, oder
+     bekam bei jeder anderen Zielsprache eine falsche Ausgangssprache
+     vorgesetzt. Ist eine Sprache für den Kanal ausdrücklich eingetragen
+     (primary_language, in den Kanaleinstellungen wählbar), gilt die immer —
+     sie ist eine bewusste Angabe, keine Vermutung. Sonst zählt die Sprache
+     der Person, die den Kanal angelegt hat, wenn die Erkennung selbst nicht
+     reicht. */
+  const quellSprache = kanal.primary_language ? normalizeLang(kanal.primary_language) : null;
   const uebersetze = async (text: string | null): Promise<string | null> => {
     if (!text?.trim()) return null;
-    const ergebnis = await translate({ text, targetLang: target, sourceLang: null });
+    const sourceLang = quellSprache ?? erkennungOderAutorensprache(text, kanal.created_by);
+    const ergebnis = await translate({ text, targetLang: target, sourceLang });
     return ergebnis.noop ? null : ergebnis.text;
   };
 
@@ -1366,4 +1848,96 @@ export async function translateChannel(
     channelId, target, verschluesseln(JSON.stringify(daten)), hash, provider.name, Date.now(),
   );
   return { lang: target, ...daten, provider: provider.name };
+}
+
+/* ── Änderungslisten von Fassungen übersetzen ────────────────────
+   Was neu ist ("release notes"), tippt frei ein, wer veröffentlicht — bisher
+   ging der deutsche Wortlaut unverändert an jede Person, egal welche Sprache
+   ihre Oberfläche zeigt (UpdatePanel.tsx, UpdateBanner.tsx, die
+   Serverauszeit-Ankündigung in ws/gateway.ts und die Download-Seite lesen
+   alle denselben `notes`-Text). Derselbe Aufbau wie bei Kanälen: ein
+   Zwischenspeicher je (Fassung, Zielsprache) für den schnellen, synchronen
+   Weg — und eine Funktion, die bei einer Lücke wirklich übersetzt und
+   ablegt. Anders als beim Kanalnamen ist hier nichts technisch daran
+   gebunden: der ganze Text darf übersetzt werden. */
+
+/** Bereits übersetzte Änderungsliste aus dem Zwischenspeicher — ohne Netzzugriff. */
+export function cachedReleaseNotes(platform: string, targetLang: string): string | null {
+  const target = normalizeLang(targetLang);
+  const row = db.get<{ payload: string }>(
+    'SELECT payload FROM release_translations WHERE platform = ? AND lang = ?',
+    platform, target,
+  );
+  if (!row) return null;
+  try { return entschluesseln(row.payload); } catch { return null; }
+}
+
+/**
+ * Änderungsliste einer Fassung in eine Zielsprache bringen und ablegen.
+ *
+ * Läuft im Hintergrund, nie im Antwortpfad einer Anfrage: wer gerade prüft,
+ * ob es ein Update gibt, soll darauf nicht warten müssen — siehe die
+ * Aufrufer in http/routes.ts und ws/gateway.ts, die alle sofort mit dem
+ * Original antworten und diese Funktion nur zum Nachfüllen des
+ * Zwischenspeichers anstoßen, ohne auf sie zu warten.
+ *
+ * Liefert null, wenn nichts zu übersetzen war (keine Notizen), der Text
+ * schon in der Zielsprache steht, oder die Übersetzung gerade nicht
+ * gelingt (Pi nicht erreichbar, Anbieter ausgetauscht, …) — in jedem dieser
+ * Fälle bleibt der Zwischenspeicher unangetastet und der Aufrufer zeigt das
+ * Original, statt eine leere oder falsche Übersetzung abzulegen. Ein
+ * Fehlschlag wird also NIE dauerhaft gemerkt: der nächste Aufruf (nächste
+ * Prüfung, nächster Seitenaufruf) versucht es einfach wieder — genau wie
+ * translateChannel() es für Kanalangaben schon tut.
+ */
+export async function translateReleaseNotes(
+  platform: string,
+  targetLang: string,
+  opts: { force?: boolean } = {},
+): Promise<string | null> {
+  const target = normalizeLang(targetLang);
+  const zeile = db.get<{ notes: string | null; published_by: string }>(
+    'SELECT notes, published_by FROM releases WHERE platform = ?', platform,
+  );
+  if (!zeile?.notes?.trim()) return null;
+
+  const hash = sha1(zeile.notes);
+  if (!opts.force) {
+    const cached = db.get<{ payload: string; source_hash: string; provider: string }>(
+      'SELECT payload, source_hash, provider FROM release_translations WHERE platform = ? AND lang = ?',
+      platform, target,
+    );
+    if (cached && cached.source_hash === hash && cached.provider === provider.name) {
+      try { return entschluesseln(cached.payload); } catch { /* fällt durch, wird neu übersetzt */ }
+    }
+  }
+
+  /* Die Quellsprache ist nicht garantiert Deutsch — wer veröffentlicht tippt
+     frei. Vorher ging deshalb `sourceLang: null` an translate() durch, dessen
+     eigene Erkennung ihre Zuversicht nicht prüft (SPRACH_SCHWELLE): genau der
+     Fall, für den diese Funktion heute (22.08.2026) angelegt wurde — eine
+     kurze, deutsche Änderungsliste ("Fehler beim Login behoben") hat kaum
+     hinweisträchtige Wörter und wäre als "englisch" erkannt worden, damit bei
+     Zielsprache Englisch fälschlich NOOP geblieben und bei jeder anderen
+     Sprache mit einer falschen Ausgangssprache im Prompt gelandet — beides
+     zeigt Kolleg*innen wieder den deutschen Text, den diese Funktion gerade
+     verhindern soll. Reicht die Erkennung nicht, gilt die Sprache der Person,
+     die veröffentlicht hat. */
+  const sourceLang = erkennungOderAutorensprache(zeile.notes, zeile.published_by);
+  const ergebnis = await translate({ text: zeile.notes, targetLang: target, sourceLang });
+  // noop heißt entweder "steht schon in der Zielsprache" oder "gerade nicht
+  // übersetzbar" (Pi offline, Modell schweigt, Echo) — in beiden Fällen ist
+  // das Original die richtige Anzeige, und es gibt nichts abzulegen.
+  if (ergebnis.noop) return null;
+
+  db.run(
+    `INSERT INTO release_translations (platform, lang, payload, source_hash, provider, created_at)
+     VALUES (?,?,?,?,?,?)
+     ON CONFLICT(platform, lang) DO UPDATE SET
+       payload = excluded.payload, source_hash = excluded.source_hash,
+       provider = excluded.provider, created_at = excluded.created_at`,
+    // Verschlüsselt wie jeder andere gespeicherte Text auch.
+    platform, target, verschluesseln(ergebnis.text), hash, provider.name, Date.now(),
+  );
+  return ergebnis.text;
 }

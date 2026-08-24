@@ -3,15 +3,15 @@ import { kennungVon } from '../util/abweisung.js';
 import {
   decode, encode, isSupportedLang, normalizeLang, regionFuerZeitzone, WS_PROTOCOL_VERSION,
   type ClientEvent, type Message, type ServerEvent, type Task, type TranslationView, type UserStatus,
-  type Vorschlag, type PostMeldung,
+  type Vorschlag, type PostMeldung, type StoredFile,
 } from '@stellium/shared';
 import { verifyToken } from '../auth.js';
 import { db } from '../db/index.js';
 import { config, pushConfigured } from '../config.js';
 import { newId } from '../util/id.js';
 import {
-  aiCapabilities, assistant, messwerteFuerEmpfaenger, messwerteRecordFuer, roundTrip, translate,
-  translateMessage, translatePoll, translateChannel,
+  aiCapabilities, assistant, cachedReleaseNotes, messwerteFuerEmpfaenger, messwerteRecordFuer, roundTrip,
+  translate, translateMessage, translatePoll, translateChannel, translateReleaseNotes,
 } from '../translation/index.js';
 import * as ai from '../services/ai.js';
 import * as praesenz from '../services/praesenz.js';
@@ -40,9 +40,12 @@ import * as files from '../services/files.js';
 import * as ideas from '../services/ideas.js';
 import * as vorschlaege from '../services/vorschlaege.js';
 import * as patreon from '../services/patreon.js';
+import * as paypal from '../services/paypal.js';
 import * as post from '../services/post.js';
 import * as partnerGruppen from '../services/post-partnergruppen.js';
+import * as postLernen from '../services/post-lernen.js';
 import * as postSichtung from '../services/post-sichtung.js';
+import * as verkaufBenachrichtigung from '../services/verkaufBenachrichtigung.js';
 import * as push from '../services/push.js';
 import * as wartung from '../services/wartung.js';
 import * as emojiVorschlaege from '../services/emoji-vorschlaege.js';
@@ -55,6 +58,13 @@ interface Session {
   userId: string | null;
   language: string;
   autoTranslate: boolean;
+  /** Der Kanal, den diese Sitzung gerade offen hat — gelesen von
+      deliverMessage() (öffentliche Kanäle an aktuelle Betrachter:innen) und
+      von prefs:update() (Sprachwechsel liefert den offenen Kanal neu aus).
+      Wird beim Verlassen/Ausblenden/Entfernen aus einem Kanal geleert
+      (offenenKanalVergessen(), siehe unten) — das ist Aufräumen, nicht die
+      eigentliche Garantie: die sitzt an den beiden Lesestellen selbst, die
+      die Mitgliedschaft jedes Mal frisch nachprüfen. */
   openChannelId: string | null;
   alive: boolean;
 }
@@ -71,6 +81,36 @@ function send(session: Session, ev: ServerEvent): void {
 
 function sendToUser(userId: string, ev: ServerEvent): void {
   for (const s of byUser.get(userId) ?? []) send(s, ev);
+}
+
+/**
+ * Die Ankündigung einer Serverauszeit an eine einzelne Sitzung — in deren
+ * Lesesprache, wenn schon vorhanden.
+ *
+ * Diese Notizen sind dieselben wie die der Server-Fassung selbst (die
+ * Ankündigung entsteht erst, NACHDEM die Fassung veröffentlicht ist — siehe
+ * server-setup/stellium-selbstupdate.sh), deshalb reicht derselbe
+ * Zwischenspeicher wie für /api/releases/check (siehe translation/index.ts).
+ * Fehlt eine Übersetzung noch, geht sofort das Original hinaus — eine
+ * Ankündigung, die auf eine Übersetzung wartet, käme zu spät, siehe
+ * Auftrag — und im Hintergrund wird eine übersetzte Fassung nachgereicht,
+ * sobald sie da ist, genau wie bei Kanälen (kanalUebersetzungNachreichen)
+ * und Umfragen (pollUebersetzungNachreichen) weiter unten.
+ *
+ * Die Sprache kommt über uiLanguageOf(), nicht über session.language: Jenes
+ * ist die Übersetzungssprache für Nachrichteninhalte, hier geht es um
+ * Oberflächentext — genau die Unterscheidung, die store.ts bei
+ * uiLanguageOf() trifft, und derselbe Weg wie in services/push.ts.
+ */
+function wartungMelden(session: Session, w: wartung.Wartung): void {
+  if (!session.userId) { send(session, { t: 'server:update', ...w, serverZeit: Date.now() }); return; }
+  const sprache = store.uiLanguageOf(session.userId);
+  const uebersetzt = w.notes ? cachedReleaseNotes('server', sprache) : null;
+  send(session, { t: 'server:update', ...w, notes: uebersetzt ?? w.notes, serverZeit: Date.now() });
+  if (!w.notes || uebersetzt !== null) return;
+  void translateReleaseNotes('server', sprache)
+    .then((notes) => { if (notes) send(session, { t: 'server:update', ...w, notes, serverZeit: Date.now() }); })
+    .catch((err) => console.error('[wartung]', (err as Error).message));
 }
 
 /** Für Ereignisse, die außerhalb des Gateways entstehen (z. B. HTTP-Uploads). */
@@ -180,6 +220,39 @@ function darfElementSehen(userId: string, channelId: string | null | undefined):
 }
 
 /**
+ * Wen geht eine Datei etwas an?
+ *
+ * `undefined` heißt „alle" — genau das, was broadcast() ohne Empfängerkreis
+ * tut. Sonst die Mitglieder des Kanals, an dem sie hängt.
+ *
+ * WARUM ZWEI QUELLEN FÜR EINE ANTWORT
+ * Die Grenze selbst kommt aus der Ablage: `files.fuerAlleSichtbar()` steht in
+ * services/files.ts direkt neben `listFiles()`, damit Lesen und Rundruf
+ * dieselbe Regel benutzen und nicht zwei — dort ist beschrieben, warum ein
+ * Verzeichnis, das beim Lesen dicht ist und beim Schreiben nicht, keine Zusage
+ * ist. Die NAMENSLISTE kommt von `empfaengerFuer()` oben, weil nur das Gateway
+ * weiß, wie ein Rundruf mit Kreis aussieht.
+ *
+ * Beide ziehen laut ihrer eigenen Beschreibung dieselbe Linie (kein Kanal oder
+ * ein offener Kanal heißt „alle"). Das `?? []` verlässt sich trotzdem nicht
+ * darauf: sagt die Ablage „nicht für alle" und die Empfängerliste gleichwohl
+ * „alle", weichen die beiden eines Tages voneinander ab — dann geht die
+ * Meldung an niemanden statt an jeden. Die Datei ist über `GET /api/files`
+ * weiterhin für die zu sehen, die sie sehen dürfen; ein Name, der bei
+ * Unbeteiligten aufblitzt, lässt sich dagegen nicht zurücknehmen. Von zwei
+ * möglichen Irrtümern der billigere.
+ *
+ * Für eine private Datei (huelle.art === 'konto') ist das hier nicht die
+ * richtige Frage — sie geht ausschließlich ihren Besitzer an. Die Aufrufer
+ * behandeln den Fall vorher; `fuerAlleSichtbar()` würde ihn zwar auch
+ * abfangen, aber zu „nur der Kanalkreis" statt zu „nur der Besitzer".
+ */
+function dateiKreis(datei: StoredFile): string[] | undefined {
+  if (files.fuerAlleSichtbar(datei)) return undefined;
+  return empfaengerFuer(datei.channelId) ?? [];
+}
+
+/**
  * Wer ein Element nach einem Umzug nicht mehr sehen darf.
  *
  * Zieht eine Aufgabe in einen privaten Kanal (oder eine Idee), verschwindet
@@ -230,6 +303,32 @@ function kanalElementeZuruecknehmen(channelId: string, userIds: string[]): void 
   }
 }
 
+/**
+ * `openChannelId` in allen Sitzungen dieser Person leeren, wenn sie gerade
+ * genau diesen Kanal "offen" hatten.
+ *
+ * Über alle Sitzungen der Person und nicht nur die aufrufende: wer den Kanal
+ * auf dem Handy verlässt, soll ihn nicht auf dem angemeldeten Laptop
+ * weiterhin als "offen" markiert haben — das Handy hat dort ja gar nichts
+ * getan.
+ *
+ * WICHTIG: das hier ist Aufräumen, nicht die Garantie. Die eigentliche
+ * Garantie gegen das Zustellen an Nicht-Mitglieder sitzt an den LESESTELLEN
+ * selbst (deliverMessage() prüft inzwischen die Kanalart, prefs:update()
+ * prüft die Mitgliedschaft frisch) — ein künftiger Weg aus einem Kanal, den
+ * diese Funktion nicht kennt, darf das Loch nicht wieder aufmachen, nur weil
+ * hier eine Fundstelle vergessen wurde. Aufgerufen wird sie trotzdem an jeder
+ * bekannten Stelle: sauberer Zustand ist billiger als sich ausschließlich auf
+ * die Lesestellen zu verlassen, und ein `deliverMessage()`, das für einen
+ * privaten Kanal aus genau diesem Grund nie wieder über `openChannelId`
+ * zustellt, braucht diese Sitzungen ohnehin nicht mehr als "offen" stehen.
+ */
+function offenenKanalVergessen(userId: string, channelId: string): void {
+  for (const s of byUser.get(userId) ?? []) {
+    if (s.openChannelId === channelId) s.openChannelId = null;
+  }
+}
+
 /** Der Kanal einer Nachricht — und ob man ihn sehen darf. */
 function darfNachrichtLesen(userId: string, messageId: string): boolean {
   const row = database.get<{ channel_id: string }>(
@@ -255,22 +354,26 @@ function broadcast(ev: ServerEvent, userIds?: Iterable<string>): void {
  */
 function fail(
   session: Session, code: string | undefined, message: string,
-  requestId?: string, werte?: Record<string, string>,
+  requestId?: string, werte?: Record<string, string>, clientId?: string,
 ): void {
-  send(session, { t: 'error', code, message, werte, requestId });
+  send(session, { t: 'error', code, message, werte, requestId, clientId });
 }
 
 /**
  * Rechteprüfung. Die Oberfläche blendet Dinge zwar aus, aber verlassen darf
  * man sich nur auf das hier — ein eigener Client könnte alles schicken.
+ *
+ * `clientId` ist optional und geht nur bei `message:send` mit — dort weist
+ * die abgelehnte Nachricht sich selbst zu, statt dass der Client raten muss
+ * (siehe `error`-Ereignis in packages/shared/src/protocol.ts).
  */
-function darf(session: Session, permission: PermissionKey): boolean {
+function darf(session: Session, permission: PermissionKey, clientId?: string): boolean {
   if (!session.userId) return false;
   if (may(session.userId, permission)) return true;
   const info = PERMISSIONS.find((p) => p.key === permission);
   const name = info?.labelDe ?? permission;
   fail(session, 'fehler.keinRechtName', `Dafür fehlt dir das Recht "${name}".`,
-    undefined, { recht: name });
+    undefined, { recht: name }, clientId);
   return false;
 }
 
@@ -336,12 +439,14 @@ function chiffratNoetig(
   texte: (string | null | undefined) | (string | null | undefined)[],
   hinweis: string = VERTRAULICH_NOETIG,
   kennung = 'fehler.vertraulichNoetig',
+  // Nur `message:send` gibt das mit — siehe Begründung an `darf()` oben.
+  clientId?: string,
 ): boolean {
   if (!channelId || !vertraulich.istVertraulich(channelId)) return false;
   const alle = Array.isArray(texte) ? texte : [texte];
   // Eine leere Liste ist kein Nachweis, sondern das Fehlen eines Nachweises.
   if (alle.length > 0 && alle.every((t) => istE2EChiffrat(t))) return false;
-  fail(session, kennung, hinweis);
+  fail(session, kennung, hinweis, undefined, undefined, clientId);
   return true;
 }
 
@@ -499,9 +604,23 @@ function channelContext(channelId: string): string | null {
  * geduldig auf `message:attach` — oder verwaist harmlos, bis jemand sie
  * wegwirft (siehe messages.discardOrphanAttachment).
  *
+ * Aber: "verschwindet binnen Sekunden bis Minuten" gilt nur, wenn message:attach
+ * oder message:attachGiveUp auch wirklich ankommen. Bricht die Verbindung ab,
+ * während der Upload noch läuft — App beendet, Auto-Updater dazwischen,
+ * Rechner schläft ein —, kommt keins von beiden je an. Ohne eigenes Verfallsdatum
+ * überlebte der Eintrag dann bis zum nächsten Serverneustart, und jede Person,
+ * die die Nachricht schon zugestellt bekommen hat, sähe "wird hochgeladen" auf
+ * ewig weiterdrehen — nur die sendende Person selbst nicht: Kanalverläufe geben
+ * `pendingAttachments` gar nicht erst mit (siehe `ausstehendListe` unten, benutzt
+ * nur für den gezielten `message:updated`-Rundruf), ihre eigene Ansicht bliebe
+ * also sauber. Genau das macht den Fehler für Betroffene undiagnostizierbar.
+ *
+ * `seit` trägt deshalb jeder Eintrag mit — siehe `PLATZHALTER_FRIST_MS` und
+ * `ausstehendeAnhaengeAufraeumen()` unten für die Verfallsregel selbst.
+ *
  * Nachricht-Kennung -> temporäre Kennung -> was der Platzhalter zeigen soll.
  */
-const ausstehendeAnhaenge = new Map<string, Map<string, { name: string; mime: string; uploaderId: string }>>();
+const ausstehendeAnhaenge = new Map<string, Map<string, { name: string; mime: string; uploaderId: string; seit: number }>>();
 
 /** Was von einer Nachricht noch aussteht — für den nächsten `message:updated`-Rundruf. */
 function ausstehendListe(messageId: string): { tempId: string; name: string; mime: string }[] {
@@ -511,14 +630,115 @@ function ausstehendListe(messageId: string): { tempId: string; name: string; mim
 }
 
 /**
+ * Wie lange ein Platzhalter höchstens leben darf, bevor er als verwaist gilt.
+ *
+ * Muss länger sein als jeder echte Upload dauern kann — sonst risse diese
+ * Aufräumroutine gerade die Uploads ab, die noch gutgehen, und das wäre
+ * schlimmer als der Fehler, den sie beheben soll. Die längste ehrliche
+ * Laufzeit hängt an packages/desktop/src/net/api.ts (uploadSchnell): Dateien
+ * über 8 MB gehen in 4-MB-Teilen zu je bis zu vier gleichzeitig, jeder Teil
+ * mit eigener 5-Minuten-XHR-Frist (UPLOAD_XHR_FRIST_MS dort). Bei der
+ * Standard-Obergrenze von 50 MB (MAX_UPLOAD_MB) sind das höchstens 13 Teile —
+ * vier gleichzeitige Ströme brauchen dafür rechnerisch höchstens vier
+ * Runden. Bleibt jeder Teil knapp unter der 5-Minuten-Frist, ohne sie zu
+ * reißen (reißt sie, scheitert der Upload sofort komplett, und
+ * message:attachGiveUp kommt ohnehin), sind das bis zu 20 Minuten für eine
+ * Übertragung, die immer noch gutgeht. 30 Minuten geben darauf spürbaren
+ * Sicherheitsabstand, ohne einen wirklich abgebrochenen Platzhalter
+ * unbegrenzt leben zu lassen.
+ *
+ * Bewusst NICHT an das Schließen einer Sitzung gekoppelt: der XHR-Upload
+ * läuft unabhängig vom WebSocket, über eine eigene HTTP-Verbindung. Wer die
+ * App kurz verliert und neu verbindet — flackerndes WLAN, ein Neustart durch
+ * den Auto-Updater mitten in einer anderen Aktion —, hat einen weiterhin
+ * laufenden Upload, der am Ende ganz normal `message:attach` schickt. Ein
+ * harter Schnitt beim `close`-Ereignis der Sitzung würde genau diesen
+ * gesunden Fall canceln, nicht nur den kaputten.
+ */
+const PLATZHALTER_FRIST_MS = 30 * 60_000;
+
+/**
+ * Verwaiste Platzhalter aufräumen — Einträge, deren Upload nie ankam und die
+ * ihre Frist überschritten haben.
+ *
+ * Periodisch statt beim Lesen geprüft: anders als etwa bei einer Ablage, die
+ * bei jedem Zugriff frisch geprüft werden könnte, gibt es hier keine
+ * natürliche Lesestelle, an der ein Ablauf auffiele — die Empfänger:innen
+ * bekommen ihren Platzhalter einmalig per `message:updated`-Rundruf
+ * zugestellt, sie fragen ihn nie erneut ab (Kanalverläufe liefern
+ * `pendingAttachments` absichtlich nicht mit, siehe oben). Ohne einen aktiven
+ * Rundruf von hier aus bliebe der Kreisel bei ihnen stehen, ganz gleich, wie
+ * sauber die Map auf dem Server aussieht — deshalb derselbe Zustellweg wie
+ * bei message:attachGiveUp, nicht nur das Entfernen aus der Map.
+ *
+ * Exportiert, damit pruefungen/anhaenge-platzhalter-frist.mts sie auslösen
+ * kann, ohne echte 30 Minuten abzuwarten oder den Server dafür zu starten.
+ */
+export function ausstehendeAnhaengeAufraeumen(): number {
+  const jetzt = Date.now();
+  let entfernt = 0;
+  for (const [messageId, eintrag] of [...ausstehendeAnhaenge]) {
+    let uploaderId: string | undefined;
+    let veraendert = false;
+    for (const [tempId, w] of [...eintrag]) {
+      uploaderId ??= w.uploaderId;
+      if (jetzt - w.seit < PLATZHALTER_FRIST_MS) continue;
+      eintrag.delete(tempId);
+      entfernt++;
+      veraendert = true;
+    }
+    if (!eintrag.size) ausstehendeAnhaenge.delete(messageId);
+    if (!veraendert || !uploaderId) continue;
+
+    // Derselbe Rundruf wie bei message:attachGiveUp (siehe dort) — sonst
+    // dreht sich der Kreisel bei allen anderen weiter, obwohl der Server
+    // längst aufgeräumt hat.
+    const nachricht = store.getMessage(messageId, uploaderId);
+    if (!nachricht) continue; // Nachricht inzwischen weg — nichts mehr zuzustellen
+    broadcast(
+      { t: 'message:updated', message: { ...nachricht, pendingAttachments: ausstehendListe(messageId) } },
+      store.memberIds(nachricht.channelId),
+    );
+  }
+  return entfernt;
+}
+
+/**
+ * Nur für Prüfläufe: setzt „seit" eines einzelnen Platzhalters künstlich in
+ * die Vergangenheit, damit ein Testlauf nicht wirklich PLATZHALTER_FRIST_MS
+ * abwarten muss, um seinen Ablauf zu erzwingen. Rührt an nichts als diesem
+ * einen Eintrag — die Frist selbst bleibt unverändert.
+ */
+export function _platzhalterAlternLassenFuerPruefung(messageId: string, tempId: string, alterMs: number): void {
+  const eintrag = ausstehendeAnhaenge.get(messageId)?.get(tempId);
+  if (eintrag) eintrag.seit = Date.now() - alterMs;
+}
+
+/**
  * Nachricht ausliefern: erst sofort an alle (schnell), dann pro Zielsprache
  * genau einmal übersetzen und das Ergebnis nachschieben.
  */
 function deliverMessage(message: Message, senderClientId?: string): void {
   const recipients = new Set(store.memberIds(message.channelId));
-  // Öffentliche Kanäle: auch Nicht-Mitglieder, die gerade zuschauen
-  for (const s of sessions.values()) {
-    if (s.userId && s.openChannelId === message.channelId) recipients.add(s.userId);
+  const kanalDerNachricht = store.getChannel(message.channelId);
+  /* Öffentliche Kanäle: auch Nicht-Mitglieder, die gerade zuschauen — aber
+     NUR dort. Es fehlte hier lange die Artprüfung: `openChannelId` wird beim
+     Verlassen/Ausblenden/Entfernen zwar geleert (offenenKanalVergessen, siehe
+     oben), aber das ist Aufräumen, nicht die Garantie — ein künftiger Weg aus
+     einem Kanal, der das vergisst, hätte sonst dasselbe Loch wieder
+     aufgemacht: wer aus einem PRIVATEN Kanal entfernt wurde, aber ihn noch
+     als "offen" in der Sitzung stehen hatte, bekam jede neue Nachricht
+     weiter zugestellt, ganz ohne erneute Mitgliedsprüfung — bis er die App
+     neu startete. Für einen öffentlichen Kanal braucht es diese Prüfung
+     dagegen gar nicht: den darf ohnehin jede angemeldete Person sehen,
+     Mitglied oder nicht — genau das drückt die Artprüfung hier aus, nicht
+     mehr und nicht weniger. Das ist die eigentliche Garantie; die Leerung
+     oben ist nur Hygiene dafür, dass diese Schleife möglichst selten etwas
+     zu tun hat. */
+  if (kanalDerNachricht?.kind === 'public') {
+    for (const s of sessions.values()) {
+      if (s.userId && s.openChannelId === message.channelId) recipients.add(s.userId);
+    }
   }
 
   for (const uid of recipients) {
@@ -540,20 +760,31 @@ function deliverMessage(message: Message, senderClientId?: string): void {
      verhindert der Service Worker selbst (sw.js, Ereignis 'push') — nicht
      der Server, der die Sichtbarkeit eines Fensters nicht kennt. */
   if (!message.systemKind) {
-    const kanal = store.getChannel(message.channelId);
+    const kanal = kanalDerNachricht;
     const istDm = kanal?.kind === 'dm';
     const autor = store.getUser(message.userId);
     for (const uid of recipients) {
       if (uid === message.userId) continue;
       const dringend = istDm || message.mentionUserIds.includes(uid);
       if (!push.sollBenachrichtigen(uid, { channelId: message.channelId, dringend })) continue;
-      const titel = istDm ? (autor?.displayName ?? 'Neue Nachricht') : `#${kanal?.name || 'Kanal'}`;
+      // DM mit bekanntem Namen oder Kanalname: kein Übersetzungsfall, ein
+      // Eigenname bleibt in jeder Sprache derselbe. Nur der Rückfall ohne
+      // Namen braucht einen Code — 'toast.newMessage', derselbe Rückfall,
+      // den state/store.ts (notifyIfNeeded()) für dieselbe Lage schon zeigt.
+      const titel: push.PushTextfeld = !istDm
+        ? { text: `#${kanal?.name || 'Kanal'}` }
+        : autor
+          ? { text: autor.displayName }
+          : { text: 'Neue Nachricht', code: 'toast.newMessage' };
       // Vertraulicher Kanal: der Server kann den Klartext gar nicht lesen (er
       // hat ihn nie gesehen), also auch nichts Falsches verschicken — aber
       // ohne diese Abfrage stünde hier das Chiffrat selbst als "Vorschau".
-      const text = istE2EChiffrat(message.text)
-        ? 'Neue vertrauliche Nachricht'
-        : istDm ? message.text : `${autor?.displayName ?? '…'}: ${message.text}`;
+      // Derselbe Platzhaltertext wie im Frontend für dieselbe Lage:
+      // 'vertraulich.titel' steht in state/store.ts (notifyIfNeeded()) genau
+      // dann als Textkörper, wenn istE2EChiffrat() zutrifft.
+      const text: push.PushTextfeld = istE2EChiffrat(message.text)
+        ? { text: 'Vertraulicher Kanal', code: 'vertraulich.titel' }
+        : { text: istDm ? message.text : `${autor?.displayName ?? '…'}: ${message.text}` };
       void push.sendenAn(uid, { titel, text, kanalId: message.channelId, gruppe: message.channelId });
     }
   }
@@ -722,6 +953,20 @@ function setStatus(
   broadcast(ereignis);
 }
 
+/**
+ * `requestId` und `clientId` stehen jeweils nur auf einem Teil der
+ * ClientEvent-Vereinigung — der generische Fänger unten weiß beim Fang eines
+ * Wurfs nicht mehr, welche Ereignisart es war. Der `in`-Operator engt die
+ * Vereinigung typsicher auf die Varianten mit dem jeweiligen Feld ein, statt
+ * dass eine der beiden Kennungen als `any` durchgeschmuggelt werden muss.
+ */
+function requestIdVon(ev: ClientEvent): string | undefined {
+  return 'requestId' in ev ? ev.requestId : undefined;
+}
+function clientIdVon(ev: ClientEvent): string | undefined {
+  return 'clientId' in ev ? ev.clientId : undefined;
+}
+
 /* ── Verbindungsaufbau ────────────────────────────────────────── */
 
 export function handleConnection(socket: WebSocket): void {
@@ -767,7 +1012,14 @@ export function handleConnection(socket: WebSocket): void {
          nur ein Titel fehlt. Lieber genau und deutsch als übersetzt und falsch.
          Wer einen dieser Würfe auf abweisung() umstellt, macht ihn übersetzbar. */
       const { code, werte } = kennungVon(err);
-      fail(session, code, (err as Error).message, (ev as any).requestId, werte);
+      /* Wurf statt Rückgabe: die allermeisten Abweisungen aus
+         messages.createMessage() (leerer Text, zu lang, falscher Kanal für
+         den Anhang, …) verlassen case 'message:send' genau hier und nicht
+         über eines der fail()-Returns oben — ohne clientId bliebe die
+         optimistische Zeile beim Senden für immer als "wird gesendet"
+         stehen, denn nur ein error-Ereignis mit clientId räumt sie ab
+         (siehe markMessageFailed in packages/desktop/src/state/store.ts). */
+      fail(session, code, (err as Error).message, requestIdVon(ev), werte, clientIdVon(ev));
     });
   });
 
@@ -819,6 +1071,55 @@ async function authenticate(session: Session, ev: Extract<ClientEvent, { t: 'aut
     return;
   }
 
+  /* Ein Einmal-Passwort öffnet die Ereignisleitung nicht.
+   *
+   * Die Sperre gegen einen Ausweis, der nur aus einem Einmal-Passwort stammt,
+   * sitzt als Haken vor allen HTTP-Wegen (einrichtungsRiegel() in index.ts,
+   * dort steht die ausführliche Begründung). Ein preHandler deckt aber nur
+   * HTTP ab, und hier kommt DASSELBE Token noch einmal herein — über die
+   * Ereignisleitung. Ohne diese Zeilen wäre die eine Hälfte zu und die andere
+   * offen, und die offene ist die ergiebigere: gleich unten geht ein `ready`
+   * hinaus, und das trägt das gesamte Verzeichnis des Hauses — jedes Konto
+   * mit Anwesenheit, jeden sichtbaren Kanal, jeden Lesestand, jede vorgemerkte
+   * Nachricht. Danach ginge über dieselbe Leitung auch Lesen und Schreiben.
+   *
+   * Der Riegel steht bewusst VOR `session.userId = userId`: alles, was danach
+   * kommt, hält die Sitzung für angemeldet — die Aufnahme in `byUser`, die
+   * Anwesenheitsmeldung an die anderen, das `ready`. Eine Prüfung weiter
+   * unten wäre eine Prüfung nach der Auslieferung.
+   *
+   * Bewusst dieselbe Machart wie die drei Prüfungen darüber: melden, schließen,
+   * fertig. Kein Sonderzustand, keine halb angemeldete Sitzung — die wäre in
+   * der sicherheitsempfindlichsten Funktion dieser Datei genau die Art
+   * Zwischenstufe, aus der die nächste Lücke entsteht.
+   *
+   * DER PREIS, UND WARUM ER RICHTIG HERUM LIEGT
+   * Der Client baut die Leitung nach dem Anmelden sofort auf und verbindet nach
+   * einem Abbruch mit wachsendem Abstand neu (net/socket.ts, höchstens 20 s).
+   * Wer gerade seine Einrichtung ausfüllt, sieht davon nichts — App.tsx zeigt
+   * in diesem Zustand nur den Einrichtungsschirm, keine Verbindungsanzeige, und
+   * Setup.tsx kommt mit `POST /api/auth/setup` allein aus. Nach dem Abschließen
+   * steht die Leitung beim nächsten Versuch von selbst wieder, also spätestens
+   * nach 20 Sekunden; was in der Zwischenzeit entsteht (`prefs:update` aus
+   * updatePrefs/zeitzoneNachtragen), wartet in der Warteschlange von
+   * net/socket.ts und geht dann mit hinaus. Einmalig pro Konto, selbstheilend
+   * — gegen ein Verzeichnis des ganzen Hauses, das sich nicht zurückholen
+   * lässt, ist das der kleinere Preis. (Wegzubekommen wäre er mit einer Zeile
+   * in desktop/src/components/Setup.tsx: `socket.wake()` nach dem geglückten
+   * `api.setup()` setzt den Abstand zurück und verbindet sofort.)
+   *
+   * Ohne Kennung aus dem Wörterbuch, aus demselben Grund wie in index.ts: eine
+   * neue müsste in allen 22 Sprachen stehen. Der deutsche Rückfalltext genügt
+   * hier besonders gut, weil ihn im offiziellen Client niemand zu sehen
+   * bekommt — er ist für den Fremdclient gedacht, der wissen soll, warum. */
+  if (self.mustChangePassword) {
+    fail(session, undefined,
+      'Erst die Ersteinrichtung abschließen — mit einem Einmal-Passwort '
+      + 'öffnet dieser Zugang sonst nichts.');
+    session.socket.close();
+    return;
+  }
+
   session.userId = userId;
   session.language = normalizeLang(self.language);
   session.autoTranslate = self.autoTranslate;
@@ -859,13 +1160,7 @@ async function authenticate(session: Session, ev: Extract<ClientEvent, { t: 'aut
 
   // Steht eine Auszeit an, soll auch wer gerade erst kommt sie sehen.
   const auszeit = wartung.anstehend();
-  if (auszeit) {
-    send(session, {
-      t: 'server:update',
-      ...auszeit,
-      serverZeit: Date.now(),
-    });
-  }
+  if (auszeit) wartungMelden(session, auszeit);
 
   /* Ohne diese Zeile hielte der Leerlaufwächter unten den Zeitpunkt 0 für die
      letzte Handlung und stellte jeden sofort nach dem Anmelden auf abwesend. */
@@ -880,6 +1175,17 @@ async function authenticate(session: Session, ev: Extract<ClientEvent, { t: 'aut
      * der ehrliche Wert: die App ist ja gerade wieder da.
      */
     setStatus(userId, statusHaelt(userId) ? self.status : 'online');
+
+    /* Derselbe Anstoß wie in vertraulich:schluessel-melden (jemand fehlt
+       noch ein Notizpaket) — hier aber aus Sicht der besitzenden Person
+       selbst und bei jeder Rückkehr aus dem Offline-Zustand, nicht nur beim
+       einmaligen Schlüsselwechsel eines Mitglieds. Ohne diesen zweiten Weg
+       verpufft der Anstoß spurlos, wenn die besitzende Person gerade offline
+       war, als ihn jemand auslöste — siehe eigeneUnverpackteMitglieder()
+       für die ausführliche Begründung. */
+    for (const eintrag of notizen.eigeneUnverpackteMitglieder(userId)) {
+      sendToUser(userId, { t: 'notiz:pakete-fehlen', notizId: eintrag.notizId, userId: eintrag.userId });
+    }
   }
 
   // Kanalnamen und -themen in die Lesesprache bringen. Im Hintergrund, damit
@@ -957,6 +1263,103 @@ function minuten(w: unknown): number | null | undefined {
   return m >= 0 && m < 1440 ? m : undefined;
 }
 
+/* ── Bremse gegen unbegrenzte KI-Aufrufe ──────────────────────────
+ *
+ * Betroffen: compose:preview, translate:request, ai:catchup, ai:protocol,
+ * ai:ask, ai:extract-tasks — jeder dieser Wege ruft am Ende einen bezahlten
+ * Anbieter (Vorgabe groq, siehe config.ts, aktiverAnbieter()). `void
+ * handleEvent(...)` in handleConnection() oben wartet nicht auf die Antwort,
+ * bevor es das nächste Ereignis desselben Sockets annimmt — eine Sitzung
+ * kann also beliebig viele dieser Aufrufe hintereinander lospipelinen, ohne
+ * dass eine Antwort abgewartet würde. `darf(session,'ai.translate')` allein
+ * bremst das nicht: ein `readonly`-Konto trägt genau dieses eine Recht und
+ * ist automatisch Mitglied jedes offenen Kanals (besteht also `kanalZugang`
+ * überall).
+ *
+ * Dieselbe Bauart wie `versuche`/`zuVieleVersuche`/`versuchGezaehlt` in
+ * http/routes.ts (dort für Anmeldeversuche) — ein fester Zeitraum, ein
+ * Zähler je Schlüssel, kein drittes Muster daneben. Der Schlüssel ist hier
+ * die Benutzerkennung statt "Herkunft + Name": anders als bei einer
+ * anonymen HTTP-Route (siehe http/posteingang.ts, wo hinter cloudflared
+ * jede Anfrage von außen als 127.0.0.1 ankommt und nur ein einziger,
+ * globaler Eimer übrigbleibt) hat jede WebSocket-Sitzung ab der Anmeldung
+ * eine feste, geprüfte userId — dieselbe Kennung, mit der auch `darf()`
+ * schon rechnet.
+ *
+ * KI_GRENZE = 20 je Minute: eine Person, die aktiv komponiert (Vorschau je
+ * Tippause) oder den Assistenten mehrfach hintereinander befragt, kommt in
+ * einer normalen Arbeitsminute auf einen niedrigen einstelligen bis knapp
+ * zweistelligen Wert — zehn Kolleg:innen, die gleichzeitig arbeiten, stören
+ * sich damit nicht gegenseitig, jede hat ihren eigenen Zähler. Eine Sitzung,
+ * die das Pipelining oben ausnutzt, reißt die Grenze dagegen binnen weniger
+ * Millisekunden.
+ *
+ * force:true bei translate:request schaltet den Übersetzungs-Cache
+ * ausdrücklich ab (skipCache:true, siehe translation/index.ts) — jede so
+ * markierte Anfrage kostet also garantiert einen echten Modellaufruf, nie
+ * einen Treffer. Eine eigene, engere Grenze verhindert, dass eine Schleife
+ * genau diesen Weg wählt, um den gemeinsamen Topf schnell zu leeren, ohne
+ * dass es wie ein Missbrauch der anderen, cachefähigen KI-Wege aussieht.
+ */
+const kiAnfragen = new Map<string, { anzahl: number; bis: number }>();
+const KI_GRENZE = 20;
+const KI_FENSTER = 60_000;
+const kiForceAnfragen = new Map<string, { anzahl: number; bis: number }>();
+const KI_FORCE_GRENZE = 5;
+
+function ueberBremse(zaehler: Map<string, { anzahl: number; bis: number }>, grenze: number, schluessel: string): boolean {
+  const eintrag = zaehler.get(schluessel);
+  if (!eintrag) return false;
+  if (Date.now() > eintrag.bis) { zaehler.delete(schluessel); return false; }
+  return eintrag.anzahl >= grenze;
+}
+
+function bremseZaehlen(zaehler: Map<string, { anzahl: number; bis: number }>, fenster: number, schluessel: string): void {
+  const jetzt = Date.now();
+  const eintrag = zaehler.get(schluessel);
+  if (!eintrag || jetzt > eintrag.bis) zaehler.set(schluessel, { anzahl: 1, bis: jetzt + fenster });
+  else eintrag.anzahl += 1;
+  // Dieselbe Aufräumzeile wie bei `versuchGezaehlt` in http/routes.ts.
+  if (zaehler.size > 5000) {
+    for (const [k, w] of zaehler) if (jetzt > w.bis) zaehler.delete(k);
+  }
+}
+
+/** Abweisen, wenn diese Person die KI-Bremse für diese Minute schon erreicht hat. */
+function kiZugang(session: Session, requestId?: string): boolean {
+  const userId = session.userId!;
+  if (ueberBremse(kiAnfragen, KI_GRENZE, userId)) {
+    fail(session, 'fehler.kiUeberlastet',
+      'Zu viele KI-Anfragen kurz hintereinander — bitte kurz warten.', requestId);
+    return false;
+  }
+  bremseZaehlen(kiAnfragen, KI_FENSTER, userId);
+  return true;
+}
+
+/**
+ * Dieselbe Bremse, enger, für Anfragen, die den Übersetzungs-Cache
+ * ausdrücklich umgehen (translate:request mit force:true). Zusätzlich zur
+ * gemeinsamen Grenze oben, nicht statt ihr — kiZugang() bleibt daneben
+ * bestehen.
+ */
+function kiForceZugang(session: Session): boolean {
+  const userId = session.userId!;
+  if (ueberBremse(kiForceAnfragen, KI_FORCE_GRENZE, userId)) {
+    fail(session, 'fehler.kiUeberlastet',
+      'Zu viele erzwungene Übersetzungen kurz hintereinander — bitte kurz warten.');
+    return false;
+  }
+  bremseZaehlen(kiForceAnfragen, KI_FENSTER, userId);
+  return true;
+}
+
+/** Höchstlänge für Freitext, der roh an einen bezahlten Anbieter geht
+    (compose:preview) — vor der Bremse oben schon eine Sache der Kosten pro
+    einzelner Anfrage, nicht nur ihrer Häufigkeit. Großzügig genug für die
+    längste ehrliche Nachricht, eng genug gegen eine eingefügte Textwand. */
+const KI_TEXT_MAX = 4000;
+
 /* ── Event-Dispatch ───────────────────────────────────────────── */
 
 async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
@@ -1023,6 +1426,19 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
       sendToUser(userId, { t: 'channel:upsert', channel: ch });
       const st = store.channelState(ch.id, userId);
       if (st) sendToUser(userId, { t: 'channel:state', state: st });
+      /* systemKind: 'join' — der Text hier ist der Rückfall für Clients ohne
+         Wörterbuch-Kennung, dieselbe Bauart wie bei den vier vertraulich.*-
+         Systemtexten (siehe zugangsMeldung() oben). MessageItem.tsx kennt in
+         SYSTEMTEXTE bislang nur die vier vertraulich.*-Werte; 'join' fehlt
+         dort und rendert deshalb im Verlauf jeder Person dauerhaft deutsch —
+         Client-seitig zu ergänzen (packages/desktop, nicht dieses Paket):
+         ein Eintrag `'join': 'sys.beigetreten'` in SYSTEMTEXTE plus der
+         Schlüssel `sys.beigetreten` in allen Sprachdateien unter
+         packages/desktop/src/i18n/, nach demselben Muster wie
+         'sys.vertraulichEin' ("{name} ist diesem Kanal beigetreten." /
+         "{name} joined this channel."). Der Name kommt dabei wie bei den
+         vier bestehenden Einträgen aus message.userId, nicht aus dem Text
+         hier — server-seitig ist an der Kennzeichnung selbst nichts falsch. */
       const sys = messages.createMessage({
         channelId: ch.id, userId, text: `@${store.getUser(userId)?.handle} ist dem Kanal beigetreten`, systemKind: 'join',
       });
@@ -1035,6 +1451,10 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
       channels.leaveChannel(ev.channelId, userId);
       sendToUser(userId, { t: 'channel:removed', channelId: ev.channelId });
       kanalElementeZuruecknehmen(ev.channelId, [userId]);
+      /* Ohne dies blieb `openChannelId` auf diesem Kanal stehen, und
+         deliverMessage()/prefs:update() lasen ihn weiter aus (siehe die
+         ausführliche Begründung bei offenenKanalVergessen() oben). */
+      offenenKanalVergessen(userId, ev.channelId);
       /* Wer geht, nimmt den Kanalschlüssel auf seinem Gerät mit. Ohne Wechsel
          läse er alles Neue weiter mit — er müsste den Kanal dafür nicht einmal
          sehen, ein mitgeschriebenes Chiffrat genügte. */
@@ -1083,6 +1503,9 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
       channels.hideChannel(ev.channelId, userId);
       sendToUser(userId, { t: 'channel:removed', channelId: ev.channelId });
       kanalElementeZuruecknehmen(ev.channelId, [userId]);
+      // Dieselbe Begründung wie bei channel:leave — Ausblenden tut hier
+      // dasselbe wie Verlassen, also braucht es auch dieselbe Aufräumung.
+      offenenKanalVergessen(userId, ev.channelId);
       if (warVertraulich && warMitglied && !store.isMember(ev.channelId, userId)) {
         for (const uid of store.memberIds(ev.channelId)) {
           if (!vertraulich.kannLesen(ev.channelId, uid)) continue;
@@ -1105,7 +1528,13 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
         if (st) sendToUser(uid, { t: 'channel:state', state: st });
       }
       for (const uid of ev.remove ?? []) {
-        if (!ch.memberIds.includes(uid)) sendToUser(uid, { t: 'channel:removed', channelId: ch.id });
+        if (!ch.memberIds.includes(uid)) {
+          sendToUser(uid, { t: 'channel:removed', channelId: ch.id });
+          // Dieselbe Begründung wie bei channel:leave/channel:hide — nur hier
+          // für eine ANDERE Person als die aufrufende, darum keine Session,
+          // sondern die userId, über die offenenKanalVergessen() selbst geht.
+          offenenKanalVergessen(uid, ch.id);
+        }
       }
       kanalElementeZuruecknehmen(ch.id, ev.remove ?? []);
 
@@ -1175,17 +1604,23 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
     }
 
     case 'message:send': {
-      if (!darf(session, 'message.send')) return;
+      /* Jede Abweisung ab hier gibt `ev.clientId` an `fail()`/`darf()`/
+         `chiffratNoetig()` weiter — der Client kann die betroffene Zeile
+         damit direkt treffen, statt raten zu müssen, welche gerade
+         ausstehende Nachricht gemeint war (siehe `case 'error'` in
+         packages/desktop/src/state/store.ts). */
+      if (!darf(session, 'message.send', ev.clientId)) return;
       const ch = store.getChannel(ev.channelId, userId);
-      if (!ch) return fail(session, 'fehler.kanalNichtGefunden', 'Kanal nicht gefunden');
+      if (!ch) return fail(session, 'fehler.kanalNichtGefunden', 'Kanal nicht gefunden', undefined, undefined, ev.clientId);
       if (ch.kind !== 'public' && !store.isMember(ch.id, userId)) {
-        return fail(session, 'fehler.keinKanalZugriff', 'Kein Zugriff auf diesen Kanal');
+        return fail(session, 'fehler.keinKanalZugriff', 'Kein Zugriff auf diesen Kanal', undefined, undefined, ev.clientId);
       }
       if (ch.kind === 'public') channels.ensureMember(ch.id, userId);
 
       // Ankündigungskanäle: nur wer sie verwalten darf, schreibt auch hinein.
       if (ch.readOnly && !may(userId, 'channel.manage')) {
-        return fail(session, 'fehler.nurKanalverwaltung', 'In diesen Kanal schreibt nur die Kanalverwaltung.');
+        return fail(session, 'fehler.nurKanalverwaltung', 'In diesen Kanal schreibt nur die Kanalverwaltung.',
+          undefined, undefined, ev.clientId);
       }
 
       /* In einem vertraulichen Kanal nimmt der Server keinen Klartext an.
@@ -1193,7 +1628,7 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
          altem Stand — oder eine selbstgebaute — würde sonst munter unverschlüsselt
          hineinschreiben, und niemandem im Kanal fiele es auf. Lieber eine
          abgewiesene Nachricht als eine, die stillschweigend offen liegt. */
-      if (chiffratNoetig(session, ch.id, ev.text)) return;
+      if (chiffratNoetig(session, ch.id, ev.text, undefined, undefined, ev.clientId)) return;
 
       // Wer einen Chat ausgeblendet hat, soll ihn bei neuer Aktivität wiedersehen.
       channels.unhideForAll(ch.id);
@@ -1203,10 +1638,12 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
       const darfErwaehnen = may(userId, 'mention.user');
       const darfAlle = may(userId, 'mention.everyone');
       if (!darfErwaehnen && extractMentions(ev.text).length > 0) {
-        return fail(session, 'fehler.keinRechtErwaehnen', 'Dafür fehlt dir das Recht "Personen erwähnen".');
+        return fail(session, 'fehler.keinRechtErwaehnen', 'Dafür fehlt dir das Recht "Personen erwähnen".',
+          undefined, undefined, ev.clientId);
       }
       if (!darfAlle && mentionsEveryone(ev.text)) {
-        return fail(session, 'fehler.keinRechtAlleErwaehnen', 'Dafür fehlt dir das Recht "Alle erwähnen".');
+        return fail(session, 'fehler.keinRechtAlleErwaehnen', 'Dafür fehlt dir das Recht "Alle erwähnen".',
+          undefined, undefined, ev.clientId);
       }
 
       const msg = messages.createMessage({
@@ -1223,8 +1660,9 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
          fertige Datei nach, message:attachGiveUp räumt auf, wenn daraus
          nichts wird. */
       if (ev.pendingAttachments?.length) {
+        const jetzt = Date.now();
         ausstehendeAnhaenge.set(msg.id, new Map(
-          ev.pendingAttachments.map((p) => [p.tempId, { name: p.name, mime: p.mime, uploaderId: userId }]),
+          ev.pendingAttachments.map((p) => [p.tempId, { name: p.name, mime: p.mime, uploaderId: userId, seit: jetzt }]),
         ));
       }
       deliverMessage(
@@ -1309,13 +1747,19 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
       /* Erst nachsehen, ob die Nachricht überhaupt noch der aufrufenden
          Person gehört — unabhängig davon, was im Speicher noch über einen
          Platzhalter steht. Der Platzhalter ist nur eine Anzeige-Hilfe; die
-         Wahrheit steht in der Datenbank. */
+         Wahrheit steht in der Datenbank.
+
+         Die Reihenfolge ist hier bewusst: ERST prüfen, DANN den geteilten
+         Speicher `ausstehendeAnhaenge` anfassen. Vorher stand die Löschung
+         des Platzhalters vor dieser Prüfung — jede angemeldete Sitzung, die
+         eine tempId kannte (sie geht als Teil der Nachricht an alle
+         Empfänger:innen hinaus, siehe deliverMessage), konnte damit den
+         Platzhalter-Eintrag einer FREMDEN Person löschen, noch bevor die
+         Prüfung überhaupt lief. Wirkung nur auf die Anzeige (die Datei selbst
+         blieb unberührt), aber message:attachGiveUp direkt darunter hatte die
+         Reihenfolge schon immer richtig — jetzt stimmen beide überein. */
       const nachricht = store.getMessage(ev.messageId, userId);
       const eigeneOffeneNachricht = Boolean(nachricht) && nachricht!.userId === userId && !nachricht!.deletedAt;
-
-      const eintrag = ausstehendeAnhaenge.get(ev.messageId);
-      eintrag?.delete(ev.tempId);
-      if (eintrag && !eintrag.size) ausstehendeAnhaenge.delete(ev.messageId);
 
       if (!eigeneOffeneNachricht) {
         // Nachricht weg, fremd oder schon gelöscht: der Anhang gehört jetzt
@@ -1323,6 +1767,10 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
         messages.discardOrphanAttachment(ev.attachmentId, userId);
         return;
       }
+
+      const eintrag = ausstehendeAnhaenge.get(ev.messageId);
+      eintrag?.delete(ev.tempId);
+      if (eintrag && !eintrag.size) ausstehendeAnhaenge.delete(ev.messageId);
 
       let aktualisiert: Message | null;
       try {
@@ -1533,20 +1981,40 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
 
       // Sprache gewechselt -> offenen Kanal in der neuen Sprache nachliefern
       if (ev.patch.language && session.openChannelId) {
-        const { messages: list } = store.channelHistory(session.openChannelId, null, 50);
-        const missing = fillCachedTranslations(list, session.language, userId);
-        // m.translation kommt hier bereits aufgelöst aus fillCachedTranslations()
-        // (kein Sentinel, kein measurements-Feld mehr) — nichts weiter zu tun.
-        for (const m of list) {
-          if (m.translation) send(session, { t: 'translation', messageId: m.id, translation: m.translation });
-        }
-        if (missing.length) translateInBackground(missing, session.language, userId, channelContext(session.openChannelId));
+        /* Die eigentliche Garantie sitzt HIER, nicht beim Leeren von
+           openChannelId an den Stellen, die eine Mitgliedschaft beenden
+           (channel:leave, channel:hide, channel:members — siehe
+           offenenKanalVergessen()): die räumen zwar ordentlich auf, aber ein
+           künftiger Weg, der das vergisst, öffnete dasselbe Loch wieder.
+           store.channelHistory()/hydrateMessages() prüfen selbst KEINE
+           Berechtigung (siehe store.ts) — sie liefern, was verlangt wird, und
+           verlassen sich auf den Aufrufer. Ohne diese Zeile bekäme jemand,
+           der aus einem privaten Kanal entfernt wurde, dessen letzte 50
+           Nachrichten allein durch einen Sprachwechsel zugestellt, ganz ohne
+           channel:open — genau dieselbe Prüfung, die channel:open selbst vor
+           demselben Aufruf macht (siehe dort). */
+        const offenerKanal = store.getChannel(session.openChannelId, userId);
+        if (offenerKanal && (offenerKanal.kind === 'public' || store.isMember(offenerKanal.id, userId))) {
+          const { messages: list } = store.channelHistory(session.openChannelId, null, 50, userId);
+          const missing = fillCachedTranslations(list, session.language, userId);
+          // m.translation kommt hier bereits aufgelöst aus fillCachedTranslations()
+          // (kein Sentinel, kein measurements-Feld mehr) — nichts weiter zu tun.
+          for (const m of list) {
+            if (m.translation) send(session, { t: 'translation', messageId: m.id, translation: m.translation });
+          }
+          if (missing.length) translateInBackground(missing, session.language, userId, channelContext(session.openChannelId));
 
-        // Umfragen stehen nicht im Nachrichtentext und blieben sonst in der
-        // alten Sprache stehen, während ringsum alles gewechselt hat.
-        for (const m of list) {
-          if (!m.poll) continue;
-          void pollUebersetzungNachreichen(m.poll.id, userId, session.openChannelId);
+          // Umfragen stehen nicht im Nachrichtentext und blieben sonst in der
+          // alten Sprache stehen, während ringsum alles gewechselt hat.
+          for (const m of list) {
+            if (!m.poll) continue;
+            void pollUebersetzungNachreichen(m.poll.id, userId, session.openChannelId);
+          }
+        } else {
+          // Kein Zugriff mehr, oder der Kanal ist weg: openChannelId zeigt
+          // ins Leere — hier gleich aufräumen, statt bei jedem weiteren
+          // Sprachwechsel dieselbe Prüfung erneut ins Leere laufen zu lassen.
+          session.openChannelId = null;
         }
       }
 
@@ -1578,6 +2046,11 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
         return fail(session, 'fehler.keinNachrichtZugang', 'Zu dieser Nachricht hast du keinen Zugang.');
       }
       if (klartextNoetigFuerNachricht(session, ev.messageId)) return;
+      // force:true kostet garantiert einen echten Modellaufruf (siehe
+      // Begründung bei kiForceZugang oben) — deshalb die engere Bremse ZUERST
+      // und zusätzlich zur allgemeinen, nicht statt ihr.
+      if (ev.force && !kiForceZugang(session)) return;
+      if (!kiZugang(session)) return;
       const view = await translateMessage(ev.messageId, ev.targetLang, { force: ev.force });
       if (view) send(session, { t: 'translation', messageId: ev.messageId, translation: messwerteFuerNutzer(view, userId) });
       else fail(session, 'fehler.keineUebersetzungNoetig', 'Keine Übersetzung nötig oder möglich');
@@ -1605,8 +2078,16 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
          Kanal überhaupt erreicht. */
       if (!kanalZugang(session, ev.channelId, ev.requestId)) return;
       if (klartextNoetig(session, ev.channelId)) return;
+      if (!kiZugang(session, ev.requestId)) return;
+      // Vorher ging ev.text roh und ungekappt an den Übersetzer — der
+      // sanitisierende Helfer text() (siehe oben) war hier nie angewendet.
+      const rohtext = text(ev.text, KI_TEXT_MAX, { leerErlaubt: false });
+      // text() liefert mit leerErlaubt:false laut Definition nie null, nur
+      // string | undefined (siehe die Funktion oben) — die Typprüfung kennt
+      // diese Zusicherung nicht, darum hier beide Fälle ausschließen.
+      if (!rohtext) return; // leer oder kein Text — nichts zu tun, wie bei draft:save
       const outcome = await translate({
-        text: ev.text, targetLang: ev.targetLang, context: channelContext(ev.channelId),
+        text: rohtext, targetLang: ev.targetLang, context: channelContext(ev.channelId),
       });
       send(session, {
         t: 'compose:preview', requestId: ev.requestId,
@@ -1623,6 +2104,7 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
       if (klartextNoetig(session, ev.channelId)) return;
       const ch = store.getChannel(ev.channelId, userId);
       if (!ch) return fail(session, 'fehler.kanalNichtGefunden', 'Kanal nicht gefunden', ev.requestId);
+      if (!kiZugang(session, ev.requestId)) return;
       const state = store.channelState(ev.channelId, userId);
       const summary = await ai.catchUp({
         channelId: ev.channelId,
@@ -1689,11 +2171,14 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
     /* ── Umfragen ─────────────────────────────────────────── */
 
     case 'poll:create': {
-      if (!darf(session, 'poll.create')) return;
+      /* Dieselbe Zusage wie bei 'message:send' oben: jede Abweisung ab hier
+         gibt ev.clientId weiter, sonst bleibt die optimistische Zeile für
+         immer als "wird gesendet" stehen (siehe Begründung dort). */
+      if (!darf(session, 'poll.create', ev.clientId)) return;
       const ch = store.getChannel(ev.channelId, userId);
-      if (!ch) return fail(session, 'fehler.kanalNichtGefunden', 'Kanal nicht gefunden');
+      if (!ch) return fail(session, 'fehler.kanalNichtGefunden', 'Kanal nicht gefunden', undefined, undefined, ev.clientId);
       if (ch.kind !== 'public' && !store.isMember(ch.id, userId)) {
-        return fail(session, 'fehler.keinKanalZugriff', 'Kein Zugriff auf diesen Kanal');
+        return fail(session, 'fehler.keinKanalZugriff', 'Kein Zugriff auf diesen Kanal', undefined, undefined, ev.clientId);
       }
 
       /* Die Frage wird zum Nachrichtentext, die Antwortmöglichkeiten landen in
@@ -1701,7 +2186,7 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
          derselben Zusage wie eine gewöhnliche Nachricht. Geprüft wird alles
          zusammen: eine Umfrage, bei der nur die Frage verschlossen ist, gibt
          ihren Gegenstand über die Antworten preis. */
-      if (chiffratNoetig(session, ch.id, [ev.question, ...ev.options])) return;
+      if (chiffratNoetig(session, ch.id, [ev.question, ...ev.options], undefined, undefined, ev.clientId)) return;
 
       const msg = messages.createMessage({
         channelId: ch.id, userId, text: ev.question.trim(),
@@ -1739,16 +2224,19 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
     /* ── Weiterleiten ─────────────────────────────────────── */
 
     case 'message:forward': {
-      if (!darf(session, 'message.forward')) return;
+      /* Dieselbe Zusage wie bei 'message:send' oben: jede Abweisung ab hier
+         gibt ev.clientId weiter, sonst bleibt die optimistische Zeile für
+         immer als "wird gesendet" stehen (siehe Begründung dort). */
+      if (!darf(session, 'message.forward', ev.clientId)) return;
       const original = store.getMessage(ev.messageId, userId);
-      if (!original) return fail(session, 'fehler.nachrichtNichtGefunden', 'Nachricht nicht gefunden');
+      if (!original) return fail(session, 'fehler.nachrichtNichtGefunden', 'Nachricht nicht gefunden', undefined, undefined, ev.clientId);
       const target = store.getChannel(ev.toChannelId, userId);
-      if (!target) return fail(session, 'fehler.zielkanalNichtGefunden', 'Zielkanal nicht gefunden');
+      if (!target) return fail(session, 'fehler.zielkanalNichtGefunden', 'Zielkanal nicht gefunden', undefined, undefined, ev.clientId);
       if (target.kind !== 'public' && !store.isMember(target.id, userId)) {
-        return fail(session, 'fehler.keinZielkanalZugriff', 'Kein Zugriff auf den Zielkanal');
+        return fail(session, 'fehler.keinZielkanalZugriff', 'Kein Zugriff auf den Zielkanal', undefined, undefined, ev.clientId);
       }
       if (!store.isMember(original.channelId, userId) && store.getChannel(original.channelId)?.kind !== 'public') {
-        return fail(session, 'fehler.keinUrsprungZugriff', 'Kein Zugriff auf die Ursprungsnachricht');
+        return fail(session, 'fehler.keinUrsprungZugriff', 'Kein Zugriff auf die Ursprungsnachricht', undefined, undefined, ev.clientId);
       }
 
       /* Weiterleiten und Vertraulichkeit vertragen sich in keine Richtung.
@@ -1792,7 +2280,8 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
         || istE2EChiffrat(original.text)) {
         return fail(session, 'fehler.vertraulichWeiterleiten',
           'Aus einem vertraulichen Kanal heraus und in einen hinein lässt sich nichts weiterleiten — '
-          + 'jeder vertrauliche Kanal hat seinen eigenen Schlüssel, und offener Text gehört nicht hinein.');
+          + 'jeder vertrauliche Kanal hat seinen eigenen Schlüssel, und offener Text gehört nicht hinein.',
+          undefined, undefined, ev.clientId);
       }
 
       const text = [ev.comment?.trim(), original.text].filter(Boolean).join('\n\n');
@@ -1864,11 +2353,14 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
     /* ── Sprachnachrichten ────────────────────────────────── */
 
     case 'voice:send': {
-      if (!darf(session, 'voice.send')) return;
+      /* Dieselbe Zusage wie bei 'message:send' oben: jede Abweisung ab hier
+         gibt ev.clientId weiter, sonst bleibt die optimistische Zeile für
+         immer als "wird gesendet" stehen (siehe Begründung dort). */
+      if (!darf(session, 'voice.send', ev.clientId)) return;
       const ch = store.getChannel(ev.channelId, userId);
-      if (!ch) return fail(session, 'fehler.kanalNichtGefunden', 'Kanal nicht gefunden');
+      if (!ch) return fail(session, 'fehler.kanalNichtGefunden', 'Kanal nicht gefunden', undefined, undefined, ev.clientId);
       if (ch.kind !== 'public' && !store.isMember(ch.id, userId)) {
-        return fail(session, 'fehler.keinKanalZugriff', 'Kein Zugriff auf diesen Kanal');
+        return fail(session, 'fehler.keinKanalZugriff', 'Kein Zugriff auf diesen Kanal', undefined, undefined, ev.clientId);
       }
       /* Sprachnachrichten gibt es in einem vertraulichen Kanal nicht.
          Anders als beim Tippen liegt es hier nicht an der App: die Aufnahme
@@ -1885,7 +2377,8 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
       if (ch.vertraulich) {
         return fail(session, 'fehler.vertraulichSprachnachricht',
           'In einem vertraulichen Kanal gibt es keine Sprachnachrichten — '
-          + 'die Aufnahme läge unverschlüsselt auf dem Server.');
+          + 'die Aufnahme läge unverschlüsselt auf dem Server.',
+          undefined, undefined, ev.clientId);
       }
 
       const msg = messages.createMessage({
@@ -2090,17 +2583,38 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
       return;
     }
 
+    /* Beide waren die einzigen Ausreißer im ganzen Datei: jeder verwandte
+       Griff prüft die Sichtbarkeit VOR der Wirkung und liefert danach über
+       den Kanalkreis aus, nie über den bloßen broadcast() an alle —
+       idea:update/status/vote/comments/comment/comment-delete/delete über
+       ideeSichtbar() + broadcastIdee(), event:update/respond/attendees/delete
+       über terminSichtbar() + broadcastTermin(), sogar task:geprueft direkt
+       darüber über aufgabeSichtbar(). services/ideas.ts::getIdea() und
+       services/events.ts::getEvent() prüfen selbst nichts (bare
+       `SELECT * FROM … WHERE id = ?`) — das ist hier bewusst so und keine
+       Lücke: die Sichtbarkeitsprüfung braucht die Kanalkennung aus der Zeile,
+       um überhaupt entscheiden zu können, kommt also zwangsläufig NACH dem
+       Lesen. Die Prüfung deshalb im Dienst zu verdoppeln hieße, dieselbe
+       Regel an zwei Stellen zu formulieren, die eines Tages auseinanderlaufen
+       (vgl. die Begründung bei darfElementSehen() oben) — und der Dienst
+       kennt für andere, nicht sitzungsgebundene Aufrufer gar keine feste
+       Bedeutung von "sichtbar". Die Garantie gehört an die eine Stelle, die
+       weiß, WER fragt: den Handler hier, wie überall sonst in dieser Datei. */
     case 'idea:geprueft': {
       if (!darf(session, 'idea.create')) return;
+      const vorher = ideas.getIdea(ev.ideaId, userId);
+      if (!vorher || !ideeSichtbar(session, vorher)) return;
       const idee = ideas.ideeGeprueft(ev.ideaId, userId);
-      if (idee) broadcast({ t: 'idea:upsert', idea: idee });
+      if (idee) broadcastIdee(idee);
       return;
     }
 
     case 'event:geprueft': {
       if (!darf(session, 'event.create')) return;
+      const vorher = events.getEvent(ev.eventId);
+      if (!vorher || !terminSichtbar(session, vorher)) return;
       const termin = events.terminGeprueft(ev.eventId);
-      if (termin) broadcast({ t: 'event:upsert', event: termin });
+      if (termin) broadcastTermin(termin);
       return;
     }
 
@@ -2190,17 +2704,38 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
       // Aufgaben entstehen aus dem Verlauf des Kanals — nur aus einem eigenen.
       if (!kanalZugang(session, ev.channelId, ev.requestId)) return;
       if (klartextNoetig(session, ev.channelId)) return;
+      if (!kiZugang(session, ev.requestId)) return;
       /* Nur das Neue seit dem letzten Durchgang ansehen. */
       const marke = `aufgaben_ab:${ev.channelId}`;
       const seit = settings.getSetting(marke);
+      /* Die neue Wasserstandsmarke wird HIER erfasst — VOR dem Modellaufruf,
+         nicht danach. ai.extractTasks() liest die Nachrichten über
+         fetchMessages() synchron, bevor es selbst zum ersten Mal wartet
+         (node:sqlite/DatabaseSync ist "genuinely synchronous", siehe
+         Dateikopf des Pakets); zwischen diesem Aufruf hier und dem Start
+         seines eigenen ersten await liegt kein einziges await, also auch
+         keine Gelegenheit für eine neu hereinkommende Nachricht, sich
+         dazwischenzuschieben. Ein "neuste" von NACH dem await wäre dagegen zu
+         weit: die Modelllaufzeit auf dem Pi liegt im Bereich von Sekunden bis
+         zu einer knappen Minute, in der mehrere neue Nachrichten hereinkommen
+         können — jede davon läge dann für immer vor dem Wasserstand, ohne je
+         geprüft worden zu sein, denn extractTasks() selbst gibt keine
+         Grenze zurück, bis wohin es tatsächlich gelesen hat.
+         Unverändert bestehen bleibt eine ANDERE, ältere Grenze: fetchMessages()
+         deckelt auf 120 Zeilen und nimmt bei mehr als 120 neuen Nachrichten
+         die JÜNGSTEN 120 — bei einem so großen Rückstand blieben die
+         dazwischenliegenden älteren für immer ungeprüft, Rennen hin oder her.
+         Das zu beheben bräuchte eine echte Rückgabe aus services/ai.ts, wie
+         weit es tatsächlich gekommen ist — dort nicht mein Zugriff, deshalb
+         hier nicht angefasst; siehe Bericht. */
+      const neuste = database.get<{ id: string }>(
+        'SELECT id FROM messages WHERE channel_id = ? ORDER BY created_at DESC LIMIT 1', ev.channelId,
+      )?.id;
       const gefunden = await ai.extractTasks({
         channelId: ev.channelId,
         language: session.language,
         sinceMessageId: seit,
       });
-      const neuste = database.get<{ id: string }>(
-        'SELECT id FROM messages WHERE channel_id = ? ORDER BY created_at DESC LIMIT 1', ev.channelId,
-      )?.id;
 
       /* Der Knopf legt nichts mehr an, er füllt den Eingang.
          Vorher entstanden die Aufgaben sofort auf dem Brett — wer drückte,
@@ -2250,6 +2785,7 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
       if (klartextNoetig(session, ev.channelId)) return;
       const kanal = store.getChannel(ev.channelId, userId);
       if (!kanal) return fail(session, 'fehler.kanalNichtGefunden', 'Kanal nicht gefunden.');
+      if (!kiZugang(session)) return;
       send(session, {
         t: 'ai:protocol',
         protocol: await ai.protokoll({
@@ -2436,9 +2972,22 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
       const geaendert = files.updateFile(ev.fileId, ev);
       /* Eine private Datei an alle zu rufen verrät ihre Existenz und ihren
          Namen — auch wenn der Client sie hinterher wegfiltert. Was niemanden
-         angeht, wird gar nicht erst verschickt. */
+         angeht, wird gar nicht erst verschickt.
+
+         `privat` allein reichte dafür nicht, und das war die halbe Miete für
+         eine Lücke: privat heißt in dieser Tabelle ausschließlich „für ein
+         einzelnes Konto verschlüsselt" (huelle.art === 'konto'). Eine Datei in
+         einem privaten oder vertraulichen KANAL ist das nicht — ihr Name, ihre
+         Beschreibung und ihre Kanalkennung gingen hier an jedes angemeldete
+         Konto im Haus. Beim Anlegen (`POST /api/files` in http/routes.ts) ist
+         genau das inzwischen zu; das Umbenennen stand noch offen und verriet
+         damit dasselbe, nur eine Bearbeitung später. Für „Kündigung Meier.pdf"
+         macht es keinen Unterschied, ob der Name beim Hochladen oder beim
+         Umbenennen hinausgeht.
+
+         Wer den Kreis zieht, steht in dateiKreis() weiter unten. */
       if (geaendert.privat) sendToUser(geaendert.uploadedBy, { t: 'file:upsert', file: geaendert });
-      else broadcast({ t: 'file:upsert', file: geaendert });
+      else broadcast({ t: 'file:upsert', file: geaendert }, dateiKreis(geaendert));
       return;
     }
 
@@ -2448,8 +2997,21 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
       if (datei.uploadedBy !== userId && !may(userId, 'file.manage')) {
         return fail(session, 'fehler.nurVerwaltungDateienLoeschen', 'Fremde Dateien darf nur die Verwaltung löschen.');
       }
+      /* Denselben Kreis wie beim Anlegen und beim Ändern, und aus demselben
+         Grund. Hier ging bisher gar keine Prüfung mit — nicht einmal die auf
+         `privat`, die das Umbenennen zwei Fälle weiter oben immerhin hatte.
+         Es geht zwar nur eine Kennung hinaus und kein Name, aber die drei Wege
+         müssen dieselbe Grenze ziehen: sonst ist es eine Frage der Zeit, bis
+         jemand `file:removed` um ein Feld erweitert und mit ihm den Namen. Und
+         ein Wegfall verrät für sich schon etwas — dass es die Datei gab und
+         wann sie verschwand.
+
+         Der Kreis wird vor dem Löschen bestimmt, obwohl er die Mitgliederliste
+         des Kanals liest und nicht die Datei: was gleich nicht mehr existiert,
+         soll auch nicht mehr befragt werden müssen. */
+      const kreis = datei.privat ? [datei.uploadedBy] : dateiKreis(datei);
       files.deleteFile(ev.fileId);
-      broadcast({ t: 'file:removed', fileId: ev.fileId });
+      broadcast({ t: 'file:removed', fileId: ev.fileId }, kreis);
       return;
     }
 
@@ -2464,6 +3026,17 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
       }
       const voice = voiceNoteFor(ev.messageId);
       if (!voice) return fail(session, 'fehler.keineAufnahme', 'Keine Aufnahme an dieser Nachricht');
+      /* Ohne diese Prüfung erreichen zwei gleichzeitige Läufe für dieselbe
+         Nachricht — etwa der automatische Anschluss an voice:send und ein
+         dazwischengefunktes voice:retranscribe von einem zweiten Gerät — beide
+         dieselbe UPDATE-Zeile in runTranscription(); wer zuletzt schreibt,
+         gewinnt, ohne dass irgendwo eine Meldung entstünde. Die eigentliche
+         Bremse steht in runTranscription() selbst (transkriptionLaeuft, siehe
+         unten) — hier nur die Voraborientierung, damit die anfragende Person
+         eine Antwort bekommt statt eines stillen Nichtstuns. */
+      if (transkriptionLaeuft.has(ev.messageId)) {
+        return fail(session, 'fehler.umschriftLaeuftSchon', 'Für diese Nachricht läuft schon eine Umschrift.');
+      }
       void runTranscription(ev.messageId, voice.attachmentId).catch((err) => console.error('[ws] Umschrift:', (err as Error).message));
       return;
     }
@@ -2474,6 +3047,7 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
       if (klartextNoetig(session, ev.channelId)) return;
       const ch = store.getChannel(ev.channelId, userId);
       if (!ch) return fail(session, 'fehler.kanalNichtGefunden', 'Kanal nicht gefunden', ev.requestId);
+      if (!kiZugang(session, ev.requestId)) return;
       const result = await ai.askChannel({
         channelId: ev.channelId, question: ev.question, language: session.language,
         channelName: channels.channelLabel(ch, userId, (id) => store.getUser(id)?.displayName ?? 'Unbekannt'),
@@ -2667,6 +3241,24 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
 
     case 'notiz:list': {
       send(session, { t: 'notiz:list', notizen: notizen.listNotizen(userId) });
+      /* Die Reihenfolge der drei Rutsche ist keine Laune.
+
+         Zuerst die Lückenliste: die App muss WISSEN, für welche Notiz noch
+         ein Kontopaket fehlt, bevor sie die erste entschlüsselt — sonst
+         müsste sie hinterher raten oder für jede Notiz vorsichtshalber neu
+         verpacken.
+
+         Dann die Kontopakete: sie sind der Weg, der auf JEDEM Gerät
+         desselben Kontos funktioniert, und sollen deshalb vor dem
+         geräteeigenen ankommen.
+
+         Zuletzt die Gerätepakete — der zweite, unabhängige Weg. Er bleibt
+         vollständig erhalten; die App nimmt ihn, wo der Kontoweg (noch) nicht
+         trägt. */
+      send(session, { t: 'notiz:konto-fehlt', notizIds: notizen.notizenOhneKontoPaket(userId) });
+      for (const p of notizen.kontoPaketeFuerAlle(userId)) {
+        send(session, { t: 'notiz:konto-paket', notizId: p.notizId, fassung: p.fassung, paket: p.paket });
+      }
       // Die eigenen Schlüsselpakete gleich hinterher — ein Rutsch für alle
       // statt einer Anfrage je Notiz, siehe paketeFuerAlle().
       for (const p of notizen.paketeFuerAlle(userId)) {
@@ -2676,8 +3268,22 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
     }
 
     case 'notiz:anlegen': {
-      const notiz = notizen.anlegen({ id: ev.id, ownerId: userId, chiffrat: ev.chiffrat, paket: ev.paket });
+      const notiz = notizen.anlegen({
+        id: ev.id, ownerId: userId, chiffrat: ev.chiffrat, paket: ev.paket, kontoPaket: ev.kontoPaket,
+      });
       send(session, { t: 'notiz:erstellt', requestId: ev.requestId, notiz });
+      return;
+    }
+
+    case 'notiz:konto-paket-setzen': {
+      notizen.kontoPaketSetzen({
+        notizId: ev.notizId, userId, fassung: ev.fassung, paket: ev.paket,
+      });
+      /* Zurück an ALLE Sitzungen dieses Kontos, nicht nur an die absendende:
+         genau darum geht es bei diesem Schlüssel. Ein zweites Gerät, das
+         gerade offen daneben liegt, kann die Notiz damit sofort öffnen,
+         statt bis zum nächsten notiz:list zu warten. */
+      sendToUser(userId, { t: 'notiz:konto-paket', notizId: ev.notizId, fassung: ev.fassung, paket: ev.paket });
       return;
     }
 
@@ -2754,15 +3360,19 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
 
 /* ── Helfer für die neuen Funktionen ──────────────────────────── */
 
-const VORSCHLAG_TITEL: Record<Vorschlag['art'], string> = {
-  aufgabe: 'Neue Aufgabe vorgeschlagen', termin: 'Neuer Termin vorgeschlagen', idee: 'Neue Idee vorgeschlagen',
+// Dieselben drei Titel, die state/vorschlaege.ts im Frontend für denselben
+// Rundruf zeigt (toast.vorschlagNeu{Aufgabe,Idee,Termin}).
+const VORSCHLAG_TITEL: Record<Vorschlag['art'], push.PushTextfeld> = {
+  aufgabe: { text: 'Neue Aufgabe vorgeschlagen', code: 'toast.vorschlagNeuAufgabe' },
+  termin: { text: 'Neuer Termin vorgeschlagen', code: 'toast.vorschlagNeuTermin' },
+  idee: { text: 'Neue Idee vorgeschlagen', code: 'toast.vorschlagNeuIdee' },
 };
 
 /** Push für einen frischen KI-Vorschlag — sowohl vom Hintergrundlauf als auch von Hand angestoßene. */
 function vorschlagPushMelden(v: Vorschlag): void {
   if (!push.sollBenachrichtigen(v.fuerUserId, { channelId: v.channelId, dringend: true })) return;
   void push.sendenAn(v.fuerUserId, {
-    titel: VORSCHLAG_TITEL[v.art], text: v.titel, kanalId: v.channelId, gruppe: `vorschlag:${v.id}`,
+    titel: VORSCHLAG_TITEL[v.art], text: { text: v.titel }, kanalId: v.channelId, gruppe: `vorschlag:${v.id}`,
   });
 }
 
@@ -2780,15 +3390,107 @@ function vorschlagPushMelden(v: Vorschlag): void {
  * „Post-Sichtung" weiter, genau wie ein Vorschlag-Push in den Kanal führt,
  * nicht direkt in den Eingang.
  *
- * Deutscher Text fest verdrahtet, dieselbe Bauart wie `VORSCHLAG_TITEL`
- * oben: eine Push-Nutzlast geht auch an ein Gerät, auf dem die App gerade
- * nicht läuft, und hat dort keinen Wörterbuch-Zugriff.
+ * Titel je Zustand — der Text (`${m.von} — ${m.betreff}`) bleibt in jedem
+ * Fall unübersetzt, das ist der tatsächliche Inhalt der Mail, kein
+ * Oberflächentext:
+ *   · 'entwurf' — derselbe Satz, den PostMeldungen.tsx für dieselbe Zeile
+ *     schon als Begründung zeigt (postSichtung.grund.entwurfWartet, siehe
+ *     `t(\`postSichtung.grund.${m.grundCode}\`)` dort). Auflösung über
+ *     push.ts/push-i18n.ts, siehe Dateikopf von services/push.ts.
+ *   · sonst ("neue Post im Fach {fach}") — dafür gibt es in keinem der 22
+ *     Wörterbücher einen passenden Schlüssel. 'post.neueNachricht' wäre die
+ *     naheliegende Wiederverwendung, ist aber der Titel des Schreiben-Knopfs
+ *     (PostSchreiben.tsx) und trägt z. B. auf Japanisch ausdrücklich die
+ *     Compose-Bedeutung ("新規メール", wörtlich "neu zu erstellende Mail"),
+ *     nicht die Eingangs-Bedeutung — als Titel für "dir ist Post zugegangen"
+ *     wäre das irreführend. Bleibt darum unverändert deutsch, bis ein
+ *     eigener Schlüssel in den 22 Wörterbüchern angelegt ist (außerhalb
+ *     dieses Zuständigkeitsbereichs) — siehe scripts/push-woerterbuch-erzeugen.mjs,
+ *     Abschnitt „Fehlt noch".
  */
 function postMeldungPushMelden(userId: string, m: PostMeldung): void {
   if (!push.sollBenachrichtigen(userId, { dringend: true })) return;
-  const titel = m.zustand === 'entwurf' ? 'Antwortentwurf wartet auf Freigabe' : `Neue Post im Fach ${m.fach}`;
+  const titel: push.PushTextfeld = m.zustand === 'entwurf'
+    ? { text: 'Antwortentwurf wartet auf Freigabe', code: 'postSichtung.grund.entwurfWartet' }
+    : { text: `Neue Post im Fach ${m.fach}`, code: 'push.neuePostImFach', werte: { fach: m.fach } };
   void push.sendenAn(userId, {
-    titel, text: `${m.von} — ${m.betreff}`, gruppe: `post-meldung:${m.mailId}`,
+    titel, text: { text: `${m.von} — ${m.betreff}` }, gruppe: `post-meldung:${m.mailId}`,
+  });
+}
+
+// Eigenname je Anbieter — anders als bei VORSCHLAG_TITEL oben kein
+// Übersetzungsschlüssel nötig: „Gumroad"/„Patreon" stehen in allen 22
+// Wörterbüchern identisch (siehe verkaufMeldung.anbieter.* dort), reine
+// Markennamen, kein UI-Text.
+const VERKAUF_ANBIETER_NAME: Record<verkaufBenachrichtigung.VerkaufAnbieter, string> = {
+  gumroad: 'Gumroad', patreon: 'Patreon',
+};
+
+/** Dieselbe Rundung wie lib/format.ts geld() im Frontend — dessen
+ *  Intl-Zweig braucht `sprache()` (nur im Browser bekannt), hier genügt der
+ *  reine Zahlen-Rückfall von dort: eine Zahl mit ISO-Kürzel ist in jeder
+ *  Sprache verständlich, anders als deutscher Fließtext. */
+function betragFormatiert(cent: number, waehrung: string): string {
+  return `${(cent / 100).toFixed(2)} ${waehrung}`.trim();
+}
+
+/**
+ * Push für einen oder mehrere neu erkannte Verkäufe — dieselben zwei Titel
+ * (Einzeln/Sammel), die derselbe Toast im Frontend für dasselbe Ereignis
+ * schon zeigt (state/verkaufMeldungen.ts, `abrufen()`:
+ * verkaufMeldung.toastTitelEinzeln/toastTitelSammel/toastKoerperSammel).
+ *
+ * `ereignisseVerarbeiten()` in verkaufBenachrichtigung.ts bündelt bereits auf
+ * höchstens einen Aufruf von `benachrichtigen()` je Anbieter je Sync-Lauf
+ * (siehe dessen Dateikopf, „WARUM NICHT FLUTEN") — darum hier je Aufruf
+ * genau EIN Push, nie einer je einzelner Meldung: alles andere würde die
+ * Bündelung dort zunichtemachen und genau den Schwall auslösen, den sie
+ * verhindern soll.
+ *
+ * `gruppe` bleibt je Anbieter stabil (nicht je Meldung, anders als bei
+ * post-meldung/vorschlag oben): eine noch offene, nicht weggewischte
+ * Sperrbildschirm-Meldung vom letzten Sync-Lauf wird von der nächsten
+ * ersetzt statt sich davor zu stapeln — dieselbe Zurückhaltung wie beim
+ * Fünfzehn-Minuten-Takt selbst, nur eine Ebene weiter oben.
+ */
+function verkaufPushMelden(
+  userId: string, anbieter: verkaufBenachrichtigung.VerkaufAnbieter,
+  meldungen: verkaufBenachrichtigung.VerkaufMeldung[],
+): void {
+  if (!meldungen.length) return;
+  if (!push.sollBenachrichtigen(userId, { dringend: true })) return;
+  const anbieterName = VERKAUF_ANBIETER_NAME[anbieter];
+  const gruppe = `verkauf-meldung:${anbieter}`;
+
+  if (meldungen.length === 1) {
+    const name = meldungen[0].produktName ?? anbieterName;
+    void push.sendenAn(userId, {
+      titel: { text: `Neuer Verkauf: ${name}`, code: 'verkaufMeldung.toastTitelEinzeln', werte: { name } },
+      // Echter Inhalt (Produktname) bzw. reiner Eigenname — kein UI-Text,
+      // derselbe Grund, warum postMeldungPushMelden() oben `text` ohne
+      // `code` lässt.
+      text: { text: meldungen[0].produktName ?? anbieterName },
+      gruppe,
+    });
+    return;
+  }
+
+  const anzahl = String(meldungen.length);
+  // Dieselbe, bewusst nicht wasserdichte Wahl wie im Frontend-Vorbild:
+  // die erste gefundene Währung der Serie, nicht zwingend die aller Zeilen.
+  const waehrung = meldungen.find((m) => m.waehrung)?.waehrung;
+  const gesamtCent = meldungen.reduce((summe, m) => summe + (m.betragCent ?? 0), 0);
+  const text: push.PushTextfeld = waehrung
+    ? {
+        text: `Zusammen ${betragFormatiert(gesamtCent, waehrung)}`,
+        code: 'verkaufMeldung.toastKoerperSammel',
+        werte: { betrag: betragFormatiert(gesamtCent, waehrung) },
+      }
+    : { text: anbieterName };
+  void push.sendenAn(userId, {
+    titel: { text: `${anzahl} neue Verkäufe`, code: 'verkaufMeldung.toastTitelSammel', werte: { anzahl } },
+    text,
+    gruppe,
   });
 }
 
@@ -2868,61 +3570,111 @@ function enrichLinks(messageId: string, text: string, channelId: string): void {
 }
 
 /**
+ * Läuft für eine Nachricht schon eine Transkription?
+ *
+ * Ohne diese Bremse erreichen zwei gleichzeitige Läufe für dieselbe
+ * Nachricht — der automatische Anschluss an voice:send und ein
+ * dazwischengefunktes voice:retranscribe, möglicherweise von einem zweiten
+ * Gerät — beide dieselbe UPDATE-Zeile unten; wer zuletzt schreibt, gewinnt,
+ * ohne dass irgendwo eine Fehlermeldung entstünde. `voice:retranscribe`
+ * fragt zusätzlich schon VOR diesem Aufruf nach (siehe dort) — das ist nur
+ * die schnellere Rückmeldung an die anfragende Person. Die eigentliche
+ * Bremse steht hier, weil hier beide Aufrufer durchlaufen.
+ */
+const transkriptionLaeuft = new Set<string>();
+
+/**
  * Aufnahme transkribieren und das Ergebnis zum Nachrichtentext machen.
  * Damit greifen Suche und Übersetzung genauso wie bei getippten Nachrichten:
  * eine japanische Sprachnachricht landet auf Deutsch im Fenster.
  */
 async function runTranscription(messageId: string, attachmentId: string): Promise<void> {
-  const msg = store.getMessage(messageId);
-  if (!msg) return;
-  /* In einem vertraulichen Kanal wird nicht transkribiert. Das Transkript
-     würde zum Nachrichtentext — im Klartext, auf dem Server, für ein Gespräch,
-     das ausdrücklich niemand außer den Beteiligten lesen soll. Die Aufnahme
-     bleibt hörbar, sie bekommt nur keine Abschrift. */
-  if (vertraulich.istVertraulich(msg.channelId)) return;
-  const audience = store.memberIds(msg.channelId);
-
+  if (transkriptionLaeuft.has(messageId)) return;
+  transkriptionLaeuft.add(messageId);
   try {
-    const result = await transcribe(attachmentId);
-    saveTranscript(attachmentId, result);
+    const msg = store.getMessage(messageId);
+    if (!msg || msg.deletedAt) return;
+    /* In einem vertraulichen Kanal wird nicht transkribiert. Das Transkript
+       würde zum Nachrichtentext — im Klartext, auf dem Server, für ein Gespräch,
+       das ausdrücklich niemand außer den Beteiligten lesen soll. Die Aufnahme
+       bleibt hörbar, sie bekommt nur keine Abschrift. */
+    if (vertraulich.istVertraulich(msg.channelId)) return;
 
-    // Das Transkript ist ab jetzt der Text der Nachricht.
-    database.run(
-      'UPDATE messages SET text = ?, source_lang = ? WHERE id = ?',
-      verschluesseln(result.text), result.lang, messageId,
-    );
-    reindexMessage(messageId);
+    try {
+      const result = await transcribe(attachmentId);
+      saveTranscript(attachmentId, result);
 
-    const updated = store.getMessage(messageId)!;
-    for (const uid of audience) {
-      sendToUser(uid, { t: 'message:updated', message: store.getMessage(messageId, uid)! });
-      sendToUser(uid, { t: 'voice:transcript', messageId, voice: voiceNoteFor(messageId)! });
-    }
+      /* Nur schreiben, wenn die Nachricht seit dem Start dieses Laufs weder
+         gelöscht noch von Hand bearbeitet wurde. `msg.editedAt` ist die
+         Fassung von VOR dem Warten auf transcribe() (Sekunden bis zu einer
+         knappen Minute auf dem Pi) — die WHERE-Bedingung verlangt genau
+         diesen Stand noch einmal, sonst ändert sie nichts. Ohne sie
+         überschrieb die Abschrift blind eine Bearbeitung, die währenddessen
+         ankam: editMessage() sperrt nur kind === 'poll', Sprachnachrichten
+         sind änderbar, und das Zwei-Stunden-Fenster dafür reicht bei weitem
+         über jede Transkriptionsdauer hinaus. Eine inzwischen gelöschte
+         Nachricht trifft `deleted_at IS NULL` gar nicht erst — die Abschrift
+         bleibt dann nur in voice_transcripts stehen (dort ohne Bezug zu
+         einer noch sichtbaren Nachricht), aber sie wird nicht mehr in
+         `messages` geschrieben, und nichts davon geht unten hinaus. */
+      const geschrieben = database.run(
+        'UPDATE messages SET text = ?, source_lang = ? WHERE id = ? AND deleted_at IS NULL AND COALESCE(edited_at, 0) = ?',
+        verschluesseln(result.text), result.lang, messageId, msg.editedAt ?? 0,
+      ).changes > 0;
+      if (!geschrieben) return;
+      reindexMessage(messageId);
 
-    // Und jetzt wie jede andere Nachricht in die Sprachen der Empfänger bringen.
-    const context = channelContext(updated.channelId);
-    const langs = new Map<string, string[]>();
-    for (const uid of audience) {
-      if (uid === updated.userId) continue;
-      const u = store.getUser(uid);
-      if (!u?.autoTranslate) continue;
-      const target = normalizeLang(u.language);
-      if (target === (result.lang ?? 'unknown')) continue;
-      langs.set(target, [...(langs.get(target) ?? []), uid]);
+      /* Frisch abgefragt, NICHT die Momentaufnahme von vor dem Warten auf
+         transcribe(): sendToUser() prüft bei der Zustellung selbst keine
+         Mitgliedschaft mehr nach, die Empfängerliste muss also hier so aktuell
+         wie möglich sein. Wer den Kanal während der Transkription verlassen
+         hat oder entfernt wurde, bekommt das Transkript damit nicht mehr
+         zugestellt — mit der alten, vor dem await erfassten Liste hätte er es
+         noch bekommen, obwohl er den Kanal (und das Chiffrat/den Klartext
+         darin) gar nicht mehr sehen darf. Dieselbe Überlegung wie bei
+         deliverMessage() und prefs:update() oben, hier nur ohne
+         `openChannelId`: der Empfängerkreis selbst war die Momentaufnahme. */
+      const audience = store.memberIds(msg.channelId);
+      for (const uid of audience) {
+        sendToUser(uid, { t: 'message:updated', message: store.getMessage(messageId, uid)! });
+        // Das Feld `voice` kommt ab jetzt aus services/voice.ts::voiceNoteFor(),
+        // die selbst prüft, dass die Nachricht nicht gelöscht ist (siehe dort)
+        // — dieselbe Prüfung greift auch beim `voice`-Feld in hydrateMessages()
+        // eine Zeile darüber, ohne dass hier ein zweiter Check nötig wäre.
+        sendToUser(uid, { t: 'voice:transcript', messageId, voice: voiceNoteFor(messageId)! });
+      }
+
+      // Und jetzt wie jede andere Nachricht in die Sprachen der Empfänger bringen.
+      const context = channelContext(msg.channelId);
+      const langs = new Map<string, string[]>();
+      for (const uid of audience) {
+        if (uid === msg.userId) continue;
+        const u = store.getUser(uid);
+        if (!u?.autoTranslate) continue;
+        const target = normalizeLang(u.language);
+        if (target === (result.lang ?? 'unknown')) continue;
+        langs.set(target, [...(langs.get(target) ?? []), uid]);
+      }
+      for (const [target, users] of langs) {
+        void translateMessage(messageId, target, { force: true, context })
+          .then((view) => {
+            if (!view) return;
+            for (const uid of users) sendToUser(uid, { t: 'translation', messageId, translation: messwerteFuerNutzer(view, uid) });
+          })
+          .catch(() => { /* Original bleibt sichtbar */ });
+      }
+    } catch (err) {
+      console.warn('[voice]', (err as Error).message);
+      // Dieselbe Frische wie oben — kein Empfängerkreis von vor dem Warten,
+      // und nichts mehr zustellen, wenn die Nachricht inzwischen weg ist.
+      const still = store.getMessage(messageId);
+      if (!still || still.deletedAt) return;
+      for (const uid of store.memberIds(still.channelId)) {
+        sendToUser(uid, { t: 'voice:transcript', messageId, voice: voiceNoteFor(messageId)! });
+      }
     }
-    for (const [target, users] of langs) {
-      void translateMessage(messageId, target, { force: true, context })
-        .then((view) => {
-          if (!view) return;
-          for (const uid of users) sendToUser(uid, { t: 'translation', messageId, translation: messwerteFuerNutzer(view, uid) });
-        })
-        .catch(() => { /* Original bleibt sichtbar */ });
-    }
-  } catch (err) {
-    console.warn('[voice]', (err as Error).message);
-    for (const uid of audience) {
-      sendToUser(uid, { t: 'voice:transcript', messageId, voice: voiceNoteFor(messageId)! });
-    }
+  } finally {
+    transkriptionLaeuft.delete(messageId);
   }
 }
 
@@ -3137,8 +3889,12 @@ function broadcastTask(task: Awaited<ReturnType<typeof tasks.getTask>>): void {
 function taskZuteilungMelden(task: Task, vorherAssigneeId: string | null, vergebenVon: string): void {
   if (!task.assigneeId || task.assigneeId === vorherAssigneeId || task.assigneeId === vergebenVon) return;
   if (!push.sollBenachrichtigen(task.assigneeId, { channelId: task.channelId, dringend: true })) return;
+  // Derselbe Text, den es in allen 22 Wörterbüchern schon gibt
+  // (toast.taskAssigned) — bislang ohne eigenen Frontend-Toast dafür.
   void push.sendenAn(task.assigneeId, {
-    titel: 'Dir zugeteilt', text: task.title, kanalId: task.channelId, gruppe: `task:${task.id}`,
+    titel: { text: 'Dir zugeteilt', code: 'toast.taskAssigned' },
+    text: { text: task.title },
+    kanalId: task.channelId, gruppe: `task:${task.id}`,
   });
 }
 
@@ -3201,9 +3957,18 @@ export function startBackgroundJobs(): () => void {
           sendToUser(owner, { t: 'reminder:fire', reminder, message });
           if (push.sollBenachrichtigen(owner, { channelId: reminder.channelId, dringend: true })) {
             const vorschau = message?.translation?.text ?? message?.text ?? '';
+            // Dieselben zwei Rückfälle, die state/store.ts für denselben Fall
+            // (reminder:fire, zeigen()) schon verwendet — toast.reminderTitle
+            // und toast.reminderLook. reminder.note/vorschau sind Inhalt
+            // (eigener Notiztext bzw. Nachrichtenvorschau) und bleiben ohne
+            // Code, also unübersetzt.
             void push.sendenAn(owner, {
-              titel: reminder.note || 'Erinnerung',
-              text: vorschau || 'Schau mal nach.',
+              titel: reminder.note
+                ? { text: reminder.note }
+                : { text: 'Stellium — Erinnerung', code: 'toast.reminderTitle' },
+              text: vorschau
+                ? { text: vorschau }
+                : { text: 'Du wolltest hier noch einmal hinschauen.', code: 'toast.reminderLook' },
               kanalId: reminder.channelId,
               gruppe: `reminder:${reminder.id}`,
             });
@@ -3294,7 +4059,10 @@ export function startBackgroundJobs(): () => void {
       const w = wartung.anstehend();
       if (w && w.version !== angesagt) {
         angesagt = w.version;
-        broadcast({ t: 'server:update', ...w, serverZeit: Date.now() });
+        // Nicht broadcast(): jede Sitzung bekommt die Notizen in ihrer
+        // eigenen Lesesprache statt alle denselben deutschen Wortlaut, siehe
+        // wartungMelden().
+        for (const s of sessions.values()) if (s.userId) wartungMelden(s, w);
       } else if (!w && angesagt) {
         angesagt = null;
         broadcast({ t: 'server:update-abgesagt' });
@@ -3344,6 +4112,20 @@ export function startBackgroundJobs(): () => void {
     }
   }, 10 * 60_000);
 
+  /* Verwaiste Anhang-Platzhalter aufräumen (siehe PLATZHALTER_FRIST_MS und
+     ausstehendeAnhaengeAufraeumen() weiter oben). Alle 5 Minuten reicht: bei
+     einer 30-Minuten-Frist bleibt ein abgebrochener Platzhalter so höchstens
+     rund 5 Minuten länger stehen als nötig, ohne dass diese Runde spürbar ins
+     Gewicht fällt. */
+  const anhaengeTimer = setInterval(() => {
+    try {
+      const weg = ausstehendeAnhaengeAufraeumen();
+      if (weg) console.log(`[anhaenge] ${weg} verwaiste Platzhalter aufgeräumt.`);
+    } catch (err) {
+      console.error('[anhaenge]', (err as Error).message);
+    }
+  }, 5 * 60_000);
+
   // Tote Sockets aussortieren
   const heartbeat = setInterval(() => {
     for (const s of sessions.values()) {
@@ -3380,6 +4162,13 @@ export function startBackgroundJobs(): () => void {
      hier wird nur angestoßen und beim Herunterfahren sauber angehalten. */
   const stopPatreon = patreon.startPatreonErneuerungJob();
 
+  /* Den PayPal-Kontostand im Hintergrund aktuell halten — Salden öfter, den
+     Bewegungsverlauf seltener (siehe startPaypalJob() in services/paypal.ts).
+     Dieselbe Form wie startPatreonErneuerungJob() direkt darüber: eigener
+     Dienst, eigener Takt, hier nur angestoßen und beim Herunterfahren
+     angehalten. */
+  const stopPaypal = paypal.startPaypalJob();
+
   /* Die Gruppe eines Briefpartners vorschlagen — Kunden, Firmen, Bewerber
      und so weiter. Dieselbe Form wie startVorschlagJob() oben: eigener
      Dienst, eigener Takt, hier nur angestoßen und beim Herunterfahren
@@ -3387,6 +4176,14 @@ export function startBackgroundJobs(): () => void {
      unten) — eigener Wasserstand über mail_nachrichten, eigener
      Modellaufruf, siehe services/post-partnergruppen.ts. */
   const stopPartnerGruppen = partnerGruppen.startPartnerGruppenJob();
+
+  /* Aus gesendeter Post lernen — genauer: VORSCHLAEGE fuer das Gedaechtnis
+     der Firmenpost machen, ueber die dann ein Mensch entscheidet
+     (services/post-lernen.ts). Dieselbe Form wie die Laeufe darueber: eigener
+     Dienst, eigener Takt, hier nur angestossen und beim Herunterfahren
+     angehalten. Der Lauf liest ausschliesslich AUSGEHENDE Post — die Sperre
+     dafuer steht als WHERE-Bedingung im Dienst, nicht hier. */
+  const stopLernen = postLernen.startLernJob();
 
   /* Meldungen der Postfach-Sichtung — dieselbe Machart wie bei vorschlaege
      oben: der Dienst kennt das Gateway nicht; die Zustellung wird
@@ -3399,6 +4196,19 @@ export function startBackgroundJobs(): () => void {
      „Post-Sichtung" selbst holt sich seinen Stand über
      `GET /api/post/meldungen`, siehe postMeldungPushMelden() oben. */
   postSichtung.melderSetzen((userId, meldung) => postMeldungPushMelden(userId, meldung));
+
+  /* Meldungen "ein Kauf ist passiert" — dieselbe Machart wie bei
+     post-sichtung direkt darüber: verkaufBenachrichtigung.ts kennt das
+     Gateway nicht, wer wen erfährt, entscheidet dessen eigene
+     `empfaengerkreis()` (verkauf.sehen, siehe dort) — hier wird nur noch
+     zugestellt, nicht mehr gefiltert. Zugestellt heißt wie bei
+     postMeldungPushMelden() oben ausschließlich „per Web-Push angestoßen",
+     kein zusätzlicher WebSocket-Weg: die Tafel im Frontend fragt ihren
+     Bestand längst selbst über `GET /api/verkauf/meldungen` ab (siehe
+     state/verkaufMeldungen.ts) und zeigt ihren eigenen In-App-Toast dabei —
+     ein zweiter, hier erfundener Live-Kanal hätte auf der Gegenseite gar
+     keinen Empfänger. */
+  verkaufBenachrichtigung.melderSetzen((userId, anbieter, meldungen) => verkaufPushMelden(userId, anbieter, meldungen));
 
   /* Mails nachholen, deren Sichtung hängengeblieben oder fehlgeschlagen ist.
      Ohne diesen Lauf bliebe für immer ungesichtet, was eine ausgefallene KI
@@ -3441,8 +4251,11 @@ export function startBackgroundJobs(): () => void {
     vorschlaege.zustellerSetzen(null);
     stopVorschlaege();
     stopPatreon();
+    stopPaypal();
     stopPartnerGruppen();
+    stopLernen();
     postSichtung.melderSetzen(null);
+    verkaufBenachrichtigung.melderSetzen(null);
     clearInterval(nachsichtungTimer);
     clearInterval(scheduler);
     clearInterval(reminderTimer);
@@ -3450,6 +4263,7 @@ export function startBackgroundJobs(): () => void {
     clearInterval(terminTimer);
     clearInterval(wartungsTimer);
     clearInterval(freigabenTimer);
+    clearInterval(anhaengeTimer);
     clearInterval(heartbeat);
     clearInterval(fristenTimer);
   };

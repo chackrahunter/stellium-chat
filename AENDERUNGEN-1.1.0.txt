@@ -1,0 +1,16 @@
+Neu: Passwort-Tresor — Zugänge liegen verschlüsselt in Stellium, nicht mehr in einer Notiz. Passwörter bleiben verdeckt, bis du sie aufdeckst.
+Neu: Einmalcodes — die Sechs-Ziffern-Codes fürs Anmelden, direkt in der App. Funktioniert auch ohne Internet.
+Neu: Bank — Guthaben und die letzten Bewegungen auf einen Blick.
+Neu: Notzugang — vergisst jemand sein Passwort, können drei von fünf Kollegen gemeinsam seinen Zugang wiederherstellen. Einzeln kann es niemand.
+Notizen öffnen sich jetzt auf jedem Gerät, an dem du angemeldet bist.
+Dein Passwort verlässt dein Gerät beim Anmelden nicht mehr.
+Briefpartner: eigene Gruppen anlegen, und eine Gruppe "Intern" für Post aus der Firma.
+E-Mails, die die KI geschrieben hat, tragen das künftig klein unten in der Mail.
+Benachrichtigungen, Menüs und diese Liste hier erscheinen jetzt in deiner Sprache.
+Aufgaben lassen sich auch mit der Tastatur zwischen den Spalten verschieben.
+Behoben: hochgeladene Anhänge drehen sich nicht mehr endlos.
+Behoben: die Aufgabentafel ruckelt beim Ziehen nicht mehr.
+Behoben: E-Mail-Adressen und Passwörter in Nachrichten werden nicht mehr verstümmelt.
+Behoben: Käufe erscheinen jetzt auch im Benachrichtigungs-Reiter.
+Behoben: technische Konten zählen nicht mehr zum Team.
+Dazu rund zwanzig weitere Korrekturen und deutlich mehr automatische Prüfungen vor jeder Auslieferung.

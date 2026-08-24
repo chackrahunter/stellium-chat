@@ -151,6 +151,15 @@ const COLUMNS: { table: string; column: string; definition: string }[] = [
   { table: 'mail_partner', column: 'gruppe_vorschlag_am', definition: 'INTEGER' },
   { table: 'mail_partner', column: 'gruppe_begruendung',  definition: 'TEXT' },
 
+  /* Der Absenderbeleg hinter einer automatischen "intern"-Einordnung — siehe
+     schema.sql bei derselben Spalte und util/absenderbeleg.ts. Nachgeruestet
+     wie die vier oben: mail_partner stand schon davor. NULL auf jeder
+     bestehenden Zeile ist genau richtig — keine davon kam ueber einen
+     geprueften Weg zustande, und internBackfillEinmalig()
+     (services/post-partnergruppen.ts) raeumt die betroffenen Zeilen beim
+     naechsten Takt in ihre ehrliche Form. */
+  { table: 'mail_partner', column: 'gruppe_beleg',         definition: 'TEXT' },
+
   /* Postfach: Archivieren und „aus dem Weg räumen" — beides nullbare
      Zeitpunkte, NULL heißt "gilt nicht". Siehe services/post.ts,
      archiviertSetzen()/entferntSetzen() für die Verwendung und den
@@ -158,6 +167,56 @@ const COLUMNS: { table: string; column: string; definition: string }[] = [
      sind und keine gemeinsame. */
   { table: 'mail_nachrichten', column: 'archiviert_am', definition: 'INTEGER' },
   { table: 'mail_nachrichten', column: 'entfernt_am',   definition: 'INTEGER' },
+
+  /* Der Wortlaut, wie die KI ihn geschrieben hat, bevor ein Mensch ihn beim
+     Freigeben überschrieb. `text` trägt seit jeher, was tatsächlich hinausging
+     (entwurfBearbeiten() in services/post-sichtung.ts) — ohne diese Spalte
+     wäre der Unterschied zwischen beiden beim Senden für immer weg, und
+     services/post.ts::senden() bräuchte ihn für die Fußzeile am Mailende
+     (unverändert = "von StelliumAI erstellt", verändert = "mit
+     Unterstützung von StelliumAI bearbeitet"). NULL bei jedem Entwurf aus
+     der Zeit davor: was nie gespeichert wurde, lässt sich nicht nachträglich
+     erfinden — eine solche Mail bekommt beim Senden keine Fußzeile, weil sich
+     nicht mehr sagen lässt, ob eine KI beteiligt war. Siehe schema.sql und
+     services/post-lernen.ts. */
+  { table: 'mail_entwuerfe', column: 'text_ki', definition: 'TEXT' },
+
+  /* Ob und wie eine KI an einer GESENDETEN Mail mitgeschrieben hat —
+     'ki' (unverändert übernommen), 'ki_bearbeitet' (ein Mensch hat den
+     KI-Entwurf vor dem Senden verändert) oder NULL (keine KI beteiligt,
+     oder eine Mail von vor dieser Spalte). Gesetzt einzig von
+     services/post.ts::senden() im selben Moment, in dem auch die Fußzeile
+     entsteht — DER EINE Ort, durch den jeder Versand läuft (siehe
+     Dateikopf dort). Zwei Gründe, warum das eine eigene Spalte auf der
+     GESENDETEN Zeile ist und nicht nur eine Textsuche im Fließtext:
+     services/post-lernen.ts muss zuverlässig erkennen können, ob an einer
+     Mail eine KI mitgeschrieben hat, OHNE sich auf eine Zeichenkette
+     verlassen zu müssen, die im Fließtext stehen könnte oder nicht (die
+     Fußzeile selbst steht nur noch im tatsächlich verschickten `text`, nie
+     mehr im bearbeitbaren Entwurf — eine Textsuche fände sie dort gar nicht
+     mehr zuverlässig). Und: dieselbe Spalte deckt auch den Weg über „KI
+     schreibt" (services/post-entwurf-ki.ts), der nie eine Zeile in
+     `mail_entwuerfe` anlegt und für den es deshalb kein `text_ki` zum
+     Nachschlagen gäbe. NULL auf jeder bestehenden Zeile: was vor dieser
+     Spalte gesendet wurde, lässt sich nicht mehr nachträglich einordnen —
+     post-lernen.ts behandelt eine solche Zeile wie jede andere ohne
+     KI-Beteiligung, weil sich das Gegenteil nicht mehr beweisen lässt. */
+  { table: 'mail_nachrichten', column: 'ki_art', definition: 'TEXT' },
+
+  /* Einmalcodes: dieselben vier mit encryptField (crypto/pii.ts)
+     verschlüsselten Felder wie im vollständigen CREATE TABLE weiter unten in
+     dieser Datei und in schema.sql. `einmalcode_konten` ist eine brandneue
+     Tabelle mit vollständiger Spaltenliste von Anfang an — diese vier Zeilen
+     greifen deshalb im Alltag nie (die Tabelle existiert nie ohne sie), sie
+     sind das gleiche Sicherheitsnetz, das ADD-COLUMN hier für jede Tabelle
+     bietet, falls doch einmal etwas anders lief. Nullbar statt NOT NULL,
+     nach demselben Vorbehalt wie attachments.sha256 oben: ein ALTER TABLE ADD
+     COLUMN … NOT NULL bräuchte einen DEFAULT, und diese Definition dient
+     nur der Nachrüstung, nicht der eigentlichen Spaltendefinition. */
+  { table: 'einmalcode_konten', column: 'bezeichnung', definition: 'TEXT' },
+  { table: 'einmalcode_konten', column: 'aussteller',  definition: 'TEXT' },
+  { table: 'einmalcode_konten', column: 'konto',       definition: 'TEXT' },
+  { table: 'einmalcode_konten', column: 'geheimnis',   definition: 'TEXT' },
 ];
 
 export function migrate(): void {
@@ -230,6 +289,7 @@ export function migrate(): void {
       an              TEXT NOT NULL,
       betreff         TEXT NOT NULL,
       text            TEXT NOT NULL,
+      text_ki         TEXT,
       begruendung     TEXT,
       zustand         TEXT NOT NULL DEFAULT 'offen',
       erstellt_am     INTEGER NOT NULL,
@@ -238,6 +298,71 @@ export function migrate(): void {
       gesendet_id     TEXT
     )`);
   db.exec('CREATE INDEX IF NOT EXISTS idx_mail_entwurf_zustand ON mail_entwuerfe(zustand, erstellt_am)');
+  /* Der Lernlauf sucht zu einer gesendeten Mail den Entwurf, aus dem sie
+     entstand (services/post-lernen.ts, `WHERE gesendet_id = ?`). Hier und
+     nicht in schema.sql, aus demselben Grund wie beim Index auf
+     zustell_schluessel weiter unten: `gesendet_id` fehlt auf einer Datenbank,
+     die mail_entwuerfe vor diesem Feld angelegt hat, und ein Index auf eine
+     Spalte, die es noch nicht gibt, lässt den Server gar nicht erst starten.
+     Teilindex, weil nur die winzige Minderheit der Zeilen ihn je braucht:
+     ein Entwurf ohne `gesendet_id` ist offen oder abgelehnt. */
+  try {
+    db.exec('CREATE INDEX IF NOT EXISTS idx_mail_entwurf_gesendet ON mail_entwuerfe(gesendet_id) WHERE gesendet_id IS NOT NULL');
+  } catch (err) {
+    console.warn('[db] Index idx_mail_entwurf_gesendet:', (err as Error).message);
+  }
+
+  /* Das Gedächtnis der Firmenpost. Auf einer bestehenden Datenbank gibt es
+     die beiden Tabellen noch nicht — sie stehen zwar in schema.sql, aber die
+     läuft nur beim ersten Anlegen. Wortgleich mit dort; wer eine Spalte
+     ergänzt, ergänzt sie an beiden Stellen. Die ausführliche Begründung je
+     Spalte steht in schema.sql, der Umgang damit in
+     services/post-wissen.ts. "Wortgleich" wird nicht nur behauptet:
+     pruefungen/tabellen-abgleich.mts vergleicht bei jedem Lauf die
+     Spaltenliste jeder hier UND in schema.sql geführten Tabelle und schlägt
+     laut fehl, falls beide auseinanderlaufen — ohne feste Namensliste, jede
+     künftige Tabelle nach diesem Muster ist automatisch mit dabei. */
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS mail_wissen (
+      id            TEXT PRIMARY KEY,
+      art           TEXT NOT NULL DEFAULT 'wissen',
+      thema         TEXT NOT NULL,
+      inhalt        TEXT NOT NULL,
+      stichworte    TEXT,
+      immer         INTEGER NOT NULL DEFAULT 0,
+      fach          TEXT,
+      quelle        TEXT,
+      angelegt_von  TEXT REFERENCES users(id) ON DELETE SET NULL,
+      angelegt_am   INTEGER NOT NULL,
+      geaendert_am  INTEGER,
+      ersetzt_id    TEXT,
+      ersetzt_am    INTEGER,
+      ersetzt_durch TEXT
+    )`);
+  db.exec('CREATE INDEX IF NOT EXISTS idx_mail_wissen_aktiv ON mail_wissen(ersetzt_am, art)');
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS mail_wissen_vorschlaege (
+      id              TEXT PRIMARY KEY,
+      abdruck         TEXT NOT NULL,
+      art             TEXT NOT NULL DEFAULT 'wissen',
+      thema           TEXT NOT NULL,
+      inhalt          TEXT NOT NULL,
+      begruendung     TEXT,
+      herkunft        TEXT,
+      widerspruch_zu  TEXT,
+      zustand         TEXT NOT NULL DEFAULT 'offen',
+      erstellt_am     INTEGER NOT NULL,
+      entschieden_am  INTEGER,
+      entschieden_von TEXT REFERENCES users(id) ON DELETE SET NULL,
+      eintrag_id      TEXT
+    )`);
+  /* Der eindeutige Index IST die Regel „ein abgelehnter Vorschlag kommt nicht
+     wieder": derselbe Fingerabdruck lässt sich kein zweites Mal eintragen,
+     unabhängig davon, wie damals entschieden wurde. Er steht in der Datenbank
+     und nicht im Arbeitsspeicher, damit ein Neustart ihn nicht vergisst —
+     dieselbe Haltung wie bei der Dublettensperre in services/vorschlaege.ts. */
+  db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_mail_wissen_abdruck ON mail_wissen_vorschlaege(abdruck)');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_mail_wissen_vorschlag ON mail_wissen_vorschlaege(zustand, erstellt_am)');
 
   /* Eine frühere Fassung von schema.sql hatte hier ein fehlendes Leerzeichen
      vor dem Typnamen — `idTEXT PRIMARY KEY` und `anTEXT NOT NULL` wurden
@@ -298,6 +423,20 @@ export function migrate(): void {
      Ablage. Der Inhalt selbst gehoert nicht in die Datenbank. */
   anhaenge     TEXT
 )`);
+  /* Absicherung für den einen Fall, in dem nicht die COLUMNS-Schleife oben,
+     sondern GENAU DIESES CREATE TABLE die Tabelle zum ersten Mal anlegt —
+     weil schema.sql seine eigene mail_nachrichten-Anweisung übersprungen hat
+     (initDb() toleriert das, siehe dort). `ki_art` fehlte dann bis zum
+     NÄCHSTEN migrate()-Lauf, weil die COLUMNS-Schleife oben schon durchlief,
+     als es die Tabelle noch nicht gab — und services/post.ts::senden()
+     schreibt bei jedem Versand in diese Spalte, ohne Ausnahme. Auf dem Pi
+     nicht erreichbar (die Tabelle steht dort längst), auf einer wirklich
+     frischen Installation aber doch. Eigener Schutz statt Umsortieren der
+     COLUMNS-Schleife: die verlässt sich an mehreren Stellen weiter unten
+     darauf, VOR den hier folgenden CREATE-TABLE-Anweisungen zu laufen. */
+  if (!db.all<{ name: string }>('PRAGMA table_info(mail_nachrichten)').some((c) => c.name === 'ki_art')) {
+    db.exec('ALTER TABLE mail_nachrichten ADD COLUMN ki_art TEXT');
+  }
   db.exec('CREATE INDEX IF NOT EXISTS idx_mail_fach ON mail_nachrichten(fach, am DESC)');
   db.exec('CREATE INDEX IF NOT EXISTS idx_mail_thread ON mail_nachrichten(thread_id)');
   /* Eindeutig, nicht nur schnell: damit die Idempotenz an der Datenbank
@@ -328,7 +467,8 @@ export function migrate(): void {
   gruppe               TEXT,
   gruppe_von_ki        INTEGER NOT NULL DEFAULT 0,
   gruppe_vorschlag_am  INTEGER,
-  gruppe_begruendung   TEXT
+  gruppe_begruendung   TEXT,
+  gruppe_beleg         TEXT
 )`);
   /* Filterung nach Gruppe in der Oberflaeche — siehe COLUMNS oben fuer die
      Nachruestung auf einer Datenbank, die mail_partner schon vor diesem Feld
@@ -341,6 +481,20 @@ export function migrate(): void {
     console.warn('[db] Index idx_mail_partner_gruppe:', (err as Error).message);
   }
 
+  /* Benutzerdefinierte Briefpartner-Gruppen — siehe schema.sql fuer dieselbe
+     Tabelle wortgleich (post_partnergruppen.mts prueft das) und
+     packages/shared/src/types.ts fuer den Unterschied zu den eingebauten
+     Gruppen. Brandneue Tabelle, keine Vorgaengerform — deshalb reicht ein
+     einfaches CREATE TABLE IF NOT EXISTS hier, ohne Spalten-Nachruestung
+     ueber die COLUMNS-Liste oben. */
+  db.exec(`CREATE TABLE IF NOT EXISTS post_partnergruppen (
+  id         TEXT PRIMARY KEY,
+  name       TEXT NOT NULL,
+  created_by TEXT NOT NULL REFERENCES users(id),
+  created_at INTEGER NOT NULL
+)`);
+  db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_post_partnergruppen_name ON post_partnergruppen(name COLLATE NOCASE)');
+
   /* Indizes auf archiviert_am/entfernt_am — beide erst hier und nicht in
      schema.sql, aus demselben Grund wie idx_mail_zustell oben: die Spalten
      sind auf einer bestehenden Datenbank erst über die COLUMNS-Nachrüstung
@@ -352,6 +506,37 @@ export function migrate(): void {
     db.exec('CREATE INDEX IF NOT EXISTS idx_mail_entfernt ON mail_nachrichten(fach, entfernt_am) WHERE entfernt_am IS NOT NULL');
   } catch (err) {
     console.warn('[db] Indizes für Archiv/Papierkorb der Post:', (err as Error).message);
+  }
+
+  /* services/post.ts, liste() OHNE Fachfilter — die "alle Fächer"-Übersicht,
+     vermutlich die meistgenutzte Ansicht des Postfachs überhaupt — fragt in
+     ihrer Vorgabe-Ansicht ('aktiv'):
+       WHERE am < ? AND archiviert_am IS NULL AND entfernt_am IS NULL
+       ORDER BY am DESC LIMIT ?
+     Jeder bis hierher vorhandene Index auf dieser Tabelle beginnt mit
+     `fach` (idx_mail_fach, idx_mail_archiviert, idx_mail_entfernt) — ohne
+     Fach in der WHERE-Bedingung kann keiner von ihnen etwas beitragen.
+     Nachgemessen an 20 000 Zeilen: SCAN mail_nachrichten + eigener
+     Sortierschritt (TEMP B-TREE), rund 3 ms. mail_nachrichten hat KEINE
+     Aufbewahrungsfrist als Vorgabe (siehe post_fristen, fristenAnwenden() in
+     services/post.ts) und wird von einem Cloudflare Worker mit jeder ein-
+     UND ausgehenden Kundenmail gefüllt — die Tabelle wächst unbegrenzt,
+     der volle Durchlauf wird also nur schlimmer, nie von selbst besser.
+     Partieller Index auf genau `archiviert_am IS NULL AND entfernt_am IS
+     NULL` — exakt die WHERE-Bedingung der 'aktiv'-Ansicht — mit `am DESC`
+     als einziger Spalte: SQLite bedient damit sowohl die Bedingung als auch
+     die Sortierung direkt aus dem Index, ohne eigenen Sortierschritt.
+     Bewusst OHNE Gegenstück für 'archiviert'/'papierkorb' ohne Fachfilter
+     (deren WHERE-Bedingung ist das Gegenteil von der dieses Index, ein
+     eigener Index bräuchte also seine eigene Partition): diese beiden
+     Ansichten werden seltener aufgerufen, und ein dritter/vierter Index auf
+     einer Tabelle mit dieser Schreiblast (jede einzelne ein- und ausgehende
+     Mail) kostet bei jedem INSERT/UPDATE mit, ohne dass es dafür einen
+     entsprechend häufigen Lesefall gäbe. */
+  try {
+    db.exec('CREATE INDEX IF NOT EXISTS idx_mail_alle_aktiv ON mail_nachrichten(am DESC) WHERE archiviert_am IS NULL AND entfernt_am IS NULL');
+  } catch (err) {
+    console.warn('[db] Index für die Postfach-Übersicht ohne Fachfilter:', (err as Error).message);
   }
 
   /* Aufbewahrungsfrist der Post, je Fach. Fehlt eine Zeile für ein Fach, gilt
@@ -410,10 +595,61 @@ export function migrate(): void {
       erstellt_am INTEGER NOT NULL,
       PRIMARY KEY (notiz_id, user_id)
     )`);
+  /* Kontoschlüssel und der zweite Weg zum Notizschlüssel — wortgleich mit
+     schema.sql, aus demselben Grund wie die drei Notiztabellen darüber.
+     Ausführliche Begründung steht dort. Kurz: `notiz_schluessel_pakete`
+     verwechselt Konto und Gerät (`von` ist eine Konto-Kennung, gerechnet
+     wurde mit dem privaten Teil EINES Geräts), deshalb kann ein zweites
+     Gerät desselben Kontos eine Notiz nie öffnen. Der Kontoschlüssel hebt
+     die Verwechslung auf, der Geräteweg bleibt daneben bestehen. */
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS konto_schluessel (
+      user_id      TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+      kdf          TEXT NOT NULL,
+      salz         TEXT NOT NULL,
+      runden       INTEGER NOT NULL,
+      alg          TEXT NOT NULL,
+      iv           TEXT NOT NULL,
+      daten        TEXT NOT NULL,
+      abdruck      TEXT NOT NULL,
+      fassung      INTEGER NOT NULL,
+      erstellt_am  INTEGER NOT NULL,
+      geaendert_am INTEGER NOT NULL
+    )`);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS notiz_konto_pakete (
+      notiz_id      TEXT NOT NULL REFERENCES notizen(id) ON DELETE CASCADE,
+      user_id       TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      fassung       INTEGER NOT NULL,
+      konto_fassung INTEGER NOT NULL,
+      alg           TEXT NOT NULL,
+      iv            TEXT NOT NULL,
+      daten         TEXT NOT NULL,
+      erstellt_am   INTEGER NOT NULL,
+      PRIMARY KEY (notiz_id, user_id)
+    )`);
+  /* Der Anmeldenachweis — wortgleich mit schema.sql, aus demselben Grund wie
+     die Notiztabellen darüber. Ausführliche Begründung steht dort. Kurz: der
+     Kontoschlüssel ruht darauf, dass nur die Geräte das Passwort kennen —
+     solange die Anmeldung es im Klartext hinschickt, gilt das nicht. Diese
+     Tabelle hält den scrypt-Abdruck eines aus dem Passwort abgeleiteten
+     Nachweises; users.password_hash bleibt daneben stehen, damit jede alte
+     App weiter hereinkommt. */
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS anmelde_nachweise (
+      user_id      TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+      kdf          TEXT NOT NULL,
+      salz         TEXT NOT NULL,
+      runden       INTEGER NOT NULL,
+      nachweis     TEXT NOT NULL,
+      erstellt_am  INTEGER NOT NULL,
+      geaendert_am INTEGER NOT NULL
+    )`);
   try {
     db.exec('CREATE INDEX IF NOT EXISTS idx_notizen_owner ON notizen(owner_id)');
     db.exec('CREATE INDEX IF NOT EXISTS idx_notiz_mitglieder_user ON notiz_mitglieder(user_id)');
     db.exec('CREATE INDEX IF NOT EXISTS idx_notiz_pakete_user ON notiz_schluessel_pakete(user_id)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_notiz_konto_pakete_user ON notiz_konto_pakete(user_id)');
   } catch (err) {
     console.warn('[db] Indizes für Notizen:', (err as Error).message);
   }
@@ -499,6 +735,228 @@ export function migrate(): void {
     db.exec('CREATE INDEX IF NOT EXISTS idx_verkauf_gr_auszahl_status ON verkauf_gumroad_auszahlungen(status)');
   } catch (err) {
     console.warn('[db] Indizes für Verkaufsstatistik:', (err as Error).message);
+  }
+
+  /* Verkaufsmeldungen — dieselbe Tabelle wie in schema.sql, aus demselben
+     Grund wie bei Verkaufsstatistik direkt darüber: CREATE TABLE IF NOT
+     EXISTS in schema.sql bringt sie auf einer bestehenden Datenbank nicht
+     zuverlässig nach. Wortgleich mit dort. */
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS verkauf_ereignisse (
+      id            TEXT PRIMARY KEY,
+      fingerabdruck TEXT NOT NULL,
+      anbieter      TEXT NOT NULL,
+      art           TEXT NOT NULL,
+      produkt_name  TEXT,
+      betrag_cent   INTEGER,
+      waehrung      TEXT,
+      in_probe      INTEGER,
+      stumm         INTEGER NOT NULL DEFAULT 0,
+      erkannt_am    INTEGER NOT NULL
+    )`);
+  try {
+    db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_verkauf_ereignisse_abdruck ON verkauf_ereignisse(fingerabdruck)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_verkauf_ereignisse_liste ON verkauf_ereignisse(stumm, erkannt_am)');
+  } catch (err) {
+    console.warn('[db] Indizes für Verkaufsmeldungen:', (err as Error).message);
+  }
+
+  /* Einmalcodes — zweiter Faktor fürs Firmenkonto (TOTP). Dieselben zwei
+     Tabellen wie in schema.sql, wortgleich (pruefungen/tabellen-abgleich.mts
+     prüft das) — auf einer bestehenden Datenbank bringt CREATE TABLE IF NOT
+     EXISTS in schema.sql sie nicht zuverlässig nach, aus demselben Grund wie
+     bei notizen/mail_wissen oben: hier läuft die Tabelle für sich,
+     unabhängig vom Rest von schema.sql. `bezeichnung`, `aussteller`, `konto`
+     und `geheimnis` sind mit encryptField (crypto/pii.ts) verschlüsselt —
+     siehe services/einmalcode.ts. */
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS einmalcode_konten (
+      id            TEXT PRIMARY KEY,
+      bezeichnung   TEXT NOT NULL,
+      aussteller    TEXT,
+      konto         TEXT,
+      geheimnis     TEXT NOT NULL,
+      algorithmus   TEXT NOT NULL DEFAULT 'SHA1',
+      stellen       INTEGER NOT NULL DEFAULT 6,
+      periode       INTEGER NOT NULL DEFAULT 30,
+      angelegt_von  TEXT NOT NULL REFERENCES users(id),
+      angelegt_am   INTEGER NOT NULL,
+      geaendert_von TEXT REFERENCES users(id),
+      geaendert_am  INTEGER
+    )`);
+  /* Wer wann einen Code geholt hat — `konto_id` trägt bewusst KEIN REFERENCES
+     … ON DELETE CASCADE, siehe schema.sql für die Begründung (der Nachweis
+     muss ein gelöschtes Konto überleben). */
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS einmalcode_abrufe (
+      id          TEXT PRIMARY KEY,
+      konto_id    TEXT NOT NULL,
+      bezeichnung TEXT NOT NULL,
+      user_id     TEXT NOT NULL REFERENCES users(id),
+      am          INTEGER NOT NULL
+    )`);
+  try {
+    db.exec('CREATE INDEX IF NOT EXISTS idx_einmalcode_abrufe_am ON einmalcode_abrufe(am DESC)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_einmalcode_abrufe_konto ON einmalcode_abrufe(konto_id)');
+  } catch (err) {
+    console.warn('[db] Indizes für Einmalcodes:', (err as Error).message);
+  }
+
+  /* Passwort-Tresor — dieselben fünf Tabellen wie in schema.sql, wortgleich
+     (pruefungen/tabellen-abgleich.mts prüft das), aus demselben Grund wie
+     bei Notizen und Einmalcodes oben: CREATE TABLE IF NOT EXISTS in
+     schema.sql bringt sie auf einer bestehenden Datenbank nicht zuverlässig
+     nach. Ausführliche Begründung des Aufbaus steht dort. */
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS passwort_eintraege (
+      id                 TEXT PRIMARY KEY,
+      owner_id           TEXT NOT NULL REFERENCES users(id),
+      chiffrat           TEXT NOT NULL,
+      version            INTEGER NOT NULL DEFAULT 1,
+      schluessel_fassung INTEGER NOT NULL DEFAULT 1,
+      geaendert_von      TEXT NOT NULL REFERENCES users(id),
+      geaendert_am       INTEGER NOT NULL,
+      erstellt_am        INTEGER NOT NULL
+    )`);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS passwort_mitglieder (
+      eintrag_id       TEXT NOT NULL REFERENCES passwort_eintraege(id) ON DELETE CASCADE,
+      user_id          TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      hinzugefuegt_von TEXT NOT NULL REFERENCES users(id),
+      hinzugefuegt_am  INTEGER NOT NULL,
+      entfernt_am      INTEGER,
+      entfernt_grund   TEXT,
+      PRIMARY KEY (eintrag_id, user_id)
+    )`);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS passwort_schluessel_pakete (
+      eintrag_id  TEXT NOT NULL REFERENCES passwort_eintraege(id) ON DELETE CASCADE,
+      user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      fassung     INTEGER NOT NULL,
+      von_user_id TEXT NOT NULL,
+      alg         TEXT NOT NULL,
+      iv          TEXT NOT NULL,
+      daten       TEXT NOT NULL,
+      erstellt_am INTEGER NOT NULL,
+      PRIMARY KEY (eintrag_id, user_id)
+    )`);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS passwort_konto_pakete (
+      eintrag_id    TEXT NOT NULL REFERENCES passwort_eintraege(id) ON DELETE CASCADE,
+      user_id       TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      fassung       INTEGER NOT NULL,
+      konto_fassung INTEGER NOT NULL,
+      alg           TEXT NOT NULL,
+      iv            TEXT NOT NULL,
+      daten         TEXT NOT NULL,
+      erstellt_am   INTEGER NOT NULL,
+      PRIMARY KEY (eintrag_id, user_id)
+    )`);
+  /* Das getrennte Geheimnis — wortgleich mit schema.sql, ausführliche
+     Begründung steht dort. Für eine BESTEHENDE Datenbank ist das der einzige
+     Weg: die Tabelle kommt nach 32 Fassungen dazu, in denen es sie nicht gab.
+     Bestehende Einträge haben hier zunächst KEINE Zeile — sie tragen ihr
+     Passwort noch in der einen alten Hülle, und nur ein Gerät, das den
+     Eintragsschlüssel schon hat, kann das umstellen (services/passwoerter.ts,
+     geheimnisAusliefern()/speichern()). Der Server kann es nicht: er hat den
+     Schlüssel nicht und soll ihn nicht haben. */
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS passwort_geheimnisse (
+      eintrag_id   TEXT PRIMARY KEY REFERENCES passwort_eintraege(id) ON DELETE CASCADE,
+      chiffrat     TEXT NOT NULL,
+      fassung      INTEGER NOT NULL,
+      geaendert_am INTEGER NOT NULL
+    )`);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS passwort_offenlegungen (
+      id         TEXT PRIMARY KEY,
+      eintrag_id TEXT NOT NULL,
+      user_id    TEXT NOT NULL REFERENCES users(id),
+      am         INTEGER NOT NULL
+    )`);
+  try {
+    db.exec('CREATE INDEX IF NOT EXISTS idx_passwort_eintraege_owner ON passwort_eintraege(owner_id)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_passwort_mitglieder_user ON passwort_mitglieder(user_id)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_passwort_pakete_user ON passwort_schluessel_pakete(user_id)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_passwort_konto_pakete_user ON passwort_konto_pakete(user_id)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_passwort_offenlegungen_eintrag ON passwort_offenlegungen(eintrag_id, am DESC)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_passwort_offenlegungen_am ON passwort_offenlegungen(am DESC)');
+  } catch (err) {
+    console.warn('[db] Indizes für den Passwort-Tresor:', (err as Error).message);
+  }
+
+  /* Notzugang — dieselben fünf Tabellen wie in schema.sql, wortgleich
+     (pruefungen/tabellen-abgleich.mts prüft das), aus demselben Grund wie
+     beim Passwort-Tresor darüber. Die ausführliche Begründung des Aufbaus
+     steht dort; hier steht nur, was eine BESTEHENDE Datenbank nachholen
+     muss. Auf einer solchen gibt es zunächst keine einzige Zeile — ein
+     Notzugang entsteht ausschließlich auf einem Gerät, das den
+     Kontoschlüssel gerade offen hat, und der Server kann ihn nicht
+     nachträglich anlegen. Er hat den Schlüssel nicht und soll ihn nicht
+     haben. */
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS konto_notzugang (
+      user_id       TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+      alg           TEXT NOT NULL,
+      iv            TEXT NOT NULL,
+      daten         TEXT NOT NULL,
+      konto_abdruck TEXT NOT NULL,
+      konto_fassung INTEGER NOT NULL,
+      schwelle      INTEGER NOT NULL,
+      anteile       INTEGER NOT NULL,
+      erstellt_am   INTEGER NOT NULL,
+      geaendert_am  INTEGER NOT NULL
+    )`);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS notzugang_anteile (
+      user_id        TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      halter_id      TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      stelle         INTEGER NOT NULL,
+      alg            TEXT NOT NULL,
+      eph            TEXT NOT NULL,
+      iv             TEXT NOT NULL,
+      daten          TEXT NOT NULL,
+      halter_abdruck TEXT NOT NULL,
+      erstellt_am    INTEGER NOT NULL,
+      PRIMARY KEY (user_id, halter_id)
+    )`);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS notzugang_anfragen (
+      id            TEXT PRIMARY KEY,
+      user_id       TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      code_abdruck  TEXT NOT NULL,
+      stand         TEXT NOT NULL,
+      laeuft_ab     INTEGER NOT NULL,
+      erstellt_am   INTEGER NOT NULL,
+      eingeloest_am INTEGER
+    )`);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS notzugang_beitraege (
+      anfrage_id  TEXT NOT NULL REFERENCES notzugang_anfragen(id) ON DELETE CASCADE,
+      halter_id   TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      stelle      INTEGER NOT NULL,
+      alg         TEXT NOT NULL,
+      eph         TEXT NOT NULL,
+      iv          TEXT NOT NULL,
+      daten       TEXT NOT NULL,
+      erstellt_am INTEGER NOT NULL,
+      PRIMARY KEY (anfrage_id, halter_id)
+    )`);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS notzugang_protokoll (
+      id         TEXT PRIMARY KEY,
+      user_id    TEXT NOT NULL,
+      anfrage_id TEXT,
+      art        TEXT NOT NULL,
+      halter_id  TEXT,
+      am         INTEGER NOT NULL
+    )`);
+  try {
+    db.exec('CREATE INDEX IF NOT EXISTS idx_notzugang_anteile_halter ON notzugang_anteile(halter_id)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_notzugang_anfragen_user ON notzugang_anfragen(user_id, erstellt_am DESC)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_notzugang_protokoll_user ON notzugang_protokoll(user_id, am DESC)');
+  } catch (err) {
+    console.warn('[db] Indizes für den Notzugang:', (err as Error).message);
   }
 
   /* Indizes auf nachgerüstete Spalten gehören hierher, nicht in schema.sql:
@@ -798,6 +1256,41 @@ function uebersetzungsspeicherPruefen(): void {
  *
  * SQLite kann Bedingungen nicht einzeln entfernen, deshalb wird die Tabelle
  * einmalig neu aufgebaut.
+ *
+ * DRITTER ANLAUF FÜR DENSELBEN FEHLER — diesmal an der Wurzel, nicht am Symptom.
+ * `CREATE TABLE users_neu` stand hier früher als eigene, von Hand getippte
+ * Spaltenliste: eine DRITTE Liste neben COLUMNS oben und der Basisdefinition
+ * in schema.sql, die von Hand mit beiden Schritt halten musste. Am 19.08.
+ * (Commit 5052828, "users-Neuaufbau vollständig") bekam sie fünf fehlende
+ * Spalten nachgetragen, weil genau dieses Auseinanderlaufen den Server nicht
+ * mehr starten ließ ("table users_neu has no column named ..."). Drei Tage
+ * später fehlte `timezone_auto` auf dieselbe Art — dieselbe Ursache, DRITTES
+ * Mal. Eine von Hand gepflegte Liste, die mit zwei anderen Stellen Schritt
+ * halten muss, ist kein Unfall, der irgendwann von selbst aufhört, sondern
+ * eine Frage der Zeit bis zum nächsten Mal. WER HIER WIEDER EINE FESTE LISTE
+ * HINSCHREIBT, FÜHRT DENSELBEN FEHLER EIN VIERTES MAL EIN — bitte nicht.
+ *
+ * Deshalb jetzt keine dritte Liste mehr: `users_neu` entsteht aus der
+ * Spaltendefinition, wie SQLite sie für die LEBENDE `users`-Tabelle in genau
+ * diesem Moment kennt (PRAGMA table_info) — also inklusive jeder Spalte, die
+ * die COLUMNS-Nachrüstung weiter oben in dieser Datei VOR diesem Aufruf schon
+ * ergänzt hat (siehe migrate(): die Schleife über COLUMNS läuft vor
+ * rebuildUsersTable()). Wer COLUMNS künftig um eine weitere users-Spalte
+ * erweitert — wie es zwischen den beiden vorigen Ausfällen bereits zweimal
+ * passiert ist, ohne dass hier je etwas von Hand nachgezogen wurde —, muss an
+ * dieser Stelle nichts mehr tun: die nächste Zeile, die COLUMNS ergänzt,
+ * kommt automatisch mit, auch wenn sie erst NACH diesem Umbau hinzukommt.
+ *
+ * Dass dabei ausgerechnet das alte UNIQUE nicht mit herüberkommt, ist kein
+ * Zufall, um den man sich weiter kümmern müsste: PRAGMA table_info liefert
+ * ausschließlich Spalten-Metadaten (Name, Typ, NOT NULL, DEFAULT, ob Teil
+ * des Primärschlüssels) — Tabellen- oder Spalten-UNIQUE gehört nicht dazu,
+ * ganz gleich, ob die Ursprungstabelle sie als `UNIQUE(handle)` oder als
+ * `handle ... UNIQUE` geschrieben hat. Ein CREATE TABLE, das ausschließlich
+ * aus table_info-Zeilen zusammengesetzt wird, KANN die alte Eindeutigkeits-
+ * bedingung also gar nicht mehr enthalten — das ist die ganze Absicht dieser
+ * Funktion, jetzt durch die Bauart erzwungen statt durch Sorgfalt beim
+ * Abtippen erhofft.
  */
 function rebuildUsersTable(): void {
   const definition = db.get<{ sql: string }>(
@@ -805,67 +1298,35 @@ function rebuildUsersTable(): void {
   )?.sql;
   if (!definition || !/UNIQUE/i.test(definition)) return;   // schon erledigt
 
-  const spalten = db.all<{ name: string }>('PRAGMA table_info(users)').map((c) => c.name);
-  const liste = spalten.join(', ');
+  const spalten = db.all<{
+    name: string; type: string; notnull: number; dflt_value: string | null; pk: number;
+  }>('PRAGMA table_info(users)');
+  /* users hat seit jeher genau eine Primärschlüssel-Spalte (id). Unten wird
+     PRIMARY KEY je Spalte einzeln angehängt — bei mehr als einer pk-Spalte
+     entstünde damit stillschweigend falsches SQL (mehrere eigenständige
+     PRIMARY KEY statt einem zusammengesetzten). Lieber hier laut scheitern
+     als eine kaputte CREATE TABLE erzeugen, die erst beim Ausführen auffällt. */
+  if (spalten.filter((c) => c.pk > 0).length > 1) {
+    throw new Error('rebuildUsersTable(): users hat einen zusammengesetzten Primärschlüssel — diese Funktion setzt genau eine PRIMARY-KEY-Spalte voraus und muss angepasst werden.');
+  }
+  const liste = spalten.map((c) => c.name).join(', ');
+  /* dflt_value kommt von SQLite bereits als einsetzbarer SQL-Ausdruck zurück
+     (bei TEXT inklusive der Anführungszeichen, z. B. "'#7c5cff'") — nicht als
+     Rohwert, der erst noch zitiert werden müsste. */
+  const definitionenNeu = spalten.map((c) => {
+    let teil = `${c.name} ${c.type}`;
+    if (c.notnull) teil += ' NOT NULL';
+    if (c.dflt_value !== null) teil += ` DEFAULT ${c.dflt_value}`;
+    if (c.pk) teil += ' PRIMARY KEY';
+    return teil;
+  }).join(',\n          ');
 
   db.exec('PRAGMA foreign_keys = OFF');
   try {
     db.transaction(() => {
       db.exec(`
         CREATE TABLE users_neu (
-          id                     TEXT PRIMARY KEY,
-          handle                 TEXT NOT NULL,
-          email                  TEXT NOT NULL DEFAULT '',
-          display_name           TEXT NOT NULL,
-          password_hash          TEXT NOT NULL,
-          avatar_color           TEXT NOT NULL DEFAULT '#7c5cff',
-          avatar_url             TEXT,
-          title                  TEXT,
-          timezone               TEXT NOT NULL DEFAULT 'Europe/Berlin',
-          language               TEXT NOT NULL DEFAULT 'de',
-          auto_translate         INTEGER NOT NULL DEFAULT 1,
-          status                 TEXT NOT NULL DEFAULT 'offline',
-          status_emoji           TEXT,
-          status_text            TEXT,
-          last_seen_at           INTEGER,
-          role                   TEXT NOT NULL DEFAULT 'member',
-          notify_on              TEXT NOT NULL DEFAULT 'all',
-          quiet_hours_start      INTEGER,
-          quiet_hours_end        INTEGER,
-          compose_target_preview INTEGER NOT NULL DEFAULT 1,
-          theme                  TEXT NOT NULL DEFAULT 'dark',
-          density                TEXT NOT NULL DEFAULT 'comfortable',
-          created_at             INTEGER NOT NULL,
-          handle_bidx            TEXT,
-          email_bidx             TEXT,
-          must_change_password   INTEGER NOT NULL DEFAULT 0,
-          must_complete_profile  INTEGER NOT NULL DEFAULT 0,
-          disabled               INTEGER NOT NULL DEFAULT 0,
-          created_by             TEXT,
-          password_set_at        INTEGER,
-          ui_language            TEXT,
-          status_expires_at      INTEGER,
-          notification_sound     TEXT NOT NULL DEFAULT 'ping',
-          translation_speed      TEXT NOT NULL DEFAULT 'balanced',
-          -- Diese beiden fehlten. Die Spaltenliste für das INSERT kommt aus
-          -- PRAGMA table_info(users) und enthält sie — der Neuaufbau scheiterte
-          -- deshalb, und mit ihm der ganze Serverstart.
-          deleted_at             INTEGER,
-          kategorie              TEXT,
-          -- Aus demselben Grund wie deleted_at und kategorie: die Spaltenliste
-          -- für das INSERT kommt aus PRAGMA table_info(users), und die Schleife
-          -- oben hat diese Spalte bereits ergänzt.
-          sitzungen_ab           INTEGER,
-          -- Ebenso hier vergessen wie zuvor deleted_at/kategorie/
-          -- sitzungen_ab: beide kamen über dieselbe Nachrüst-Schleife
-          -- (COLUMNS weiter oben in dieser Datei) auf eine bestehende
-          -- Datenbank, aber nie in diese feste Spaltenliste. Ohne sie
-          -- bricht der Neuaufbau an derselben Stelle wie schon in
-          -- Fassung 1.0.17: INSERT INTO users_neu (${liste}) ... — liste
-          -- kommt aus PRAGMA table_info(users) und kennt beide Spalten
-          -- längst, users_neu bislang nicht.
-          auto_status            INTEGER NOT NULL DEFAULT 1,
-          lesebestaetigung_aus   INTEGER NOT NULL DEFAULT 0
+          ${definitionenNeu}
         )
       `);
       db.exec(`INSERT INTO users_neu (${liste}) SELECT ${liste} FROM users`);

@@ -310,8 +310,21 @@ export function Fernsteuerung(
     );
   }
 
+  /* Unter welchem Namen die Sitzung auf dem Pi steht. Dieselbe Angabe, die
+     verbinden() oben mitschickt und die dort ins Protokoll geht — sichtbar,
+     solange die Verbindung offen ist, damit niemand raten muss, als wer er
+     gerade auf einem fremden Schreibtisch sitzt. Der Zustand wird hier
+     bewusst nicht abonniert: der Anzeigename ändert sich nicht mitten in
+     einer laufenden Sitzung, und der Pi kennt ohnehin nur den Namen vom
+     Verbindungsaufbau. */
+  const alsName = useStore.getState().self?.displayName ?? '';
+
   const werkzeuge = lage === 'offen' ? (
     <>
+      {/* „muted" statt einer eigenen Klasse: die Formatvorlage
+          styles/fernsteuerung.css gehört in diesem Durchgang jemand anderem,
+          und für gedämpften Beitext gibt es die Klasse längst app-weit. */}
+      {alsName && <span className="muted">{t('fern.verbindetAls', { name: alsName })}</span>}
       <button
         type="button"
         className={`fern__knopf ${steuert ? 'fern__knopf--an' : ''}`}

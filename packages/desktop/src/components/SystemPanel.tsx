@@ -95,6 +95,18 @@ function grad(temp: number): string {
   return new Intl.NumberFormat(currentUiLanguage(), { style: 'unit', unit: 'celsius', unitDisplay: 'short' }).format(Math.round(temp));
 }
 
+/* "2.337" statt "2337" — dieselben Tausendertrennzeichen und Ziffern der
+   Oberflächensprache, die counterLabel() in lib/format.ts für Zähler mit
+   Deckel nutzt. Hier ohne Deckel: eine Nachrichten- oder Besucherzahl im
+   Bestand darf drei-, vier- oder fünfstellig werden, ohne bei "99+" zu
+   verschwinden — anders als beim Ungelesen-Punkt in der Kanalliste ist das
+   hier eine Kennzahl, kein Hinweis "mehr als X". Lokal statt in lib/format.ts,
+   aus demselben Grund wie laufzeit() und grad() oben: nur SystemPanel
+   braucht das. */
+function zahl(n: number): string {
+  return new Intl.NumberFormat(currentUiLanguage()).format(n);
+}
+
 /* geld() und zeitspanne() zogen nach ../lib/format.ts um — dieselbe
    Formatierung braucht jetzt auch VerkaufDetailPanel.tsx, und eine zweite
    Kopie hier wäre irgendwann eine Stelle, an der beide Ansichten
@@ -192,7 +204,7 @@ export function SystemPanel({ onClose }: { onClose: () => void }) {
           {(daten.inhalt?.users ?? 0) > 0 && (
             <Tacho name={t('system.teamOnline')} gutIstVoll
                    anteil={(daten.verbunden?.benutzer ?? 0) / daten.inhalt.users}
-                   wert={`${daten.verbunden?.benutzer ?? 0}/${daten.inhalt.users}`} />
+                   wert={`${zahl(daten.verbunden?.benutzer ?? 0)}/${zahl(daten.inhalt.users)}`} />
           )}
           {/* Besucher der Webseite. Beide Nenner wachsen mit: „gerade da" im
               Verhältnis zur letzten halben Stunde, „heute" zum besten Tag.
@@ -202,10 +214,10 @@ export function SystemPanel({ onClose }: { onClose: () => void }) {
             <>
               <Tacho name={t('system.webJetzt')} gutIstVoll
                      anteil={(w.jetzt ?? 0) / Math.max(w.jetzt30 ?? 0, w.jetzt ?? 0, 1)}
-                     wert={String(w.jetzt ?? 0)} />
+                     wert={zahl(w.jetzt ?? 0)} />
               <Tacho name={t('system.webHeute')} gutIstVoll
                      anteil={(w.heute?.besucher ?? 0) / Math.max(w.besteTag ?? 0, w.heute?.besucher ?? 0, 1)}
-                     wert={String(w.heute?.besucher ?? 0)} />
+                     wert={zahl(w.heute?.besucher ?? 0)} />
             </>
           )}
         </div>
@@ -225,13 +237,30 @@ export function SystemPanel({ onClose }: { onClose: () => void }) {
 
           <section className="sys__block">
             <h3 className="sys__titel"><Activity size={14} /> {t('system.chat')}</h3>
+            {/* Vorher "3 · 2" ganz ohne Beschriftung — nicht einmal eine
+                Legende wie bei der Webseite weiter unten. clients zählt
+                Verbindungen (Geräte/Tabs), benutzer die Personen dahinter
+                (siehe Kommentar bei system.teamOnline oben); beide Wörter
+                stehen jetzt direkt an ihrer Zahl, wie in der Verkaufskachel
+                ("0 zahlend · 0 in Probe") — eine Zeile, keine zweite Reihe. */}
             <Zeile name={t('system.verbunden')}
-                   wert={`${daten.verbunden?.clients ?? 0} · ${daten.verbunden?.benutzer ?? 0}`} />
-            <Zeile name={t('system.konten')} wert={daten.inhalt?.users ?? 0} />
-            <Zeile name={t('system.kanaele')} wert={daten.inhalt?.channels ?? 0} />
-            <Zeile name={t('system.nachrichten')} wert={daten.inhalt?.messages ?? 0} />
+                   wert={t('system.verbundenZeile', {
+                     verbindungen: zahl(daten.verbunden?.clients ?? 0),
+                     personen: zahl(daten.verbunden?.benutzer ?? 0),
+                   })} />
+            <Zeile name={t('system.konten')} wert={zahl(daten.inhalt?.users ?? 0)} />
+            <Zeile name={t('system.kanaele')} wert={zahl(daten.inhalt?.channels ?? 0)} />
+            <Zeile name={t('system.nachrichten')} wert={zahl(daten.inhalt?.messages ?? 0)} />
             <Zeile name={t('system.datenbank')} wert={fileSize(daten.inhalt?.groesse ?? 0)} />
-            <Zeile name={t('system.dateien')} wert={`${daten.ablage?.dateien ?? 0} · ${fileSize(ab.belegt ?? 0)}`} />
+            {/* "57 · 15 MB" liest sich nur scheinbar von selbst: "MB" markiert
+                die Größe, aber die 57 davor trägt kein Wort — dieselbe Lücke
+                wie bei "Verbunden" oben, nur durch die Einheit rechts davon
+                getarnt. Jetzt trägt auch die Anzahl ihr eigenes Wort. */}
+            <Zeile name={t('system.dateien')}
+                   wert={t('system.dateienZeile', {
+                     anzahl: zahl(daten.ablage?.dateien ?? 0),
+                     groesse: fileSize(ab.belegt ?? 0),
+                   })} />
           </section>
 
           {w?.da && (
@@ -242,19 +271,30 @@ export function SystemPanel({ onClose }: { onClose: () => void }) {
                   eine Messung, die gar nicht stattgefunden hat. */}
               {w.zugriff === false && <Notiz ton="warn" text={t('system.keinProtokoll')} />}
               {w.geteilt && <Notiz text={t('system.geteilt')} />}
-              {/* „261 · 326" sagt ohne diese Zeile nichts. Sie steht einmal
-                  über beiden Zeilen statt zweimal daneben — in einer schmalen
-                  Spalte ist das der Unterschied zwischen lesbar und
-                  überladen. */}
-              <Notiz text={t('system.besucherSeiten')} />
-              <Zeile name={t('system.jetzt')} wert={w.jetzt ?? 0} />
+              {/* Früher stand hier "2337 · 2756" — unlesbar auf eigene Faust,
+                  erklärt nur durch eine gedimmte Legende fünf Zeilen weiter
+                  oben (system.besucherSeiten, jetzt entfernt). Genau der
+                  gemeldete Fehler: sobald man weggeschaut oder gescrollt
+                  hatte, waren es nur noch zwei Zahlen. Jetzt trägt jede der
+                  beiden Zeilen (Heute, Woche) ihre eigene Beschriftung direkt
+                  an der Zahl — bleibt auch beim isolierten Blick auf nur
+                  diese eine Zeile verständlich, und die Legendenzeile fällt
+                  weg: die Kachel wird dadurch sogar eine Zeile kürzer, nicht
+                  länger. */}
+              <Zeile name={t('system.jetzt')} wert={zahl(w.jetzt ?? 0)} />
               <Zeile name={t('system.heute')}
-                     wert={`${w.heute?.besucher ?? 0} · ${w.heute?.seiten ?? 0}`} />
+                     wert={t('system.besucherAufrufeZeile', {
+                       besucher: zahl(w.heute?.besucher ?? 0),
+                       seiten: zahl(w.heute?.seiten ?? 0),
+                     })} />
               <Zeile name={t('system.woche')}
-                     wert={`${w.woche?.besucher ?? 0} · ${w.woche?.seiten ?? 0}`} />
-              <Zeile name={t('system.fehler404')} wert={w.heute?.f404 ?? 0} />
+                     wert={t('system.besucherAufrufeZeile', {
+                       besucher: zahl(w.woche?.besucher ?? 0),
+                       seiten: zahl(w.woche?.seiten ?? 0),
+                     })} />
+              <Zeile name={t('system.fehler404')} wert={zahl(w.heute?.f404 ?? 0)} />
               <Zeile name={t('system.fehler5xx')} ton={(w.heute?.f5xx ?? 0) > 0 ? 'warn' : undefined}
-                     wert={w.heute?.f5xx ?? 0} />
+                     wert={zahl(w.heute?.f5xx ?? 0)} />
               <Zeile name={t('system.uebertragen')} wert={fileSize(w.heute?.bytes ?? 0)} />
             </section>
           )}
@@ -277,10 +317,10 @@ export function SystemPanel({ onClose }: { onClose: () => void }) {
               <Zeile name={daten.abo.abonnenten ? t('system.abonnenten') : t('system.mitglieder')}
                      wert={daten.abo.abonnenten
                        ? t('system.zahlendInProbe', {
-                           zahlend: String(daten.abo.abonnenten.zahlend ?? 0),
-                           probe: String(daten.abo.abonnenten.probe ?? 0),
+                           zahlend: zahl(daten.abo.abonnenten.zahlend ?? 0),
+                           probe: zahl(daten.abo.abonnenten.probe ?? 0),
                          })
-                       : (daten.abo.mitglieder ?? '—')} />
+                       : (daten.abo.mitglieder != null ? zahl(daten.abo.mitglieder) : '—')} />
               <Zeile name={t('system.umsatz')}
                      wert={geld(daten.abo.umsatz?.monatCent, daten.abo.umsatz?.waehrung ?? daten.abo.waehrung)} />
               {/* Vorher stand hier Gumroads roher Text ("$25+ a month") —
@@ -329,7 +369,7 @@ export function SystemPanel({ onClose }: { onClose: () => void }) {
               {patreon && (
                 <Zeile name={t('system.patreon')}
                        wert={t('system.patreonZeile', {
-                         aktiv: String(patreon.aktiveUnterstuetzer ?? 0),
+                         aktiv: zahl(patreon.aktiveUnterstuetzer ?? 0),
                          betrag: geld(patreon.monatlicheEinnahmenCents, patreon.waehrung),
                        })} />
               )}
@@ -344,7 +384,7 @@ export function SystemPanel({ onClose }: { onClose: () => void }) {
             <Zeile name={t('system.empfangen')} wert={fileSize(l.netz?.rein ?? 0)} />
             <Zeile name={t('system.gesendet')} wert={fileSize(l.netz?.raus ?? 0)} />
             <Zeile name={t('system.sicherungen')}
-                   wert={daten.sicherung ? `${daten.sicherung.anzahl}` : '—'} />
+                   wert={daten.sicherung ? zahl(daten.sicherung.anzahl) : '—'} />
             {Array.isArray(daten.bestandteile) && daten.bestandteile.slice(0, 4).map((b: any) => (
               <Zeile key={b.name} name={b.name} wert={b.fassung ?? '—'} />
             ))}
