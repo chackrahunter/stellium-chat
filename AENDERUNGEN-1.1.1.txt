@@ -1,0 +1,7 @@
+Neu: Im Rechner-Browser erscheint vor der App ein Startbildschirm mit Download-Knopf — wie auf dem Telefon.
+Neu: Ein ruhiger Sternenhimmel als Hintergrund, in den Einstellungen zuschaltbar.
+Sicher: Push-Benachrichtigungen gehen nur noch an echte Push-Dienste hinaus — Adressen ins interne Netz werden abgelehnt.
+Sicher: Der Posteingang lässt sich nicht mehr durch Anfragen ohne Schlüssel blockieren.
+Behoben: Wer sich abmeldet, hinterlässt keine Spuren des Kontos auf dem Gerät — Schlüssel, Entwürfe und offene Tafeln werden aufgeräumt.
+Behoben: Das Ausliefern ohne Serverpaket stürzt nicht mehr ab.
+Dazu weitere Korrekturen an Vorschlägen und der Postansicht, geprüft von deutlich mehr automatischen Läufen.

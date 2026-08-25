@@ -1,0 +1,105 @@
+Neu: Passwort-Tresor — Zugänge liegen verschlüsselt in Stellium, nicht mehr in einer Notiz. Passwörter bleiben verdeckt, bis du sie aufdeckst.
+Neu: Einmalcodes — die Sechs-Ziffern-Codes fürs Anmelden, direkt in der App. Funktioniert auch ohne Internet.
+Neu: Bank — Guthaben und die letzten Bewegungen auf einen Blick.
+Neu: Notzugang — vergisst jemand sein Passwort, können drei von fünf Kollegen gemeinsam seinen Zugang wiederherstellen. Einzeln kann es niemand.
+Notizen öffnen sich jetzt auf jedem Gerät, an dem du angemeldet bist.
+Dein Passwort verlässt dein Gerät beim Anmelden nicht mehr.
+Briefpartner: eigene Gruppen anlegen, und eine Gruppe "Intern" für Post aus der Firma.
+E-Mails, die die KI geschrieben hat, tragen das künftig klein unten in der Mail.
+Benachrichtigungen, Menüs und diese Liste hier erscheinen jetzt in deiner Sprache.
+Aufgaben lassen sich auch mit der Tastatur zwischen den Spalten verschieben.
+Behoben: hochgeladene Anhänge drehen sich nicht mehr endlos.
+Behoben: die Aufgabentafel ruckelt beim Ziehen nicht mehr.
+Behoben: E-Mail-Adressen und Passwörter in Nachrichten werden nicht mehr verstümmelt.
+Behoben: Käufe erscheinen jetzt auch im Benachrichtigungs-Reiter.
+Behoben: technische Konten zählen nicht mehr zum Team.
+Dazu rund zwanzig weitere Korrekturen und deutlich mehr automatische Prüfungen vor jeder Auslieferung.
+---
+package.json:3:  "version": "0.1.0",
+packages/desktop/package.json:3:  "version": "1.1.0",
+packages/desktop/package.json:78:      "title": "Stellium ${version}"
+packages/desktop/package.json:134:      "artifactName": "stellium_${version}_${arch}.${ext}"
+packages/desktop/package.json:140:    "artifactName": "Stellium-${version}-${arch}.${ext}",
+packages/server/package.json:3:  "version": "0.1.0",
+packages/shared/package.json:3:  "version": "0.1.0",
+---
+#!/usr/bin/env node
+/**
+ * Eine Änderung fertig ausliefern — in einem Aufruf.
+ *
+ *   node scripts/ausliefern.mjs "Was neu ist (eine Zeile je Punkt)"
+ *   node scripts/ausliefern.mjs --notizen=AENDERUNGEN.txt
+ *   node scripts/ausliefern.mjs 1.3.0 "Große Sache"
+ *
+ * Der Reihe nach: Version hochzählen, prüfen, bauen, auf den Stellium-Server
+ * hochladen (Apps und Server — dadurch laufen die OTA-Updates an), ein Release
+ * auf GitHub anlegen, den Quelltextstand committen und schieben und die neue
+ * Fassung auf diesem Mac installieren.
+ *
+ * Jeder Schritt lässt sich abschalten:
+ *   --ohne-github     kein Release auf GitHub
+ *   --ohne-server     Serverpaket nicht mitschicken (dann kein Server-Update)
+ *   --ohne-hier       nicht lokal installieren
+ *   --ohne-git        nicht committen und schieben
+ *   --nur-mac         nur macOS bauen (schneller beim Ausprobieren)
+ *   --minor / --major welche Stelle hochgezählt wird
+ *   --probe           alles bauen, aber nichts senden
+ *
+ * Zugang: Benutzername und Passwort für den Stellium-Server kommen aus
+ *   1. den Umgebungsvariablen STELLIUM_LOGIN / STELLIUM_PASSWORT
+ *   2. dem Schlüsselbund (Dienst "stellium-veroeffentlichen")
+ *   3. ~/.stellium-veroeffentlichen  (Zeile 1 Benutzername, Zeile 2 Passwort)
+ * Steht nichts davon bereit, sagt das Skript, was zu tun ist, und hört auf.
+ */
+import { execFileSync, execSync } from 'node:child_process';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const wurzel = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const F = {
+  aus: '\x1b[0m', fett: '\x1b[1m', grau: '\x1b[90m',
+  gruen: '\x1b[38;5;42m', rot: '\x1b[38;5;203m', blau: '\x1b[38;5;111m', gelb: '\x1b[38;5;221m',
+};
+const sag = (t = '') => process.stdout.write(`${t}\n`);
+const ok = (t) => sag(`  ${F.gruen}✓${F.aus} ${t}`);
+const info = (t) => sag(`  ${F.grau}${t}${F.aus}`);
+const warn = (t) => sag(`  ${F.gelb}!${F.aus} ${t}`);
+const schritt = (t) => sag(`\n${F.blau}${F.fett}▸ ${t}${F.aus}`);
+const raus = (t) => { sag(`\n${F.rot}✗ ${t}${F.aus}\n`); process.exit(1); };
+
+const args = process.argv.slice(2);
+const hat = (name) => args.includes(name);
+const ohneGithub = hat('--ohne-github');
+const ohneServer = hat('--ohne-server');
+const ohneHier = hat('--ohne-hier');
+const ohneGit = hat('--ohne-git');
+const nurMac = hat('--nur-mac');
+const probe = hat('--probe');
+const stufe = hat('--major') ? 'major' : hat('--minor') ? 'minor' : 'patch';
+
+const lauf = (befehl, argumente, optionen = {}) =>
+  execFileSync(befehl, argumente, { cwd: wurzel, encoding: 'utf8', stdio: 'pipe', ...optionen });
+
+/* ── Version ─────────────────────────────────────────────────── */
+
+const paketDatei = path.join(wurzel, 'packages/desktop/package.json');
+const paket = JSON.parse(fs.readFileSync(paketDatei, 'utf8'));
+const jetzige = paket.version;
+
+const gesetzt = args.find((a) => /^\d+\.\d+\.\d+$/.test(a));
+
+/* Die zuletzt WIRKLICH veröffentlichte Fassung — aus den Marken, nicht aus
+   package.json. Die Marke entsteht erst beim Veröffentlichen; die Datei kann
+   längst weitergezählt sein. */
+function letzteMarke() {
+  try {
+    lauf('git', ['fetch', '--tags', '--quiet']);
+  } catch { /* ohne Netz eben mit dem, was da ist */ }
+  try {
+    const alle = lauf('git', ['tag', '--list', 'v*.*.*']).trim().split('\n').filter(Boolean);
+    const zahlen = alle
+      .map((t) => t.replace(/^v/, '').split('.').map(Number))
+      .filter((z) => z.length === 3 && z.every(Number.isFinite))
+      .sort((a, b) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2]);

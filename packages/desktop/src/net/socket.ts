@@ -50,9 +50,18 @@ const ABBRUCH_KENNUNGEN = new Set([
 let eigeneVersion: Promise<string> | null = null;
 function appVersion(): Promise<string> {
   if (!eigeneVersion) {
-    eigeneVersion = window.stellium
-      ? window.stellium.info().then((i) => i.version).catch(() => __APP_VERSION__)
-      : Promise.resolve(__APP_VERSION__);
+    /* Nicht nur prüfen, OB eine Brücke da ist, sondern ob sie info() auch
+       WIRKLICH kann: ein Prüfstand (oder ein altes Installationsstand) stellt
+       window.stellium bereit, aber ohne jede Methode — der Aufruf würde SYNCHRON
+       werfen, und das .catch() darunter fängt synchronen Unfall nicht. */
+    const bruecke = window.stellium as { info?: () => Promise<{ version: string }> } | undefined;
+    /* typeof statt bloßem Zugriff: außerhalb eines echten Baus (in
+       Prüfständen) existiert die Bauzeit-Konstante gar nicht — ein direkter
+       Zugriff wäre dort ein ReferenceError. */
+    const bauzeit = typeof __APP_VERSION__ === 'string' ? __APP_VERSION__ : '';
+    eigeneVersion = typeof bruecke?.info === 'function'
+      ? bruecke.info().then((i) => i.version).catch(() => bauzeit)
+      : Promise.resolve(bauzeit);
   }
   return eigeneVersion;
 }
