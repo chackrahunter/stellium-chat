@@ -32,6 +32,31 @@ const ABBRUCH_KENNUNGEN = new Set([
   'fehler.kontoWeg',
 ]);
 
+/**
+ * Die eigene App-Fassung, einmal ermittelt und für jede (Wieder-)Verbindung
+ * wiederverwendet — sie ändert sich ja nicht, während die App läuft, ein
+ * zweiter IPC-Ruf bei jedem Reconnect wäre nur Ballast.
+ *
+ * In der App kommt sie von Electron selbst, über die vorhandene Brücke
+ * window.stellium.info() (electron/main.ts, 'app:info' -> app.getVersion())
+ * — dieselbe Fassung, mit der electron/updater.ts schon heute seine eigene
+ * Prüfung fährt, keine zweite eigene Quelle. Im bloßen Browser gibt es diese
+ * Brücke nicht; dort steht die Fassung stattdessen zur Bauzeit fest
+ * (__APP_VERSION__, siehe vite.config.ts) — aus derselben
+ * packages/desktop/package.json, aus der auch electron-builder die
+ * App-Version zieht, kann also nicht auseinanderlaufen. Derselbe Rückfall
+ * greift, falls die Brücke aus irgendeinem Grund nicht antwortet.
+ */
+let eigeneVersion: Promise<string> | null = null;
+function appVersion(): Promise<string> {
+  if (!eigeneVersion) {
+    eigeneVersion = window.stellium
+      ? window.stellium.info().then((i) => i.version).catch(() => __APP_VERSION__)
+      : Promise.resolve(__APP_VERSION__);
+  }
+  return eigeneVersion;
+}
+
 class Socket {
   private ws: WebSocket | null = null;
   private listeners = new Set<Listener>();
@@ -81,7 +106,21 @@ class Socket {
     this.ws = ws;
 
     ws.onopen = () => {
-      ws.send(JSON.stringify({ t: 'auth', token: t, protocol: WS_PROTOCOL_VERSION } satisfies ClientEvent));
+      /* platform ist sofort da (window.stellium?.platform, siehe preload.ts
+         — dieselbe Stelle, die main.tsx schon für dataset.platform nutzt),
+         appVersion erst nach einem IPC-Ruf (memoisiert, siehe oben) — beides
+         optional, ein alter Server kennt die Felder ohnehin nicht (siehe
+         protocol.ts). */
+      const platform = window.stellium?.platform ?? 'browser';
+      void appVersion().then((version) => {
+        // Die Leitung kann in der Zwischenzeit schon wieder zu sein (sehr
+        // kurzes Fenster, aber ws.send() auf einer geschlossenen Leitung
+        // wirft) — dann übernimmt ohnehin der nächste Verbindungsversuch.
+        if (ws.readyState !== WebSocket.OPEN) return;
+        ws.send(JSON.stringify({
+          t: 'auth', token: t, protocol: WS_PROTOCOL_VERSION, appVersion: version, platform,
+        } satisfies ClientEvent));
+      });
     };
 
     ws.onmessage = (e) => {

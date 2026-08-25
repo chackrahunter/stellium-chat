@@ -106,8 +106,21 @@ export function abonnieren(userId: string, sub: PushSubscriptionJSON): void {
   );
 }
 
-export function abbestellen(endpoint: string): void {
-  db.run('DELETE FROM push_subscriptions WHERE endpoint = ?', endpoint);
+/**
+ * Ein Abonnement entfernen.
+ *
+ * Mit `userId` nur die ZEILE DIESES KONTOs — der Weg aus dem Gateway
+ * (`push:unsubscribe`). Ohne die Einschränkung könnte jedes angemeldete
+ * Konto die Zeile eines fremden Kontos löschen: die Endpoint-URL steht im
+ * Klartext im Abonnement und liegt dauerhaft in der Tabelle — wer sie
+ * erfährt, hätte dem Opfer sonst still alle Push-Benachrichtigungen
+ * abgedreht, ohne dass dessen Client es merkt. Der interne Aufruf unten
+ * (`anEinGeraet`, Aufräumen nach 404/410) kommt ohne Konto aus: der Endpoint
+ * stammt dort aus derselben Tabelle, nicht von einem Client.
+ */
+export function abbestellen(endpoint: string, userId?: string): void {
+  if (userId) db.run('DELETE FROM push_subscriptions WHERE endpoint = ? AND user_id = ?', endpoint, userId);
+  else db.run('DELETE FROM push_subscriptions WHERE endpoint = ?', endpoint);
 }
 
 function abosFuer(userId: string): Abo[] {

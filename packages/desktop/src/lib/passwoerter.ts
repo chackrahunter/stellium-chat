@@ -198,6 +198,20 @@ export function eintragLesbar(eintragId: string): boolean {
   return eintragSchluessel.has(eintragId);
 }
 
+/**
+ * Alles vergessen, was zum Konto gehört — beim Abmelden.
+ *
+ * `eintragSchluessel` sind entpackte Eintragsschlüssel des Passworttresors:
+ * mit ihnen ließe sich jedes gespeicherte Geheimnis des abgemeldeten Kontos
+ * wiederherstellen, solange sie im Speicher stehen. Meldet sich auf demselben
+ * Fenster ein anderes Konto an, gehören diese Schlüssel ihm nicht — dieselbe
+ * Überlegung wie bei notizenVergessen() in lib/notizen.ts. Beim nächsten
+ * Öffnen der Tafel liefert der Server die Pakete neu.
+ */
+export function passwoerterVergessen(): void {
+  eintragSchluessel.clear();
+}
+
 /* ── Laden ─────────────────────────────────────────────────────── */
 
 export interface PasswortLadeErgebnis {

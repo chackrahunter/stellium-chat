@@ -546,34 +546,51 @@ export function PostPanel({ onClose }: { onClose: () => void }) {
     } catch { /* siehe Begründung oben */ }
   };
 
+  /* Laufzähler gegen überholte Antworten: Wechselt jemand schnell das Fach
+     oder die Ansicht, laufen zwei Abrufe gleichzeitig — kommt die LANGSAMERE
+     (die des alten Fachs) zuletzt zurück, überschriebe sie die frische Liste
+     mit der Post des VORHERIGEN Fachs. Dasselbe Muster wie das `lebt`-Flag
+     im Such-Effekt weiter unten, nur als Zähler, weil hier mehrere Aufrufer
+     (Fachwechsel, Ansichtwechsel, Nachladen) dieselbe Liste füllen. */
+  const listenLauf = useRef(0);
+
   const listeLaden = async (fach: string | null) => {
     // Sofort leeren statt erst nach der Antwort: sonst zeigt die Liste kurz
     // die Post des VORHERIGEN Fachs unter dem neu gewählten Namen an.
+    const meineNummer = ++listenLauf.current;
     setListeLaedt(true); setListeFehler(null); setEintraege([]); setKannWeiterladen(false);
     try {
       const seite = await listeHolen(fach, ansicht);
+      if (listenLauf.current !== meineNummer) return; // inzwischen überholt
       setEintraege(seite);
       setKannWeiterladen(seite.length >= SEITENGROESSE);
       void sichtungenNachladen(seite);
     } catch (err) {
+      if (listenLauf.current !== meineNummer) return;
       setListeFehler((err as Error).message);
     } finally {
-      setListeLaedt(false);
+      if (listenLauf.current === meineNummer) setListeLaedt(false);
     }
   };
 
   const weitereLaden = async () => {
     if (!eintraege.length) return;
+    const meineNummer = listenLauf.current;
     setWeitereLaedt(true);
     try {
       const seite = await listeHolen(aktivesFach, ansicht, eintraege[eintraege.length - 1].am);
+      // Ein Fach- oder Ansichtswechsel während des Nachladens macht diese
+      // Seite wertlos: sie gehört zur alten Auswahl und dürfte nicht an die
+      // neue Liste angehängt werden.
+      if (listenLauf.current !== meineNummer) return;
       setEintraege((v) => [...v, ...seite]);
       setKannWeiterladen(seite.length >= SEITENGROESSE);
       void sichtungenNachladen(seite);
     } catch (err) {
+      if (listenLauf.current !== meineNummer) return;
       setListeFehler((err as Error).message);
     } finally {
-      setWeitereLaedt(false);
+      if (listenLauf.current === meineNummer) setWeitereLaedt(false);
     }
   };
 

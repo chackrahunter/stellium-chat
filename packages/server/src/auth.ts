@@ -128,7 +128,7 @@ function kontoTraegtToken(userId: string, ausgestellt: number): boolean {
   return true;
 }
 
-export function verifyToken(token: string): string | null {
+function tokenPruefen(token: string): { sub: string; ausgestellt: number } | null {
   const parts = token.split('.');
   if (parts.length !== 3) return null;
   const [header, payload, sig] = parts;
@@ -148,10 +148,33 @@ export function verifyToken(token: string): string | null {
       ? claims.ms
       : (typeof claims.iat === 'number' ? claims.iat : 0) * 1000 + 999;
     if (!kontoTraegtToken(claims.sub, ausgestellt)) return null;
-    return claims.sub;
+    return { sub: claims.sub, ausgestellt };
   } catch {
     return null;
   }
+}
+
+export function verifyToken(token: string): string | null {
+  return tokenPruefen(token)?.sub ?? null;
+}
+
+/**
+ * Wie verifyToken, verlangt aber zusätzlich ein FRISCHES Token.
+ *
+ * Für Wege, die etwas Einmaliges an einem Konto verändern dürfen — im Haus
+ * steht dafür nur eine Tür: das Hinterlegen des Anmeldenachweises. Ein
+ * gestohlenes Token ist dort besonders wertvoll, weil der Nachweis ein
+ * dauerhafter zweiter Zugang wäre, der einen Passwortwechsel überdauert,
+ * solange niemand merkt, dass er existiert. Der echte Aufrufer legt den
+ * Nachweis im selben Atemzug nach der Anmeldung ab — sein Token ist Sekunden
+ * alt. Ein gestohlenes ist es in der Regel nicht; und selbst im ungünstigen
+ * Fall bleibt nur das schmale Fenster, nicht mehr die unbegrenzte Tür.
+ */
+export function verifyTokenFrisch(token: string, hoechstalterMs: number): string | null {
+  const geprueft = tokenPruefen(token);
+  if (!geprueft) return null;
+  if (Date.now() - geprueft.ausgestellt > hoechstalterMs) return null;
+  return geprueft.sub;
 }
 
 /** Farbe für den Fallback-Avatar aus dem Handle ableiten. */

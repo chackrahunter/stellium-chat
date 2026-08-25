@@ -217,6 +217,19 @@ const COLUMNS: { table: string; column: string; definition: string }[] = [
   { table: 'einmalcode_konten', column: 'aussteller',  definition: 'TEXT' },
   { table: 'einmalcode_konten', column: 'konto',       definition: 'TEXT' },
   { table: 'einmalcode_konten', column: 'geheimnis',   definition: 'TEXT' },
+
+  /* Zuletzt gemeldete App-Fassung und Plattform je Konto — Anlass war eine
+     Support-Rückfrage ("ich habe die neue Version noch nicht"), die sich von
+     der Verwaltung aus nicht nachprüfen ließ. Geschrieben bei JEDER
+     erfolgreichen Anmeldung (ws/gateway.ts, authenticate() ->
+     services/store.ts, clientMeldung()), nicht nur beim ersten Mal — bei
+     mehreren gleichzeitig offenen Geräten gewinnt, wer zuletzt (wieder)
+     angemeldet hat, dieselbe Regel wie bei last_seen_at. NULL auf jeder
+     bestehenden Zeile ist ehrlich: was vor dieser Fassung zuletzt lief, ist
+     nirgends festgehalten worden, und diese Nachrüstung erfindet nichts. */
+  { table: 'users', column: 'client_version',    definition: 'TEXT' },
+  { table: 'users', column: 'client_platform',   definition: 'TEXT' },
+  { table: 'users', column: 'client_version_at', definition: 'INTEGER' },
 ];
 
 export function migrate(): void {

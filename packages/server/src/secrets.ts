@@ -139,6 +139,54 @@ export function readKeychain(): string | null {
 
 export function writeKeychain(passphrase: string): void {
   if (!keychainAvailable()) throw new Error('Die Keychain gibt es nur auf macOS.');
+
+  // Das Passwort soll nicht in der Prozessliste landen: `ps` zeigt allen
+  // lokalen Benutzern die Argumente anderer Prozesse. `security` nimmt das
+  // Passwort aber nur über ein echtes Terminal entgegen (Standardeingabe und
+  // `security -i` werden ignoriert) — also bedienen wir den Prompt mit
+  // expect und reichen das Passwort über eine Umgebungsvariable weiter,
+  // die fremde Benutzer nicht lesen können.
+  //
+  // Schlägt dieser Weg fehl (expect fehlt, Prompt hat sich geändert), fällt
+  // die Routine auf den direkten Aufruf zurück — dann ist das Passwort kurz
+  // in der Prozessliste sichtbar, aber das Speichern gelingt weiterhin.
+  const LF = String.fromCharCode(10);
+  const CR = String.fromCharCode(13);
+  const ohneZeilenumbuch = !passphrase.includes(LF) && !passphrase.includes(CR);
+  if (ohneZeilenumbuch) {
+    // Nicht mit -U aktualisieren: security hängt nach dem Aktualisieren eines
+    // bestehenden Eintrags beim Beenden (wartet auf einen SecurityAgent-
+    // Dialog, der nie kommt). Löschen plus Neu-Anlegen dagegen läuft immer
+    // sauber durch und endet von selbst.
+    try {
+      execFileSync('security', [
+        'delete-generic-password', '-a', KEYCHAIN_ACCOUNT, '-s', KEYCHAIN_SERVICE,
+      ], { stdio: 'ignore', timeout: 5_000 });
+    } catch { /* war nicht da */ }
+
+    const expectSkript = [
+      'set timeout 10',
+      'log_user 0',
+      `spawn /usr/bin/security add-generic-password -a ${KEYCHAIN_ACCOUNT} -s ${KEYCHAIN_SERVICE} -A -w`,
+      'expect {',
+      '  -nocase -re "(passwort|kennwort|password)" { send "$env(STELLIUM_KC_PASS)\\r"; exp_continue }',
+      '  eof {}',
+      '  timeout {}',
+      '}',
+      'catch { exec kill [exp_pid] }',
+      'catch wait result',
+      'exit [lindex $result 3]',
+    ].join(LF);
+    try {
+      execFileSync('/usr/bin/expect', ['-c', expectSkript], {
+        stdio: ['ignore', 'ignore', 'pipe'],
+        timeout: 15_000,
+        env: { ...process.env, STELLIUM_KC_PASS: passphrase },
+      });
+      return;
+    } catch { /* Rückfallweg unten */ }
+  }
+
   execFileSync('security', [
     'add-generic-password', '-a', KEYCHAIN_ACCOUNT, '-s', KEYCHAIN_SERVICE,
     '-w', passphrase, '-U',

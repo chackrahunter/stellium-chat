@@ -443,7 +443,37 @@ export interface LaufBericht {
  * ersten Lesen einer Nachricht. Nicht danach, nicht im Modell, nicht in der
  * Oberfläche — hier, bevor überhaupt eine Zeile aus der Datenbank kommt.
  */
-export async function laufFuerKanal(channelId: string): Promise<LaufBericht> {
+/**
+ * Ein Lauf je Kanal — nicht zwei gleichzeitig.
+ *
+ * Der Hintergrundtakt schützt sich selbst (`laeuft` unten), aber diese
+ * Funktion ist exportiert: ein künftiger Aufrufer — ein Knopf, ein Import,
+ * ein Prüflauf — könnte mitten in einem Modelllauf einen zweiten für
+ * DENSSELBEN Kanal starten. Beide schnappten denselben Wasserstand, beide
+ * lasen denselben Abschnitt, und der LANGSAMERE schriebe seine Marke zuletzt:
+ * eine ältere Grenze über einer neueren — der nächste Lauf läse dieselben
+ * Nachrichten noch einmal. Die Dublettenprüfung fängt das meiste auf, aber
+ * "meistens" ist hier keine Antwort; ein zweiter Modelllauf kostet ohnehin
+ * Geld für dasselbe Ergebnis.
+ *
+ * Deshalb: läuft für den Kanal schon einer, bekommt der zweite Aufrufer
+ * DENSELBEN Bericht zurück statt eines zweiten Laufs.
+ */
+const laufend = new Map<string, Promise<LaufBericht>>();
+
+export function laufFuerKanal(channelId: string): Promise<LaufBericht> {
+  const schon = laufend.get(channelId);
+  if (schon) return schon;
+  const versprechen = laufFuerKanalEinmalig(channelId).finally(() => {
+    // Nur wegräumen, wenn nicht inzwischen ein NEUER Lauf eingetragen wurde —
+    // sonst löschte ein spät endender alter Lauf die Sperre des neuen.
+    if (laufend.get(channelId) === versprechen) laufend.delete(channelId);
+  });
+  laufend.set(channelId, versprechen);
+  return versprechen;
+}
+
+async function laufFuerKanalEinmalig(channelId: string): Promise<LaufBericht> {
   const leer: LaufBericht = { channelId, angelegt: [], dubletten: 0, ohneAdressat: 0 };
 
   if (vertraulich.istVertraulich(channelId)) {
@@ -456,6 +486,19 @@ export async function laufFuerKanal(channelId: string): Promise<LaufBericht> {
   const botId = assistantUserId();
   const marke = getSetting(markeSchluessel(channelId));
 
+  /* Wasserstands-Schnappschuss VOR dem Lesen, nicht danach: Während der
+     Modelllauf läuft (Sekunden bis Minuten), kommen weiter Nachrichten an.
+     Stünde die Marke auf dem Stand von NACH dem Lauf, wären genau diese
+     Nachrichten übersprungen — sie waren beim Lesen noch nicht da, gelten
+     aber schon als gelesen. Der Schnappschuss vor dem Lauf markiert die
+     Grenze dessen, was der Lauf überhaupt sehen konnte; alles Spätere bleibt
+     neu und kommt in den nächsten Lauf. */
+  const neuste = db.get<{ id: string }>(
+    `SELECT id FROM messages WHERE channel_id = ?
+       AND deleted_at IS NULL AND system_kind IS NULL
+     ORDER BY id DESC LIMIT 1`, channelId,
+  )?.id;
+
   const ergebnis = await vorschlaegeAusVerlauf({
     channelId,
     channelName: kanal.name,
@@ -465,10 +508,6 @@ export async function laufFuerKanal(channelId: string): Promise<LaufBericht> {
     sinceMessageId: marke,
     ohneUserIds: botId ? [botId] : [],
   });
-
-  const neuste = db.get<{ id: string }>(
-    'SELECT id FROM messages WHERE channel_id = ? ORDER BY created_at DESC LIMIT 1', channelId,
-  )?.id;
 
   const bericht = { ...kandidatenEintragen(channelId, ergebnis.vorschlaege), channelId };
 

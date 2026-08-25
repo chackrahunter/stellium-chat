@@ -16,7 +16,18 @@ export const WS_PROTOCOL_VERSION = 1;
 /* ── Client -> Server ─────────────────────────────────────────── */
 
 export type ClientEvent =
-  | { t: 'auth'; token: string; protocol: number }
+  /**
+   * `appVersion`/`platform` sind optional und neu: sie sagen der Verwaltung,
+   * welche Fassung dieses Gerät gerade fährt (siehe ws/gateway.ts,
+   * authenticate(), und ManagedUser in types.ts). Ein alter Client kennt die
+   * Felder noch nicht und lässt sie einfach weg — ein neuer Server muss das
+   * aushalten (tut er: fehlt appVersion, bleibt der zuletzt bekannte Stand
+   * unangetastet). Umgekehrt ignoriert ein alter Server unbekannte Felder
+   * ohnehin. Kein Grund, WS_PROTOCOL_VERSION hochzuzählen — das Protokoll
+   * selbst ändert sich nicht, es kommt nur eine zusätzliche, verzichtbare
+   * Auskunft mit.
+   */
+  | { t: 'auth'; token: string; protocol: number; appVersion?: string; platform?: string }
   | { t: 'ping'; ts: number }
   | { t: 'channel:open'; channelId: string; before?: string; limit?: number }
   | { t: 'channel:create'; kind: 'public' | 'private'; name: string; topic?: string; memberIds?: string[]; primaryLanguage?: string | null }

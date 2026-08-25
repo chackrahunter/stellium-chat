@@ -254,7 +254,17 @@ export const config = {
     deepl: {
       apiKey: secret('DEEPL_API_KEY', 'deepl'),
       get baseUrl() {
-        const key = str('DEEPL_API_KEY');
+        /* Derselbe Weg wie für `apiKey` darüber — Umgebung ODER Tresor, nicht
+           nur die Umgebung. Hier stand `str('DEEPL_API_KEY')`, und der las
+           ausschließlich die Umgebungsvariable: bei einem Schlüssel, der im
+           verschlüsselten Tresor liegt (der empfohlene Weg, siehe
+           services/secrets.ts), war sie leer, der Ausdruck endete nie auf
+           ":fx", und die Adresse fiel auf den Pro-Endpunkt. Ein Free-Konto
+           bekam daraufhin von jeder Anfrage ein 403 — die Übersetzung stand,
+           der Schlüssel war richtig, und nichts deutete auf diese eine Zeile.
+           openVault() zwischenspeichert, der zweite Aufruf kostet also
+           nichts. */
+        const key = secret('DEEPL_API_KEY', 'deepl');
         return str('DEEPL_BASE_URL', key.endsWith(':fx')
           ? 'https://api-free.deepl.com/v2'
           : 'https://api.deepl.com/v2');

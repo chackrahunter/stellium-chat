@@ -151,6 +151,41 @@ export interface ManagedUser {
   /** Abweichungen von der Rollenvorgabe. */
   overrides: Partial<Record<PermissionKey, boolean>>;
   permissions: Record<PermissionKey, boolean>;
+  /**
+   * Welche Fassung dieses Konto zuletzt beim Anmelden gemeldet hat — und von
+   * welcher Plattform. Auslöser: eine Rückfrage aus dem Support ("ich habe
+   * die neue Version noch nicht"), die sich von der Verwaltung aus nicht
+   * nachprüfen ließ. Siehe ws/gateway.ts (authenticate()) fürs Melden und
+   * services/store.ts (clientMeldung()) fürs Schreiben.
+   *
+   * Bewusst NUR hier auf ManagedUser, nicht auf User/SelfUser: welche Version
+   * ein Gerät fährt, ist eine betriebliche, keine geheime Tatsache — aber
+   * eben doch eine Tatsache über EIN GERÄT einer bestimmten Person, und geht
+   * nur die Verwaltung etwas an (dieselbe Schranke wie bei `hatNotzugang`
+   * oben: nicht alles, was man wüsste, muss man auch herausgeben). Wer diese
+   * Auskunft sehen darf, bestimmt schon die Berechtigung hinter
+   * `/api/admin/users` (`user.manage`) — keine zusätzliche Schranke nötig.
+   *
+   * `null` heißt: noch nie gemeldet — ein Konto, das sich seit dieser
+   * Fassung noch nicht angemeldet hat, oder ein Client, der das Feld noch
+   * nicht kennt.
+   */
+  clientVersion: string | null;
+  /** 'darwin' | 'win32' | 'linux' (App) oder 'browser' (Web/PWA). Siehe clientVersion. */
+  clientPlatform: string | null;
+  /** Wann zuletzt gemeldet — nicht dasselbe wie lastSeenAt, das während einer offenen Verbindung weiterläuft. */
+  clientVersionAt: number | null;
+  /**
+   * Ist `clientVersion` die für `clientPlatform` aktuell verteilte Fassung?
+   * Rechnet services/releases.ts (clientAktuell()) mit derselben istNeuer()-
+   * Prüfung aus, die auch /api/releases/check verwendet — keine zweite,
+   * eigene Versionsvergleichslogik (die gab es in UpdatePanel.tsx schon
+   * einmal als Nachbau, ein drittes Mal muss es nicht sein).
+   *
+   * `null`: keine Vergleichsgrundlage — entweder wurde noch nie gemeldet,
+   * oder für `clientPlatform` liegt (noch) gar keine Fassung bereit.
+   */
+  clientVersionAktuell: boolean | null;
 }
 
 /** Ergebnis, wenn ein Konto angelegt oder ein Passwort zurückgesetzt wurde. */

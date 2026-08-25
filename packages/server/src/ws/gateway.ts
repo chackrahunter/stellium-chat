@@ -1124,6 +1124,12 @@ async function authenticate(session: Session, ev: Extract<ClientEvent, { t: 'aut
   session.language = normalizeLang(self.language);
   session.autoTranslate = self.autoTranslate;
 
+  /* Für die Verwaltung: welche Fassung und Plattform dieses Konto gerade
+     fährt (siehe ManagedUser.clientVersion in @stellium/shared und
+     TeamAdmin.tsx). Nach dem Riegel oben, wie alles hier — eine Anmeldung,
+     die nicht durchkommt, hinterlässt keine Spur. */
+  store.clientMeldung(userId, ev.appVersion, ev.platform);
+
   const set = byUser.get(userId) ?? new Set<Session>();
   const wasOffline = set.size === 0;
   set.add(session);
@@ -2037,7 +2043,11 @@ async function handleEvent(session: Session, ev: ClientEvent): Promise<void> {
       return;
 
     case 'push:unsubscribe':
-      push.abbestellen(ev.endpoint);
+      // Nur die ZEILE DIESES KONTOs löschen — sonst könnte jedes angemeldete
+      // Konto die Subscription eines fremden Kontos still entfernen (die
+      // Endpoint-URL steht im Klartext im Abonnement) und dem Opfer alle
+      // Push-Benachrichtigungen abdrehen, ohne dass dessen Client es merkt.
+      push.abbestellen(ev.endpoint, userId);
       return;
 
     case 'translate:request': {

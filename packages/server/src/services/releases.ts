@@ -58,6 +58,34 @@ export function istNeuer(neu: string, alt: string): boolean {
   return false;
 }
 
+/**
+ * Ist eine von einem Konto gemeldete Version für ihre Plattform noch die
+ * aktuelle? Von services/store.ts (listManagedUsers()) verwendet, damit
+ * ManagedUser.clientVersionAktuell dieselbe Vergleichslogik nutzt wie
+ * /api/releases/check — kein zweiter, eigener Versionsvergleich (den gab es
+ * in UpdatePanel.tsx schon einmal als Nachbau, siehe Kommentar dort).
+ *
+ * 'browser' hat keine eigene Zeile in der Tabelle `releases`: die Web-Ansicht
+ * wird direkt vom laufenden Server ausgeliefert (siehe index.ts, wo
+ * packages/desktop/dist bedient wird, und desktop/vite.config.ts, wo
+ * __APP_VERSION__ aus genau derselben package.json entsteht wie
+ * config.version hier) — ihre "aktuelle" Fassung IST also config.version.
+ * Für darwin/win32/linux gilt dagegen ausdrücklich NICHT config.version,
+ * sondern die zuletzt HOCHGELADENE Fassung dieser Plattform (getRelease):
+ * eine Auslieferung kann eine Plattform vergessen oder verspätet nachreichen
+ * (siehe veroeffentlichen.mjs), und bis dahin ist deren letzte hochgeladene
+ * .dmg/.exe/.AppImage die einzige ehrliche Vergleichsgrundlage.
+ *
+ * `null`: keine Vergleichsgrundlage — noch nie gemeldet, oder für diese
+ * Plattform liegt (noch) gar keine Fassung bereit.
+ */
+export function clientAktuell(platform: string | null, version: string | null): boolean | null {
+  if (!platform || !version) return null;
+  const aktuelle = platform === 'browser' ? config.version : getRelease(platform)?.version;
+  if (!aktuelle) return null;
+  return !istNeuer(aktuelle, version);
+}
+
 /** Wie lang die Änderungsliste einer Fassung höchstens wird. */
 const ANMERKUNGEN_MAX = 20_000;
 

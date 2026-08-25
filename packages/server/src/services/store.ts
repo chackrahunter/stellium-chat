@@ -3,6 +3,7 @@ import type {
   ScheduledMessage, SelfUser, User,
 } from '@stellium/shared';
 import { db, placeholders } from '../db/index.js';
+import * as releases from './releases.js';
 import { blindIndex, decryptField, maskEmail } from '../crypto/pii.js';
 import { entschluesseln } from '../crypto/nachrichten.js';
 import { huelleLesen } from '../crypto/dateien.js';
@@ -137,7 +138,34 @@ export function listManagedUsers(): ManagedUser[] {
     createdBy: r.created_by ?? null,
     overrides: overridesFor(r.id),
     permissions: permissionsFor(r.id),
+    clientVersion: r.client_version ?? null,
+    clientPlatform: r.client_platform ?? null,
+    clientVersionAt: r.client_version_at ?? null,
+    clientVersionAktuell: releases.clientAktuell(r.client_platform ?? null, r.client_version ?? null),
   }));
+}
+
+/**
+ * Trägt nach, welche Fassung und Plattform sich ein Konto zuletzt gemeldet
+ * hat — aufgerufen von ws/gateway.ts (authenticate()) bei JEDER erfolgreichen
+ * Anmeldung, nicht nur beim ersten Mal. Siehe ManagedUser.clientVersion in
+ * @stellium/shared für den Anlass und wer das zu sehen bekommt.
+ *
+ * `appVersion` fehlt bei einem älteren Client, der das Feld im `auth`-Ereignis
+ * noch nicht kennt (siehe protocol.ts) — dann bleibt der zuletzt bekannte
+ * Stand unangetastet. Ohne diese Wache würde sich ein Konto, das auf zwei
+ * Geräten offen ist (eine neue App, ein altes, seit Monaten nicht
+ * aktualisiertes Browser-Tab), bei jedem Wechsel zwischen beiden Geräten
+ * selbst als "gerade aktualisiert" melden UND als "wieder veraltet" —
+ * je nachdem, welches Gerät zuletzt eine Verbindung aufgebaut hat. Die
+ * einzig ehrliche Reaktion auf "keine Angabe" ist: nichts überschreiben.
+ */
+export function clientMeldung(userId: string, appVersion: string | undefined, platform: string | undefined): void {
+  if (!appVersion) return;
+  db.run(
+    'UPDATE users SET client_version = ?, client_platform = ?, client_version_at = ? WHERE id = ?',
+    appVersion, platform ?? null, Date.now(), userId,
+  );
 }
 
 export function getUser(id: string): User | null {

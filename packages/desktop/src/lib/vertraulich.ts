@@ -1033,6 +1033,31 @@ export function dateienVergessen(): void {
   offeneDateien.clear();
 }
 
+/**
+ * ALLES vergessen, was zum Konto gehört — beim Abmelden.
+ *
+ * `dateienVergessen()` räumt nur die geöffneten Datei-Objekt-URLs weg. Hier
+ * kommen die Schlüssel selbst dazu: das eigene Paar (`privatSchluessel`),
+ * die öffentlichen Teile der anderen (`fremdeSchluessel`) und vor allem die
+ * entpackten Kanalschlüssel (`kanalSchluessel`, `kanalFassung`) — mit denen
+ * ließe sich jeder vertrauliche Kanal des abgemeldeten Kontos weiter lesen,
+ * solange sie im Speicher stehen. Meldet sich auf demselben Fenster ein
+ * anderes Konto an, gehören diese Geheimnisse ihm nicht.
+ *
+ * `schluesselBereitstellen()` legt bei der nächsten Anmeldung ohnehin alles
+ * neu an oder nimmt den Kontoweg — nichts davon muss eine Abmeldung
+ * überleben.
+ */
+export function schluesselAllesVergessen(): void {
+  meineId = null;
+  privatSchluessel = null;
+  oeffentlichJwk = null;
+  fremdeSchluessel.clear();
+  kanalSchluessel.clear();
+  kanalFassung.clear();
+  dateienVergessen();
+}
+
 /* ── Auf Ereignisse hören ─────────────────────────────────────── */
 
 /**

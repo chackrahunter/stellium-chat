@@ -71,4 +71,13 @@ declare global {
     /** Von Electron bereitgestellt. Im reinen Browser undefined. */
     stellium?: StelliumBridge;
   }
+
+  /**
+   * Zur Bauzeit von Vite ersetzt (siehe vite.config.ts, `define`) — nach dem
+   * Bau steht hier eine feste Zeichenkette, kein Zugriff mehr auf irgendein
+   * Objekt. In der App nur als Rückfall verwendet (net/socket.ts): dort
+   * gilt sonst app.getVersion() über window.stellium.info() als die
+   * eigentliche Quelle, weil das die Fassung ist, die tatsächlich läuft.
+   */
+  const __APP_VERSION__: string;
 }

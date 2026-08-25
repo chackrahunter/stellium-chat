@@ -1,6 +1,25 @@
+import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { defineConfig, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
+
+/**
+ * Die eigene Fassung, zur Bauzeit fest einprogrammiert.
+ *
+ * Dieselbe package.json, aus der auch electron-builder die App-Version für
+ * Electrons app.getVersion() zieht (packages/desktop/package.json direkt,
+ * nicht das Wurzel-package.json) — und dieselbe, aus der config.ts auf dem
+ * Server seine eigene Auskunft "welcher Stand läuft hier" zieht
+ * (eigeneVersion() dort). Eine Web-Ansicht ohne window.stellium (siehe
+ * net/socket.ts) hat sonst gar keine Möglichkeit, die eigene Fassung zu
+ * kennen — anders als die App, die sie zur Laufzeit von Electron selbst
+ * erfährt. Drei Stellen, eine Quelle: kann nicht auseinanderlaufen, weil
+ * veroeffentlichen.mjs die Zahl in dieser einen Datei setzt, BEVOR es baut
+ * (vite build läuft danach, electron-builder packt denselben Bau).
+ */
+const paketVersion = (JSON.parse(
+  readFileSync(fileURLToPath(new URL('./package.json', import.meta.url)), 'utf8'),
+) as { version: string }).version;
 
 /**
  * Setzt die Content-Security-Policy passend zum Modus.
@@ -127,6 +146,12 @@ function csp(): Plugin {
 export default defineConfig({
   plugins: [react(), csp()],
   base: './',
+  /* __APP_VERSION__ steht damit sowohl im Electron- als auch im
+     Browser-Bau zur Verfügung — siehe net/socket.ts (auth-Ereignis) und
+     types/global.d.ts (Ambient-Deklaration für TypeScript). */
+  define: {
+    __APP_VERSION__: JSON.stringify(paketVersion),
+  },
   server: {
     port: 5173,
     strictPort: true,

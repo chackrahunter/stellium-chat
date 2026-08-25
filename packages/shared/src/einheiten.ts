@@ -214,7 +214,14 @@ const TEMPERATUR_KONTEXT_DE = [
 function findeTemperatur(text: string): Messwert[] {
   const funde: Messwert[] = [];
 
-  for (const m of text.matchAll(new RegExp(`${NUM_RE_SRC}\\s*°\\s*([CF])\\b`, 'gu'))) {
+  /* Groß- UND kleingeschrieben ('giu', nicht nur 'gu'): „25°c" ist im Chat
+     mindestens so verbreitet wie „25°C", und das Wortmuster darüber
+     ("grad celsius") ist ohnehin schon unabhängig von Groß-/Kleinschreibung.
+     Hier fehlte das i — kleingeschriebene Grad wurden still nicht erkannt,
+     während dieselbe Angabe ausgeschrieben funktioniert hätte.
+     Nachgemessen vor der Korrektur: "es sind 25°c heute" lieferte KEINEN
+     Fund, "temp: -5 °C nachts" dagegen den erwarteten. */
+  for (const m of text.matchAll(new RegExp(`${NUM_RE_SRC}\\s*°\\s*([CF])\\b`, 'giu'))) {
     const { wert, nachkommastellen } = parseZahl(m[1]);
     if (!Number.isFinite(wert)) continue;
     funde.push(neuerFund('temperatur', m[2].toUpperCase() === 'C' ? 'celsius' : 'fahrenheit', wert, nachkommastellen, m, text));

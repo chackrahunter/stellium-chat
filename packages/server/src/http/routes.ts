@@ -9,7 +9,7 @@ import {
   type AnmeldeNachweisBlob, type FluechtigesPaket, type KontoSchluesselBlob,
   type NotzugangAnteilBlob, type NotzugangHuelle,
 } from '@stellium/shared';
-import { signToken, verifyPassword, verifyToken } from '../auth.js';
+import { signToken, verifyPassword, verifyToken, verifyTokenFrisch } from '../auth.js';
 import * as users from '../services/users.js';
 import * as praesenz from '../services/praesenz.js';
 import * as kontoschluessel from '../services/kontoschluessel.js';
@@ -90,6 +90,28 @@ function requireLeser(req: FastifyRequest): string {
 
 function requireUser(req: FastifyRequest): string {
   const id = bearer(req);
+  if (!id) {
+    const err = new Error('Nicht angemeldet') as Error & { statusCode?: number };
+    err.statusCode = 401;
+    throw err;
+  }
+  return id;
+}
+
+/**
+ * Wie requireUser, verlangt aber ein FRISCHES Token (Höchstalter in ms).
+ *
+ * Nur für den Anmeldenachweis: der echte Aufrufer legt ihn Sekunden nach der
+ * Anmeldung ab, ein gestohlenes Token ist in der Regel älter. Warum gerade
+ * dieser Weg die Frische braucht, steht bei verifyTokenFrisch in auth.ts.
+ * Ein zu altes Token antwortet mit demselben 401 wie ein ungültiges — die
+ * App wirft den Fehlschlag weg und versucht es bei der nächsten Anmeldung
+ * von selbst wieder (siehe nachweisNachtragen in lib/anmeldenachweis.ts).
+ */
+function requireFrischenUser(req: FastifyRequest, hoechstalterMs: number): string {
+  const header = req.headers.authorization;
+  const roh = header?.startsWith('Bearer ') ? header.slice(7) : null;
+  const id = roh ? verifyTokenFrisch(roh, hoechstalterMs) : null;
   if (!id) {
     const err = new Error('Nicht angemeldet') as Error & { statusCode?: number };
     err.statusCode = 401;
@@ -908,7 +930,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
    * versucht es bei der nächsten Anmeldung wieder.
    */
   app.post('/api/auth/nachweis', async (req, reply) => {
-    const userId = requireUser(req);
+    const userId = requireFrischenUser(req, 10 * 60_000);
     const blob = req.body as AnmeldeNachweisBlob;
     try {
       anmeldenachweis.hinterlegen(userId, blob);

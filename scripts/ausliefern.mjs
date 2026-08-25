@@ -429,11 +429,16 @@ if (probe) {
   try {
     lauf('node', veroeffentlichen, {
       stdio: 'inherit',
+      /* Optional verkettet, nicht direkt: bei --ohne-server wird der Zugang
+         oben gar nicht verlangt — dann ist `daten` null, und ein direkter
+         Zugriff stürzte hier erst nach dem ganzen Bauen ab. Ohne Zugang
+         gehen leere Werte hinaus; das Veröffentlichen ohne Serverpaket
+         braucht sie ohnehin nicht. */
       env: {
         ...process.env,
         STELLIUM_SERVER: server,
-        STELLIUM_LOGIN: daten.login,
-        STELLIUM_PASSWORT: daten.passwort,
+        STELLIUM_LOGIN: daten?.login ?? '',
+        STELLIUM_PASSWORT: daten?.passwort ?? '',
       },
     });
     ok(`auf ${server} veröffentlicht — die Clients sehen es sofort`);

@@ -50,6 +50,14 @@ CREATE TABLE IF NOT EXISTS users (
   kategorie  TEXT,
   theme                 TEXT NOT NULL DEFAULT 'dark',
   density               TEXT NOT NULL DEFAULT 'comfortable',
+  -- Zuletzt gemeldete App-Fassung und Plattform dieses Kontos, samt Zeitpunkt
+  -- — für die Verwaltung (ManagedUser.clientVersion in @stellium/shared),
+  -- nicht für andere Konten sichtbar. Siehe ws/gateway.ts (authenticate())
+  -- fürs Melden bei jeder Anmeldung und services/store.ts (clientMeldung())
+  -- fürs Schreiben. NULL heißt: noch nie gemeldet.
+  client_version        TEXT,
+  client_platform       TEXT,
+  client_version_at     INTEGER,
   created_at            INTEGER NOT NULL
 );
 /* 23 Fremdschlüssel im Haus tragen `... REFERENCES users(id) ON DELETE

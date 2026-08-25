@@ -85,6 +85,21 @@ const GRUPPEN_SCHLUESSEL: Record<(typeof GRUPPEN)[number], string> = {
   verwaltung: 'perm.groupAdmin',
 };
 
+/**
+ * Beschriftung für person.clientPlatform (siehe @stellium/shared,
+ * ManagedUser.clientPlatform) — nur die drei App-Plattformen. macOS/
+ * Windows/Linux bleiben unübersetzt, genau wie in UpdatePanel.tsx und
+ * DownloadPanel.tsx: Markennamen, keine Wörterbuch-Einträge. 'browser' fehlt
+ * hier bewusst — das ist ein gewöhnliches Wort und läuft übers Wörterbuch
+ * (team.platformBrowser), nicht über diese Tabelle mit fest verdrahteten
+ * Markennamen.
+ */
+const CLIENT_PLATTFORM_NAME: Record<string, string> = {
+  darwin: 'macOS',
+  win32: 'Windows',
+  linux: 'Linux',
+};
+
 export function TeamAdmin({ onClose }: { onClose: () => void }) {
   const kasten = useRef<HTMLDivElement>(null);
   useFokusfalle(kasten);
@@ -332,6 +347,28 @@ export function TeamAdmin({ onClose }: { onClose: () => void }) {
                     <div className="muted" style={{ fontSize: 12.5 }}>
                       @{person.handle} · {person.emailMasked}
                       {person.lastSeenAt && ` · ${t('profile.lastSeen', { zeit: relativeTime(person.lastSeenAt) })}`}
+                    </div>
+                    {/* Anlass: eine Support-Rückfrage ("ich habe die neue
+                        Version noch nicht"), die sich von hier aus bisher
+                        nicht nachprüfen ließ. Nur der Fall "veraltet"
+                        bekommt eine auffällige Marke — "aktuell" ist der
+                        erwartete Normalfall und bleibt so unauffällig wie
+                        die restlichen Kopfzeilen (dieselbe Zurückhaltung wie
+                        beim mustChangePassword-Hinweis weiter unten, der
+                        auch nur bei true überhaupt erscheint). */}
+                    <div className="muted" style={{ fontSize: 12.5, display: 'flex', alignItems: 'center', gap: 6 }}>
+                      {person.clientVersion ? (
+                        <>
+                          <span>
+                            {CLIENT_PLATTFORM_NAME[person.clientPlatform ?? ''] ?? (person.clientPlatform === 'browser' ? t('team.platformBrowser') : person.clientPlatform)}
+                            {' · '}
+                            {t('download.version', { version: person.clientVersion })}
+                          </span>
+                          {person.clientVersionAktuell === false && (
+                            <span className="msg__tag">{t('team.clientVersionOutdated')}</span>
+                          )}
+                        </>
+                      ) : t('team.clientVersionUnknown')}
                     </div>
                   </div>
                 </div>

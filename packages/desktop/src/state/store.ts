@@ -27,6 +27,11 @@ import {
 import {
   kontoSchluesselAufnehmen, kontoSchluesselEinrichten, kontoSchluesselVergessen,
 } from '../lib/kontoschluessel.js';
+/* Die drei Vergessens-Funktionen unten: logout() ruft sie, damit keine
+   entpackten Schlüssel (Kanäle, Notizen, Tresor) die Abmeldung überleben. */
+import { schluesselAllesVergessen } from '../lib/vertraulich.js';
+import { notizenVergessen } from '../lib/notizen.js';
+import { passwoerterVergessen } from '../lib/passwoerter.js';
 import { anmelden, nachweisNachtragen } from '../lib/anmeldenachweis.js';
 /* Nur der Typ — die Selbstanbindung an den Draht (dieselbe Bauart wie bei
    lib/vertraulich.ts oben) übernimmt App.tsx, damit sie unabhängig davon
@@ -812,79 +817,127 @@ function kanalDerNachricht(messageId: string): string | null {
   return null;
 }
 
+/* ── Konto-Zustand ──────────────────────────────────────────── */
+
+/**
+ * Alles, was zu einem Konto gehört — beim Start der Anfang, bei der
+ * Abmeldung die Rücksetzung.
+ *
+ * Aus zwei Gründen an EINEM Ort statt zweier handgeschriebener Listen:
+ *
+ *   1. Die Abmeldung muss dasselbe leeren, was das Anmelden füllt — Feld für
+ *      Feld. Zwei getrennte Listen drifteten auseinander: Jedes neue Feld
+ *      landete im Anfang, aber nicht zwangsläufig im Logout, und das Konto
+ *      des Nächsten auf demselben Fenster erbte Reste des Vorigen. Betroffen
+ *      waren zuletzt die entschlüsselten Notizen (`notizenKlartext`), die
+ *      Entwürfe (`drafts` — fremder halb geschriebener Text in eigenen
+ *      Kanälen), die Bretter (`tasks`, `ideas`, `events`, `projekte`),
+ *      Erinnerungen, Freigaben, KI-Verbrauch und das offene Bild (`lightbox`).
+ *
+ *   2. Der Compiler zählt mit: fehlt in der Fabrik ein Feld aus `Pick`, meckert
+ *      er — ein vergessenes Feld im Logout-`set()` blieb dagegen stumm.
+ *
+ * Bewusst NICHT hier drin: Verbindung (`connection`, `booted`), Fenster-
+ * Einstellungen (`schubladeOffen`, `sidebarCollapsed`), Meldungen (`toasts`)
+ * und Server-Stand (`update`, `serverUpdate`, Versionen) — die gehören zum
+ * Gerät bzw. zum Server, nicht zum Konto.
+ */
+type KontoFelder =
+  | 'self' | 'ai' | 'notzugangWartet'
+  | 'users' | 'channels' | 'states' | 'messages' | 'hasMore' | 'threads'
+  | 'scheduled' | 'reminders' | 'drafts'
+  | 'translating' | 'showOriginal' | 'roundTrips'
+  | 'tasks' | 'projekte' | 'events' | 'files' | 'storageUsage' | 'libraryUploads'
+  | 'taskHistory' | 'extractErgebnis' | 'extractingTasks' | 'extractFehler'
+  | 'ideas' | 'ideaComments' | 'protocol' | 'protocolLoading' | 'protocolFehler'
+  | 'notizen' | 'notizenGeladen' | 'notizenKlartext' | 'notizenSchluesselFehlt'
+  | 'notizKonflikte'
+  | 'activeChannelId' | 'lastHumanChannelId' | 'threadParentId' | 'overlay'
+  | 'typing' | 'readMarkers' | 'readReceipts' | 'zuletztOffen'
+  | 'smartReplies' | 'smartRepliesLoading' | 'catchup' | 'catchupLoading'
+  | 'lightbox' | 'searchHits' | 'searching' | 'freigaben' | 'vertraulichTakt'
+  | 'forwarding' | 'remindingAbout' | 'profileUserId' | 'highlightMessageId'
+  | 'postJumpMailId' | 'aiThinking' | 'aiVerbrauch';
+
+function kontoZustand(): Pick<StoreState, KontoFelder> {
+  return {
+    self: null,
+    ai: null,
+    notzugangWartet: false,
+
+    users: {},
+    channels: {},
+    states: {},
+    messages: {},
+    hasMore: {},
+    threads: {},
+    scheduled: [],
+    reminders: [],
+    drafts: {},
+
+    translating: {},
+    showOriginal: {},
+    roundTrips: {},
+
+    tasks: {},
+    projekte: {},
+    events: {},
+    files: [],
+    storageUsage: null,
+    libraryUploads: [],
+    taskHistory: {},
+    extractErgebnis: null,
+    extractingTasks: false,
+    extractFehler: null,
+    ideas: {},
+    ideaComments: {},
+    protocol: null,
+    protocolLoading: false,
+    protocolFehler: null,
+    notizen: {},
+    notizenGeladen: false,
+    notizenKlartext: {},
+    notizenSchluesselFehlt: {},
+    notizKonflikte: {},
+    activeChannelId: null,
+    lastHumanChannelId: null,
+    threadParentId: null,
+    overlay: null,
+    typing: {},
+    readMarkers: {},
+    readReceipts: {},
+    zuletztOffen: [],
+    smartReplies: [],
+    smartRepliesLoading: false,
+    catchup: null,
+    catchupLoading: false,
+    lightbox: null,
+    searchHits: [],
+    searching: false,
+    freigaben: [],
+    vertraulichTakt: 0,
+    forwarding: null,
+    remindingAbout: null,
+    profileUserId: null,
+    highlightMessageId: null,
+    postJumpMailId: null,
+    aiThinking: {},
+    aiVerbrauch: {},
+  };
+}
+
 export const useStore = create<StoreState>((set, get) => ({
   connection: 'idle',
   connectionDetail: null,
   booted: false,
-  self: null,
-  ai: null,
-  notzugangWartet: false,
-
-  users: {},
-  channels: {},
-  states: {},
-  messages: {},
-  hasMore: {},
-  threads: {},
-  scheduled: [],
-  reminders: [],
-  drafts: {},
-
-  translating: {},
-  showOriginal: {},
-  roundTrips: {},
-
-  tasks: {},
-  projekte: {},
-  events: {},
-  files: [],
-  storageUsage: null,
-  libraryUploads: [],
-  taskHistory: {},
-  extractErgebnis: null,
-  extractingTasks: false,
+  ...kontoZustand(),
   serverVersion: null,
   serverBereitVersion: null,
   update: { zustand: 'aus' },
   serverUpdate: null,
-  ideas: {},
-  ideaComments: {},
-  protocol: null,
-  protocolLoading: false,
-  protocolFehler: null,
-  extractFehler: null,
-  notizen: {},
-  notizenGeladen: false,
-  notizenKlartext: {},
-  notizenSchluesselFehlt: {},
-  notizKonflikte: {},
   schubladeOffen: false,
-  activeChannelId: null,
-  lastHumanChannelId: null,
-  threadParentId: null,
-  overlay: null,
   sidebarCollapsed: false,
-  typing: {},
-  readMarkers: {},
-  readReceipts: {},
-  zuletztOffen: [],
   toasts: [],
-  smartReplies: [],
-  smartRepliesLoading: false,
-  catchup: null,
-  catchupLoading: false,
-  lightbox: null,
-  searchHits: [],
-  searching: false,
-  freigaben: [],
-  vertraulichTakt: 0,
-  forwarding: null,
-  remindingAbout: null,
-  profileUserId: null,
-  highlightMessageId: null,
-  postJumpMailId: null,
-  aiThinking: {},
-  aiVerbrauch: {},
 
   /* ── Start ──────────────────────────────────────────────── */
 
@@ -1038,28 +1091,24 @@ export const useStore = create<StoreState>((set, get) => ({
        dort gibt es die Brücke nicht, und `vergessen` ist dann `undefined`. */
     void window.stellium?.notzugangCode?.vergessen();
     void window.stellium?.updateSignOut?.();
-    set({
-      self: null, users: {}, channels: {}, states: {}, messages: {}, threads: {},
-      activeChannelId: null, lastHumanChannelId: null, threadParentId: null, overlay: null, scheduled: [],
-      catchup: null, smartReplies: [], searchHits: [], readReceipts: {},
-      /* Auch dieser: er gehört zum Kontoschlüssel des abgemeldeten Kontos.
-         Bliebe er stehen, zeigte das nächste Konto auf demselben Fenster
-         einen Streifen über fremde, wartende Notizen. */
-      notzugangWartet: false,
-      /* Bis hierher fehlten die beiden: die Ablage blieb im Speicher stehen,
-         mitsamt den privaten Dateien des Kontos, das sich gerade abmeldet.
-         Meldet sich auf demselben Fenster gleich darauf ein anderes Konto an,
-         zeigte die Dateiablage — bis der nächste loadFiles() durch war — die
-         Liste der vorigen Person weiter, private Dateien eingeschlossen. Das
-         ist die Zwischenspeicherung, die in der Ablage-Ansicht unter
-         "Öffentlich" auftauchte, obwohl sie nie einer fremden Person gehören
-         sollte. */
-      files: [], storageUsage: null, libraryUploads: [],
-    });
-    /* Dieselbe Lücke wie bei `files` oben, nur für die fünf Tafeln mit
-       eigenem Laden (Einmalcode, Bank, Gedächtnis, Briefpartner-Gruppen,
-       Verkaufsmeldungen): ihr `offen` steht in `set(...)` hier nicht drin,
-       weil es dort gar nicht lebt. Ohne diese Zeilen bliebe eine offen
+    /* Ein Satz statt einer Aufzählung: `kontoZustand()` ist dieselbe Fabrik,
+       aus der auch der Anfangszustand kommt — alles, was zum Konto gehört,
+       geht auf den Anfang zurück, nichts davon bleibt für das nächste Konto
+       auf diesem Fenster stehen. Das waren früher einzelne, nach und nach
+       ergänzte Zeilen (Ablage, Notzugang-Streifen), und genau diese Art von
+       Liste vergisst beim nächsten neuen Feld etwas — etwa die
+       entschlüsselten Notizen, die Entwürfe oder die Bretter. */
+    set(kontoZustand());
+    /* Und die Schlüssel selbst, nicht nur ihre Klartexte im Store: die
+       entpackten Kanal-, Notiz- und Tresorschlüssel leben in den lib-Modulen
+       und würden sonst die Abmeldung überleben — mit ihnen ließe sich der
+       verschlüsselte Bestand des abgemeldeten Kontos weiter öffnen. */
+    schluesselAllesVergessen();
+    notizenVergessen();
+    passwoerterVergessen();
+    /* Die fünf Tafeln mit eigenem Laden (Einmalcode, Bank, Gedächtnis,
+       Briefpartner-Gruppen, Verkaufsmeldungen): ihr `offen` steht nicht im
+       Store, weil es dort gar nicht lebt. Ohne diese Zeilen bliebe eine offen
        gelassene Tafel offen, meldete sich auf demselben Fenster gleich
        darauf ein anderes Konto an — dessen Bildschirm ginge fremd auf,
        fehlt der Person das Recht dafür sogar mit einer Fehlermeldung für

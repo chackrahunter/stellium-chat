@@ -288,6 +288,28 @@ export function notizenAnfordern(): void {
 }
 
 /**
+ * Alles vergessen, was zum Konto gehört — beim Abmelden.
+ *
+ * `notizSchluessel` sind entpackte Notizschlüssel: mit ihnen ließe sich der
+ * Klartext jeder privaten Notiz des abgemeldeten Kontos wiederherstellen,
+ * solange sie im Speicher stehen — und der Klartext selbst steht ohnehin im
+ * Store (`notizenKlartext`, den logout() über kontoZustand() leert). Die
+ * Schlüssel dazu dürfen nicht überleben.
+ *
+ * Die wartenden Zeitgeber und Anfragen gehören zur alten Sitzung; ihre
+ * Antworten kämen nie mehr an, also werden sie hier sauber abgewiesen, statt
+ * bis zur Frist hängen zu bleiben.
+ */
+export function notizenVergessen(): void {
+  notizSchluessel.clear();
+  kontoLuecken = new Set<string>();
+  for (const timer of schluesselWartezeit.values()) window.clearTimeout(timer);
+  schluesselWartezeit.clear();
+  for (const w of wartend.values()) w.ablehnen(new Error(txt('fehler.keineVerbindung')));
+  wartend.clear();
+}
+
+/**
  * Den eigenen Notizschlüssel nachladen, ohne dass die Notiz vorher auf
  * diesem Gerät geöffnet worden wäre.
  *

@@ -452,25 +452,32 @@ export function mitgliedEntfernen(input: {
   }
 
   const jetzt = Date.now();
-  /* geaendert_von/geaendert_am bleiben unangetastet: der Inhalt selbst ändert
+  /* ALLES in EINER Transaktion — Chiffrat-Wechsel und Paket-Umbau zusammen.
+     Vorher lief das UPDATE außerhalb: stürzte der Server zwischen UPDATE und
+     Paket-Transaktion ab, stand die neue Schlüsselfassung an der Notiz, aber
+     die Pakete waren noch die alten — niemand konnte mehr lesen, bis die
+     besitzende Person von Hand neu verpackte. Ein Absturz darf denselben
+     Zustand nicht hinterlassen wie ein halb geglückter Wechsel; beides
+     zusammen oder gar nichts.
+     geaendert_von/geaendert_am bleiben unangetastet: der Inhalt selbst ändert
      sich hier nicht, nur seine Hülle (siehe Kopf dieser Datei) — „zuletzt
      geändert von" soll weiterhin sagen, wer den TEXT zuletzt geschrieben hat,
      nicht, wer zuletzt jemanden entfernt hat. */
-  const { changes } = db.run(
-    `UPDATE notizen SET chiffrat = ?, schluessel_fassung = ?
-     WHERE id = ? AND version = ? AND schluessel_fassung = ?`,
-    input.chiffrat, input.neueFassung,
-    input.notizId, input.version, notiz.schluessel_fassung,
-  );
-  if (!changes) {
-    /* Entweder hat jemand anders zwischenzeitlich gespeichert (version passt
-       nicht mehr), oder ein zweiter Wechsel kam dazwischen (schluessel_fassung
-       nicht mehr). Die App liest den aktuellen Stand neu, verschlüsselt neu
-       und versucht es noch einmal — ganz automatisch, siehe lib/notizen.ts. */
-    throw new FassungsKonflikt();
-  }
-
   db.transaction(() => {
+    const { changes } = db.run(
+      `UPDATE notizen SET chiffrat = ?, schluessel_fassung = ?
+       WHERE id = ? AND version = ? AND schluessel_fassung = ?`,
+      input.chiffrat, input.neueFassung,
+      input.notizId, input.version, notiz.schluessel_fassung,
+    );
+    if (!changes) {
+      /* Entweder hat jemand anders zwischenzeitlich gespeichert (version passt
+         nicht mehr), oder ein zweiter Wechsel kam dazwischen (schluessel_fassung
+         nicht mehr). Die App liest den aktuellen Stand neu, verschlüsselt neu
+         und versucht es noch einmal — ganz automatisch, siehe lib/notizen.ts. */
+      throw new FassungsKonflikt();
+    }
+
     db.run(
       `UPDATE notiz_mitglieder SET entfernt_am = ?, entfernt_grund = NULL
        WHERE notiz_id = ? AND user_id = ? AND entfernt_am IS NULL`,
