@@ -93,10 +93,52 @@ import { WOERTERBUECHER as PUSH_WOERTERBUECHER, type PushKey } from './push-i18n
 
 interface Abo { id: string; endpoint: string; p256dh: string; auth: string }
 
+/**
+ * Darf der Server diesen Endpoint überhaupt ansprechen?
+ *
+ * Der Endpoint kommt vom Client und wird später hier per fetch() angesprochen
+ * — ohne Prüfung wäre er ein SSRF-Hebel aus jeder angemeldeten Sitzung: eine
+ * http-Adresse ins interne Netz (Admin-Panels, Metadaten-Dienste, andere
+ * Geräte hinter dem Tunnel), und der Server POSTet aktiv dorthin. Zugelassen
+ * wird deshalb nur https mit einem namentlichen Host; IP-Literale und alles,
+ * was nach innen zeigt (localhost, .local, .internal, private Bereiche),
+ * fliegt heraus. Echte Push-Dienste (FCM, Mozilla, Apple) haben ohnehin
+ * Namen — diese Prüfung nimmt ihnen nichts weg.
+ */
+function endpointTauglich(endpoint: string): boolean {
+  /* Ausweg NUR für Prüfläufe: die E2E-Skripte sprechen einen fingierten
+     Push-Dienst auf 127.0.0.1 an. Die Variable wird nie in einer echten
+     Umgebung gesetzt — server-setup und .env.example kennen sie nicht. */
+  if (process.env.STELLIUM_PUSH_TESTZIELE === '1') return true;
+  let url: URL;
+  try { url = new URL(endpoint); } catch { return false; }
+  if (url.protocol !== 'https:') return false;
+  const host = url.hostname.toLowerCase();
+  /* Ohne Punkt im Namen gibt es keine echten Push-Dienste — und localhost
+     fällt ohnehin gleich darunter. */
+  if (!host || !host.includes('.')) return false;
+  if (host === 'localhost' || host.endsWith('.localhost')
+    || host.endsWith('.local') || host.endsWith('.internal')) return false;
+  if (host.startsWith('[')) return false; // IPv6-Literale: Push-Dienste haben Namen
+  const ipv4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host);
+  if (ipv4) {
+    const [a, b] = [Number(ipv4[1]), Number(ipv4[2])];
+    const intern = a === 0 || a === 10 || a === 127
+      || (a === 169 && b === 254)
+      || (a === 172 && b >= 16 && b <= 31)
+      || (a === 192 && b === 168);
+    if (intern) return false;
+  }
+  return true;
+}
+
 /* ── Abonnements ──────────────────────────────────────────────── */
 
 export function abonnieren(userId: string, sub: PushSubscriptionJSON): void {
   if (!sub?.endpoint || !sub.keys?.p256dh || !sub.keys?.auth) return;
+  /* Erste Sperre am Eingang: ein Endpoint, der nicht nach außen zeigt, wird
+     gar nicht erst gespeichert. */
+  if (!endpointTauglich(sub.endpoint)) return;
   db.run(
     `INSERT INTO push_subscriptions (id, user_id, endpoint, p256dh, auth, created_at)
      VALUES (?,?,?,?,?,?)
@@ -314,6 +356,14 @@ const TTL_SEKUNDEN = 24 * 3600;
 const ZEITLIMIT_MS = 8_000;
 
 async function anEinGeraet(abo: Abo, nutzlast: Buffer): Promise<void> {
+  /* Zweite Sperre am Ausgang: Zeilen, die VOR dieser Prüfung gespeichert
+     wurden (oder aus einem Import stammen), werden hier nicht mehr
+     angesprochen — und gleich mit wegräumt, statt den Versuch bei jeder
+     Nachricht zu wiederholen. */
+  if (!endpointTauglich(abo.endpoint)) {
+    abbestellen(abo.endpoint);
+    return;
+  }
   const ziel = new URL(abo.endpoint);
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), ZEITLIMIT_MS);

@@ -10,8 +10,12 @@
  *
  *   · billig vor teuer — eine Flut soll möglichst wenig kosten, bevor sie
  *     abgewiesen wird. Erst der zwischengespeicherte Blick auf das
- *     Geheimnis, dann die Ratenbremse, dann erst Kryptografie, dann erst die
- *     Feldprüfung, erst ganz am Ende die Datenbank (in post.ts).
+ *     Geheimnis und sein Vergleich (fast kostenlos), dann die Ratenbremse,
+ *     dann erst Kryptografie, dann erst die Feldprüfung, erst ganz am Ende
+ *     die Datenbank (in post.ts). Die Bremse steht bewusst NACH dem
+ *     Vergleich: nur angenommene Anfragen dürfen den Eimer verbrauchen —
+ *     sonst leerte ein Fremder ohne Geheimnis den gemeinsamen Eimer und
+ *     schottete legitime Post ab.
  *
  *   · keine Ausnahme darf ungeklärt zu einem 500 werden — beim Worker heißt
  *     ein Fehlschlag: die Mail geht nach drei Versuchen an ein privates
@@ -111,7 +115,7 @@ function geheimnisDigestGecacht(): string | null {
   return digest;
 }
 
-/* ── Schritt 2: eine einzige, globale Ratenbremse ─────────────────
+/* ── Schritt 3: eine einzige, globale Ratenbremse ─────────────────
  *
  * Nicht nach Herkunft, wie die Anmeldebremse in routes.ts (die
  * `versuche`-Map) es für den Login tut: Fastify läuft hier ohne trustProxy
@@ -127,7 +131,8 @@ let eimerStand = EIMER_GROESSE;
 let eimerLetzterStand = Date.now();
 
 /** Zieht ein Zeichen aus dem Eimer. `false` heißt: abweisen, bevor
-    überhaupt Kryptografie läuft. */
+    überhaupt Kryptografie läuft — und nur NACH bestandenem Geheimnis-
+    vergleich gerufen, damit Fremde den Eimer nicht leerziehen können. */
 function eimerZiehen(): boolean {
   const jetzt = Date.now();
   const vergangeneSekunden = (jetzt - eimerLetzterStand) / 1000;
@@ -231,13 +236,7 @@ export function registerPostEingang(app: FastifyInstance): void {
       });
     }
 
-    /* Schritt 2 — vor jeder Kryptografie, damit eine Flut möglichst wenig
-       kostet. */
-    if (!eimerZiehen()) {
-      return reply.code(429).send({ error: 'Zu viele Anfragen.', code: 'fehler.eingangUeberlastet' });
-    }
-
-    /* Schritt 3 — zeitunabhängig, über SHA-256-Digests statt über die
+    /* Schritt 2 — zeitunabhängig, über SHA-256-Digests statt über die
        Rohwerte: so sind die verglichenen Längen immer gleich (64 Zeichen),
        egal wie lang das echte Geheimnis oder der mitgeschickte Wert war.
        gleich() selbst bricht bei unterschiedlicher Länge sofort ab, bevor
@@ -249,6 +248,18 @@ export function registerPostEingang(app: FastifyInstance): void {
       // Konstanter Rumpf, ohne Hinweis worauf — egal ob die Kopfzeile
       // fehlte, leer war oder schlicht falsch: immer dieselbe Antwort.
       return reply.code(401).send({ error: 'Nicht autorisiert.', code: 'fehler.eingangAbgelehnt' });
+    }
+
+    /* Schritt 3 — erst NUN der Eimer. Die Reihenfolge ist keine Geschmacks-
+       frage: stünde er VOR dem Geheimnisvergleich, könnte jeder Fremde ohne
+       das Geheimnis den gemeinsamen Eimer leerziehen und legitime Post
+       abschotten — ein DoS auf den Eingang mit einer Handvoll Anfragen. Der
+       Vergleich selbst kostet fast nichts (ein SHA-256 über einen kurzen
+       Kopf, dann timingSafeEqual), eine Flut schadet also auch so kaum;
+       aber nur ANGENOMMENE Anfragen dürfen den Platz im Eimer verbrauchen,
+       den sonst echte Post braucht. */
+    if (!eimerZiehen()) {
+      return reply.code(429).send({ error: 'Zu viele Anfragen.', code: 'fehler.eingangUeberlastet' });
     }
 
     /* Schritt 4/5/6 — ab hier ist die Anfrage legitim (das Geheimnis

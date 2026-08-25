@@ -139,6 +139,9 @@ function vapidPruefen(authHeader, erwarteterUrsprung) {
 }
 
 process.env.DATA_DIR = probe.datenordner;
+// Der fingierte Push-Dienst läuft auf 127.0.0.1 — der SSRF-Riegel in
+// services/push.ts weist solche Ziele ab; nur für diesen Prülauf geöffnet.
+process.env.STELLIUM_PUSH_TESTZIELE = '1';
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const push = await import(path.resolve(REPO, 'packages/server/dist/services/push.js'));
 
