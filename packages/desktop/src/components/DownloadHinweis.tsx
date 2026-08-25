@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Apple, Download, Monitor, Terminal, X } from 'lucide-react';
+import { Apple, Download, Monitor, Terminal } from 'lucide-react';
 import { useT } from '../i18n';
 import { useStore } from '../state/store.js';
 import { eigenstaendig, rechnersystemErkennen, type Rechnersystem } from '../lib/installation.js';
@@ -8,25 +8,24 @@ import { imBrowser } from './DownloadPanel.jsx';
 import '../styles/download.css';
 
 /**
- * Der Streifen, der einmal darauf hinweist, dass es Stellium auch als
- * eigene App für den Rechner gibt.
+ * Das Tor für Rechner-Browser: wer Stellium auf macOS, Windows oder Linux
+ * im Browser öffnet, sieht zuerst diese Seite — mit dem klaren Hinweis,
+ * dass es die App herunterzuladen gilt.
  *
- * Das Gegenstück zu Startbildschirm.tsx auf dem Telefon — bewusst aber ohne
- * dessen Zwang: auf dem Telefon läuft die Seite im Browser nur notdürftig
- * (kein Vollbild, keine Benachrichtigungen), deshalb blockiert Startbildschirm
- * dort den Zugang, bis eingerichtet ist. Auf dem Rechner ist die Web-
- * Oberfläche dagegen vollwertig — die App ist ein Angebot, keine Vorausset-
- * zung. Darum kein Vollbild vor der Anmeldung, sondern derselbe wegklickbare
- * Streifen wie bei MeldungBitte (Bitte um Benachrichtigungen): daneben in
- * App.tsx eingehängt, im selben Aussehen, mit derselben Erinnerung im
- * Speicher des Geräts.
+ * Das Gegenstück zu Startbildschirm.tsx auf dem Telefon: dort blockiert die
+ * Einrichtungsseite den Zugang, bis die App eingerichtet ist. Auf dem
+ * Rechner ist die Web-Oberfläche zwar vollwertig, aber der Wunsch ist
+ * derselbe — die eigene App soll der Weg sein, nicht die Ausnahme. Deshalb
+ * steht hier zuerst das Herunterladen im Vordergrund; ein kleiner
+ * Weiter-Knopf unten lässt trotzdem hinein, gilt aber nur für DIESE
+ * Sitzung (sessionStorage): beim nächsten Besuch fragt das Tor wieder.
  *
  * Der Knopf öffnet dieselbe Ansicht wie der Menüpunkt „App herunterladen"
  * (Rail.tsx) — keine zweite Quelle für Fassungen, Versionen oder Prüfsummen.
- * Dort wählt sich das erkannte System auch von selbst vor; dieser Streifen
- * muss davon nur so viel kennen, wie er zeigt: das Symbol und den Namen.
+ * Dort wählt sich das erkannte System auch von selbst vor; dieses Tor muss
+ * davon nur so viel kennen, wie es zeigt: das Symbol und den Namen.
  */
-const SCHLUESSEL = 'stellium.download-hinweis';
+const WEITER_SCHLUESSEL = 'stellium.download-tor-weiter';
 
 const SYSTEME: Record<Rechnersystem, { name: string; symbol: React.ReactNode }> = {
   darwin: { name: 'macOS', symbol: <Apple size={15} /> },
@@ -41,68 +40,59 @@ export function DownloadHinweis() {
   // Einmal berechnet und dann festgehalten: die Kennung des Rechners ändert
   // sich innerhalb einer Sitzung nicht.
   const system = useMemo(rechnersystemErkennen, []);
-  const [zeigen, setZeigen] = useState(false);
-
-  useEffect(() => {
-    // Kein System erkannt (Telefon, Tablet, Chromebook, unbekannt) — dann
-    // gibt es nichts zu bewerben.
-    if (!system) return undefined;
-    // In der App selbst wäre der Hinweis peinlich: sie hält sich über die
+  // Ebenfalls einmal: ob dieses Tor überhaupt gelten darf. Keines dieser
+  // Merkmale ändert sich mitten in einer Sitzung.
+  const [torGilt] = useState(() => {
+    if (!system) return false;
+    // In der App selbst wäre das Tor lächerlich: sie hält sich über die
     // Aktualisierung längst selbst auf dem neuesten Stand.
-    if (!imBrowser()) return undefined;
+    if (!imBrowser()) return false;
     // Läuft die Seite schon als eigene, installierte Web-App, gibt es
     // nichts mehr zu holen.
-    if (eigenstaendig()) return undefined;
+    if (eigenstaendig()) return false;
     // Prüfläufe steuern einen echten Browser fern — sie sollen den Chat
-    // testen, nicht auf einen Werbestreifen treffen, den kein Skript erwartet.
-    if (navigator.webdriver) return undefined;
-    try { if (localStorage.getItem(SCHLUESSEL)) return undefined; } catch { /* ohne Speicher eben jedes Mal */ }
+    // testen, nicht auf ein Tor treffen, das kein Skript erwartet.
+    if (navigator.webdriver) return false;
+    try { if (sessionStorage.getItem(WEITER_SCHLUESSEL)) return false; } catch { /* ohne Speicher eben immer */ }
+    return true;
+  });
+  // Der Weiter-Knopf schließt für diese Sitzung — sessionStorage merkt sich
+  // das für den nächsten Besuch, der Zustand hier fürs jetzige Rendern.
+  const [weg, setWeg] = useState(false);
 
-    // Dieselbe kurze Wartezeit wie bei MeldungBitte: direkt nach der
-    // Anmeldung baut sich die Oberfläche noch auf, und ein Streifen, der
-    // mitten hinein springt, wird weggeklickt, bevor jemand ihn liest.
-    const uhr = window.setTimeout(() => setZeigen(true), 4000);
-    return () => window.clearTimeout(uhr);
-  }, [system]);
-
-  const merken = () => {
-    try { localStorage.setItem(SCHLUESSEL, '1'); } catch { /* dann eben nicht */ }
-    setZeigen(false);
+  const weiter = () => {
+    try { sessionStorage.setItem(WEITER_SCHLUESSEL, '1'); } catch { /* dann eben nur für jetzt */ }
+    setWeg(true);
   };
 
-  if (!system) return null;
+  if (!system || !torGilt || weg) return null;
   const { name, symbol } = SYSTEME[system];
 
   return (
     <AnimatePresence>
-      {zeigen && (
-        <motion.div
-          className="download-hinweis"
-          initial={{ height: 0, opacity: 0 }}
-          animate={{ height: 'auto', opacity: 1 }}
-          exit={{ height: 0, opacity: 0 }}
-          transition={{ duration: 0.22 }}
-        >
-          {symbol}
-          <span className="download-hinweis__text">{t('download.hint', { system: name })}</span>
+      <motion.div
+        className="download-tor"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        transition={{ duration: 0.22 }}
+      >
+        <div className="download-tor__karte">
+          <div className="download-tor__marke" aria-hidden="true">{symbol}</div>
+          <h1 className="download-tor__titel">{t('download.gateTitle', { system: name })}</h1>
+          <p className="download-tor__text">{t('download.gateText')}</p>
           <button
             type="button"
-            className="btn btn--primary btn--sm"
-            onClick={() => { merken(); setOverlay('download'); }}
+            className="btn btn--primary btn--block download-tor__knopf"
+            onClick={() => { weiter(); setOverlay('download'); }}
           >
-            <Download size={13} /> {t('download.get')}
+            <Download size={16} /> {t('download.get')}
           </button>
-          <button
-            type="button"
-            className="icon-btn icon-btn--sm"
-            onClick={merken}
-            title={t('meldung.spaeter')}
-            aria-label={t('meldung.spaeter')}
-          >
-            <X size={14} />
+          <button type="button" className="btn btn--ghost btn--block" onClick={weiter}>
+            {t('download.gateWeiter')}
           </button>
-        </motion.div>
-      )}
+        </div>
+      </motion.div>
     </AnimatePresence>
   );
 }

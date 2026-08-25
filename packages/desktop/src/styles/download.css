@@ -221,3 +221,57 @@
     justify-content: center;
   }
 }
+
+/* ── Das Tor für Rechner-Browser (DownloadHinweis.tsx) ─────────
+   Vollbild vor der App, wie der Startbildschirm auf dem Telefon. Die Karte
+   zentriert, die Wahl groß: Herunterladen zuerst, Weitermachen klein
+   darunter — aber da, damit niemand ausgesperrt ist, dessen Rechner gerade
+   keine Fassung hat. */
+.download-tor {
+  position: fixed;
+  inset: 0;
+  /* Unter dem Schleier von Overlays (40) und Tour (200): das Tor ist der
+     erste Schirm, kein Fenster über einem anderen. */
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: calc(16px + var(--sicher-oben)) calc(16px + var(--sicher-rechts))
+           calc(16px + var(--sicher-unten)) calc(16px + var(--sicher-links));
+  background: rgba(4, 6, 14, 0.55);
+  backdrop-filter: blur(8px);
+}
+
+.download-tor__karte {
+  width: min(420px, 100%);
+  padding: 26px 24px 22px;
+  border-radius: var(--r-xl);
+  border: 1px solid var(--line-strong);
+  background: var(--bg-elevated);
+  backdrop-filter: blur(34px) saturate(170%);
+  box-shadow: var(--shadow-lg);
+  text-align: center;
+}
+
+.download-tor__marke {
+  width: 54px; height: 54px;
+  margin: 0 auto 14px;
+  display: grid; place-items: center;
+  border-radius: 17px;
+  color: #fff;
+  background: var(--grad-nebula);
+  box-shadow: var(--glow);
+}
+.download-tor__marke svg { width: 26px; height: 26px; }
+
+.download-tor__titel {
+  margin: 0 0 8px;
+  font-size: 21px; font-weight: 700; letter-spacing: -0.02em;
+  color: var(--tx-hi);
+}
+.download-tor__text {
+  margin: 0 0 18px;
+  font-size: 13.5px; line-height: 1.55;
+  color: var(--tx-mid);
+}
+.download-tor__knopf { margin-bottom: 8px; }

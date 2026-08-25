@@ -3719,3 +3719,17 @@ button.msg__author:hover { color: var(--violet-soft); text-decoration: underline
   -webkit-mask-image: linear-gradient(to right, transparent, #000 28px, #000 calc(100% - 28px), transparent);
   mask-image: linear-gradient(to right, transparent, #000 28px, #000 calc(100% - 28px), transparent);
 }
+
+/* ── Hintergrundstil (lib/hintergrund.ts) ───────────────────────
+   Die Wahl steht als data-hintergrund am Wurzelelement — das Stylesheet
+   entscheidet allein darüber, keine Komponente muss die Stufe kennen.
+
+   still: dieselben Farben wie der Kosmos, aber ohne Sternenfeld und ohne
+   Bewegung. Die Nebelflecken bleiben stehen (die Animation aus), damit der
+   Schirm nicht kahl wirkt — nur eben ruhig.
+   aus: gar kein Hintergrund. Die Fläche bekommt die Grundfarbe des Themas;
+   .cosmos wird von Cosmos.tsx gleich gar nicht mehr gezeichnet, hier steht
+   nur das display:none für den Übergangs-Moment vor dem nächsten Rendern. */
+[data-hintergrund='still'] .cosmos__stars { display: none; }
+[data-hintergrund='still'] .cosmos__blob { animation: none; opacity: 0.55; }
+[data-hintergrund='aus'] .cosmos { display: none; }

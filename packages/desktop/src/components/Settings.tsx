@@ -15,6 +15,7 @@ import { tourZuruecksetzen } from './Tour.jsx';
 import { UpdatePanel } from './UpdatePanel.jsx';
 import { reiterWunschAbholen, VertraulichEinstellungen } from './Vertraulich.jsx';
 import { spracheDesSystems } from '../i18n/index.js';
+import { hintergrundBeobachten, hintergrundLesen, hintergrundSetzen, type Hintergrund } from '../lib/hintergrund.js';
 
 type Tab = 'profil' | 'sprache' | 'modelle' | 'benachrichtigungen' | 'darstellung'
   | 'vertraulich' | 'post' | 'schluessel' | 'aktualisierung' | 'server';
@@ -30,6 +31,38 @@ function kiHinweis(ai: AiCapabilities | null | undefined): string | null {
   if (!ai.noteCode) return ai.note;
   const eigener = t(ai.noteCode as TranslationKey, ai.noteWerte ?? undefined);
   return eigener && eigener !== ai.noteCode ? eigener : ai.note;
+}
+
+/* Die drei Stufen des Hintergrunds (kosmos/still/aus). Eigene Komponente,
+   weil die Wahl am Gerät hängt und nicht im Kontozustand liegt — so bleibt
+   Settings.tsx von localStorage unberührt und die Wahl neu gezeichnet nur
+   hier, nicht das ganze Fenster. */
+function HintergrundWahl() {
+  const t = useT();
+  const [stufe, setStufe] = useState<Hintergrund>(hintergrundLesen);
+  useEffect(() => hintergrundBeobachten(setStufe), []);
+  const optionen: { wert: Hintergrund; text: string }[] = [
+    { wert: 'kosmos', text: t('settings.bgKosmos') },
+    { wert: 'still', text: t('settings.bgStill') },
+    { wert: 'aus', text: t('settings.bgAus') },
+  ];
+  return (
+    <div className="field">
+      <label className="field__label">{t('settings.background')}</label>
+      <div className="hstack gap-2">
+        {optionen.map((o) => (
+          <button
+            key={o.wert}
+            className={`btn${stufe === o.wert ? ' btn--primary' : ''}`}
+            onClick={() => { setStufe(o.wert); hintergrundSetzen(o.wert); }}
+          >
+            {o.text}
+          </button>
+        ))}
+      </div>
+      <p className="field__hint">{t('settings.backgroundHint')}</p>
+    </div>
+  );
 }
 
 export function Settings({ onClose }: { onClose: () => void }) {
@@ -398,6 +431,10 @@ export function Settings({ onClose }: { onClose: () => void }) {
                   ))}
                 </div>
               </div>
+              {/* Der Hintergrundstil lebt bewusst nur auf diesem Gerät
+                  (lib/hintergrund.ts) — deshalb hier ein eigener kleiner
+                  Zustand statt der Kontoeinstellungen. */}
+              <HintergrundWahl />
               <div className="row">
                 <div className="row__main">
                   <div className="row__title">{t('settings.restartTour')}</div>
