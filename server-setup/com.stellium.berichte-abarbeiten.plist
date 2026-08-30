@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.stellium.berichte-abarbeiten</string>
+
+  <!-- Holt Passwort und Serveradresse aus dem Anmelde-Schlüsselbund und läuft
+       deshalb in der Benutzersitzung, genau wie com.stellium.server. Hier
+       steht bewusst KEIN Geheimnis: eine plist liegt im Klartext auf der
+       Platte, und ein Passwort darin wäre für jeden Prozess lesbar. -->
+  <key>ProgramArguments</key>
+  <array>
+    <string>/opt/homebrew/bin/node</string>
+    <string>/Users/don-calvinkuhn/Developer/Chat-Team-GUI/scripts/berichte-abarbeiten.mjs</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>/Users/don-calvinkuhn/Developer/Chat-Team-GUI</string>
+
+  <!-- launchd startet mit einem sehr knappen PATH. Ohne diese Zeile findet der
+       Lauf weder `claude` noch `npm`/`node` aus Homebrew. -->
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/Users/don-calvinkuhn/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+  </dict>
+
+  <!-- Alle drei Minuten ein Lauf, kein Dauerprozess. Findet er nichts, endet
+       er nach einem Abruf; läuft schon einer, endet der neue sofort (die
+       Sperrdatei entscheidet das, nicht launchd). -->
+  <key>StartInterval</key>
+  <integer>180</integer>
+  <key>RunAtLoad</key>
+  <false/>
+
+  <key>StandardOutPath</key>
+  <string>/Users/don-calvinkuhn/Library/Logs/Stellium/berichte-abarbeiten.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/don-calvinkuhn/Library/Logs/Stellium/berichte-abarbeiten.log</string>
+
+  <!-- Ein Claude-Lauf plus die Wächter darf den Rechner nicht in die Knie
+       zwingen, während Don daran arbeitet. -->
+  <key>ProcessType</key>
+  <string>Background</string>
+  <key>LowPriorityIO</key>
+  <true/>
+</dict>
+</plist>

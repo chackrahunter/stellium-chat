@@ -52,6 +52,7 @@ import type { KontoPaket, PermissionKey, SchluesselPaket } from '@stellium/share
 import { verifyToken } from '../auth.js';
 import { may } from '../services/users.js';
 import { Abweisung } from '../util/abweisung.js';
+import { keinZwischenspeicher } from './kein-zwischenspeicher.js';
 import * as passwoerter from '../services/passwoerter.js';
 
 const RECHT = 'passwort.nutzen' as PermissionKey;
@@ -115,9 +116,18 @@ export function registerPasswoerter(app: FastifyInstance): void {
    * statt auf einen WebSocket-Anstoß zu warten (dieselbe Bauart wie
    * PaypalPanel/EinmalcodePanel, nicht die der Notizen-Tafel).
    */
-  app.get('/api/passwoerter', async (req) => {
+  app.get('/api/passwoerter', async (req, reply) => {
     const userId = requireUser(req);
     requirePermission(userId);
+    /* Kein Klartext hier drin — und trotzdem kein Zwischenspeicher.
+       `eigenePakete`/`kontoPakete` sind die verschlossenen Schlüsselpakete;
+       zusammen mit den Chiffraten daneben liegt in dieser einen Antwort
+       alles, was ein Rateangriff auf ein Kontopasswort braucht. Auf der
+       Platte eines geteilten Rechners ist das offline angreifbar, ohne
+       Anmeldung und ohne dass es hier jemand sieht. Die
+       Ende-zu-Ende-Verschlüsselung ist der Grund, warum das teuer ist — kein
+       Grund, das Material herumliegen zu lassen. */
+    keinZwischenspeicher(reply);
     return {
       eintraege: passwoerter.listEintraege(userId),
       eigenePakete: passwoerter.paketeFuerAlle(userId),
@@ -274,6 +284,11 @@ export function registerPasswoerter(app: FastifyInstance): void {
     const userId = requireUser(req);
     requirePermission(userId);
     const { id } = req.params as { id: string };
+    /* POST hält Browser schon von sich aus vom Ablegen ab — die Zeile steht
+       trotzdem hier. Sonst müsste jeder, der später nachsieht, ob dieser Weg
+       geschützt ist, erst die Methode nachschlagen und die Regel dazu kennen.
+       Siehe http/kein-zwischenspeicher.ts, letzter Absatz. */
+    keinZwischenspeicher(reply);
     try {
       return passwoerter.geheimnisAusliefern(id, userId);
     } catch (f) {

@@ -40,11 +40,17 @@ SPRACHDATEI = os.path.expanduser("~/.config/stellium-wache-sprache")
 
 TEXTE = {
     "de": {
-        "laeuft": "Fernzugriff läuft",
+        # Diese Anzeige spricht nur für SSH — nicht für die Fernsteuerung des
+        # Bildschirms, die anderswo läuft (stellium-fern.service) und eine
+        # eigene Zeile hat. „SSH“ steht deshalb in jedem Zustand im Text, auch
+        # wenn niemand verbunden ist: sonst liest sich „niemand verbunden“
+        # neben einer aktiven Bildschirm-Sitzung wie ein Widerspruch, obwohl
+        # beides unabhängig voneinander stimmt.
+        "laeuft": "SSH-Zugriff läuft",
         "arbeitet": "{wer} arbeitet gerade über SSH",
-        "mehrere": "{n} Fernzugriffe laufen",
-        "protokoll": "Protokoll des Fernzugriffs",
-        "niemand": "Gerade ist niemand verbunden.",
+        "mehrere": "{n} SSH-Verbindungen laufen",
+        "protokoll": "SSH-Protokoll",
+        "niemand": "Gerade ist niemand per SSH verbunden.",
         "geoeffnet": "Verbindung geöffnet",
         "geschlossen": "Verbindung beendet",
         "dateien": "Dateiübertragung",
@@ -58,11 +64,17 @@ TEXTE = {
         "seit": "seit",
     },
     "en": {
-        "laeuft": "Remote access active",
+        # This panel speaks only for SSH — not for the screen-sharing remote
+        # control, which runs separately (stellium-fern.service) and has its
+        # own line. "SSH" therefore appears in every state, including when
+        # nobody is connected: otherwise "nobody is connected" next to an
+        # active screen session reads as a contradiction, even though both
+        # statements are true independently of each other.
+        "laeuft": "SSH access active",
         "arbeitet": "{wer} is working over SSH",
-        "mehrere": "{n} remote sessions active",
-        "protokoll": "Remote access log",
-        "niemand": "Nobody is connected right now.",
+        "mehrere": "{n} SSH sessions active",
+        "protokoll": "SSH log",
+        "niemand": "Nobody is connected via SSH right now.",
         "geoeffnet": "Connection opened",
         "geschlossen": "Connection closed",
         "dateien": "File transfer",
@@ -328,6 +340,23 @@ def sitzungen():
             continue
         aus.append((wer, herkunft, " ".join(teile[2:4])))
     return aus
+
+
+def kopf_text(offen):
+    """Titel und Beschreibung für den Kopf, ausgehend davon, wer über SSH da ist.
+
+    Eigens von Tk gelöst, damit sich beweisen lässt, was hier gilt: Ist
+    `offen` nicht leer, kommt niemals der „niemand verbunden“-Text heraus —
+    genau der Widerspruch, der neben einer laufenden Bildschirm-Fernsteuerung
+    sonst wie eine falsche Auskunft aussähe, obwohl beide Anzeigen unabhängig
+    voneinander stimmen (siehe TEXTE oben).
+    """
+    if offen:
+        titel = (T("arbeitet", wer=offen[0][0]) if len(offen) == 1
+                 else T("mehrere", n=len(offen)))
+        wer = "   ·   ".join(f"{wer} · {herkunft}" for wer, herkunft, _seit in offen)
+        return titel, wer
+    return T("protokoll"), T("niemand")
 
 
 def mischen(von, nach, anteil):
@@ -622,13 +651,11 @@ class Mitschrift(tk.Frame):
     def nachsehen(self):
         """Wer ist gerade da? Der Kopf sagt es, das Fenster hört mit."""
         offen = sitzungen()
+        titel, wer = kopf_text(offen)
+        self.setzen(titel=titel, wer=wer)
         if offen:
             self.lebendig = True
             self.namen = herkunft_namen()
-            self.setzen(titel=(T("arbeitet", wer=offen[0][0]) if len(offen) == 1
-                               else T("mehrere", n=len(offen))),
-                        wer="   ·   ".join(f"{wer} · {herkunft}"
-                                           for wer, herkunft, _seit in offen))
             # Wer zusieht, während jemand arbeitet, will das Laufende sehen —
             # die Tagesauswahl tritt so lange zurück. Im festen Bereich der
             # Konsole bleibt sie stehen: dort ist Platz genug für beides.
@@ -636,7 +663,6 @@ class Mitschrift(tk.Frame):
                 self.tagesauswahl(False)
         else:
             self.lebendig = False
-            self.setzen(titel=T("protokoll"), wer=T("niemand"))
         if self.melden:
             self.melden(offen)
         self.after(int(TAKT * 1000), self.nachsehen)

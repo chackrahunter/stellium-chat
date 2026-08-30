@@ -46,6 +46,7 @@ export type PermissionKey =
   | 'ai.translate'
   | 'ai.assistant'
   | 'ai.model_select'
+  | 'ki.verwalten'
   | 'glossary.manage'
   /* Vertraulichkeit */
   | 'vertraulich.kanal'
@@ -68,6 +69,9 @@ export type PermissionKey =
   | 'einmalcode.verwalten'
   /* Passwort-Tresor */
   | 'passwort.nutzen'
+  /* Problemberichte */
+  | 'report.submit'
+  | 'report.review'
   /* Verwaltung */
   | 'release.publish'
   | 'user.invite'
@@ -124,6 +128,31 @@ export const PERMISSIONS: PermissionInfo[] = [
   { key: 'ai.translate', group: 'ki', labelDe: 'Live-Übersetzung nutzen' },
   { key: 'ai.assistant', group: 'ki', labelDe: 'KI-Funktionen nutzen' },
   { key: 'ai.model_select', group: 'ki', labelDe: 'KI-Modell festlegen' },
+
+  /* Den API-Schlüssel des Arbeitsbereichs hinterlegen — dieselbe Klasse wie
+     `mail.verwalten`, `verkauf.verwalten` und `fern.verwalten`, und deshalb
+     dieselbe Machart: `ownerOnly`, und die Route dazu prüft es mit
+     requirePermission() (http/routes.ts, /api/ki/zugang). Auch der NAME folgt
+     dieser Familie und nicht den `ai.*`-Rechten darüber: `ai.translate` und
+     `ai.model_select` sind Rechte auf das BENUTZEN der KI, dieses hier ist
+     eines auf ein Geheimnis — und jedes Recht auf ein Geheimnis im Haus heißt
+     `<bereich>.verwalten`.
+
+     BEWUSST NICHT `ai.model_select`: das Modell zu wählen kostet nichts und
+     steckt darum in der Rollenvorlage TEAMLEITUNG. Der Schlüssel dagegen ist
+     die Rechnung des Unternehmens — wer ihn austauscht, lenkt jede KI-Anfrage
+     des Hauses auf ein fremdes Konto um, und niemandem fällt es auf.
+
+     ADMINISTRATOREN BEKOMMEN IHN TROTZDEM, über `ADMIN = ALLE.filter(...)`
+     weiter unten. Das ist hier ausdrücklich entschieden und nicht bloß
+     durchgerutscht (siehe den Kommentar an jener Stelle, der genau diese
+     Entscheidung verlangt): ein Administrator trägt bereits `fern.zugriff`
+     und `fern.verwalten`, also den Fernzugriff auf den Pi. Wer die Maschine
+     erreicht, kommt an die .env — ihm den Schlüssel in der Oberfläche
+     vorzuenthalten wäre ein Schloss an einer Tür ohne Wand daneben, genau
+     die Abwägung wie bei `bank.verwalten`. `ownerOnly` erfüllt seinen Zweck
+     trotzdem: VERGEBEN darf dieses Recht allein der Inhaber. */
+  { key: 'ki.verwalten', group: 'ki', ownerOnly: true, labelDe: 'KI-Zugang einrichten' },
   { key: 'idea.create', group: 'inhalte', labelDe: 'Ideen einbringen' },
   { key: 'idea.vote', group: 'inhalte', labelDe: 'Über Ideen abstimmen' },
   { key: 'idea.manage', group: 'inhalte', labelDe: 'Ideen entscheiden' },
@@ -178,6 +207,27 @@ export const PERMISSIONS: PermissionInfo[] = [
      Eintrag hier automatisch eingeht. */
   { key: 'passwort.nutzen', group: 'system', labelDe: 'Passwort-Tresor nutzen' },
 
+  /* Melden selbst ist KEIN Vorrecht — im Gegenteil: wer am wenigsten Rechte
+     hat, stolpert im Zweifel zuerst über eine Wand, die alle anderen nie zu
+     sehen bekommen. Deshalb unten in NUR_LESEN, der untersten Rollenvorlage,
+     und von dort über jede Kette bis zum Owner mit dabei — nur `bot` bleibt
+     ausdrücklich außen vor: ein technisches Konto erlebt die Oberfläche
+     nicht und hat nichts zu melden. */
+  { key: 'report.submit', group: 'inhalte', labelDe: 'Probleme melden' },
+  /* Das Gegenstück: die Liste ansehen und Berichte weiterschalten. Bewusst
+     NICHT in report.submit enthalten (wer meldet, muss die Meldungen der
+     ganzen Belegschaft nicht mitlesen können — Berichte tragen Freitext, den
+     Leute manchmal unbedacht tippen) und bewusst NICHT in irgendeiner
+     ROLE_DEFAULTS-Vorlage vergeben: dieses Recht ist für die eine Person
+     gedacht, die Berichte sichtet, und für das technische Konto, über das
+     ein n8n-Arbeitsablauf sie abholt — beides einzeln in der Rechte-Tafel
+     vergeben (services/users.ts, setPermission()), nie pauschal über eine
+     Rolle. Administratoren bekommen es trotzdem automatisch über
+     `ADMIN = ALLE.filter(...)` weiter unten, aus demselben Grund wie
+     passwort.nutzen darüber. Die eigenen Berichte darf jede Person ohnehin
+     sehen — das prüft die Route unabhängig von diesem Recht. */
+  { key: 'report.review', group: 'verwaltung', labelDe: 'Problemberichte einsehen und bearbeiten' },
+
   { key: 'fern.zugriff', group: 'fernzugriff', labelDe: 'Pi fernsteuern' },
   { key: 'fern.verwalten', group: 'fernzugriff', ownerOnly: true, labelDe: 'Fernzugang einrichten' },
 
@@ -213,6 +263,10 @@ const ALLE = PERMISSION_KEYS;
 /** Nur mitlesen. Für Praktikanten in der Einarbeitung, Archiv-Zugänge, Audits. */
 const NUR_LESEN: PermissionKey[] = [
   'ai.translate',
+  /* Ganz unten und mit Absicht: wer nur mitliest, ist im Team, und ein
+     Fehler, den nur diese Person sieht, kommt sonst nie an. Ausführliche
+     Begründung oben bei PERMISSIONS, Eintrag 'report.submit'. */
+  'report.submit',
 ];
 
 /** Darf antworten und reagieren, aber nichts Eigenes anstoßen. */

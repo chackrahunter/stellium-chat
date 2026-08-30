@@ -43,11 +43,23 @@ export function getRelease(platform: string): (ReleaseInfo & { path: string }) |
 }
 
 /**
+ * Woran eine Fassungsnummer in ihre Glieder zerfällt.
+ *
+ * Bewusst EINE Konstante für istNeuer() und fassungPlausibel(): sonst gäbe es
+ * hier zwei Vorstellungen davon, was eine Fassung ist, und die eine ließe
+ * eines Tages etwas durch, das die andere gar nicht vergleichen kann.
+ */
+const FASSUNG_TRENNER = /[.\-+]/;
+
+/** Länger als das ist keine Fassungsnummer mehr, sondern Freitext. */
+const FASSUNG_MAX = 32;
+
+/**
  * Vergleicht zwei Versionen nach dem Muster 1.2.3. Unbekanntes zählt als 0,
  * damit ein Tippfehler in der Version kein Update auslöst, das zurückgeht.
  */
 export function istNeuer(neu: string, alt: string): boolean {
-  const zerlegen = (v: string) => v.split(/[.\-+]/).map((t) => Number.parseInt(t, 10) || 0);
+  const zerlegen = (v: string) => v.split(FASSUNG_TRENNER).map((t) => Number.parseInt(t, 10) || 0);
   const a = zerlegen(neu);
   const b = zerlegen(alt);
   for (let i = 0; i < Math.max(a.length, b.length); i += 1) {
@@ -56,6 +68,56 @@ export function istNeuer(neu: string, alt: string): boolean {
     if (x !== y) return x > y;
   }
   return false;
+}
+
+/**
+ * Die Plattformen, die ein Client von SICH SELBST melden darf — die
+ * geschlossene Menge hinter users.client_platform.
+ *
+ * Woher genau diese vier: 'darwin'/'win32'/'linux' sind process.platform aus
+ * dem Electron-Teil (desktop/electron/preload.ts, von desktop/src/net/socket.ts
+ * ins `auth`-Ereignis gereicht), 'browser' ist der feste Rückfall derselben
+ * Zeile für die Web-/PWA-Ansicht, die keine Electron-Brücke hat. Etwas
+ * anderes sendet heute kein Client, und etwas anderes könnte clientAktuell()
+ * unten auch gar nicht vergleichen.
+ *
+ * Bewusst NICHT dieselbe Liste wie PLATTFORMEN oben: dort steht 'server' —
+ * ein Paket, das jemand hochlädt, kein Gerät, das sich anmeldet. Und dort
+ * fehlt 'browser', weil es dafür keine hochladbare Datei gibt. Zwei Mengen
+ * für zwei verschiedene Fragen, jede an ihrer Stelle begründet.
+ */
+export const CLIENT_PLATTFORMEN = ['darwin', 'win32', 'linux', 'browser'];
+
+/**
+ * Meldet dieser Client eine Plattform, die es überhaupt gibt?
+ *
+ * Für services/store.ts clientMeldung(). Alles andere wird dort verworfen —
+ * die Spalte soll nur Werte tragen, die diese Liste kennt.
+ */
+export function plattformPlausibel(plattform: string): boolean {
+  return CLIENT_PLATTFORMEN.includes(plattform);
+}
+
+/**
+ * Hat das die Form einer Fassungsnummer, wie dieses Haus sie kennt?
+ *
+ * Gemessen an DERSELBEN Zerlegung, die istNeuer() zum Vergleichen benutzt
+ * (FASSUNG_TRENNER), und an derselben Mindestform, die publish() beim
+ * Hochladen verlangt (drei Zahlen). Damit entsteht hier keine zweite,
+ * abweichende Vorstellung von „Fassung", die eines Tages von der ersten
+ * abweicht.
+ *
+ * Erlaubt sind bis zu fünf Glieder: die drei Zahlen, die den Vergleich
+ * tragen, und höchstens zwei kurze Anhängsel (1.2.3-rc.4). Was darüber
+ * hinausgeht, könnte istNeuer() ohnehin nicht mehr sinnvoll auswerten — es
+ * hier durchzulassen hieße nur, Freitext in einer Spalte abzulegen, die
+ * TeamAdmin.tsx als Tatsache anzeigt.
+ */
+export function fassungPlausibel(fassung: string): boolean {
+  if (fassung.length > FASSUNG_MAX) return false;
+  const glieder = fassung.split(FASSUNG_TRENNER);
+  if (glieder.length < 3 || glieder.length > 5) return false;
+  return glieder.every((g, i) => (i < 3 ? /^\d{1,6}$/ : /^[0-9A-Za-z]{1,12}$/).test(g));
 }
 
 /**

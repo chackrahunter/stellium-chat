@@ -411,7 +411,13 @@ function Kontozeile({ konto, uhr, abgleich, aufAbgleich, darfVerwalten, aufAende
      (`einmalcode.kopierenLang`) — hier geht es nur darum, dass ÜBERHAUPT
      etwas erschienen ist, damit eine Sprachausgabe dorthin findet. Zugleich
      der Reset für Anlass 2: das gerade erschienene Fenster gilt als bekannt,
-     nicht als „neu hereingerollt". */
+     nicht als „neu hereingerollt".
+
+     `t`, `fenster`, `konto.bezeichnung` und `urteil.codeZeigen` absichtlich
+     NICHT in der Abhängigkeitsliste: `t` und `urteil` werden jeden 250-ms-
+     Takt neu berechnet (s.o.); stünden sie hier, liefe der Effekt bei jedem
+     Takt statt genau einmal je Aufdecken — exakt das "ohne Unterlass", das
+     die Ansage laut Kommentar oben verhindern soll. */
   useEffect(() => {
     if (!aufgedeckt) { zuletztFenster.current = null; knappAngesagt.current = false; return; }
     zuletztFenster.current = fenster?.fenster ?? null;
@@ -419,6 +425,7 @@ function Kontozeile({ konto, uhr, abgleich, aufAbgleich, darfVerwalten, aufAende
     setAnsage(urteil.codeZeigen
       ? t('einmalcode.ansageAufgedeckt', { bezeichnung: konto.bezeichnung })
       : t('einmalcode.ansageGesperrt', { bezeichnung: konto.bezeichnung }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- absichtlich nur an `aufgedeckt`, siehe Kommentar oben
   }, [aufgedeckt]);
 
   /* Anlass 2: ein neuer Code ist da. `fenster` ist dieselbe Objektreferenz,
@@ -427,7 +434,11 @@ function Kontozeile({ konto, uhr, abgleich, aufAbgleich, darfVerwalten, aufAende
      der Antwort), wechselt die Referenz also nur beim tatsächlichen
      Rollover, nicht bei jedem Takt. Bleibt hier stumm, bis das ERSTE Fenster
      einmal gesetzt wurde (s.o.) — sonst gälte das Aufdecken selbst schon als
-     „neu hereingerollt". */
+     „neu hereingerollt".
+
+     `t` und `konto.bezeichnung` absichtlich draußen: `t` wechselt jeden Takt
+     (s. Anlass 1), das würde den Effekt bei jedem Takt statt nur beim echten
+     Rollover feuern lassen. */
   useEffect(() => {
     if (!aufgedeckt || !fenster) return;
     if (zuletztFenster.current !== null && fenster.fenster !== zuletztFenster.current) {
@@ -435,6 +446,7 @@ function Kontozeile({ konto, uhr, abgleich, aufAbgleich, darfVerwalten, aufAende
       knappAngesagt.current = false;
       setAnsage(t('einmalcode.ansageNeuerCode', { bezeichnung: konto.bezeichnung }));
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- t/konto.bezeichnung absichtlich draußen, siehe Kommentar oben
   }, [fenster, aufgedeckt]);
 
   /* Anlass 3: gleich läuft der Code ab. Dieselbe Schwelle wie der rote Rand
@@ -442,13 +454,19 @@ function Kontozeile({ konto, uhr, abgleich, aufAbgleich, darfVerwalten, aufAende
      `istKnapp`/`KNAPP_SEKUNDEN`) — keine zweite, erfundene Zahl. `rest`
      ändert sich jeden Takt, `knappAngesagt` sorgt trotzdem für GENAU eine
      Ansage je Fenster: sie fällt erst wieder, wenn ein neues Fenster beginnt
-     (Anlass 2 setzt sie zurück). */
+     (Anlass 2 setzt sie zurück).
+
+     `t` absichtlich draußen (wechselt jeden Takt, s. Anlass 1);
+     `urteil.codeZeigen` ist nur eine Wache hier drin (früher Ausstieg bei
+     gesperrtem Code), kein eigener Anlass — `knappAngesagt` sorgt ohnehin
+     für genau eine Ansage je Fenster. */
   useEffect(() => {
     if (!aufgedeckt || !urteil.codeZeigen) return;
     if (urteil.hinweis === 'einmalcode.gleichNeu' && !knappAngesagt.current) {
       knappAngesagt.current = true;
       setAnsage(t('einmalcode.gleichNeu'));
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- t/urteil.codeZeigen absichtlich draußen, siehe Kommentar oben
   }, [urteil.hinweis, aufgedeckt]);
 
   const verstecken = useCallback(() => {

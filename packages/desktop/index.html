@@ -2,9 +2,16 @@
 <html lang="de">
   <head>
     <meta charset="UTF-8" />
-    <!-- viewport-fit=cover: sonst bleibt unter der Dynamic Island und über der
-         Home-Leiste ein schwarzer Balken statt Inhalt. Das Freihalten
-         übernimmt das Stylesheet über env(safe-area-inset-*). -->
+    <!-- KEIN viewport-fit=cover, und das ist Absicht. Es stand hier, damit
+         unter der Dynamic Island und über der Home-Leiste kein schwarzer
+         Balken bleibt — auf iOS 26 löst es aber WebKit-Fehler #301994 aus:
+         die Startbildschirm-App bekommt einen um die Statusleistenhöhe
+         verkleinerten Ausschnitt, festgenagelt am OBEREN Schirmrand, und die
+         untersten 62 Punkte sind tot. Ohne `cover` reicht der Ausschnitt bis
+         zur letzten Bildschirmzeile.
+         Der Preis: env(safe-area-inset-*) meldet damit überall 0. Wer unten
+         etwas freihalten muss, nimmt --wischzone aus lib/sichere-bereiche.ts
+         (in mobil.css als --rand-unten gebündelt) — nicht --sicher-unten. -->
     <!-- Kein user-scalable=no. Es stand hier, damit iOS beim Antippen eines
          Eingabefeldes nicht hineinzoomt — aber es sperrt damit auch alle aus,
          die zum Lesen vergrößern müssen, und gilt als Barrierefreiheits-
@@ -30,6 +37,28 @@
          dunkle Streifen unter dem Schreibfeld, den wir lange gejagt haben. -->
     <meta name="theme-color" content="#172736" />
     <meta name="color-scheme" content="dark light" />
+    <style>
+      /* Die zweite Haelfte des weissen Blitzes.
+
+         Die Startbilder weiter unten decken den Startschirm des Systems ab.
+         Danach uebergibt iOS an die Webansicht — und die ist weiss, bis das
+         Stylesheet da ist. Im Bildbeleg waren das drei Vollbilder Weiss
+         DIREKT NACH dem dunklen Startbild, also genau in der Luecke, die ein
+         Startbild grundsaetzlich nicht schliessen kann.
+
+         Diese Zeile schliesst sie, weil sie im HTML steht und damit gilt,
+         sobald der Kopf gelesen ist — kein Netzweg, kein Warten. Sie darf
+         danach nichts festhalten: app.css setzt den Grund von html mit dem
+         Randverlauf neu, und der <link> darauf steht weiter unten im Kopf
+         (vite haengt ihn ans Ende). Gleiche Spezifitaet, spaeter im Kopf —
+         also gewinnt app.css, sobald es da ist. Kein !important, genau
+         deshalb.
+
+         Die Farbe ist --grund-rand, dieselbe wie in theme-color, im Manifest
+         und in den Startbildern. Vier Stellen, eine Farbe: steht hier ein
+         anderer Wert, sieht man den Sprung. */
+      html { background: #172736; }
+    </style>
 
     <!-- Zum Startbildschirm hinzufügen: Android liest das Manifest, iOS die
          drei apple-Zeilen darunter. Ohne sie hieße das Symbol wie die Seite
@@ -39,6 +68,65 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="Stellium Chat" />
+    <!-- Startbilder: gegen den weissen Blitz beim Kaltstart.
+
+         Vom Startbildschirm zeigt iOS erst einen leeren Startschirm und dann
+         die Seite. Ohne diese Zeilen ist dieser Startschirm WEISS — gegen
+         eine durchweg dunkle App ein Blitz ueber den ganzen Bildschirm.
+         `background_color` im Manifest hilft nicht: das liest Android, iOS
+         nicht. iOS liest nur `apple-touch-startup-image`, und nur ein Bild,
+         dessen Masse GENAU passen; alles andere ueberspringt es wortlos und
+         nimmt wieder Weiss. Daher eine Zeile je Geraet und Lage.
+
+         Die Bilder sind einfarbig in --grund-rand (#172736, dieselbe Farbe
+         wie `theme-color` darueber) und rund ein halbes Kilobyte gross.
+         Erzeugt und die Zeilen hier ausgegeben von:
+
+             node scripts/startbilder-erzeugen.mjs
+             node scripts/startbilder-erzeugen.mjs --links
+
+         Die Geraeteliste steht dort, nicht hier — sonst muesste man sie beim
+         naechsten Geraet an zwei Stellen nachtragen. -->
+    <link rel="apple-touch-startup-image" href="/start/1320x2868.png"
+          media="screen and (device-width: 440px) and (device-height: 956px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" />
+    <link rel="apple-touch-startup-image" href="/start/2868x1320.png"
+          media="screen and (device-width: 440px) and (device-height: 956px) and (-webkit-device-pixel-ratio: 3) and (orientation: landscape)" />  <!-- iPhone 16/17 Pro Max -->
+    <link rel="apple-touch-startup-image" href="/start/1290x2796.png"
+          media="screen and (device-width: 430px) and (device-height: 932px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" />
+    <link rel="apple-touch-startup-image" href="/start/2796x1290.png"
+          media="screen and (device-width: 430px) and (device-height: 932px) and (-webkit-device-pixel-ratio: 3) and (orientation: landscape)" />  <!-- iPhone 14/15 Pro Max, 15/16 Plus -->
+    <link rel="apple-touch-startup-image" href="/start/1284x2778.png"
+          media="screen and (device-width: 428px) and (device-height: 926px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" />
+    <link rel="apple-touch-startup-image" href="/start/2778x1284.png"
+          media="screen and (device-width: 428px) and (device-height: 926px) and (-webkit-device-pixel-ratio: 3) and (orientation: landscape)" />  <!-- iPhone 12/13 Pro Max -->
+    <link rel="apple-touch-startup-image" href="/start/1242x2688.png"
+          media="screen and (device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" />
+    <link rel="apple-touch-startup-image" href="/start/2688x1242.png"
+          media="screen and (device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 3) and (orientation: landscape)" />  <!-- iPhone XS Max, 11 Pro Max -->
+    <link rel="apple-touch-startup-image" href="/start/828x1792.png"
+          media="screen and (device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)" />
+    <link rel="apple-touch-startup-image" href="/start/1792x828.png"
+          media="screen and (device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 2) and (orientation: landscape)" />  <!-- iPhone XR, 11 -->
+    <link rel="apple-touch-startup-image" href="/start/1206x2622.png"
+          media="screen and (device-width: 402px) and (device-height: 874px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" />
+    <link rel="apple-touch-startup-image" href="/start/2622x1206.png"
+          media="screen and (device-width: 402px) and (device-height: 874px) and (-webkit-device-pixel-ratio: 3) and (orientation: landscape)" />  <!-- iPhone 16/17 Pro -->
+    <link rel="apple-touch-startup-image" href="/start/1179x2556.png"
+          media="screen and (device-width: 393px) and (device-height: 852px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" />
+    <link rel="apple-touch-startup-image" href="/start/2556x1179.png"
+          media="screen and (device-width: 393px) and (device-height: 852px) and (-webkit-device-pixel-ratio: 3) and (orientation: landscape)" />  <!-- iPhone 14 Pro, 15/16 -->
+    <link rel="apple-touch-startup-image" href="/start/1170x2532.png"
+          media="screen and (device-width: 390px) and (device-height: 844px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" />
+    <link rel="apple-touch-startup-image" href="/start/2532x1170.png"
+          media="screen and (device-width: 390px) and (device-height: 844px) and (-webkit-device-pixel-ratio: 3) and (orientation: landscape)" />  <!-- iPhone 12/13/14 -->
+    <link rel="apple-touch-startup-image" href="/start/1125x2436.png"
+          media="screen and (device-width: 375px) and (device-height: 812px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" />
+    <link rel="apple-touch-startup-image" href="/start/2436x1125.png"
+          media="screen and (device-width: 375px) and (device-height: 812px) and (-webkit-device-pixel-ratio: 3) and (orientation: landscape)" />  <!-- iPhone X/XS, 11 Pro, 13 mini -->
+    <link rel="apple-touch-startup-image" href="/start/750x1334.png"
+          media="screen and (device-width: 375px) and (device-height: 667px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)" />
+    <link rel="apple-touch-startup-image" href="/start/1334x750.png"
+          media="screen and (device-width: 375px) and (device-height: 667px) and (-webkit-device-pixel-ratio: 2) and (orientation: landscape)" />  <!-- iPhone SE -->
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="application-name" content="Stellium Chat" />
     <!--CSP-->

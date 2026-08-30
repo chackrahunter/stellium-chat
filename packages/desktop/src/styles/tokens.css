@@ -25,6 +25,21 @@
   --sicher-links:  env(safe-area-inset-left, 0px);
   --sicher-rechts: env(safe-area-inset-right, 0px);
 
+  /* Der Abstand, den man unten WIRKLICH braucht.
+
+     --sicher-unten allein ist auf dem Telefon immer null (siehe oben) und
+     haelt damit nichts frei — so lagen die zehn Knoepfe der Eingabeleiste in
+     der Home-Geste. --wischzone ist der nachgerechnete Ersatz (34px,
+     lib/sichere-bereiche.ts), steht aber nur in der iOS-Startbildschirm-App.
+     Auf Android liefert env() einen echten Wert und --wischzone fehlt.
+     max() nimmt in beiden Faellen das Richtige und ist am Schreibtisch, wo
+     beide fehlen, null — also genau wie vorher.
+
+     Hier und nicht in mobil.css: die Regeln, die es brauchen, stehen zum Teil
+     in app.css, und ein Name, den es dort nicht gibt, laesst die GANZE
+     Deklaration lautlos ausfallen (siehe scripts/tokens-pruefen.mjs). */
+  --rand-unten: max(var(--sicher-unten), var(--wischzone, 0px));
+
   /* Akzente — bleiben in beiden Themes gleich */
   --violet:      #7c5cff;
   --violet-soft: #9d86ff;

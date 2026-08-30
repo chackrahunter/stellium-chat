@@ -42,6 +42,7 @@ import type { PermissionKey } from '@stellium/shared';
 import { verifyToken } from '../auth.js';
 import { may } from '../services/users.js';
 import { Abweisung } from '../util/abweisung.js';
+import { keinZwischenspeicher } from './kein-zwischenspeicher.js';
 import * as einmalcode from '../services/einmalcode.js';
 
 /* Siehe Dateikopf: die Schlüssel gibt es im Katalog noch nicht, deshalb der
@@ -163,9 +164,11 @@ export function registerEinmalcode(app: FastifyInstance): void {
     const { id } = req.params as { id: string };
     /* Kein Zwischenspeicher, nirgends — weder im Browser noch in einem
        Vermittler davor. Was hier steht, ist dreißig Sekunden lang ein
-       Schlüssel zum Firmenkonto. */
-    reply.header('cache-control', 'no-store, no-cache, must-revalidate, private');
-    reply.header('pragma', 'no-cache');
+       Schlüssel zum Firmenkonto. Die beiden Kopfzeilen standen hier
+       ausgeschrieben und fehlten dafür an fünf anderen geheimnistragenden
+       Wegen; seither ist es ein Aufruf, den man beim Anlegen einer Route
+       sieht (http/kein-zwischenspeicher.ts). */
+    keinZwischenspeicher(reply);
     try {
       return einmalcode.codesHolen(id, userId);
     } catch (f) {

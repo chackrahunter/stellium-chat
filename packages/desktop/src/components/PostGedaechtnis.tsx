@@ -133,6 +133,13 @@ export function PostGedaechtnis({ onClose }: { onClose: () => void }) {
     }
   };
 
+  // Nur beim Öffnen — spätere Aufrufe geschehen gezielt (Aktualisieren-Knopf,
+  // „mit Verlauf"-Schalter, nach Entscheiden/Anlegen, s.u.). `laden` selbst ist
+  // bei jedem Render eine neue Kennung (schließt `mitVerlauf` als Vorgabewert
+  // ein): sie hier aufzunehmen würde den Effekt bei JEDEM Umschalten von „mit
+  // Verlauf" ein zweites Mal laden lassen — der Schalter ruft `laden()` schon
+  // selbst mit dem neuen Wert auf.
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- bewusst einmalig, siehe Kommentar oben
   useEffect(() => { void laden(); }, []);
 
   const offene = (vorschlaege ?? []).filter((v) => v.zustand === 'offen');

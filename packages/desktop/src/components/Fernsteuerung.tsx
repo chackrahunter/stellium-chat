@@ -66,7 +66,10 @@ export function Fernsteuerung(
      `verbinden()`. Damit gibt es kein Feld, aus dem jemand sie ablesen, und
      keinen Zustand, aus dem sie versehentlich in ein Protokoll geraten
      könnten. */
-  const [stand, setStand] = useState<{ hinterlegt: boolean; kennung: string | null; darf: boolean } | null>(null);
+  /* `kennung` optional: der Server schickt sie nur an Konten mit
+     `fern.zugriff`. Fehlt sie, bleibt der Platz neben dem Knopf leer — genau
+     wie wenn gar keine hinterlegt ist. Für die Anzeige ist das dasselbe. */
+  const [stand, setStand] = useState<{ hinterlegt: boolean; kennung?: string | null; darf: boolean } | null>(null);
   const [info, setInfo] = useState<{ takt?: string; verworfen?: number } | null>(null);
   const [steuert, setSteuert] = useState(false);
 

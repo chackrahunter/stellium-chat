@@ -347,6 +347,18 @@ function PasswortEditor({ eintrag, klartext, frischAngelegt, onAktualisiert, onN
   const geheimRef = useRef(geheim);
   geheimRef.current = geheim;
   const umstellenLaeuft = useRef(false);
+  /* `onAktualisiert`/`onNeuLaden`/`t` gehören NICHT in die Abhängigkeiten des
+     Umstellungs-Effekts weiter unten: `aufAktualisiert` in PasswortPanel ist
+     nicht mit useCallback stabilisiert, wechselt also bei jedem Elternrender
+     die Kennung. Stünde sie in den Abhängigkeiten, liefe der Effekt bei
+     jedem Elternrender neu an — und nach einem Fehlschlag (der
+     `umstellenLaeuft.current` zurücksetzt, s.u.) würde das den nächsten
+     Versuch nicht erst „beim nächsten Auswählen", sondern sofort beim
+     nächsten Rendern auslösen. Über diese Ref bleibt der Effekt an
+     `eintrag`/`klartext` gebunden und ruft trotzdem immer die jüngste
+     Fassung der drei auf. */
+  const juengste = useRef({ onAktualisiert, onNeuLaden, t });
+  juengste.current = { onAktualisiert, onNeuLaden, t };
 
   useEffect(() => {
     if (befuellt.current || !klartext) return;
@@ -374,11 +386,11 @@ function PasswortEditor({ eintrag, klartext, frischAngelegt, onAktualisiert, onN
     void (async () => {
       try {
         const umgestellt = await passwortUmstellen(eintrag);
-        if (umgestellt) onAktualisiert(umgestellt.eintrag, umgestellt.schaufenster);
-        else await onNeuLaden(); // ein zweites Gerät war schneller
+        if (umgestellt) juengste.current.onAktualisiert(umgestellt.eintrag, umgestellt.schaufenster);
+        else await juengste.current.onNeuLaden(); // ein zweites Gerät war schneller
       } catch (fehler) {
         umstellenLaeuft.current = false; // beim nächsten Auswählen neu versuchen
-        useStore.getState().toast({ kind: 'error', title: t('passwort.fehlerGeheimnis'), body: (fehler as Error).message });
+        useStore.getState().toast({ kind: 'error', title: juengste.current.t('passwort.fehlerGeheimnis'), body: (fehler as Error).message });
       }
     })();
   }, [eintrag, klartext]);
@@ -408,8 +420,16 @@ function PasswortEditor({ eintrag, klartext, frischAngelegt, onAktualisiert, onN
       })
       .finally(() => setSpeichert(false));
   };
+  /* `speichereJetzt` steht bewusst NICHT in den Abhängigkeiten unten: die
+     Funktion ist bei jedem Render eine neue Kennung (kein useCallback), der
+     Effekt soll aber nur beim Wechsel des Eintrags/beim Abbau feuern.
+     Stünde sie in den Abhängigkeiten, liefe der Effekt bei JEDEM Tastendruck
+     neu an und würde damit den Zeitgeber (spaeterSpeichern()) unterlaufen.
+     Über die Ref ruft der Effekt trotzdem immer die jüngste Fassung. */
+  const speichereJetztRef = useRef(speichereJetzt);
+  speichereJetztRef.current = speichereJetzt;
 
-  useEffect(() => () => { if (timerRef.current) speichereJetzt(); }, [eintrag.id]);
+  useEffect(() => () => { if (timerRef.current) speichereJetztRef.current(); }, [eintrag.id]);
 
   const geaendert = (teil: Partial<PasswortSchaufenster>) => {
     setInhalt((s) => ({ ...s, ...teil }));

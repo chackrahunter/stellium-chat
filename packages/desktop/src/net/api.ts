@@ -4,7 +4,7 @@ import type {
   MemberRole, Message, NotzugangAnfrage, NotzugangAnteilBlob, NotzugangAufgabe,
   NotzugangHuelle, NotzugangProtokollZeile, NotzugangStand,
   OneTimeCredential, PasswortOffenlegung, Passworteintrag,
-  PermissionInfo, PermissionKey, ReleaseInfo, ReleasePlatform,
+  PermissionInfo, PermissionKey, Problembericht, ProblemberichtStatus, ReleaseInfo, ReleasePlatform,
   SchluesselPaket, SearchHit, SelfUser, StoredFile, StorageUsage,
 } from '@stellium/shared';
 
@@ -232,6 +232,25 @@ export interface PatreonKennzahlen {
 export interface PatreonMomentaufnahme {
   tag: string; aktive: number; deklination: number; ehemalig: number; follower: number;
   einnahmenCents: number; waehrung: string | null; neuDiesenMonat: number;
+}
+
+/**
+ * Was der Server über den KI-Schlüssel sagen darf.
+ *
+ * Kein Wert, keine Länge, kein Anfangsstück — die Begründung steht in
+ * config.ts auf dem Server (`GeheimStand`) und am Ende jener Datei, wo
+ * secretOrigin() genau daran entfallen ist.
+ */
+export interface KiZugangStand {
+  /** Greift gerade überhaupt ein Schlüssel? */
+  hinterlegt: boolean;
+  /** Woher der greifende Wert kommt — `umgebung` schlägt `tresor`. */
+  quelle: 'umgebung' | 'tresor' | null;
+  umgebung: boolean;
+  tresor: boolean;
+  /** Ließe sich der Tresor beschreiben? Ohne Masterpasswort nicht. */
+  schreibbar: boolean;
+  tresorZustand: 'aus' | 'offen' | 'verschlossen';
 }
 
 export interface GumroadUebersicht {
@@ -714,6 +733,29 @@ export const api = {
      diesem Rechner gibt es die Serverkonsole nicht. */
   system: () => request<{ da: boolean; werte?: unknown }>('/api/systemwerte'),
 
+  /* ── Problemberichte ──────────────────────────────────────────
+     Der volle Vertrag steht in http/routes.ts (Server) — hier nur die
+     dünnen Aufrufe. Fassung/Plattform gehen NIE mit hinaus: die Route holt
+     sie sich selbst aus dem Konto. */
+  problemberichte: {
+    liste: (status?: ProblemberichtStatus) => request<{ berichte: Problembericht[] }>(
+      `/api/problemberichte${status ? `?status=${status}` : ''}`,
+    ),
+    anlegen: (eingabe: {
+      bereich: string; schwere: string; erwartet: string; passiert: string;
+      schritte?: string; panel: string; sprache?: string;
+    }) => request<{ bericht: Problembericht }>('/api/problemberichte', {
+      method: 'POST', body: JSON.stringify(eingabe),
+    }),
+    uebernehmen: (id: string) => request<{ bericht: Problembericht }>(
+      `/api/problemberichte/${id}/uebernehmen`, { method: 'POST', body: JSON.stringify({}) },
+    ),
+    abschliessen: (id: string, ergebnis: string, status?: 'erledigt' | 'neu') =>
+      request<{ bericht: Problembericht }>(`/api/problemberichte/${id}/abschliessen`, {
+        method: 'POST', body: JSON.stringify({ ergebnis, status }),
+      }),
+  },
+
   /* Online-Zeit. `ich` steht für das eigene Konto — so braucht der Aufrufer
      die eigene Kennung nicht mitzuführen. */
   praesenz: (userId: string, zeitraum: 'heute' | 'woche' | 'monat' | 'jahr') =>
@@ -722,6 +764,27 @@ export const api = {
       summen: Record<'heute' | 'woche' | 'monat' | 'jahr', number>;
       verlauf: { tag: string; sekunden: number }[];
     }>(`/api/praesenz/${encodeURIComponent(userId)}?zeitraum=${zeitraum}`),
+
+  /* Der Groq-Schlüssel. Anders als Gumroad und die übrigen liegt er nicht in
+     der Datenbank, sondern im verschlüsselten Tresor neben den Daten (siehe
+     services/kizugang.ts auf dem Server) — für die App macht das keinen
+     Unterschied bis auf zwei Felder mehr:
+
+     `quelle` sagt, welcher Wert gerade WIRKLICH greift. Steht der Schlüssel
+     in der Umgebung des Servers, schlägt sie den Tresor; dann ist ein
+     Speichern hier zwar erfolgreich, aber wirkungslos, und die Maske muss
+     das sagen statt „Gespeichert." zu behaupten.
+
+     `schreibbar` sagt, ob der Tresor überhaupt beschrieben werden kann —
+     ohne Masterpasswort auf dem Server geht es nicht, und ein Feld, das
+     nichts speichern kann, soll das vorher zugeben.
+
+     Der Schlüssel selbst kommt nie zurück, auch nicht gekürzt. */
+  kiZugang: () => request<KiZugangStand>('/api/ki/zugang'),
+  /** Leerer Text löscht den Schlüssel — das ist keine Nachlässigkeit,
+   *  sondern die Bedeutung (siehe schluesselSetzen() auf dem Server). */
+  kiZugangSetzen: (schluessel: string) => request<KiZugangStand>(
+    '/api/ki/zugang', { method: 'POST', body: JSON.stringify({ schluessel }) }),
 
   verkaufZugang: () => request<{ hinterlegt: boolean; verschluesselt: boolean }>('/api/verkauf/zugang'),
   verkaufZugangSetzen: (token: string) => request<{ hinterlegt: boolean }>(
@@ -777,8 +840,21 @@ export const api = {
   }) => request<{ versandBereit: boolean; eingangBereit: boolean }>(
     '/api/post/zugang', { method: 'POST', body: JSON.stringify(werte) }),
 
-  fernStand: () => request<{ hinterlegt: boolean; verschluesselt: boolean; kennung: string | null; darf: boolean }>('/api/fern/stand'),
+  /* `kennung` ist OPTIONAL, und das ist keine Nachlässigkeit im Typ: der
+     Server lässt das Feld weg, wenn dem Konto `fern.zugriff` fehlt (siehe
+     http/routes.ts an dieser Route). `undefined` heißt hier „darfst du nicht
+     wissen", `null` heißt „ist keine hinterlegt" — die Oberfläche behandelt
+     beides gleich (sie zeigt nichts), aber wer den Typ liest, sieht, dass es
+     zwei verschiedene Gründe gibt. */
+  fernStand: () => request<{ hinterlegt: boolean; verschluesselt: boolean; kennung?: string | null; darf: boolean }>('/api/fern/stand'),
   fernZugang: () => request<{ adresse: string; passwort: string; kennung: string }>('/api/fern/zugang'),
+  /* Adresse UND Passwort zum ANSEHEN — eigene Route, eigene Schwelle
+     (`fern.verwalten`, also Inhaber und Administratoren). Sie ist NICHT der
+     Weg zum Verbinden; dafür bleibt `fernZugang` zuständig. Beides zusammen,
+     weil eine Zugangspaarung zum Weitergeben taugt und eine Hälfte davon
+     nicht. Die Rückgabe gehört in genau zwei Eingabefelder und sonst
+     nirgendwohin: nicht in eine Meldung, nicht in ein Protokoll. */
+  fernZugangAnsehen: () => request<{ adresse: string; passwort: string }>('/api/fern/zugang-ansehen'),
   fernZugangSetzen: (werte: { adresse?: string; passwort?: string; kennung?: string }) =>
     request<{ hinterlegt: boolean; verschluesselt: boolean; kennung: string | null }>(
       '/api/fern/zugang', { method: 'POST', body: JSON.stringify(werte) }),

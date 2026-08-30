@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { Bell, Bookmark, Bot, Brain, CalendarDays, Download, FolderOpen, Gauge, Inbox, KeyRound, Landmark, LifeBuoy, Lightbulb, ListChecks, Lock, Mail, MailSearch, MessageSquare, Monitor, NotebookPen, Settings, ShieldCheck, ShoppingBag, Sparkles, Star, Users } from 'lucide-react';
+import { Bell, Bookmark, Bot, Brain, Bug, CalendarDays, Download, FolderOpen, Gauge, Inbox, KeyRound, Landmark, LifeBuoy, Lightbulb, ListChecks, Lock, Mail, MailSearch, MessageSquare, Monitor, NotebookPen, Settings, ShieldCheck, ShoppingBag, Sparkles, Star, Users } from 'lucide-react';
 import { useStore } from '../state/store.js';
 import { useT, type TranslationKey } from '../i18n/index.js';
 import { imBrowser } from './DownloadPanel.jsx';
@@ -14,6 +14,7 @@ import { usePasswortUi } from '../state/passwort.js';
 import { useNotzugangUi } from '../state/notzugang.js';
 import { usePaypalUi } from '../state/paypal.js';
 import { useVerkaufMeldungenUi } from '../state/verkaufMeldungen.js';
+import { useProblemberichteUi } from '../state/problemberichte.js';
 import { counterLabel } from '../lib/format.js';
 
 /**
@@ -305,6 +306,14 @@ export function Rail() {
              dürfte. Siehe lib/notzugang.ts. */
           { id: 'notzugang', symbol: <LifeBuoy size={17} />,
             text: t('notzugang.nav'), tun: () => useNotzugangUi.getState().oeffnen() },
+          /* Wie der Notzugang direkt darüber OHNE Rechteprüfung: Probleme
+             melden kann jede Person von Haus aus (permissions.ts,
+             NUR_LESEN) — nur das technische 'bot'-Konto nicht, und das
+             klickt hier ohnehin nie. Fehlt das Recht einmal per Ausnahme,
+             weist die Route serverseitig ab; ein ausgeblendeter Knopf wäre
+             hier mehr Aufwand als der seltene Fall wert. */
+          { id: 'problembericht', symbol: <Bug size={17} />,
+            text: t('problembericht.nav'), tun: () => useProblemberichteUi.getState().oeffnen() },
           /* Der PayPal-Kontostand der Firma — reines Ansehen, kein Reiter des
              Tagesgeschäfts, deshalb im Stern statt unten in der Leiste, wie
              die Einträge daneben. Entschieden wird ohnehin auf dem Server

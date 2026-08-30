@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Bell, Cpu, Globe, KeyRound, Loader2, Lock, LogOut, Mail, Palette, RefreshCw, Server, Sparkles, User, Volume2, Wallet, X } from 'lucide-react';
+import { Bell, Check, Copy, Cpu, Eye, EyeOff, Globe, KeyRound, Loader2, Lock, LogOut, Mail, Palette, RefreshCw, Server, Sparkles, User, Volume2, Wallet, X } from 'lucide-react';
 import { LANGUAGES, type AiCapabilities, type AiModelInfo } from '@stellium/shared';
 import { pushSynchronisieren, useStore } from '../state/store.js';
 import { useFokusfalle } from './Fokusfalle.jsx';
-import { api, serverUrl, setServerUrl } from '../net/api.js';
+import { api, serverUrl, setServerUrl, type KiZugangStand } from '../net/api.js';
 import { Avatar } from './Avatar.jsx';
 import { Profilbild } from './Profilbild.jsx';
 import { languageInfo } from '../lib/format.js';
@@ -16,6 +16,7 @@ import { UpdatePanel } from './UpdatePanel.jsx';
 import { reiterWunschAbholen, VertraulichEinstellungen } from './Vertraulich.jsx';
 import { spracheDesSystems } from '../i18n/index.js';
 import { hintergrundBeobachten, hintergrundLesen, hintergrundSetzen, type Hintergrund } from '../lib/hintergrund.js';
+import { ablageLoeschbar, kopierenUndLoeschen } from '../lib/passwoerter.js';
 
 type Tab = 'profil' | 'sprache' | 'modelle' | 'benachrichtigungen' | 'darstellung'
   | 'vertraulich' | 'post' | 'schluessel' | 'aktualisierung' | 'server';
@@ -585,6 +586,212 @@ function GeheimFeld({ label, stand, wert, setWert, platzhalter }: {
 }
 
 /**
+ * Den hinterlegten Pi-Zugang ansehen und weitergeben.
+ *
+ * WARUM ES DAS GIBT: Kollegen, die sich nicht über Stellium verbinden,
+ * brauchen Adresse und Passwort in die Hand. Bisher gab es keinen Weg
+ * dorthin — beides stand nirgends, und wer es weitergeben wollte, musste es
+ * neu setzen und damit allen anderen die Verbindung wegnehmen.
+ *
+ * BEIDE HÄLFTEN, NICHT EINE. Ein Werkzeug, das nur das Passwort herausgibt,
+ * löst die Aufgabe nicht: ohne Adresse weiß der Kollege nicht, wohin damit,
+ * und die Adresse steht in keiner anderen Ansicht. Derselbe Personenkreis
+ * bekommt ohnehin beides zusammen aus `/api/fern/zugang`.
+ *
+ * BEIDES VERDECKT, EIN EINZIGER SCHALTER. Die Adresse ist kein Geheimnis in
+ * demselben Sinn wie das Passwort — sie ist aber der erreichbare Netzweg zum
+ * Pi (ws://…), keine vermittelte Kennung wie die ID daneben. Wer sie hat,
+ * weiß, an welche Tür er klopfen muss. Sie offen stehen zu lassen hieße,
+ * genau das jedem zu zeigen, der zufällig auf diesen Reiter schaut oder
+ * gerade den Bildschirm teilt, während er etwas ganz anderes vorführt. Und
+ * ein zweiter, eigener Schalter für die Adresse wäre schlimmer als keiner:
+ * dann verdeckt jemand das Passwort, hält den Schirm für sauber und lässt
+ * die Anschrift stehen. Ein Griff deckt auf, derselbe Griff deckt zu.
+ *
+ * VERDECKEN LEERT DIE FELDER. Ein verdecktes Feld mit echtem Wert dahinter
+ * wäre eine vorgetäuschte Schranke: die Punkte stehen im Bild, der Klartext
+ * im Seiteninhalt. Dieselbe Entscheidung wie im Passworttresor
+ * (PasswortPanel.tsx) — und aus demselben Grund holt Kopieren die Werte
+ * jedes Mal neu, statt sie zwischen zwei Klicks liegen zu lassen.
+ *
+ * ZWEI KOPIERKNÖPFE, NICHT EINER FÜR BEIDES. Jeder Wert landet beim
+ * Empfänger in einem anderen Feld; ein gemeinsames Kopieren müsste sich ein
+ * Textbild mit Beschriftungen ausdenken, und diese Beschriftungen stünden in
+ * der Sprache DESSEN, DER KOPIERT — verschickt an jemanden, der eine andere
+ * liest. Genau dafür hat diese App 22 Wörterbücher, statt eine gemeinsame
+ * Sprache anzunehmen. Nacheinander zu kopieren ist gefahrlos: der
+ * Hauptprozess räumt nur auf, wenn in der Ablage noch genau der eigene Wert
+ * steht, und meldet sonst „schon weg" statt eines falschen Alarms
+ * (electron/main.ts, 'ablage:leerenWennUnveraendert').
+ *
+ * WER ES SIEHT: nur `fern.verwalten` — Inhaber und Administratoren. Der
+ * Aufrufer rendert diesen Block gar nicht erst für alle anderen: ein
+ * ausgegrauter Knopf würde ankündigen, dass es hier etwas zu holen gibt, und
+ * die Teamleitung mit `fern.zugriff` fragen lassen, warum sie nicht darf.
+ * Die Schranke, auf die es ankommt, sitzt ohnehin auf dem Server
+ * (`GET /api/fern/zugang-ansehen`) — hier geht es nur darum, keinen Knopf
+ * hinzustellen, der niemandem gehört.
+ *
+ * Die Werte gehen in genau zwei Eingabefelder und in die Zwischenablage. Sie
+ * werden nirgends protokolliert und stehen in keiner Meldung — auch nicht in
+ * einer Fehlermeldung.
+ */
+function FernZugangAnsehen() {
+  const t = useT();
+  const { toast } = useStore.getState();
+  const [zugang, setZugang] = useState<{ adresse: string; passwort: string } | null>(null);
+  const [laeuft, setLaeuft] = useState(false);
+  /* Welcher der beiden Knöpfe gerade den Haken zeigt — `null` heißt: keiner.
+     Ein gemeinsames `kopiert: boolean` ließe beide Knöpfe auf einmal
+     bestätigen, obwohl nur einer etwas getan hat. */
+  const [kopiert, setKopiert] = useState<'adresse' | 'passwort' | null>(null);
+
+  const holen = async (): Promise<{ adresse: string; passwort: string } | null> => {
+    setLaeuft(true);
+    try {
+      return await api.fernZugangAnsehen();
+    } catch (fehler) {
+      /* Die Meldung des Servers geht mit — sie sagt „dir fehlt das Recht"
+         oder „noch nichts hinterlegt", nie etwas über die Werte selbst.
+
+         EIGENER SCHLÜSSEL STATT `passwort.fehlerGeheimnis`. Hier stand die
+         Überschrift des Tresors: „Passwort konnte nicht geholt werden". Der
+         Aufruf darunter holt aber ADRESSE UND PASSWORT (die Route hieß nicht
+         umsonst nicht mehr `/api/fern/passwort`), und er scheitert für Gründe,
+         die mit einem Passwort nichts zu tun haben — fehlendes Recht, gar
+         nichts hinterlegt, Server nicht erreichbar. Wer die alte Überschrift
+         las, suchte den Fehler beim Passwort des Pi; das ist genau die Stelle,
+         an der jemand es „sicherheitshalber" neu setzt und damit alle
+         Verbundenen abschneidet. `passwort.fehlerGeheimnis` bleibt im Tresor
+         (PasswortPanel.tsx), wo es stimmt. */
+      toast({ kind: 'error', title: t('fern.zugangFehler'), body: (fehler as Error).message });
+      return null;
+    } finally {
+      setLaeuft(false);
+    }
+  };
+
+  const umschalten = async () => {
+    if (zugang !== null) { setZugang(null); return; }
+    const geholt = await holen();
+    if (geholt !== null) setZugang(geholt);
+  };
+
+  const kopieren = async (welches: 'adresse' | 'passwort') => {
+    const geholt = await holen();
+    if (geholt === null) return;
+    /* Frisch geholt heißt auch: neu angezeigt. Ohne diese Zeile könnte das
+       Feld einen Wert von vorhin zeigen, während in der Ablage der jetzige
+       liegt — und wer beides nebeneinander weitergibt, gibt zwei
+       verschiedene Zugänge weiter. Nur, wenn gerade überhaupt aufgedeckt
+       ist: ein Kopieren soll nichts sichtbar machen.
+
+       Die Zustandsform (`bisher`) statt `if (zugang !== null)`: `zugang` ist
+       der Stand VOM KLICK, nicht der von jetzt. Wer während des Holens
+       verdeckt, bekäme sonst hinterher wieder aufgedeckt — die eine Handlung,
+       die in diesem Block auf keinen Fall rückgängig gemacht werden darf. */
+    setZugang((bisher) => (bisher === null ? null : geholt));
+    try {
+      /* Derselbe Weg wie im Tresor (lib/passwoerter.ts): in der App über die
+         Brücke zum Hauptprozess, die die Ablage nach 20 Sekunden wieder
+         leert — im Browser ohne diese Brücke, und dann sagt der Rückgabewert
+         `false` es der Person, statt eine Selbstlöschung zu behaupten, die
+         es dort nicht gibt. */
+      const selbstloeschend = await kopierenUndLoeschen(geholt[welches], () => {
+        toast({
+          kind: 'error',
+          title: t('passwort.ablageNichtGeleertTitel'),
+          body: t('passwort.ablageNichtGeleertText'),
+        });
+      });
+      setKopiert(welches);
+      setTimeout(() => setKopiert(null), 1500);
+      if (!selbstloeschend) {
+        /* Die beiden Ablage-Texte (hier und im Fehlerfall darüber) sagten
+           „das Passwort" — auch dann, wenn gerade die ADRESSE kopiert wurde.
+           Das ist nicht bloß ungenau: wer liest, sein Pi-Passwort liege
+           offen, setzt es neu und trennt damit jeden, der gerade verbunden
+           ist. Sie benennen deshalb jetzt „den kopierten Wert" und stimmen
+           damit an beiden Knöpfen — und weiter auch im Tresor, wo dieser Wert
+           immer ein Passwort ist. Kein zweiter Satz je Knopf: was kopiert
+           wurde, steht in der Beschriftung daneben, und was hier zählt, ist
+           die Ablage. */
+        toast({ kind: 'info', title: t('passwort.ablageBleibtTitel'), body: t('passwort.ablageBleibtText') });
+      }
+    } catch (fehler) {
+      toast({ kind: 'error', title: t('passwort.fehlerKopieren'), body: (fehler as Error).message });
+    }
+  };
+
+  return (
+    <div className="field">
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <label className="field__label" style={{ flex: 1, marginBottom: 0 }}>
+          {t('fern.zugangZeigenLabel')}
+        </label>
+        {/* Der Schalter steht über BEIDEN Zeilen, nicht an einer von ihnen —
+            weil er auch beide betrifft. */}
+        <button
+          className="icon-btn"
+          type="button"
+          aria-label={t(zugang === null ? 'fern.zugangAufdecken' : 'fern.zugangVerdecken')}
+          disabled={laeuft}
+          onClick={() => void umschalten()}
+        >
+          {laeuft ? <Loader2 size={15} className="spin" /> : zugang === null ? <Eye size={15} /> : <EyeOff size={15} />}
+        </button>
+      </div>
+      <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+        <input
+          className="input"
+          style={{ flex: 1 }}
+          type={zugang === null ? 'password' : 'text'}
+          value={zugang?.adresse ?? ''}
+          aria-label={t('fern.adresseLabel')}
+          readOnly
+          autoComplete="off"
+          spellCheck={false}
+        />
+        <button
+          className="icon-btn"
+          type="button"
+          aria-label={t('fern.adresseKopieren')}
+          disabled={laeuft}
+          onClick={() => void kopieren('adresse')}
+        >
+          {kopiert === 'adresse' ? <Check size={15} /> : <Copy size={15} />}
+        </button>
+      </div>
+      <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+        <input
+          className="input"
+          style={{ flex: 1 }}
+          type={zugang === null ? 'password' : 'text'}
+          value={zugang?.passwort ?? ''}
+          aria-label={t('fern.passwortLabel')}
+          readOnly
+          autoComplete="off"
+          spellCheck={false}
+        />
+        <button
+          className="icon-btn"
+          type="button"
+          aria-label={t('fern.passwortKopieren')}
+          disabled={laeuft}
+          onClick={() => void kopieren('passwort')}
+        >
+          {kopiert === 'passwort' ? <Check size={15} /> : <Copy size={15} />}
+        </button>
+      </div>
+      <p className="field__hint">{t('fern.zugangZeigenHinweis')}</p>
+      <p className="field__hint">
+        {ablageLoeschbar() ? t('passwort.kopierenHinweis') : t('passwort.kopierenHinweisOhneLoeschung')}
+      </p>
+    </div>
+  );
+}
+
+/**
  * Alle Geheimnisse an einer Stelle.
  *
  * Vorher lagen sie verstreut — der Gumroad-Schlüssel unter „Verkauf", die
@@ -614,7 +821,29 @@ function SchluesselEinstellungen() {
   const [patreonErneuerung, setPatreonErneuerung] = useState<{
     letzterFehler: string | null;
   } | null>(null);
+  /* Der Groq-Schlüssel. Zwei Felder mehr als bei den anderen Geheimnissen,
+     und beide tragen dieselbe Aufgabe: ehrlich zu sein, wenn das Speichern
+     zwar gelingt, aber nichts bewirkt. `quelle === 'umgebung'` heißt, die
+     .env des Servers schlägt den Tresor; `schreibbar === false` heißt, es
+     gibt gar kein Masterpasswort, mit dem sich der Tresor öffnen ließe. */
+  const [kiStand, setKiStand] = useState<KiZugangStand | null>(null);
   const [fernStand, setFernStand] = useState<{ hinterlegt: boolean } | null>(null);
+  /* Zählt jedes erfolgreiche Speichern des Fernzugangs. Er hängt unten als
+     `key` am Aufdeck-Block und wirft ihn damit weg, sobald jemand Adresse
+     oder Passwort neu setzt. Ohne das zeigte ein bereits aufgedeckter Block
+     danach weiter die ALTEN Werte — und wer sie in dem Moment weitergibt,
+     verschickt einen Zugang, den es nicht mehr gibt. */
+  const [fernFassung, setFernFassung] = useState(0);
+  /* Dasselbe Recht, das den Fernzugang setzen und löschen darf — im Katalog
+     `ownerOnly`, über die Rollenvorgabe zusätzlich bei jedem Administrator
+     (permissions.ts). Der Server prüft es noch einmal selbst; hier
+     entscheidet es nur, ob der Aufdeck-Block überhaupt entsteht. */
+  const darfFernVerwalten = Boolean(useStore((s) => s.self)?.permissions['fern.verwalten']);
+  /* Dieselbe Machart wie darüber, für dasselbe: der Server prüft `ki.verwalten`
+     ohnehin selbst (http/routes.ts, /api/ki/zugang). Hier entscheidet es nur,
+     ob der Block überhaupt entsteht — ein Feld hinzustellen, dessen Speichern
+     mit 403 endet, wäre eine Einladung ins Leere. */
+  const darfKiVerwalten = Boolean(useStore((s) => s.self)?.permissions['ki.verwalten']);
 
   const [versand, setVersand] = useState('');
   const [eingang, setEingang] = useState('');
@@ -625,6 +854,7 @@ function SchluesselEinstellungen() {
   const [patreonClientSecret, setPatreonClientSecret] = useState('');
   const [patreonAccessToken, setPatreonAccessToken] = useState('');
   const [patreonRefreshToken, setPatreonRefreshToken] = useState('');
+  const [groq, setGroq] = useState('');
   const [fernAdresse, setFernAdresse] = useState('');
   const [fernPasswort, setFernPasswort] = useState('');
   const [laeuft, setLaeuft] = useState(false);
@@ -639,6 +869,15 @@ function SchluesselEinstellungen() {
     void api.patreonErneuerungsStand().then(setPatreonErneuerung).catch(() => {});
     void api.fernStand().then(setFernStand).catch(() => {});
   }, []);
+
+  /* Ein EIGENER Lauf, nicht eine Zeile im Block darüber: der hängt an `[]` und
+     läuft genau einmal. `darfKiVerwalten` steht beim ersten Bild noch nicht
+     zwangsläufig fest (das eigene Konto kommt vom Server), also braucht diese
+     Abfrage die Angabe in der Abhängigkeitsliste — und die hätte im Block
+     darüber alle anderen Abfragen gleich mit wiederholt. */
+  useEffect(() => {
+    if (darfKiVerwalten) void api.kiZugang().then(setKiStand).catch(() => {});
+  }, [darfKiVerwalten]);
 
   /* Im Browser gewürfelt statt getippt: ein selbst ausgedachtes Wort ist
      kürzer und einfacher, als es aussieht. */
@@ -698,6 +937,17 @@ function SchluesselEinstellungen() {
         setPatreonClientSecret(''); setPatreonAccessToken(''); setPatreonRefreshToken('');
         gespeichert = true;
       }
+      /* Wie überall in dieser Maske: nur ein ausgefülltes Feld wird
+         geschickt. Löschen geht deshalb NICHT über ein leeres Feld hier,
+         sondern über den eigenen Knopf daneben (groqEntfernen) — sonst
+         löschte jedes Speichern eines ganz anderen Feldes den Schlüssel
+         gleich mit. Der Server versteht einen leeren Wert sehr wohl als
+         „löschen"; nur ausgelöst wird das mit Absicht, nicht aus Versehen. */
+      if (groq.trim()) {
+        setKiStand(await api.kiZugangSetzen(groq.trim()));
+        setGroq('');
+        gespeichert = true;
+      }
       if (fernAdresse.trim() || fernPasswort.trim()) {
         await api.fernZugangSetzen({
           adresse: fernAdresse.trim() || undefined,
@@ -705,6 +955,9 @@ function SchluesselEinstellungen() {
         });
         setFernStand(await api.fernStand());
         setFernAdresse(''); setFernPasswort('');
+        /* Der Aufdeck-Block darunter zeigt jetzt Werte von vorher — weg
+           damit, siehe fernFassung oben. */
+        setFernFassung((n) => n + 1);
         gespeichert = true;
       }
       if (gespeichert) toast({ kind: 'ok', title: t('schluessel.gespeichert') });
@@ -714,6 +967,26 @@ function SchluesselEinstellungen() {
          raten, ob es geklappt hat — genau wie an dem Tag, als der Server
          diese Route noch gar nicht kannte. Die Meldung des Servers geht
          unverändert mit, statt hinter einem allgemeinen Satz zu verschwinden. */
+      toast({ kind: 'error', title: t('schluessel.speichernFehlgeschlagen'), body: (err as Error).message });
+    } finally {
+      setLaeuft(false);
+    }
+  };
+
+  /**
+   * Den Schlüssel entfernen — der einzige Weg dorthin, und ein bewusster.
+   *
+   * Danach fällt der Server in den Zustand ohne KI zurück: keine Übersetzung,
+   * keine Zusammenfassungen, kein Abtippen. Das steht in der Bestätigung, statt
+   * dass es später jemand an ausbleibenden Übersetzungen merkt.
+   */
+  const groqEntfernen = async () => {
+    setLaeuft(true);
+    try {
+      setKiStand(await api.kiZugangSetzen(''));
+      setGroq('');
+      toast({ kind: 'ok', title: t('schluessel.groqEntfernt') });
+    } catch (err) {
       toast({ kind: 'error', title: t('schluessel.speichernFehlgeschlagen'), body: (err as Error).message });
     } finally {
       setLaeuft(false);
@@ -798,9 +1071,50 @@ function SchluesselEinstellungen() {
       </div>
       <GeheimFeld label={t('fern.passwortLabel')} stand={fernStand?.hinterlegt}
                   wert={fernPasswort} setWert={setFernPasswort} />
+      {/* ABSENT, nicht ausgegraut, für alle ohne `fern.verwalten` — siehe
+          FernZugangAnsehen(). `fernStand.hinterlegt`, weil ein Aufdeck-Knopf
+          über einem leeren Zugang nur ein 404 holen könnte. `key`, damit ein
+          Speichern den aufgedeckten Stand von vorhin nicht überlebt. */}
+      {darfFernVerwalten && fernStand?.hinterlegt && <FernZugangAnsehen key={fernFassung} />}
 
       <h3 className="ai-section__title">{t('schluessel.anbieter')}</h3>
       <p className="field__hint">{t('schluessel.anbieterHinweis')}</p>
+      {/* ABSENT, nicht ausgegraut, für alle ohne `ki.verwalten` — dieselbe
+          Entscheidung wie beim Aufdeck-Block des Fernzugangs darüber. */}
+      {darfKiVerwalten && (
+        <>
+          <div className="field">
+            <label className="field__label">
+              {t('schluessel.groq')} · {kiStand?.hinterlegt ? t('post.bereit') : t('post.fehlt')}
+            </label>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <input className="input" type="password" autoComplete="off" style={{ flex: 1 }}
+                     value={groq} onChange={(e) => setGroq(e.target.value)} />
+              {/* Nur wenn wirklich einer im Tresor liegt: ein Entfernen-Knopf
+                  über einem leeren Tresor verspräche eine Handlung, die es
+                  nicht gibt. `tresor` und nicht `hinterlegt` — bei gesetzter
+                  Umgebung ist `hinterlegt` wahr, obwohl im Tresor nichts
+                  steht, was sich entfernen ließe. */}
+              {kiStand?.tresor && (
+                <button className="btn" type="button" disabled={laeuft}
+                        onClick={() => void groqEntfernen()}>
+                  {t('schluessel.groqEntfernen')}
+                </button>
+              )}
+            </div>
+            <p className="field__hint">{t('schluessel.groqHint')}</p>
+          </div>
+          {/* Die beiden ehrlichen Sätze. Sie stehen NUR da, wenn sie zutreffen
+              — und dann in Warnfarbe, weil beide dasselbe bedeuten: was hier
+              gespeichert wird, wirkt gerade nicht. */}
+          {kiStand?.umgebung && (
+            <p className="field__hint" style={{ color: 'var(--amber)' }}>{t('schluessel.groqUmgebung')}</p>
+          )}
+          {kiStand && !kiStand.schreibbar && (
+            <p className="field__hint" style={{ color: 'var(--amber)' }}>{t('schluessel.groqVerschlossen')}</p>
+          )}
+        </>
+      )}
 
       <button className="btn btn--primary" disabled={laeuft} onClick={() => void speichern()}>
         <KeyRound size={15} /> {t('common.save')}

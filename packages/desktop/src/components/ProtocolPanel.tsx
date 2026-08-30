@@ -23,11 +23,20 @@ export function ProtocolPanel({ onClose }: { onClose: () => void }) {
 
   /* Nur beim Öffnen anstoßen. Ohne die Fehlerabfrage liefe nach einem
      Fehlschlag sofort der nächste Versuch — der Kreisel wäre wieder da, nur
-     mit einem Umweg. */
+     mit einem Umweg. `protokoll`/`laeuft`/`fehler` sind deshalb bewusst NICHT
+     in der Abhängigkeitsliste: sie sind hier reine Wächter, kein Auslöser —
+     kämen sie dazu, würde JEDE ihrer eigenen Änderungen (etwa `laeuft`:
+     false -> true, sobald `loadProtocol` selbst zu laden beginnt) den Effekt
+     neu anstoßen und damit das Aufräumen (`clearProtocol()`) mitten im gerade
+     erst gestarteten Laden auslösen. `loadProtocol`/`clearProtocol` kommen aus
+     dem Zustand-Store und sind über die Lebensdauer der App stabil (in
+     store.ts einmal beim Erzeugen definiert, nicht bei jedem `set()`) — sie
+     stehen deshalb gefahrlos in der Liste. */
   useEffect(() => {
     if (activeChannelId && !protokoll && !laeuft && !fehler) loadProtocol(activeChannelId);
     return () => clearProtocol();
-  }, [activeChannelId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- protokoll/laeuft/fehler sind Wächter, kein Auslöser (siehe Kommentar oben)
+  }, [activeChannelId, loadProtocol, clearProtocol]);
 
   const alsText = () => {
     if (!protokoll) return '';

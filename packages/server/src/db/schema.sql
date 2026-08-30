@@ -578,6 +578,38 @@ CREATE TABLE IF NOT EXISTS idea_comments (
 CREATE INDEX IF NOT EXISTS idx_idea_comments ON idea_comments(idea_id, created_at);
 
 -- ─────────────────────────────────────────────────────────────────
+-- Problemberichte — der Tab, in dem jede Person Probleme und Fehler
+-- einträgt. bereich/schwere/status sind feste Kategorien, keine
+-- Freitextspalten; erwartet/passiert/schritte/ergebnis sind Freitext einer
+-- Person und laufen NIE als Anweisung, siehe services/problemberichte.ts.
+-- ─────────────────────────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS problemberichte (
+  id              TEXT PRIMARY KEY,
+  bereich         TEXT NOT NULL,               -- siehe ProblemberichtBereich (shared)
+  schwere         TEXT NOT NULL,               -- blockiert|stoert|kleinigkeit
+  status          TEXT NOT NULL DEFAULT 'neu', -- neu|in_arbeit|erledigt
+  erwartet        TEXT NOT NULL,
+  passiert        TEXT NOT NULL,
+  schritte        TEXT,
+  ergebnis        TEXT,
+  panel           TEXT NOT NULL,               -- von der App selbst erkannter Ort beim Öffnen
+  client_version  TEXT,
+  client_platform TEXT,
+  ui_sprache      TEXT NOT NULL DEFAULT 'de',
+  created_by      TEXT NOT NULL REFERENCES users(id),
+  created_at      INTEGER NOT NULL,
+  updated_at      INTEGER NOT NULL,
+  taken_at        INTEGER,
+  taken_by        TEXT REFERENCES users(id),
+  decided_at      INTEGER,
+  decided_by      TEXT REFERENCES users(id)
+);
+-- Für die Warteschlange: n8n fragt üblicherweise nach status='neu', älteste
+-- zuerst, damit nichts liegen bleibt, nur weil es zuletzt gemeldet wurde.
+CREATE INDEX IF NOT EXISTS idx_problemberichte_status ON problemberichte(status, created_at);
+
+-- ─────────────────────────────────────────────────────────────────
 -- Verteilung neuer App-Versionen (eine je Plattform)
 -- ─────────────────────────────────────────────────────────────────
 

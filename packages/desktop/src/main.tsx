@@ -1,5 +1,6 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
+import { MotionConfig } from 'framer-motion';
 import { App } from './App.jsx';
 import { Fangkorb } from './components/Fangkorb.jsx';
 import { Startbildschirm } from './components/Startbildschirm.jsx';
@@ -60,9 +61,30 @@ createRoot(container).render(
           auf — beides bräuchte es nicht, und beides kostete Speicher und
           eine zweite Verbindung. Geöffnet wird es aus dem Hauptfenster
           heraus (fern:fenster im Hauptprozess). */}
-      {location.hash === '#fern'
-        ? <Fernsteuerung eigenstaendig onClose={() => window.close()} />
-        : einrichtungNoetig() ? <Startbildschirm /> : <App />}
+      {/* „Bewegung reduzieren" gilt auch fuer framer-motion.
+
+          Die Ruecknahme in app.css (`prefers-reduced-motion`) trifft mit
+          ihrem `*`-Selektor jede CSS-Animation und jeden Uebergang — aber
+          framer-motion animiert nicht ueber CSS. Es setzt die Werte in
+          JavaScript Bild fuer Bild (WAAPI beziehungsweise direkt am style),
+          und daran kommt keine Stilregel heran. In 40 Dateien liegen
+          `motion`- und `AnimatePresence`-Elemente: Fenster, Meldungen,
+          Thread, Nachrichten. Wer die Systemeinstellung einschaltet, sah sie
+          bisher trotzdem in voller Bewegung.
+
+          `reducedMotion="user"` fragt dieselbe Medienabfrage ab und laesst
+          framer-motion dann nur noch Deckkraft und Farbe animieren — Lage,
+          Groesse und Drehung springen. Genau das ist gemeint: nichts blinkt
+          weg, aber nichts bewegt sich mehr durchs Bild.
+
+          Hier an der Wurzel und nicht in 40 Dateien: `useReducedMotion` in
+          jeder einzelnen waere dieselbe Entscheidung vierzigmal, und die
+          einundvierzigste Datei vergaesse sie. */}
+      <MotionConfig reducedMotion="user">
+        {location.hash === '#fern'
+          ? <Fernsteuerung eigenstaendig onClose={() => window.close()} />
+          : einrichtungNoetig() ? <Startbildschirm /> : <App />}
+      </MotionConfig>
     </Fangkorb>
   </StrictMode>,
 );

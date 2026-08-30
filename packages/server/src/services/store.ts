@@ -159,12 +159,35 @@ export function listManagedUsers(): ManagedUser[] {
  * selbst als "gerade aktualisiert" melden UND als "wieder veraltet" —
  * je nachdem, welches Gerät zuletzt eine Verbindung aufgebaut hat. Die
  * einzig ehrliche Reaktion auf "keine Angabe" ist: nichts überschreiben.
+ *
+ * BEIDE WERTE KOMMEN AUS DEM `auth`-EREIGNIS, ALSO VOM CLIENT
+ * Sie sind damit eine Behauptung, kein Messwert — wer einen eigenen Client
+ * schreibt, setzt dort, was er will. Deshalb kommt hier nur durch, was
+ * überhaupt die Form hat, die dieses Haus kennt: die Plattform gegen die
+ * geschlossene Liste in services/releases.ts (CLIENT_PLATTFORMEN), die
+ * Fassung gegen dieselbe Zerlegung, mit der istNeuer() vergleicht
+ * (fassungPlausibel()). Was nicht passt, wird VERWORFEN und nicht etwa
+ * abgewiesen: eine Anmeldung darf daran niemals scheitern — sie trägt die
+ * Auskunft nur nebenbei mit (siehe protocol.ts, `auth`).
+ *
+ * Das macht die Werte nicht wahr, nur wohlgeformt. Ein gefälschter Client
+ * kann weiter „darwin/1.1.1" behaupten, während er etwas ganz anderes ist.
+ * Was es abstellt, ist der Freitext: bis hierher konnten 100 Zeichen Fassung
+ * und 40 Zeichen Plattform frei gewählt in Spalten wandern, die TeamAdmin.tsx
+ * und der Problembericht-Kontext (http/routes.ts) als Tatsache ausgeben — und
+ * von dort in einen KI-Ablauf, der sie als Telemetrie liest.
+ *
+ * Verworfene Plattform überschreibt die bekannte NICHT (COALESCE) — aus
+ * demselben Grund wie „keine Angabe" oben: ein unbrauchbarer Wert ist keine
+ * Auskunft, und keine Auskunft löscht nichts.
  */
 export function clientMeldung(userId: string, appVersion: string | undefined, platform: string | undefined): void {
-  if (!appVersion) return;
+  if (!appVersion || !releases.fassungPlausibel(appVersion)) return;
+  const plattform = platform && releases.plattformPlausibel(platform) ? platform : null;
   db.run(
-    'UPDATE users SET client_version = ?, client_platform = ?, client_version_at = ? WHERE id = ?',
-    appVersion, platform ?? null, Date.now(), userId,
+    `UPDATE users SET client_version = ?, client_platform = COALESCE(?, client_platform),
+            client_version_at = ? WHERE id = ?`,
+    appVersion, plattform, Date.now(), userId,
   );
 }
 

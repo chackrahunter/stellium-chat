@@ -44,6 +44,8 @@ import { PaypalPanel } from './components/PaypalPanel.jsx';
 import { usePaypalUi } from './state/paypal.js';
 import { VerkaufMeldungen } from './components/VerkaufMeldungen.jsx';
 import { useVerkaufMeldungenUi } from './state/verkaufMeldungen.js';
+import { Problemberichte } from './components/Problemberichte.jsx';
+import { useProblemberichteUi } from './state/problemberichte.js';
 import { DownloadPanel } from './components/DownloadPanel.jsx';
 import { Fernsteuerung } from './components/Fernsteuerung.jsx';
 import { SystemPanel } from './components/SystemPanel.jsx';
@@ -87,6 +89,7 @@ export function App() {
   const notzugangOffen = useNotzugangUi((s) => s.offen);
   const bankOffen = usePaypalUi((s) => s.offen);
   const verkaufOffen = useVerkaufMeldungenUi((s) => s.offen);
+  const problemberichtOffen = useProblemberichteUi((s) => s.offen);
   const lightbox = useStore((s) => s.lightbox);
   const forwarding = useStore((s) => s.forwarding);
   const remindingAbout = useStore((s) => s.remindingAbout);
@@ -221,7 +224,7 @@ export function App() {
      vergleicht sich dagegen über seinen Inhalt. */
   const fangkorbSchluessel = JSON.stringify([
     overlay, activeChannelId, vorschlagFilter, partnerGruppenOffen, gedaechtnisOffen, einmalcodeOffen,
-    passwortOffen, notzugangOffen, bankOffen, verkaufOffen,
+    passwortOffen, notzugangOffen, bankOffen, verkaufOffen, problemberichtOffen,
   ]);
 
   /* Rettungsanker für die Fehlerkarte selbst: sie liegt als
@@ -258,6 +261,7 @@ export function App() {
     useNotzugangUi.getState().schliessen();
     usePaypalUi.getState().schliessen();
     useVerkaufMeldungenUi.getState().schliessen();
+    useProblemberichteUi.getState().schliessen();
   };
 
   return (
@@ -395,6 +399,12 @@ export function App() {
             `verkaufJuengste`). */}
         {verkaufOffen && self?.permissions['verkauf.sehen'] && (
           <VerkaufMeldungen key="verkaufMeldungen" onClose={() => useVerkaufMeldungenUi.getState().schliessen()} />
+        )}
+        {/* Ohne Rechteprüfung fürs Öffnen, aus demselben Grund wie der
+            Stern-Eintrag in Rail.tsx: Probleme melden kann jede Person. Die
+            Route entscheidet serverseitig, was in der Liste steht. */}
+        {problemberichtOffen && (
+          <Problemberichte key="problembericht" onClose={() => useProblemberichteUi.getState().schliessen()} />
         )}
       </AnimatePresence>
 

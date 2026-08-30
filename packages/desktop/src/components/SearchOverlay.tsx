@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import { Bookmark, Filter, Languages, Loader2, Lock, Search, X } from 'lucide-react';
 import type { Message } from '@stellium/shared';
@@ -40,9 +40,16 @@ export function SearchOverlay({ onClose, initialTab }: {
   const takt = useStore((s) => s.vertraulichTakt);
 
   /* Welche vertraulichen Kanäle diese Suche betrifft. Der Server liefert für
-     sie nichts — er hat dort keinen lesbaren Text und keinen Volltextindex. */
-  const vertraulicheKanaele = Object.values(channels).filter(
-    (c) => c.vertraulich && !c.archived && (!scopeChannel || c.id === activeChannelId),
+     sie nichts — er hat dort keinen lesbaren Text und keinen Volltextindex.
+     Als useMemo (statt bei jedem Render neu berechnet), damit die Liste
+     unten als Abhängigkeit taugt: eine bei jedem Render neue Array-Kennung
+     ließe den Such-Effekt sonst gar nicht erkennen, ob sich die Kanäle
+     WIRKLICH geändert haben. */
+  const vertraulicheKanaele = useMemo(
+    () => Object.values(channels).filter(
+      (c) => c.vertraulich && !c.archived && (!scopeChannel || c.id === activeChannelId),
+    ),
+    [channels, scopeChannel, activeChannelId],
   );
 
   /**
@@ -75,8 +82,10 @@ export function SearchOverlay({ onClose, initialTab }: {
       if (gilt) setLokal(treffer.slice(-40).reverse());
     })();
     return () => { gilt = false; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [query, scopeChannel, activeChannelId, tab, takt, vertraulicheKanaele.length]);
+    // `scopeChannel`/`activeChannelId` fehlen hier bewusst: beide stecken
+    // schon in `vertraulicheKanaele` (memoisiert, s.o.), eine zusätzliche
+    // Nennung wäre nur eine doppelte Auslösung derselben Änderung.
+  }, [query, tab, takt, vertraulicheKanaele]);
 
   useEffect(() => {
     if (tab !== 'search') return;

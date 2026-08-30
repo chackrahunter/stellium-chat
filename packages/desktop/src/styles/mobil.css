@@ -87,12 +87,47 @@
     grid-template-rows: auto minmax(0, 1fr) auto;
     /* NICHT 100% und nicht 100dvh: iOS legt die Tastatur ÜBER die Seite,
        ohne den Layout-Viewport zu verkleinern. innerHeight bleibt gleich,
-       dvh auch — die unterste Zeile, also die Eingabe samt Werkzeugleiste,
-       rutscht damit unter die Tastatur. --vv-hoehe ist die wirklich
-       sichtbare Höhe, gemessen über visualViewport (lib/tastatur.ts).
-       Hängt das Gerüst daran, schrumpft der Verlauf und Eingabe plus
-       Werkzeugleiste stehen direkt auf den Tasten. */
-    height: var(--vv-hoehe, 100%);
+       dvh auch. --vv-hoehe ist die wirklich sichtbare Höhe, gemessen über
+       visualViewport (lib/tastatur.ts).
+
+       `max-height` und nicht `height`, und das ist der Kern der Sache: hier
+       stand `height: var(--vv-hoehe, 100%)`, und diese Zeile hat NIE etwas
+       getan. `.rahmen` ist eine Flex-Spalte (app.css) und `.app` trägt dort
+       `flex: 1`, also `flex-basis: 0%` — in einer Flex-Spalte ersetzt die
+       Basis die Höhenangabe, und `height` fällt wirkungslos aus. Im Browser
+       nachgemessen: bei `--vv-hoehe: 500px` blieb die berechnete Höhe 874px.
+       `max-height` dagegen begrenzt ein Flex-Element unabhängig von seiner
+       Basis — es ist die einzige Angabe, die hier durchkommt.
+
+       Ohne sie bleibt das Gerüst 100dvh hoch, und was bei offener Tastatur
+       aussah wie „der Composer sitzt richtig", war nur iOS, das die ganze
+       Seite nach oben schiebt. */
+    max-height: var(--vv-hoehe, none);
+    /* Die Höhe kommt vom sichtbaren Ausschnitt — die LAGE muss von dort
+       kommen. Fehlt diese Zeile, misst sich das Gerüst am Sichtbaren und
+       haftet am Layout-Viewport: schiebt iOS das Dokument hoch, um das
+       Schreibfeld freizustellen, bleibt .app oben liegen, und seine erste
+       Zeile — die Kopfzeile mit Kanalname, Schubladengriff und Werkzeugen —
+       liegt über dem sichtbaren Rand. Auf dem iPhone 17 Pro in der
+       Startbildschirm-App gesehen: Tastatur auf, Kopfzeile komplett weg,
+       kein Weg mehr in einen anderen Kanal.
+
+       Die beiden Zeilen gehören zusammen und keine tut es allein. Im Browser
+       bei --vv-oben: 40px und --vv-hoehe: 500px durchgemessen, sichtbar ist
+       also 40..540:
+
+         nur top          .app  40..914   Kopfzeile da, Eingabe bei 852 —
+                                          also hinter der Tastatur
+         nur max-height   .app   0..500   Eingabe da, Kopfzeile bei 0 —
+                                          also über dem sichtbaren Rand
+         beide            .app  40..540   deckungsgleich mit dem Sichtbaren
+
+       `top` statt `margin-top`, weil .app schon `position: relative` trägt
+       (app.css) und ein reiner Malversatz nichts umbricht. Kein `transform`:
+       das machte .app zum Bezugsrahmen für `position: fixed` und risse
+       Schublade, Schleier und Thread mit. */
+    position: relative;
+    top: var(--vv-oben, 0px);
     min-height: 0;
     overflow: hidden;
   }
@@ -184,7 +219,7 @@
     /* Derselbe Wert wie seitlich: die Karte soll ringsum gleich weit vom
        Rand stehen. 6 ist dabei nicht frei gewaehlt, sondern die Obergrenze —
        die Symbolreihe muss auf 402 Punkte passen. */
-    padding-bottom: calc(4px + var(--sicher-unten));
+    padding-bottom: calc(4px + var(--rand-unten));
   }
   /* Bei offener Tastatur gibt es keine Wischleiste, die freizuhalten wäre —
      die Tasten liegen darüber. Der Abstand wäre toter Raum zwischen
@@ -319,7 +354,7 @@
        und die Leiste klebt auch bei arabischer Schrift physisch links. */
     width: calc(var(--rail-w) + var(--sicher-links));
     padding-left: var(--sicher-links);
-    padding-block: calc(6px + var(--sicher-oben)) calc(6px + var(--sicher-unten));
+    padding-block: calc(6px + var(--sicher-oben)) calc(6px + var(--rand-unten));
     transform: translateX(-100%);
     display: flex;
     flex-direction: column;
@@ -341,7 +376,7 @@
     left: calc(var(--rail-w) + var(--sicher-links));
     width: var(--schublade-w);
     padding-top: var(--sicher-oben);
-    padding-bottom: var(--sicher-unten);
+    padding-bottom: var(--rand-unten);
     z-index: 30;
     /* Weit genug nach links, dass auch die Symbolleiste frei wird — sonst
        liegt die eingeklappte Liste unsichtbar über deren Knöpfen und
@@ -349,6 +384,13 @@
     transform: translateX(calc(-100% - var(--rail-w) - var(--sicher-links)));
     pointer-events: none;
   }
+
+  /* Das Sprungfeld traegt am Schreibtisch eine Plakette mit dem Tastenkuerzel.
+     Am Telefon gibt es kein Strg und kein Cmd — sie zeigt eine Taste, die
+     niemand hat, und nimmt dabei Breite weg, die der Beschriftung fehlt.
+     `display: none` und nicht `visibility: hidden`: der Platz soll frei
+     werden, nicht leer bleiben. */
+  .search-trigger kbd { display: none; }
 
   .app--schublade .rail,
   .app--schublade .sidebar {
@@ -392,7 +434,7 @@
        selbst halten. Genau davor warnt die Fundstelle: fixierte Elemente
        auf oberster Ebene ohne Sicherheitsabstand. */
     padding-top: var(--sicher-oben);
-    padding-bottom: var(--sicher-unten);
+    padding-bottom: var(--rand-unten);
     padding-left: var(--sicher-links);
     padding-right: var(--sicher-rechts);
   }
@@ -435,6 +477,71 @@
   /* Muss mit KARTE_BREIT in Tour.tsx übereinstimmen — sonst setzt die
      Karte an einer Stelle an, die es auf dem Schirm nicht gibt. */
   .tour__card { width: min(380px, calc(100vw - 32px)); }
+
+
+  /* ══ TREFFERFLÄCHEN ═══════════════════════════════════════════
+     Apple verlangt 44 Punkte. Waagerecht ist das nicht zu halten, und die
+     Rechnung dafür steht oben bei .composer__bar: zehn Elemente auf 402
+     Punkten gehen mit 40 nicht auf. SENKRECHT ist der Platz aber da — über
+     und unter jedem Knopf liegt ungenutzter Rand.
+
+     Deshalb wächst hier nicht der Knopf, sondern nur seine berührbare
+     Fläche: ein ::after ohne Inhalt und ohne Farbe, das über den Knopf
+     hinausragt. Sichtbar bleibt alles genau so groß wie vorher — 36 in der
+     Eingabeleiste, 40 in Kopfzeile und Symbolleiste.
+
+     Die Fläche gehört zum Knopf selbst, nicht zu einem Nachbarn: ein Tipp
+     darauf löst denselben Knopf aus. Voraussetzung ist `position: relative`
+     am Knopf (die Symbolleiste hat es schon) und dass niemand `overflow:
+     hidden` setzt — sonst wäre das ::after abgeschnitten und mit ihm die
+     Fläche. Beides in app.css nachgesehen.
+
+     Kein `pointer-events`, kein z-index: das ::after liegt ohnehin über dem
+     Grund des Knopfes und unter allem, was danach kommt. */
+
+  .composer__bar .icon-btn,
+  .composer__bar .send-btn,
+  .header__menue,
+  .header__actions .icon-btn { position: relative; }
+
+  .composer__bar .icon-btn::after,
+  .composer__bar .send-btn::after,
+  .header__menue::after,
+  .header__actions .icon-btn::after {
+    content: '';
+    position: absolute;
+    /* Nur senkrecht. Waagerecht bliebe kein Platz, und zwei Knöpfe, deren
+       Flächen sich überlappen, wären schlechter als zwei knappe: dann
+       entschiede die Reihenfolge im Baum darüber, welcher gemeint war. */
+    inset-inline: 0;
+    pointer-events: auto;
+  }
+  /* 36 + 2 × 4 = 44. Die Reihe steht allein in ihrer Zeile, darüber das
+     Textfeld, darunter der Kartenrand — nichts, womit sich das überschneidet. */
+  .composer__bar .icon-btn::after { inset-block: -4px; }
+  /* Der Senden-Knopf ist 34 breit (siehe oben), also 34 + 2 × 5 = 44. */
+  .composer__bar .send-btn::after { inset-block: -5px; }
+  /* 40 + 2 × 2 = 44. Die Kopfzeile ist 52 hoch, der Knopf 40 — sechs Punkte
+     Luft auf jeder Seite, zwei davon genügen. */
+  .header__menue::after,
+  .header__actions .icon-btn::after { inset-block: -2px; }
+
+  /* Die Symbolleiste ist der eine Fall, in dem 44 NICHT zu erreichen ist,
+     ohne das Aussehen zu ändern: die Knöpfe stehen untereinander mit 2
+     Punkten Abstand, der Rasterschritt ist also 42. Wer auf 44 ginge, ließe
+     die Flächen zweier Nachbarn um 2 Punkte überlappen — ein Tipp am Rand
+     träfe dann den falschen Bereich. 42 ist der ganze Schritt und damit das
+     Maximum ohne Zweideutigkeit; dafür wächst die Fläche seitlich über die
+     volle Leistenbreite (56 statt 40), was nichts kostet.
+     .rail-btn trägt `position: relative` bereits (app.css, wegen des
+     Zählerpunkts) — hier nicht noch einmal. */
+  .rail-btn::after {
+    content: '';
+    position: absolute;
+    inset-block: -1px;
+    inset-inline: -8px;
+    pointer-events: auto;
+  }
 }
 
 

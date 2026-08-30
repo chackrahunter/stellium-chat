@@ -188,7 +188,10 @@ export function TeamAdmin({ onClose }: { onClose: () => void }) {
     return KONTO_KATEGORIEN
       .map((k) => ({ kategorie: k, leute: nach.get(k) ?? [] }))
       .filter((g) => g.leute.length > 0);
-  }, [gefiltert, liste]);
+    // `liste` fehlt hier absichtlich: `gefiltert` selbst hängt schon an
+    // `liste` (siehe useMemo oben), eine zusätzliche Abhängigkeit hier wäre
+    // nur eine doppelte Nennung derselben Änderung, kein zweiter Auslöser.
+  }, [gefiltert]);
 
   const person = liste.find((u) => u.id === gewaehlt) ?? null;
 

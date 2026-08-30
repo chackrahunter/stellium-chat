@@ -165,11 +165,23 @@ function openVault(): Record<string, string> {
   return vaultSecrets;
 }
 
+/**
+ * Die Warnung „Umgebung schlägt Tresor" nur einmal je Name.
+ *
+ * Sie stand hier, solange `secret()` genau einmal beim Laden lief. Seit
+ * `groq.apiKey` ein Getter ist (siehe dort), läuft sie bei jeder KI-Anfrage,
+ * bei jeder Sprachnachricht und bei jedem Blick in die Einstellungen — und
+ * eine Warnung, die tausendmal dasteht, liest niemand mehr. Einmal gesagt
+ * bleibt sie eine Warnung.
+ */
+const vorrangGewarnt = new Set<string>();
+
 /** Schlüssel holen: erst Umgebung, dann Tresor. */
 function secret(envName: string, vaultName: string): string {
   const fromEnv = str(envName);
   if (fromEnv) {
-    if (vault.exists() && openVault()[vaultName]) {
+    if (!vorrangGewarnt.has(envName) && vault.exists() && openVault()[vaultName]) {
+      vorrangGewarnt.add(envName);
       console.warn(
         `[secrets] ${envName} steht im Klartext in der Umgebung und überschreibt den`
         + ' verschlüsselten Wert. Entferne die Zeile aus der .env, damit der Tresor greift.',
@@ -178,6 +190,108 @@ function secret(envName: string, vaultName: string): string {
     return fromEnv;
   }
   return openVault()[vaultName] ?? '';
+}
+
+/**
+ * Was über einen Schlüssel gesagt werden darf — und was nicht.
+ *
+ * Hier steht kein Wert, keine Länge und kein Anfangsstück. Der Grund steht am
+ * Ende dieser Datei: secretOrigin() ist genau daran entfallen, weil ein
+ * gekürzter Schlüssel immer noch ein Schlüssel ist. Was die Oberfläche
+ * wirklich braucht, sind Wahrheitswerte — greift einer, woher kommt er, und
+ * ließe sich hier überhaupt schreiben.
+ *
+ * `quelle` ist der Kern von allem: steht der Name in der Umgebung, gewinnt er
+ * (siehe `secret()` darüber), und dann darf keine Maske so tun, als hätte ein
+ * Speichern in den Tresor gewirkt.
+ */
+export interface GeheimStand {
+  /** Greift gerade überhaupt ein Wert? */
+  hinterlegt: boolean;
+  /** Woher der greifende Wert kommt — oder null, wenn keiner greift. */
+  quelle: 'umgebung' | 'tresor' | null;
+  /** Steht der Name in der Umgebung? Dann schlägt er den Tresor. */
+  umgebung: boolean;
+  /** Liegt ein Wert im Tresor — unabhängig davon, ob er gerade greift? */
+  tresor: boolean;
+  /** Ließe sich der Tresor hier beschreiben (Masterpasswort vorhanden)? */
+  schreibbar: boolean;
+  /** aus = kein Tresor da, offen = lesbar, verschlossen = da, aber zu. */
+  tresorZustand: 'aus' | 'offen' | 'verschlossen';
+}
+
+export function geheimStand(envName: string, vaultName: string): GeheimStand {
+  const ausUmgebung = Boolean(str(envName));
+  /* Auch dann in den Tresor sehen, wenn die Umgebung gewinnt: sonst könnte
+     die Oberfläche nicht sagen, dass da ein Wert liegt, der gerade
+     überschrieben wird — und genau das ist die Auskunft, ohne die ein
+     Speichern wirkungslos und trotzdem erfolgreich aussieht. */
+  const imTresor = Boolean(openVault()[vaultName]);
+  return {
+    hinterlegt: ausUmgebung || imTresor,
+    quelle: ausUmgebung ? 'umgebung' : imTresor ? 'tresor' : null,
+    umgebung: ausUmgebung,
+    tresor: imTresor,
+    schreibbar: resolvePassphrase() !== null,
+    tresorZustand: vaultStatus,
+  };
+}
+
+/**
+ * Einen Schlüssel im Tresor ablegen oder entfernen — im laufenden Betrieb.
+ *
+ * WARUM HIER UND NICHT IN EINEM DIENST. Der Tresor und sein Zwischenspeicher
+ * (`vaultSecrets`) gehören dieser Datei. Schriebe jemand anders die Datei auf
+ * der Platte, läse `secret()` weiter den Stand von vorhin — der Schlüssel
+ * wäre abgelegt, der Server nähme ihn nicht, und nichts sagte warum. Deshalb
+ * liegen Schreiben und Verwerfen des Zwischenspeichers in derselben Funktion.
+ *
+ * `null` LÖSCHT, statt einen leeren Text abzulegen. Ein leerer Eintrag wäre
+ * schlimmer als keiner: `secret()` gäbe `''` zurück, `aiConfigured()` sagte
+ * „nicht eingerichtet", und im Tresor stünde trotzdem ein Name, den die
+ * Liste als vorhanden meldet.
+ *
+ * OHNE MASTERPASSWORT WIRD NICHT GESCHRIEBEN, sondern abgebrochen. Der
+ * Rückfall auf Klartext neben den Daten wäre hier das Gegenteil von
+ * hilfreich — der ganze Zweck dieser Datei ist, dass ein gestohlenes
+ * data/-Verzeichnis keinen Schlüssel hergibt.
+ *
+ * DIE GEGENPROBE bleibt drin, aus demselben Grund wie im Werkzeug
+ * (cli/secret.ts): frisch von der Platte lesen, entschlüsseln, vergleichen.
+ * Das prüft Verschlüsseln, Schreiben, Umbenennen und Entschlüsseln in einem
+ * Durchgang, und nach außen dringt davon nur ja oder nein. Der zusätzliche
+ * scrypt-Durchgang kostet auf dem Pi rund eine Sekunde — bei einer Handlung,
+ * die jemand alle paar Monate auslöst, ist das nichts.
+ */
+export function tresorSetzen(vaultName: string, wert: string | null): void {
+  const pass = resolvePassphrase();
+  if (!pass) {
+    throw new Error(
+      'Es gibt kein Masterpasswort — ohne das lässt sich der verschlüsselte Tresor nicht beschreiben. '
+      + 'Setze STELLIUM_MASTER_PASSPHRASE oder lege es mit '
+      + '"npm run secret -w @stellium/server -- setzen groq" in der Keychain ab.',
+    );
+  }
+
+  const bestand = vault.exists() ? vault.load(pass.passphrase) : {};
+  if (wert) bestand[vaultName] = wert; else delete bestand[vaultName];
+  vault.save(bestand, pass.passphrase);
+
+  const geprueft = vault.load(pass.passphrase);
+  if ((geprueft[vaultName] ?? null) !== (wert ?? null)) {
+    throw new Error(
+      'Der Tresor gibt nach dem Schreiben etwas anderes zurück als abgelegt — '
+      + 'der Schlüssel ist NICHT verlässlich gespeichert. Bitte Platz und Rechte des '
+      + 'Datenverzeichnisses prüfen.',
+    );
+  }
+
+  /* Erst jetzt, und ohne den frisch gelesenen Stand einfach zu übernehmen:
+     `openVault()` ist der einzige Weg, auf dem `vaultStatus` und der
+     Zwischenspeicher zusammen entstehen. Zwei Wege dorthin wären zwei
+     Wahrheiten. */
+  vaultSecrets = null;
+  openVault();
 }
 
 export type AiProvider =
@@ -238,7 +352,35 @@ export const config = {
   ai: {
     provider: (str('AI_PROVIDER', 'groq') as AiProvider),
     groq: {
-      apiKey: secret('GROQ_API_KEY', 'groq'),
+      /**
+       * Ein Getter, kein einmal ausgerechneter Wert — darin steckt der ganze
+       * Unterschied zwischen „wirkt sofort" und „wirkt nach dem Neustart".
+       *
+       * Hier stand `apiKey: secret(...)`. Das lief GENAU EINMAL, beim Laden
+       * dieser Datei, und fror damit ein, was zu diesem Zeitpunkt in Umgebung
+       * und Tresor stand. Wer den Schlüssel danach wechselte — mit
+       * `npm run secret` —, änderte eine Datei, die niemand mehr las: der
+       * Server arbeitete bis zum nächsten Start mit dem alten Wert weiter,
+       * ohne dass irgendetwas kaputt aussah. Genau das ist der Grund, warum
+       * der Schlüssel bis heute nicht in die Einstellungen durfte.
+       *
+       * Derselbe Weg wie bei `deepl.baseUrl` weiter unten, und aus demselben
+       * Grund. `openVault()` merkt sich den entschlüsselten Inhalt, der
+       * zweite Aufruf kostet also nichts; `tresorSetzen()` wirft diesen
+       * Zwischenspeicher nach jedem Schreiben weg.
+       *
+       * WAS DER GETTER NICHT LEISTET: die Anbieter-Instanz in
+       * translation/providers/openai-compatible.ts nimmt den Schlüssel beim
+       * BAUEN mit. Wer hier ändert, muss sie danach neu bauen lassen — das
+       * macht services/kizugang.ts über providerNeuAufbauen().
+       *
+       * NUR GROQ. `openai.apiKey` und `deepl.apiKey` weiter unten bleiben
+       * bewusst eingefroren: sie haben keinen Weg über die Oberfläche, an dem
+       * sich zur Laufzeit etwas ändern könnte, und ein Getter ohne diesen Weg
+       * verspräche eine Beweglichkeit, die es nicht gibt. Wer sie nachrüstet,
+       * braucht beides — den Getter HIER und den Neubau des Anbieters dort.
+       */
+      get apiKey(): string { return secret('GROQ_API_KEY', 'groq'); },
       baseUrl: str('GROQ_BASE_URL', 'https://api.groq.com/openai/v1'),
       // Leer = der Server holt die Modell-Liste bei Groq und wählt selbst.
       // Eine gesetzte ID nagelt das Modell fest.

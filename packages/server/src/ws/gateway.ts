@@ -1127,7 +1127,14 @@ async function authenticate(session: Session, ev: Extract<ClientEvent, { t: 'aut
   /* Für die Verwaltung: welche Fassung und Plattform dieses Konto gerade
      fährt (siehe ManagedUser.clientVersion in @stellium/shared und
      TeamAdmin.tsx). Nach dem Riegel oben, wie alles hier — eine Anmeldung,
-     die nicht durchkommt, hinterlässt keine Spur. */
+     die nicht durchkommt, hinterlässt keine Spur.
+
+     Beide Felder kommen aus `ev`, also vom Client, und sind damit die
+     EINZIGEN Angaben aus dem `auth`-Ereignis, die in die Datenbank wandern
+     (`token` und `protocol` werden oben geprüft und nirgends abgelegt).
+     Ihre Form prüft clientMeldung(); was nicht passt, wird dort verworfen,
+     nicht hier abgewiesen — sonst könnte eine krumme Fassungsangabe eine
+     sonst gültige Anmeldung kosten. */
   store.clientMeldung(userId, ev.appVersion, ev.platform);
 
   const set = byUser.get(userId) ?? new Set<Session>();

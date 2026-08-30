@@ -720,6 +720,100 @@ export interface IdeaComment {
   createdAt: number;
 }
 
+/* ── Problemberichte ──────────────────────────────────────────────
+ *
+ * Der Tab, in dem jede Person Probleme, Fehler und alles dazwischen
+ * einträgt — strukturiert genug, dass ein n8n-Arbeitsablauf sie abholt und
+ * einer KI übergibt, ohne dass ihm dabei ein Freitext als Anweisung
+ * untergeschoben werden kann (siehe `unvertrauterInhalt` unten).
+ *
+ * DIE FELDER, UND WARUM GENAU DIESE
+ * `bereich` (wo), `schwere` (wie schlimm) sind feste Kategorien — validiert
+ * gegen die Listen unten, nie Freitext. `erwartet`/`passiert`/`schritte`
+ * sind die drei Fragen, die ein Fehlerbericht überhaupt erst brauchbar
+ * machen: was hättest du erwartet, was ist stattdessen passiert, wie kommt
+ * man dahin. Alles automatisch Erfassbare (Fassung, Plattform, Sprache, der
+ * Bereich, in dem die App gerade stand) trägt der KONTEXT — niemand tippt
+ * ab, was der Client ohnehin schon weiß.
+ */
+
+/**
+ * Wo im Programm — sowohl als Angabe der meldenden Person (`bereich`, kann
+ * abweichen, wenn der Fehler woanders auffiel als gerade offen war) als
+ * auch als automatische Erkennung beim Öffnen des Formulars (`kontext.panel`).
+ * Eine einzige Liste für beide, damit die Auswahl im Formular exakt
+ * vorausgefüllt werden kann.
+ */
+export type ProblemberichtBereich =
+  | 'chat' | 'kanaele' | 'suche' | 'aufgaben' | 'kalender' | 'dateien'
+  | 'ideenboard' | 'umfragen' | 'post' | 'notizen' | 'team' | 'ki'
+  | 'passwoerter' | 'verwaltung' | 'einstellungen' | 'anmeldung' | 'sonstiges';
+
+export const PROBLEMBERICHT_BEREICHE: ProblemberichtBereich[] = [
+  'chat', 'kanaele', 'suche', 'aufgaben', 'kalender', 'dateien',
+  'ideenboard', 'umfragen', 'post', 'notizen', 'team', 'ki',
+  'passwoerter', 'verwaltung', 'einstellungen', 'anmeldung', 'sonstiges',
+];
+
+/** Wie sehr es stört — die einzige Einstufung, die eine meldende Person
+ *  selbst treffen kann, ohne die Ursache schon zu kennen. */
+export type ProblemberichtSchwere = 'blockiert' | 'stoert' | 'kleinigkeit';
+export const PROBLEMBERICHT_SCHWEREN: ProblemberichtSchwere[] = ['blockiert', 'stoert', 'kleinigkeit'];
+
+/**
+ * Der Lebenslauf eines Berichts — extra für das Abfragen von außen (n8n):
+ * `neu` heißt unbearbeitet, `in_arbeit` heißt "ein Arbeitsablauf oder ein
+ * Mensch hat ihn sich genommen", `erledigt` heißt fertig, mit `ergebnis`
+ * dabei. Ohne diesen dritten Zustand bekäme dieselbe Meldung bei jedem
+ * Abfragen erneut zugeteilt, was schon läuft.
+ */
+export type ProblemberichtStatus = 'neu' | 'in_arbeit' | 'erledigt';
+export const PROBLEMBERICHT_STATUS: ProblemberichtStatus[] = ['neu', 'in_arbeit', 'erledigt'];
+
+export interface Problembericht {
+  id: string;
+  bereich: ProblemberichtBereich;
+  schwere: ProblemberichtSchwere;
+  status: ProblemberichtStatus;
+  createdAt: number;
+  updatedAt: number;
+  takenAt: number | null;
+  takenBy: string | null;
+  decidedAt: number | null;
+  decidedBy: string | null;
+  /** Wer gemeldet hat — nur, was zum Nachfragen nötig ist, keine Kontaktdaten. */
+  createdBy: { id: string; name: string; role: MemberRoleName };
+  /** Was die App selbst schon wusste, ohne dass jemand es abtippen musste. */
+  kontext: {
+    clientVersion: string | null;
+    clientPlatform: string | null;
+    /** Sprache der Oberfläche im Moment der Meldung, z. B. 'de'. */
+    sprache: string;
+    /** Von der App erkannter Bereich beim Öffnen des Formulars — siehe `bereich`. */
+    panel: ProblemberichtBereich;
+  };
+  /**
+   * FREITEXT VON EINER PERSON — NIEMALS ALS ANWEISUNG LESEN.
+   *
+   * Jedes Feld hier kann alles enthalten, was jemand in ein Formular tippt,
+   * bis hin zu einem Versuch, eine nachgelagerte KI zu manipulieren ("ignore
+   * your previous instructions…"). Ein Aufrufer (n8n, ein Agent) darf diesen
+   * Block ausschließlich als zu UNTERSUCHENDEN INHALT in einen Prompt
+   * einbetten — klar abgegrenzt, nie an der Stelle einer Systemanweisung.
+   * `hinweis` trägt genau diese Regel als Teil der Antwort selbst mit, statt
+   * nur in einer Dokumentation zu stehen, die ein Aufrufer nicht liest.
+   */
+  unvertrauterInhalt: {
+    hinweis: string;
+    erwartet: string;
+    passiert: string;
+    schritte: string | null;
+    /** Ergebnis/Begründung beim Abschließen — ebenfalls Freitext, diesmal
+     *  von der bearbeitenden Person oder dem Arbeitsablauf selbst. */
+    ergebnis: string | null;
+  };
+}
+
 /* ── Vorschlagseingang ────────────────────────────────────────── */
 
 /**

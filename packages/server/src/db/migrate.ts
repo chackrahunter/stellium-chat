@@ -1026,6 +1026,39 @@ export function migrate(): void {
     console.warn('[db] Index für die Ungelesen-Zählung:', (err as Error).message);
   }
 
+  /* Problemberichte — wortgleich mit schema.sql (pruefungen/tabellen-abgleich.mts
+     prüft das), aus demselben Grund wie die übrigen doppelt geführten
+     Tabellen hier: auf einer bestehenden Datenbank bringt CREATE TABLE IF
+     NOT EXISTS in schema.sql sie nicht nach, die läuft nur beim ersten
+     Anlegen. */
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS problemberichte (
+      id              TEXT PRIMARY KEY,
+      bereich         TEXT NOT NULL,
+      schwere         TEXT NOT NULL,
+      status          TEXT NOT NULL DEFAULT 'neu',
+      erwartet        TEXT NOT NULL,
+      passiert        TEXT NOT NULL,
+      schritte        TEXT,
+      ergebnis        TEXT,
+      panel           TEXT NOT NULL,
+      client_version  TEXT,
+      client_platform TEXT,
+      ui_sprache      TEXT NOT NULL DEFAULT 'de',
+      created_by      TEXT NOT NULL REFERENCES users(id),
+      created_at      INTEGER NOT NULL,
+      updated_at      INTEGER NOT NULL,
+      taken_at        INTEGER,
+      taken_by        TEXT REFERENCES users(id),
+      decided_at      INTEGER,
+      decided_by      TEXT REFERENCES users(id)
+    )`);
+  try {
+    db.exec('CREATE INDEX IF NOT EXISTS idx_problemberichte_status ON problemberichte(status, created_at)');
+  } catch (err) {
+    console.warn('[db] Index für Problemberichte:', (err as Error).message);
+  }
+
   rebuildUsersTable();
   encryptExistingUsers();
   bestehendeTexteVerschluesseln();

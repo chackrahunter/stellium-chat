@@ -60,6 +60,40 @@ const { config } = await import(path.join(dist, 'config.js'));
 
 db.exec('PRAGMA busy_timeout = 15000');
 
+/* ── Liegt hier überhaupt ein Blockspeicher? ──────────────────
+ *
+ * Ein frisch angelegtes DATA_DIR trägt eine leere Datenbankdatei und sonst
+ * nichts: `db/index.js` öffnet sie beim Laden, das Schema legt erst
+ * `initDb()` an — und das ruft der Server, nicht dieser Lauf. Genau so sieht
+ * es im Arbeitsbaum des Berichte-Abarbeiters aus, wo `data/` ignoriert und
+ * deshalb nicht vorhanden ist.
+ *
+ * Bis zum 29.08. lief dieser Prüflauf dort auf "no such table: bloecke" und
+ * war damit im frischen Baum dauerhaft rot. Das ist keine Auskunft über den
+ * Blockspeicher, sondern eine über die Umgebung: wo kein Speicher liegt, ist
+ * auch keiner beschädigt.
+ *
+ * Nachgesehen wird deshalb ZUERST, ob überhaupt ein Schema da ist.
+ *   • gar keine Tabelle  → hier liegt kein Blockspeicher, nichts zu prüfen (0)
+ *   • Tabellen, aber `bloecke` fehlt → das ist ein echter Defekt (2)
+ * Der zweite Fall bleibt rot; ihn mit dem ersten zusammenzuwerfen hieße, den
+ * Lauf für den Fall blind zu machen, für den es ihn gibt. Angelegt oder
+ * nachgerüstet wird nichts — dieser Lauf meldet nur.
+ */
+const tabellen = db.all("SELECT name FROM sqlite_master WHERE type = 'table'").map((t) => t.name);
+if (!tabellen.includes('bloecke')) {
+  if (tabellen.length === 0) {
+    console.log(`\nTiefenprüfung des Blockspeichers — ${config.dataDir}`);
+    console.log('  Die Datenbank ist leer (kein Schema angelegt) — hier liegt kein Blockspeicher.\n');
+    process.exit(0);
+  }
+  console.error(
+    `\nDie Datenbank in ${config.dataDir} trägt ${tabellen.length} Tabelle(n), aber keine namens `
+    + '"bloecke". Das Schema ist unvollständig — das gehört von Hand angesehen.\n',
+  );
+  process.exit(2);
+}
+
 const mb = (b) => (b >= 1048576 ? `${(b / 1048576).toFixed(1)} MB` : `${Math.round(b / 1024)} KB`);
 
 /* ── Wer hängt an einem Block? ────────────────────────────────── */

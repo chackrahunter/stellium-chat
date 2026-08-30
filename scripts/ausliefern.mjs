@@ -31,6 +31,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { waechterUebersicht } from './waechter-liste.mjs';
 
 const wurzel = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const F = {
@@ -335,25 +336,31 @@ try {
    ihn jemand hier einträgt. Ausgenommen sind nur die browsergestützten: die
    brauchen Playwright und eine Anzeige und gehören in einen eigenen Lauf.
    Erkannt werden sie am Inhalt, nicht am Namen — ein Name lügt irgendwann. */
-const BESCHREIBUNG = {
-  'mobil-pruefen.mjs': 'Handyansicht',
-  'randfarbe-pruefen.mjs': 'Rand',
-  'tokens-pruefen.mjs': 'Namen im Stylesheet',
-  'praesenz-pruefen.mjs': 'Online-Zeit',
-  'push-woerterbuch-pruefen.mjs': 'Push-Wörterbuch (push-i18n.ts deckungsgleich mit den 22 Wörterbüchern)',
-};
-const brauchtBrowser = (p) => /playwright|chromium|probeserver/.test(fs.readFileSync(p, 'utf8'));
-const waechter = fs.readdirSync(path.join(wurzel, 'scripts'))
-  .filter((n) => n.endsWith('-pruefen.mjs'))
-  .filter((n) => !brauchtBrowser(path.join(wurzel, 'scripts', n)))
-  .sort()
-  .map((n) => [`scripts/${n}`, BESCHREIBUNG[n] ?? n.replace(/-pruefen\.mjs$/, '')]);
+/* Die Ableitung selbst steht seit dem 29.08. in scripts/waechter-liste.mjs:
+   der Abarbeiter (scripts/berichte-abarbeiten.mjs) braucht dieselbe Menge für
+   einen fremden Arbeitsbaum, und eine abgeschriebene Regel hinkt irgendwann
+   hinterher — dieselbe Falle wie die Liste davor, nur eine Ebene höher. */
+const { waechter, dateien: waechterDateien, uebersprungen } = waechterUebersicht(wurzel);
 /* Eine Ableitung, die nichts findet, wäre eine stille Auslieferung ohne
    Wächter — genau die Lage, die dieser Umbau beendet. Also lieber laut. */
 if (waechter.length < 20) {
   raus(`Nur ${waechter.length} Wächter gefunden — das kann nicht stimmen. Läuft das Skript aus dem Projektverzeichnis?`);
 }
-info(`${waechter.length} Wächter gefunden (abgeleitet, nicht aufgezählt)`);
+/* Eine Schwelle ist eine Katastrophenbremse und kein Nachweis. Ein
+   Namensfilter `n.length < 28` in der Ableitung fand 27 statt 65 Wächter —
+   über der Schwelle, also lief die Auslieferung durch, und 38 Wächter waren
+   still weg. Deshalb wird die abgeleitete Liste hier gegen den ORDNER
+   gehalten: jede *-pruefen.mjs läuft entweder, oder sie hat einen Grund.
+   Gezählt wird unabhängig von der Ableitung, sonst prüfte sie sich selbst.
+   (Den ausführlichen Nachweis führt scripts/waechter-liste-pruefen.mjs.) */
+const begruendet = new Set([...waechter.map(([d]) => d.replace(/^scripts\//, '')), ...uebersprungen.map(([n]) => n)]);
+const stillWeg = waechterDateien.filter((n) => !begruendet.has(n));
+if (stillWeg.length) {
+  raus(`${stillWeg.length} Wächter fallen ohne Grund aus der Ableitung: ${stillWeg.join(', ')}\n`
+    + '  Steht ein Filter in scripts/waechter-liste.mjs, der zu viel wegnimmt?');
+}
+info(`${waechter.length} Wächter gefunden (abgeleitet, nicht aufgezählt; `
+  + `${uebersprungen.length} browsergestützt übersprungen, ${waechterDateien.length} Dateien im Ordner)`);
 for (const [datei, was] of waechter) {
   if (!fs.existsSync(path.join(wurzel, datei))) continue;
   try {

@@ -196,7 +196,24 @@ a:hover { text-decoration: underline; }
 
 @media (prefers-reduced-motion: reduce) {
   .cosmos__blob { animation: none; }
-  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+  /* Die Dauer allein reicht nicht.
+
+     Zwoelf der zwanzig `animation:`-Angaben in dieser Datei laufen
+     `infinite`. Eine Dauer von 0,01 ms haelt sie nicht an — sie laesst sie
+     nur unsichtbar schnell weiterlaufen, zehntausendmal in der Sekunde, und
+     das kostet Strom und Rechenzeit, ohne dass jemand etwas davon hat.
+     `animation-iteration-count: 1` beendet sie nach dem ersten Durchgang;
+     zusammen mit der Dauer ist das ein Sprung auf den Endzustand.
+
+     `scroll-behavior: auto` gehoert dazu, weil `smooth` weder Animation noch
+     Uebergang ist: es faellt durch beide Regeln oben hindurch und bleibt
+     sonst als einzige Bewegung uebrig. */
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 
 /* ── Grundgerüst ────────────────────────────────────────────── */
@@ -864,7 +881,7 @@ button.msg__read-receipt:hover { color: var(--tx-mid); }
      aus — im Browser, wo es gar keine Wischleiste gibt, stand er als schwarzes
      Band unter dem Eingabefeld. Ohne Farbe scheint der Sternenhimmel durch und
      der Übergang ist in beiden Fällen fließend. */
-  padding-bottom: calc(var(--sp-4) + var(--sicher-unten));
+  padding-bottom: calc(var(--sp-4) + var(--rand-unten));
   /* Hier darf KEIN overflow stehen: Erwähnungsliste, Emoji-Auswahl und das
      Umformulieren-Menü liegen mit bottom:100% über dem Eingabefeld und damit
      außerhalb dieses Kastens — ein overflow würde sie abschneiden.
@@ -1344,7 +1361,7 @@ button.msg__read-receipt:hover { color: var(--tx-mid); }
   position: fixed; z-index: 60;
   /* Fixiert am Viewport: ohne die Sicherheitsabstände läge der Hinweis in
      der Wischzone der Home-Leiste bzw. im Querformat unter der Kamera. */
-  bottom: calc(var(--sp-5) + var(--sicher-unten));
+  bottom: calc(var(--sp-5) + var(--rand-unten));
   inset-inline-end: calc(var(--sp-5) + var(--sicher-rechts));
   display: flex; flex-direction: column; gap: var(--sp-2);
   pointer-events: none;
@@ -1884,7 +1901,7 @@ button.msg__author:hover { color: var(--violet-soft); text-decoration: underline
   padding-left: var(--sicher-links);
   padding-right: var(--sicher-rechts);
 }
-.rail { padding-top: calc(var(--sp-4) + var(--sicher-oben)); padding-bottom: calc(var(--sp-4) + var(--sicher-unten)); }
+.rail { padding-top: calc(var(--sp-4) + var(--sicher-oben)); padding-bottom: calc(var(--sp-4) + var(--rand-unten)); }
 /* Die Flex-Basis muss mitwachsen, nicht die height: .header steht immer in
    der Flex-Spalte .main mit `flex: 0 0 var(--header-h)`, und dort bestimmt
    allein die Basis die Höhe — eine height-Angabe wäre wirkungslos (im
@@ -1894,7 +1911,7 @@ button.msg__author:hover { color: var(--violet-soft); text-decoration: underline
   padding-top: var(--sicher-oben);
   flex-basis: calc(var(--header-h) + var(--sicher-oben));
 }
-.sidebar { padding-top: var(--sicher-oben); padding-bottom: var(--sicher-unten); }
+.sidebar { padding-top: var(--sicher-oben); padding-bottom: var(--rand-unten); }
 
 
 /* Ab hier wird die Kanalliste zur Schublade — auch auf Tablets. So bleibt das
@@ -3429,7 +3446,7 @@ button.msg__author:hover { color: var(--violet-soft); text-decoration: underline
   align-items: center;
   justify-content: center;
   padding-top: calc(20px + var(--sicher-oben));
-  padding-bottom: calc(20px + var(--sicher-unten));
+  padding-bottom: calc(20px + var(--rand-unten));
   padding-left: calc(16px + var(--sicher-links));
   padding-right: calc(16px + var(--sicher-rechts));
 }

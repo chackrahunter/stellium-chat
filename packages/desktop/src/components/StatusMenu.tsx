@@ -291,12 +291,19 @@ export function StatusMenu() {
   }, [offen, schliessen, zeichenOffen]);
 
   /* Beim Öffnen steht im Feld, was gerade gilt — sonst wäre jede Änderung ein
-     Neuschreiben von vorn. */
+     Neuschreiben von vorn. `meinText`/`meinZeichen` deshalb absichtlich NICHT
+     in der Abhängigkeitsliste: sie kommen aus dem Zustand-Store und können
+     sich ändern, während das Menü offen ist (z. B. wenn dasselbe Konto auf
+     einem anderen Gerät den Status ändert). Stünden sie hier, würde jede
+     solche fremde Änderung mitten in der eigenen Eingabe das Feld
+     überschreiben — genau das will dieser Effekt verhindern, siehe Kommentar
+     oben. */
   useEffect(() => {
     if (!offen) return;
     setEntwurf(meinText ?? '');
     setZeichen(meinZeichen);
     setZeichenOffen(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- meinText/meinZeichen bewusst draußen, siehe Kommentar oben
   }, [offen]);
 
   /*

@@ -16,7 +16,7 @@
  * `<iframe sandbox="">` mit eigener, strenger Inhaltsrichtlinie statt durch
  * `dangerouslySetInnerHTML` — die Begründung steht bei `htmlDokument()`.
  */
-import { Fragment, useEffect, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
 import {
   AlertTriangle, Archive, ArchiveRestore, ArrowDownLeft, ArrowUpRight, AtSign, CalendarClock,
   Clock, Forward, Inbox, Loader2, Mail, Paperclip, RefreshCw, RotateCcw, Search, Send, Sparkles,
@@ -537,14 +537,18 @@ export function PostPanel({ onClose }: { onClose: () => void }) {
      bleibt eine Zeile einfach neutral gefärbt (siehe dringlichkeitRang()
      weiter unten) statt dass ein zweiter Fehlertext über der Liste steht,
      die gerade erfolgreich geladen hat. */
-  const sichtungenNachladen = async (nachrichten: PostNachricht[]) => {
+  /* useCallback mit `[]`: schließt außer dem stabilen Setter nichts aus dem
+     Render ein, deshalb ohne weitere Abhängigkeiten stabil — das braucht
+     `listeLaden()` weiter unten, die sie selbst wieder aufruft und deshalb
+     als Abhängigkeit angeben muss, ohne dadurch instabil zu werden. */
+  const sichtungenNachladen = useCallback(async (nachrichten: PostNachricht[]) => {
     const ids = nachrichten.filter((n) => n.richtung === 'ein').map((n) => n.id);
     if (!ids.length) return;
     try {
       const gefunden = await sichtungenHolen(ids);
       setSichtungen((v) => ({ ...v, ...gefunden }));
     } catch { /* siehe Begründung oben */ }
-  };
+  }, []);
 
   /* Laufzähler gegen überholte Antworten: Wechselt jemand schnell das Fach
      oder die Ansicht, laufen zwei Abrufe gleichzeitig — kommt die LANGSAMERE
@@ -554,7 +558,13 @@ export function PostPanel({ onClose }: { onClose: () => void }) {
      (Fachwechsel, Ansichtwechsel, Nachladen) dieselbe Liste füllen. */
   const listenLauf = useRef(0);
 
-  const listeLaden = async (fach: string | null) => {
+  /* useCallback mit `[ansicht, sichtungenNachladen]`: die einzige echte
+     Abhängigkeit ist `ansicht` (`fach` kommt als Parameter, nicht aus dem
+     Zustand), `sichtungenNachladen` ist selbst stabil (s.o.). Ohne das wäre
+     die Kennung bei jedem Render neu — der Effekt weiter unten, der
+     `listeLaden` als Abhängigkeit braucht, liefe dann bei JEDEM Render neu
+     an statt nur beim Fach- oder Ansichtswechsel. */
+  const listeLaden = useCallback(async (fach: string | null) => {
     // Sofort leeren statt erst nach der Antwort: sonst zeigt die Liste kurz
     // die Post des VORHERIGEN Fachs unter dem neu gewählten Namen an.
     const meineNummer = ++listenLauf.current;
@@ -571,7 +581,7 @@ export function PostPanel({ onClose }: { onClose: () => void }) {
     } finally {
       if (listenLauf.current === meineNummer) setListeLaedt(false);
     }
-  };
+  }, [ansicht, sichtungenNachladen]);
 
   const weitereLaden = async () => {
     if (!eintraege.length) return;
@@ -595,7 +605,7 @@ export function PostPanel({ onClose }: { onClose: () => void }) {
   };
 
   useEffect(() => { void faecherLaden(); }, []);
-  useEffect(() => { void listeLaden(aktivesFach); }, [aktivesFach, ansicht]);
+  useEffect(() => { void listeLaden(aktivesFach); }, [aktivesFach, listeLaden]);
   useEffect(() => { void entwuerfeLaden(); }, []);
 
   /* ── Suche ─────────────────────────────────────────────────────
@@ -615,7 +625,6 @@ export function PostPanel({ onClose }: { onClose: () => void }) {
         .finally(() => { if (lebt) setSucheLaedt(false); });
     }, 300);
     return () => { lebt = false; clearTimeout(zeitgeber); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [suchtext, suchAktiv, aktivesFach]);
 
   /* Sprung aus dem Reiter „Post-Sichtung" (siehe jumpToPostMail() in
@@ -747,7 +756,6 @@ export function PostPanel({ onClose }: { onClose: () => void }) {
       ? (vorschlag && sendeFaecher.some((f) => f.fach === vorschlag) ? vorschlag : sendeFaecher[0].fach)
       : vorschlag;
     setAntwortFach(gueltig);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ausgewaehlteId, letzte?.fach, sendeFaecher]);
 
   /* ── Anhänge für die Antwort ───────────────────────────────────

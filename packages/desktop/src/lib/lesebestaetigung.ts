@@ -71,17 +71,26 @@ export function useLesemarke(
 
   // Kanalwechsel: der alte Stand gehört nicht zum neuen Kanal. Vorher noch
   // melden, was dort offen war — das ist das „beim Verlassen des Kanals".
+  // `melden` absichtlich nicht in der Abhängigkeitsliste: die Funktion ist
+  // bei jedem Render eine neue Kennung, liest aber nur Refs (plus dasselbe
+  // `channelId`, das hier schon steht). Stünde sie in der Liste, liefe
+  // dieser Effekt bei JEDEM Render neu an — und würde damit
+  // `hoechsteGesehen`/`zuletztGemeldet`/`sichtbar` bei jeder fremden
+  // Neuzeichnung zurücksetzen, nicht nur beim echten Kanalwechsel.
   useEffect(() => {
     hoechsteGesehen.current = null;
     zuletztGemeldet.current = null;
     sichtbar.current = new Set();
     return () => melden();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- melden absichtlich draußen, siehe Kommentar oben
   }, [channelId]);
 
   // Das Fenster bekommt Aufmerksamkeit zurück (Tab gewechselt, App wieder
   // vorn): nachholen, was währenddessen schon geometrisch im Bild stand, aber
-  // wegen fehlender Aufmerksamkeit noch nicht zählte.
+  // wegen fehlender Aufmerksamkeit noch nicht zählte. `beruecksichtigen`
+  // ebenfalls absichtlich draußen (derselbe Grund wie oben) — sonst würde
+  // dieser Effekt bei jedem Render die beiden globalen Listener ab- und
+  // wieder anmelden, statt nur beim Kanalwechsel.
   useEffect(() => {
     document.addEventListener('visibilitychange', beruecksichtigen);
     window.addEventListener('focus', beruecksichtigen);
@@ -89,7 +98,7 @@ export function useLesemarke(
       document.removeEventListener('visibilitychange', beruecksichtigen);
       window.removeEventListener('focus', beruecksichtigen);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- beruecksichtigen absichtlich draußen, siehe Kommentar oben
   }, [channelId]);
 
   // Der Beobachter selbst — neu aufgesetzt, wenn sich die dargestellte Liste
@@ -117,6 +126,12 @@ export function useLesemarke(
 
     for (const el of root.querySelectorAll<HTMLElement>('[data-message-id]')) observer.observe(el);
     return () => observer.disconnect();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [channelId, stand]);
+    // `beruecksichtigen` absichtlich draußen (derselbe Grund wie in den
+    // Effekten oben) — sonst baute dieser Effekt den IntersectionObserver bei
+    // JEDEM Render neu auf, statt nur wenn sich Kanal/Liste wirklich ändern.
+    // `scrollRef` ist dagegen eine stabile Ref-Objektkennung (von der
+    // aufrufenden Stelle einmalig per useRef angelegt) und steht deshalb
+    // gefahrlos in der Liste.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- beruecksichtigen absichtlich draußen, siehe Kommentar oben
+  }, [channelId, stand, scrollRef]);
 }

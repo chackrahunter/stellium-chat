@@ -42,7 +42,7 @@
  * kein Tagesgeschäft) und ist deshalb strenger als das Ändern der Gruppe
  * EINES Briefpartners weiter unten (`mail.senden`, siehe `darfAendern`).
  */
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, Check, Loader2, Pencil, Plus, RefreshCw, Trash2, Users, X } from 'lucide-react';
 import type { MailPartner, PartnerGruppeInfo } from '@stellium/shared';
 import { PARTNER_GRUPPEN } from '@stellium/shared';
@@ -233,7 +233,12 @@ export function PartnerGruppenPanel({ onClose }: { onClose: () => void }) {
      Sprachabfrage in PostSchreiben.tsx (`let lebt = true`, beim Aufräumen
      auf `false`) — hier als Parameter statt als feste Variable, weil
      dieselbe Funktion auch ohne Wache vom Knopf aus aufgerufen wird. */
-  const laden = async (pruefeAktuell: () => boolean = () => true) => {
+  /* useCallback mit `[filter]`: `laden` selbst braucht keine weiteren
+     Abhängigkeiten (die restlichen Zugriffe sind stabile `useState`-Setter),
+     dadurch bleibt die Kennung über Renders hinweg gleich, solange sich der
+     Filter nicht ändert — genau das, was der Effekt darunter braucht, um
+     nur bei echtem Filterwechsel neu zu laden statt bei jedem Render. */
+  const laden = useCallback(async (pruefeAktuell: () => boolean = () => true) => {
     setLaedt(true); setFehler(null);
     try {
       const antwort = await partnerHolen({
@@ -250,16 +255,21 @@ export function PartnerGruppenPanel({ onClose }: { onClose: () => void }) {
     } finally {
       if (pruefeAktuell()) setLaedt(false);
     }
-  };
+  }, [filter]);
 
   useEffect(() => {
     let lebt = true;
     void laden(() => lebt);
     return () => { lebt = false; };
-  }, [filter]);
+  }, [laden]);
 
   // Einmal beim Öffnen — die Liste der Gruppen ändert sich nicht mit dem
-  // Filter, deshalb ein eigener Effekt statt Teil von `laden()`.
+  // Filter, deshalb ein eigener Effekt statt Teil von `laden()`. `gruppenNeuLaden`
+  // absichtlich nicht in den Abhängigkeiten: sie ist bei jedem Render eine neue
+  // Kennung (kein useCallback, schließt außerdem `t` für die Fehlermeldung ein,
+  // das selbst bei jedem Render wechselt) — sie aufzunehmen liefe dem "einmal
+  // beim Öffnen" zuwider und würde die Gruppenliste bei jedem Render neu holen.
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- bewusst nur beim Öffnen, siehe Kommentar oben
   useEffect(() => { void gruppenNeuLaden(); }, []);
 
   const gruppeAnlegen = async () => {

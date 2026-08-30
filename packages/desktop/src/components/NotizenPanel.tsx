@@ -234,11 +234,20 @@ function NotizEditor({ notiz, onLoeschenAnfragen }: { notiz: Notiz; onLoeschenAn
     setSpeichert(true);
     void notizSpeichern(notiz.id, t2, t3, force).finally(() => setSpeichert(false));
   };
+  /* `speichereJetzt` steht bewusst NICHT in den Abhängigkeiten unten: die
+     Funktion ist bei jedem Render eine neue Kennung (kein useCallback), der
+     Effekt soll aber nur beim Wechsel der Notiz/beim Abbau feuern. Stünde
+     sie in den Abhängigkeiten, liefe der Effekt bei JEDEM Tastendruck
+     (jeder Render löst ihn neu an) und würde damit den Zeitgeber unten
+     unterlaufen. Über die Ref ruft der Effekt trotzdem immer die jüngste
+     Fassung. */
+  const speichereJetztRef = useRef(speichereJetzt);
+  speichereJetztRef.current = speichereJetzt;
 
   // Beim Wechsel zu einer anderen Notiz oder beim Schließen der Tafel sofort
   // sichern, statt auf den Zeitgeber zu warten — eine Notiz, die man beim
   // Wegklicken verliert, ist wertlos.
-  useEffect(() => () => { if (timerRef.current) speichereJetzt(); }, [notiz.id]);
+  useEffect(() => () => { if (timerRef.current) speichereJetztRef.current(); }, [notiz.id]);
 
   const geaendert = (neu: { titel?: string; text?: string }) => {
     if (neu.titel !== undefined) setTitel(neu.titel);

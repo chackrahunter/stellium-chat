@@ -1,0 +1,6 @@
+Handy: Kopfzeile bleibt beim Start sichtbar, auch wenn die Tastatur aufgeht
+Handy: Eingabeknöpfe liegen nicht mehr unter der Wischleiste
+Handy: größere Trefferflächen an Eingabe, Kopfzeile und Symbolleiste
+Handy: kein weißer Blitz mehr beim Start vom Startbildschirm
+Bewegung reduzieren wirkt jetzt auch auf alle Animationen der App
+Groq-Schlüssel lässt sich in den Einstellungen unter Schlüssel ändern

@@ -5,7 +5,7 @@ import { Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import {
-  normalizeLang, LANGUAGES,
+  normalizeLang, LANGUAGES, PROBLEMBERICHT_STATUS,
   type AnmeldeNachweisBlob, type FluechtigesPaket, type KontoSchluesselBlob,
   type NotzugangAnteilBlob, type NotzugangHuelle,
 } from '@stellium/shared';
@@ -26,6 +26,7 @@ import {
 import { config } from '../config.js';
 import { db, placeholders } from '../db/index.js';
 import { kennungVon } from '../util/abweisung.js';
+import { keinZwischenspeicher } from './kein-zwischenspeicher.js';
 import { newId } from '../util/id.js';
 import {
   addGlossaryEntry, aiCapabilities, anbieterWaehlen, cachedReleaseNotes, chooseModels, listGlossary,
@@ -33,11 +34,13 @@ import {
 } from '../translation/index.js';
 import { search } from '../services/search.js';
 import * as store from '../services/store.js';
+import * as problemberichte from '../services/problemberichte.js';
 import * as files from '../services/files.js';
 import * as releases from '../services/releases.js';
 import * as fernzugang from '../services/fernzugang.js';
 import * as mailzugang from '../services/mailzugang.js';
 import * as verkaufzugang from '../services/verkaufzugang.js';
+import * as kizugang from '../services/kizugang.js';
 import * as patreon from '../services/patreon.js';
 import * as gumroad from '../services/gumroad.js';
 import * as verkaufBenachrichtigung from '../services/verkaufBenachrichtigung.js';
@@ -750,6 +753,56 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     return { ai: aiCapabilities(), selection: modelRegistry()?.current ?? null };
   });
 
+  /* ── KI: der API-Schlüssel des Arbeitsbereichs ────────────────
+     Dieselbe Machart wie /api/verkauf/zugang, /api/post/zugang und
+     /api/fern/zugang: hinterlegen darf ein Recht, ANSEHEN kann es niemand.
+     Zurück kommt nur, DASS etwas hinterlegt ist und WOHER es kommt.
+
+     `ki.verwalten` statt der Rollenabfrage von /api/ai/provider darüber:
+     Anbieter und Modell umzustellen kostet nichts, der Schlüssel ist die
+     Rechnung des Unternehmens — Begründung im Rechtekatalog
+     (@stellium/shared, permissions.ts).
+
+     KEIN keinZwischenspeicher(): in diesen beiden Antworten steht kein
+     Geheimnis, nur Wahrheitswerte — genau wie bei /api/verkauf/zugang.
+     Dass das wirklich so ist, prüft die Gegenprobe in
+     src/pruefungen/geheimnis-kopfzeilen.mts nach, mit einer hinterlegten
+     Probe, die in der Antwort nicht vorkommen darf. */
+  app.get('/api/ki/zugang', async (req) => {
+    const userId = requireUser(req);
+    requirePermission(userId, 'ki.verwalten');
+    return kizugang.schluesselStand();
+  });
+
+  /**
+   * Setzen oder — bei leerem Wert — entfernen.
+   *
+   * Ein Fehlschlag geht als 400 hinaus, nicht als stilles Nichts: ein
+   * „Gespeichert." über einem Tresor, der gar nicht beschreibbar ist, wäre
+   * die schlimmere Antwort. Mit der Kennung des Dienstes zeigt die App den
+   * Grund in ihrer eigenen Sprache (fehler.tresorOhneMasterpasswort bzw.
+   * fehler.tresorSchreibprobe); der deutsche Satz daneben ist nur der
+   * Rückfall für eine App, die die Kennung noch nicht kennt.
+   */
+  app.post('/api/ki/zugang', async (req, reply) => {
+    const userId = requireUser(req);
+    requirePermission(userId, 'ki.verwalten');
+    const körper = req.body as { schluessel?: string };
+    if (typeof körper?.schluessel !== 'string') {
+      return fehler(reply, 400, 'fehler.kiSchluesselFehlt', 'Es kam kein Wert an.');
+    }
+    try {
+      return await kizugang.schluesselSetzen(körper.schluessel, userId);
+    } catch (err) {
+      /* Die Kennung des Dienstes geht mit, damit die App den Grund in ihrer
+         eigenen Sprache zeigt — „kein Masterpasswort" und „Schreiben
+         fehlgeschlagen" sind zwei verschiedene Nachrichten an zwei
+         verschiedene Personen. */
+      const { code, werte } = kennungVon(err);
+      return reply.code(400).send({ error: (err as Error).message, code, werte });
+    }
+  });
+
   /** Nachsehen, was ein lokaler Dienst anbietet — ohne etwas umzustellen. */
   app.post('/api/ai/local-check', async (req, reply) => {
     const userId = requireUser(req);
@@ -1007,8 +1060,14 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
    * irgendwann, und hier taten sie es in beide Richtungen: die App bekam
    * „Finger weg", während der Server einen Ersatz annahm, und umgekehrt.
    */
-  app.get('/api/konto/schluessel', async (req) => {
+  app.get('/api/konto/schluessel', async (req, reply) => {
     const userId = requireUser(req);
+    /* Verschlossen, und trotzdem nicht auf die Platte: die Hülle ist genau
+       das Material, gegen das ein Rateangriff auf das Kontopasswort läuft.
+       Wer sie aus einem Browser-Profil fischt, kann offline und in Ruhe
+       raten — ohne Konto, ohne Anmeldung, ohne dass es hier jemand merkt.
+       Das ist ein anderer Angriff als der, den die Verschlüsselung abwehrt. */
+    keinZwischenspeicher(reply);
     return {
       schluessel: kontoschluessel.holen(userId),
       notzugangWartet: kontoschluessel.notzugangWartet(userId),
@@ -1049,8 +1108,11 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     { ...notzugang.standFuer(userId), notzugangWartet: kontoschluessel.notzugangWartet(userId) }
   );
 
-  app.get('/api/konto/notzugang', async (req) => {
+  app.get('/api/konto/notzugang', async (req, reply) => {
     const userId = requireUser(req);
+    /* `huelle` ist der zweite Weg zum Kontoschlüssel — derselbe Grund wie
+       bei GET /api/konto/schluessel darüber. */
+    keinZwischenspeicher(reply);
     return {
       stand: standMitWartet(userId),
       huelle: notzugang.huelleHolen(userId),
@@ -1233,8 +1295,12 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
   /** Was auf mich als haltende Person wartet — samt meinem verschlossenen
    *  Anteil, der ohne meinen privaten Schlüssel nichts hergibt. */
-  app.get('/api/konto/notzugang/aufgaben', async (req) => {
+  app.get('/api/konto/notzugang/aufgaben', async (req, reply) => {
     const userId = requireUser(req);
+    /* Der eigene verschlossene Anteil geht hier über die Leitung. Drei davon
+       ergeben einen fremden Kontoschlüssel; einer auf einer fremden Platte
+       ist ein Drittel des Weges dorthin, das dort nichts zu suchen hat. */
+    keinZwischenspeicher(reply);
     return { aufgaben: notzugang.aufgabenFuer(userId) };
   });
 
@@ -1271,6 +1337,12 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   app.get('/api/konto/notzugang/beitraege/:id', async (req, reply) => {
     const userId = requireUser(req);
     const { id } = req.params as { id: string };
+    /* Die Antwort mit dem höchsten Einsatz im ganzen Notzugang: ab der
+       Schwelle liegen hier genug Anteile, um einen Kontoschlüssel wirklich
+       zusammenzusetzen. Der Kommentar darüber nennt genau das „das Ereignis,
+       über das zu berichten ist" — eine Antwort, über die berichtet wird,
+       gehört erst recht nicht in einen Zwischenspeicher. */
+    keinZwischenspeicher(reply);
     let beitraege;
     try {
       beitraege = notzugang.beitraegeHolen(userId, id);
@@ -2442,21 +2514,62 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     };
   });
 
+  /**
+   * Der Stand des Fernzugangs — die einzige Auskunft darüber, die JEDES
+   * angemeldete Konto bekommt.
+   *
+   * DAS „OB" BLEIBT OFFEN, DAS „WELCHE MASCHINE" NICHT. Hier stand bis eben
+   * `return { ...stand, darf }` — mit `kennung` darin, für jeden Angemeldeten
+   * bis hinunter zum Gast und zum Nur-Lese-Konto. Die Begründung darunter
+   * („auch ohne Recht darf man wissen, ob es eingerichtet ist, sonst steht in
+   * der App ein Knopf, der ohne Erklärung nichts tut") trägt genau ein Feld:
+   * `hinterlegt`. Sie trägt NICHT die Kennung. Ein Gastkonto, das den Knopf
+   * nie drücken darf, bekam damit die Nummer, unter der der Pi erreichbar
+   * ist, und konnte sie an jemanden weiterreichen, der das Passwort hat.
+   *
+   * WARUM `fern.zugriff` UND NICHT `fern.verwalten`. Entschieden am
+   * VERWENDUNGSZWECK des Feldes, nicht an seiner Empfindlichkeit: die Kennung
+   * steht in der Oberfläche an genau einer Stelle (Fernsteuerung.tsx, neben
+   * dem Verbinden-Knopf, im Zustand VOR der Verbindung) und beantwortet dort
+   * eine einzige Frage — „ist das der richtige Pi, bevor ich verbinde?".
+   * Diese Frage stellt sich, wer verbindet. Das ist `fern.zugriff`, und
+   * dasselbe Recht steht ohnehin schon als `darf` in derselben Antwort: eine
+   * Schwelle, ein Kreis, keine zweite Regel, die eines Tages auseinanderläuft.
+   * `fern.verwalten` wäre hier falsch herum eng — es nähme die Kennung
+   * ausgerechnet der Teamleitung weg, für die der Knopf gebaut ist.
+   *
+   * Inhaber und Administratoren verlieren nichts: `fern.verwalten` bringt über
+   * ROLE_DEFAULTS/`ALLE.filter(...)` auch `fern.zugriff` mit. Und
+   * `POST`/`DELETE /api/fern/zugang` weiter unten geben `zugangStand()`
+   * weiterhin vollständig zurück — wer die Kennung gerade selbst gesetzt hat,
+   * darf sie in der Bestätigung sehen.
+   *
+   * WEGGELASSEN STATT GELEERT, wie bei den Systemwerten weiter oben in dieser
+   * Datei: ein `kennung: null` sieht aus wie „es ist keine hinterlegt". Fehlt
+   * das Feld, ist erkennbar, dass hier jemand etwas nicht sehen darf — und
+   * die App fällt für beide Fälle auf dieselbe stille Anzeige zurück.
+   */
   app.get('/api/fern/stand', async (req) => {
     const userId = requireUser(req);
     /* Auch ohne Recht darf man wissen, ob es überhaupt eingerichtet ist —
        sonst steht in der App ein Knopf, der ohne Erklärung nichts tut. */
-    const stand = fernzugang.zugangStand();
-    return { ...stand, darf: users.may(userId, 'fern.zugriff') };
+    const { kennung, ...stand } = fernzugang.zugangStand();
+    const darf = users.may(userId, 'fern.zugriff');
+    return darf ? { ...stand, kennung, darf } : { ...stand, darf };
   });
 
   /* Der einzige Weg, an die Zugangsdaten zu kommen. Wer das Recht nicht hat,
      bekommt 403 — und wer es hat, bekommt sie zum Verbinden, nicht zum
      Ansehen: die App reicht sie direkt an den Hauptprozess weiter und
      stellt sie nirgends dar. */
-  app.get('/api/fern/zugang', async (req) => {
+  app.get('/api/fern/zugang', async (req, reply) => {
     const userId = requireUser(req);
     requirePermission(userId, 'fern.zugriff');
+    /* Hier fehlte sie am längsten, ausgerechnet auf dem Weg, den die
+       Teamleitung täglich geht: Adresse und Passwort im Klartext, 200, keine
+       Frischeangabe — im Browser-Profil eines geteilten Rechners überlebt das
+       die Sitzung. Der Nachbar darunter hatte die Zeile, dieser nicht. */
+    keinZwischenspeicher(reply);
     const z = fernzugang.zugangLesen();
     if (!z) {
       const err = new Error('Für den Pi ist noch kein Zugang hinterlegt.') as Error & { statusCode?: number };
@@ -2464,6 +2577,76 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       throw err;
     }
     return z;
+  });
+
+  /**
+   * Den hinterlegten Pi-Zugang ANSEHEN — für den einen Fall, den es wirklich
+   * gibt: ihn einem Kollegen weiterreichen, der nicht über die App
+   * hereinkommt.
+   *
+   * WARUM ADRESSE UND PASSWORT ZUSAMMEN. Wer sich von Hand verbindet,
+   * braucht beides. Nur das Passwort herauszugeben wäre ein Werkzeug, das
+   * die Hälfte einer Zugangspaarung liefert und damit gar nichts löst — die
+   * Adresse müsste sich die Person dann doch woanders besorgen, und
+   * „woanders" heißt hier: gar nicht, denn sie steht in keiner Ansicht.
+   * Derselbe Personenkreis bekommt ohnehin beides zusammen aus
+   * `/api/fern/zugang`; diese Route legt also nichts frei, was er nicht
+   * längst hätte.
+   *
+   * DER NAME SAGT, WAS ZURÜCKKOMMT. Sie hieß bis eben `/api/fern/passwort`.
+   * Ein Weg mit „passwort" im Namen, der eine Adresse mitliefert, ist eine
+   * kleine Lüge, die den überlebt, der sie geschrieben hat.
+   *
+   * EIGENE ROUTE, EIGENE SCHWELLE. `/api/fern/zugang` darüber bleibt
+   * unangetastet: dort hängt der Verbindungsaufbau der Teamleitung dran, und
+   * `fern.zugriff` ist dafür genau richtig. Hier steht `fern.verwalten` —
+   * ownerOnly im Katalog, über `ALLE.filter(...)` zusätzlich bei jedem
+   * Administrator, also exakt Inhaber + Administratoren.
+   *
+   * DAS IST ABSICHTLICH ENGER, ALS ES SEIN MÜSSTE. Wer `fern.zugriff` hat,
+   * bekommt dieselben zwei Werte schon heute über die Leitung geschickt und
+   * könnte sie jederzeit aus der Antwort von `/api/fern/zugang` ablesen.
+   * „Wird nie angezeigt" war eine Regel der Oberfläche, keine
+   * Sicherheitsgrenze, und die Punkte im Eingabefeld sind keine Schranke.
+   *
+   * Trotzdem bleibt die Anzeige beim kleineren Kreis. Wer den Zugang
+   * ABLIEST, gibt ihn normalerweise weiter; das ist eine Verwaltungshandlung
+   * und gehört zu dem Recht, das ihn auch setzen und löschen darf. Wer ihn
+   * nur BENUTZT, braucht sie nicht. Die Asymmetrie zwischen den beiden
+   * Rechten ist gewollt und keine vergessene Angleichung.
+   *
+   * KEIN VERMERK, ANDERS ALS BEIM TRESOR. Siehe die ausgeschriebene
+   * Begründung in services/fernzugang.ts.
+   *
+   * Die Kennung geht NICHT mit. Sie steht schon in `/api/fern/stand` und
+   * gehört keiner der beiden Hälften an, die hier weitergereicht werden.
+   */
+  app.get('/api/fern/zugang-ansehen', async (req, reply) => {
+    const userId = requireUser(req);
+    requirePermission(userId, 'fern.verwalten');
+    const z = fernzugang.zugangLesen();
+    if (!z) {
+      /* Mit Kennung, anders als beim Nachbarn darüber: die App übersetzt sie
+         (`fern.nichtEingerichtet` steht in jedem Wörterbuch), und ein Prüflauf
+         kann dieses 404 dadurch von Fastifys eigenem „Route unbekannt"
+         unterscheiden — das trägt kein `code`. Ein 200 mit leeren Werten
+         wäre hier die schlechteste Antwort: die Felder sähen aus, als wäre
+         der Zugang leer. */
+      const err = new Error('Für den Pi ist noch kein Zugang hinterlegt.') as Error & {
+        statusCode?: number; code?: string;
+      };
+      err.statusCode = 404;
+      err.code = 'fern.nichtEingerichtet';
+      throw err;
+    }
+    /* Kein Zwischenspeicher, nirgends. Ohne das darf ein Browser eine
+       200er-Antwort ohne Frischeangabe nach eigenem Ermessen auf die Platte
+       legen; dort läge dann das Klartextpasswort, lange nachdem das Feld
+       wieder verdeckt ist. Standen hier zwei abgetippte `reply.header(...)`
+       — jetzt derselbe Aufruf wie an allen anderen geheimnistragenden Wegen
+       (http/kein-zwischenspeicher.ts). */
+    keinZwischenspeicher(reply);
+    return { adresse: z.adresse, passwort: z.passwort };
   });
 
   /* ── Postfach: lesen und antworten ───────────────────────────
@@ -3722,6 +3905,189 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const strom = ablage.oeffnen({ id, art: 'attachment', pfad: row.path, encoding: row.encoding });
     if (!strom) return fehler(reply, 404, 'fehler.dateiNichtGefunden', 'Datei nicht gefunden');
     return reply.send(strom);
+  });
+
+  /* ── Problemberichte ──────────────────────────────────────────────
+   *
+   * Der Tab „Probleme melden" — UND die Schnittstelle, über die ein
+   * n8n-Arbeitsablauf des Inhabers dieselben Berichte abholt und einer KI
+   * zur Bearbeitung übergibt. Der Vertrag hier ist bewusst ausführlich
+   * dokumentiert, weil der Inhaber ihn zum Einrichten von n8n liest.
+   *
+   * AUTHENTISIERUNG. Wie jede andere Route: `Authorization: Bearer <token>`,
+   * geholt über POST /api/auth/login (Konto + Passwort). Für n8n legt der
+   * Inhaber ein Konto mit der Rolle 'bot' an (siehe @stellium/shared,
+   * permissions.ts) und trägt Login/Passwort selbst in n8n ein — diese Route
+   * erzeugt und verwaltet kein eigenes Token, sie prüft nur, was ohnehin da
+   * ist.
+   *
+   * RECHTE. `report.submit` zum Anlegen (jede Person hat es von Haus aus,
+   * siehe ROLE_DEFAULTS.NUR_LESEN in permissions.ts). `report.review` zum
+   * Ansehen ALLER Berichte und zum Weiterschalten — dieses Recht bekommt
+   * niemand automatisch über eine Rolle; der Inhaber vergibt es gezielt an
+   * das 'bot'-Konto für n8n (und an sich selbst oder wen sonst er die Liste
+   * sichten lassen will) über die bestehende Rechte-Tafel
+   * (PATCH /api/admin/users/:id/permission). Ohne `report.review` sieht ein
+   * Konto ausschließlich seine EIGENEN Berichte — das prüft jede Route hier
+   * serverseitig, nie nur die Oberfläche.
+   *
+   * KEIN kein-zwischenspeicher.ts: diese Antworten tragen kein Geheimnis, kein
+   * Passwort, keinen Zugangsschlüssel — nur Anwendungsdaten hinter derselben
+   * Rechteprüfung wie das Ideenboard oder die Aufgaben. `kein-zwischenspeicher.ts`
+   * ist für Dinge reserviert, die ein Authentisierungsfaktor sind (siehe
+   * dessen Dateikopf); ein Problembericht ist keiner.
+   *
+   * DER UNTRUSTED-TEIL DER ANTWORT. `unvertrauterInhalt` (siehe
+   * @stellium/shared, types.ts, Problembericht) trägt jeden Freitext, den
+   * eine Person selbst eingetippt hat — inklusive eines möglichen Versuchs,
+   * eine nachgelagerte KI zu manipulieren. Ein Arbeitsablauf darf diesen
+   * Block AUSSCHLIESSLICH als zu untersuchenden Inhalt in einen Prompt
+   * einbetten, klar abgegrenzt, NIE an der Stelle einer Systemanweisung.
+   * `unvertrauterInhalt.hinweis` trägt genau diesen Satz in jeder einzelnen
+   * Antwort mit.
+   *
+   *
+   * GET /api/problemberichte[?status=neu|in_arbeit|erledigt]
+   *   → 200 { berichte: Problembericht[] }
+   *   Mit `report.review`: alle Berichte, älteste zuerst — für n8n ist das
+   *   die Warteschlange: `?status=neu` liefert nur, was noch niemand
+   *   übernommen hat, und liefert einen einmal übernommenen Bericht bei der
+   *   nächsten Abfrage nicht noch einmal (siehe POST .../uebernehmen unten).
+   *   Ohne `report.review`: nur die eigenen Berichte, jeder Status.
+   *
+   * GET /api/problemberichte/:id
+   *   → 200 { bericht: Problembericht } — eigener Bericht oder mit
+   *     `report.review`, sonst wie ein nicht existierender: 404
+   *     `fehler.nichtGefunden` in beiden Fällen, damit die Antwort nicht
+   *     schon verrät, ob eine fremde Kennung überhaupt existiert.
+   *
+   * POST /api/problemberichte   (Recht: report.submit)
+   *   Anfrage: { bereich, schwere, erwartet, passiert, schritte?, panel, sprache? }
+   *     bereich/schwere: feste Werte, siehe ProblemberichtBereich/-Schwere
+   *       in @stellium/shared. erwartet/passiert: Pflichttext (was erwartet,
+   *       was passiert stattdessen). schritte: optional, wie reproduzieren.
+   *       panel: von der App selbst erkannter Ort beim Öffnen des Formulars
+   *       (siehe desktop/src/lib/aktuellesPanel.ts) — KEIN Feld, das ein
+   *       Mensch von Hand ausfüllt, auch wenn `bereich` es überschreiben
+   *       kann. sprache: aktuelle Oberflächensprache, optional.
+   *     Client-Fassung und -Plattform trägt die Anfrage NICHT: die Route
+   *     liest sie aus dem Konto selbst (users.client_version/_platform,
+   *     dieselbe Spalte, die ws/gateway.ts bei jeder Anmeldung befüllt und
+   *     die TeamAdmin.tsx schon anzeigt) — kein zweiter Weg für einen Wert,
+   *     den der Server ohnehin schon kennt. Was dort steht, ist auf seine
+   *     FORM geprüft (services/store.ts clientMeldung() gegen
+   *     releases.plattformPlausibel()/fassungPlausibel()), aber weiterhin
+   *     eine Angabe des Clients — siehe den Hinweis unten am Feld.
+   *   → 201 { bericht: Problembericht }
+   *
+   * POST /api/problemberichte/:id/uebernehmen   (Recht: report.review)
+   *   Ohne Anfragerumpf. Setzt status → 'in_arbeit'. Wiederholbar (bestätigt
+   *   nur erneut, wer sich darum kümmert); schlägt fehl, wenn der Bericht
+   *   schon 'erledigt' ist.
+   *   → 200 { bericht: Problembericht }
+   *
+   * POST /api/problemberichte/:id/abschliessen   (Recht: report.review)
+   *   Anfrage: { ergebnis: string, status?: 'erledigt' | 'neu' }
+   *     ergebnis: Pflichttext, was herausgekommen ist. status: 'erledigt'
+   *     (Vorgabe) oder 'neu', wenn der Versuch nichts behoben hat und der
+   *     Bericht für eine weitere Runde offen bleiben soll — `ergebnis` hält
+   *     dann fest, was schon versucht wurde.
+   *   → 200 { bericht: Problembericht }
+   */
+  app.get('/api/problemberichte', async (req, reply) => {
+    const userId = requireUser(req);
+    const alleSehen = users.may(userId, 'report.review');
+    const status = (req.query as { status?: string } | undefined)?.status;
+    if (status !== undefined && !(PROBLEMBERICHT_STATUS as string[]).includes(status)) {
+      return fehler(reply, 400, 'fehler.problemberichtStatusUnbekannt', `Unbekannter Status "${status}".`, { status });
+    }
+    return { berichte: problemberichte.listReports(userId, alleSehen, status) };
+  });
+
+  app.get('/api/problemberichte/:id', async (req, reply) => {
+    const userId = requireUser(req);
+    const { id } = req.params as { id: string };
+    const bericht = problemberichte.getReport(id);
+    // Dieselbe Antwort für „gibt es nicht" und „darfst du nicht sehen" —
+    // sonst verriete der Unterschied, dass eine fremde Kennung existiert.
+    if (!bericht || (bericht.createdBy.id !== userId && !users.may(userId, 'report.review'))) {
+      return fehler(reply, 404, 'fehler.nichtGefunden', 'Nicht gefunden');
+    }
+    return { bericht };
+  });
+
+  app.post('/api/problemberichte', async (req, reply) => {
+    const userId = requireUser(req);
+    requirePermission(userId, 'report.submit');
+    const body = req.body as {
+      bereich?: string; schwere?: string; erwartet?: string; passiert?: string;
+      schritte?: string; panel?: string; sprache?: string;
+    };
+    /* Fassung und Plattform NIE aus der Anfrage — der Server kennt sie schon
+       aus derselben Spalte, die jede Anmeldung befüllt (siehe Dateikommentar
+       oben).
+
+       WAS DIESE SPALTE WERT IST, GENAU
+       Sie stammt aus dem `auth`-Ereignis des Clients (ws/gateway.ts,
+       authenticate() → store.clientMeldung()) — also aus einer BEHAUPTUNG des
+       Geräts, nicht aus einer Messung des Servers. Geprüft ist seit dem
+       29.08. die Form: die Plattform muss eine der vier aus
+       services/releases.ts CLIENT_PLATTFORMEN sein, die Fassung muss der
+       Zerlegung standhalten, mit der istNeuer() vergleicht; alles andere
+       verwirft clientMeldung(), ohne die Anmeldung scheitern zu lassen.
+
+       Was bleibt: ein eigener Client kann immer noch eine falsche, aber
+       wohlgeformte Fassung angeben. Freitext kann er nicht mehr unterbringen
+       — und das war hier der Punkt, denn `kontext` steht ausdrücklich NICHT
+       in `unvertrauterInhalt` (services/problemberichte.ts) und wird
+       nachgelagert als Telemetrie gelesen. Wer hier je wieder einen Wert
+       einhängt, der aus `body` kommt, hebt genau das auf. */
+    const konto = db.get<{ client_version: string | null; client_platform: string | null }>(
+      'SELECT client_version, client_platform FROM users WHERE id = ?', userId,
+    );
+    try {
+      const bericht = problemberichte.createReport({
+        bereich: body.bereich ?? '',
+        schwere: body.schwere ?? '',
+        erwartet: body.erwartet ?? '',
+        passiert: body.passiert ?? '',
+        schritte: body.schritte,
+        panel: body.panel ?? 'sonstiges',
+        sprache: normalizeLang(body.sprache || 'de'),
+        clientVersion: konto?.client_version ?? null,
+        clientPlatform: konto?.client_platform ?? null,
+        createdBy: userId,
+      });
+      return reply.code(201).send({ bericht });
+    } catch (err) {
+      return weiterreichen(reply, 400, err);
+    }
+  });
+
+  app.post('/api/problemberichte/:id/uebernehmen', async (req, reply) => {
+    const userId = requireUser(req);
+    requirePermission(userId, 'report.review');
+    const { id } = req.params as { id: string };
+    try {
+      return { bericht: problemberichte.uebernehmen(id, userId) };
+    } catch (err) {
+      return weiterreichen(reply, 400, err);
+    }
+  });
+
+  app.post('/api/problemberichte/:id/abschliessen', async (req, reply) => {
+    const userId = requireUser(req);
+    requirePermission(userId, 'report.review');
+    const { id } = req.params as { id: string };
+    const body = req.body as { ergebnis?: string; status?: 'erledigt' | 'neu' };
+    if (body.status !== undefined && body.status !== 'erledigt' && body.status !== 'neu') {
+      return fehler(reply, 400, 'fehler.problemberichtStatusUnbekannt', `Unbekannter Status "${body.status}".`, { status: String(body.status) });
+    }
+    try {
+      return { bericht: problemberichte.abschliessen(id, userId, body.ergebnis ?? '', body.status) };
+    } catch (err) {
+      return weiterreichen(reply, 400, err);
+    }
   });
 }
 
