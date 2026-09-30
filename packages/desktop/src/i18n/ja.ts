@@ -1308,6 +1308,7 @@ export const ja = {
   'fern.verbindetAls': '{name} として接続中',
   'fern.browserOhneVideo': 'このブラウザでは Pi の画面を表示できません。https 接続と最新のブラウザ（iOS 16.4 以降の Safari、Chrome、Edge）が必要です。',
   'fern.tastatur': 'キーボード',
+  'fern.ablageUebernehmen': 'Pi のクリップボードをコピー',
   'fern.verbinden': '接続',
   'fern.keinRecht': 'これを行う権限がありません。',
   'fern.nichtEingerichtet': 'Pi のアクセス情報はまだ保存されていません。',

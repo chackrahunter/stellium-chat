@@ -1308,6 +1308,7 @@ export const zh = {
   'fern.verbindetAls': '正以 {name} 连接',
   'fern.browserOhneVideo': '此浏览器无法显示 Pi 的屏幕。需要 https 连接和较新的浏览器（iOS 16.4 起的 Safari、Chrome 或 Edge）。',
   'fern.tastatur': '键盘',
+  'fern.ablageUebernehmen': '复制 Pi 的剪贴板',
   'fern.verbinden': '连接',
   'fern.keinRecht': '你没有此权限。',
   'fern.nichtEingerichtet': '尚未为 Pi 保存访问信息。',

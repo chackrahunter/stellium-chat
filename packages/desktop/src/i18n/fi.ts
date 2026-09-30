@@ -1308,6 +1308,7 @@ export const fi = {
   'fern.verbindetAls': 'Yhdistetään nimellä {name}',
   'fern.browserOhneVideo': 'Tämä selain ei pysty näyttämään Pin näyttöä. Tarvitaan https-yhteys ja ajantasainen selain (Safari iOS 16.4:stä alkaen, Chrome tai Edge).',
   'fern.tastatur': 'Näppäimistö',
+  'fern.ablageUebernehmen': 'Kopioi Pin leikepöytä',
   'fern.verbinden': 'Yhdistä',
   'fern.keinRecht': 'Sinulla ei ole tähän oikeutta.',
   'fern.nichtEingerichtet': 'Pi:lle ei ole vielä tallennettu pääsyä.',

@@ -1336,6 +1336,7 @@ export const ar = {
   'fern.verbindetAls': 'الاتصال باسم {name}',
   'fern.browserOhneVideo': 'لا يستطيع هذا المتصفح عرض شاشة الـ Pi. يلزم اتصال https ومتصفح حديث (Safari من iOS 16.4، أو Chrome أو Edge).',
   'fern.tastatur': 'لوحة المفاتيح',
+  'fern.ablageUebernehmen': 'نسخ حافظة الـ Pi',
   'fern.verbinden': 'اتصال',
   'fern.keinRecht': 'ليس لديك صلاحية لذلك.',
   'fern.nichtEingerichtet': 'لم يُحفظ وصول للـ Pi بعد.',

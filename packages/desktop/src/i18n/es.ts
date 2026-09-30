@@ -1308,6 +1308,7 @@ export const es = {
   'fern.verbindetAls': 'Conectando como {name}',
   'fern.browserOhneVideo': 'Este navegador no puede mostrar la pantalla de la Pi. Hace falta una conexión https y un navegador actual (Safari desde iOS 16.4, Chrome o Edge).',
   'fern.tastatur': 'Teclado',
+  'fern.ablageUebernehmen': 'Copiar el portapapeles de la Pi',
   'fern.verbinden': 'Conectar',
   'fern.keinRecht': 'No tienes permiso para esto.',
   'fern.nichtEingerichtet': 'Aún no hay acceso guardado para el Pi.',

@@ -1322,6 +1322,7 @@ export const uk = {
   'fern.verbindetAls': 'Підключення як {name}',
   'fern.browserOhneVideo': "Цей браузер не може показати екран Pi. Потрібні https-з'єднання та сучасний браузер (Safari з iOS 16.4, Chrome або Edge).",
   'fern.tastatur': 'Клавіатура',
+  'fern.ablageUebernehmen': 'Взяти буфер обміну Pi',
   'fern.verbinden': 'Підключитися',
   'fern.keinRecht': 'У вас немає на це прав.',
   'fern.nichtEingerichtet': 'Доступ до Pi ще не збережено.',

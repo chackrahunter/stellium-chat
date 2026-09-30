@@ -1308,6 +1308,7 @@ export const no = {
   'fern.verbindetAls': 'Kobler til som {name}',
   'fern.browserOhneVideo': 'Denne nettleseren kan ikke vise skjermen til Pi-en. Det krever en https-tilkobling og en oppdatert nettleser (Safari fra iOS 16.4, Chrome eller Edge).',
   'fern.tastatur': 'Tastatur',
+  'fern.ablageUebernehmen': 'Kopier utklippstavlen til Pi-en',
   'fern.verbinden': 'Koble til',
   'fern.keinRecht': 'Du har ikke rettighet til dette.',
   'fern.nichtEingerichtet': 'Det er ennå ikke lagret tilgang til Pi-en.',

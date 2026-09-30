@@ -1308,6 +1308,7 @@ export const tr = {
   'fern.verbindetAls': '{name} olarak bağlanıyor',
   'fern.browserOhneVideo': "Bu tarayıcı Pi'nin ekranını gösteremiyor. Bir https bağlantısı ve güncel bir tarayıcı gerekir (iOS 16.4'ten itibaren Safari, Chrome veya Edge).",
   'fern.tastatur': 'Klavye',
+  'fern.ablageUebernehmen': "Pi'nin panosunu al",
   'fern.verbinden': 'Bağlan',
   'fern.keinRecht': 'Bunun için yetkin yok.',
   'fern.nichtEingerichtet': 'Pi için henüz erişim kaydedilmedi.',

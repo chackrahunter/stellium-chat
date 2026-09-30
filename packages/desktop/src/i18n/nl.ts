@@ -1308,6 +1308,7 @@ export const nl = {
   'fern.verbindetAls': 'Verbindt als {name}',
   'fern.browserOhneVideo': 'Deze browser kan het scherm van de Pi niet tonen. Daarvoor zijn een https-verbinding en een actuele browser nodig (Safari vanaf iOS 16.4, Chrome of Edge).',
   'fern.tastatur': 'Toetsenbord',
+  'fern.ablageUebernehmen': 'Klembord van de Pi overnemen',
   'fern.verbinden': 'Verbinden',
   'fern.keinRecht': 'Je hebt hiervoor geen recht.',
   'fern.nichtEingerichtet': 'Voor de Pi is nog geen toegang opgeslagen.',

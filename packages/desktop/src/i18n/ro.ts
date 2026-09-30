@@ -1315,6 +1315,7 @@ export const ro = {
   'fern.verbindetAls': 'Se conectează ca {name}',
   'fern.browserOhneVideo': 'Acest browser nu poate afișa ecranul Pi-ului. Sunt necesare o conexiune https și un browser actual (Safari de la iOS 16.4, Chrome sau Edge).',
   'fern.tastatur': 'Tastatură',
+  'fern.ablageUebernehmen': 'Preia clipboardul Pi-ului',
   'fern.verbinden': 'Conectează',
   'fern.keinRecht': 'Nu ai dreptul pentru asta.',
   'fern.nichtEingerichtet': 'Pentru Pi nu este încă salvat niciun acces.',

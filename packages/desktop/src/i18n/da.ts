@@ -1308,6 +1308,7 @@ export const da = {
   'fern.verbindetAls': 'Forbinder som {name}',
   'fern.browserOhneVideo': "Denne browser kan ikke vise Pi'ens skærm. Det kræver en https-forbindelse og en opdateret browser (Safari fra iOS 16.4, Chrome eller Edge).",
   'fern.tastatur': 'Tastatur',
+  'fern.ablageUebernehmen': "Hent Pi'ens udklipsholder",
   'fern.verbinden': 'Forbind',
   'fern.keinRecht': 'Du har ikke rettighed til det.',
   'fern.nichtEingerichtet': 'Der er endnu ikke gemt adgang til Pi\'en.',

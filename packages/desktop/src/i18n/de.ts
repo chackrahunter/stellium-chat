@@ -1456,6 +1456,7 @@ export const de = {
   'fern.verbindetAls': 'Verbindet als {name}',
   'fern.browserOhneVideo': 'Dieser Browser kann das Bild des Pi nicht anzeigen. Nötig sind eine https-Verbindung und ein aktueller Browser (Safari ab iOS 16.4, Chrome oder Edge).',
   'fern.tastatur': 'Tastatur',
+  'fern.ablageUebernehmen': 'Ablage des Pi übernehmen',
   'fern.verbinden': 'Verbinden',
   'fern.keinRecht': 'Dafür fehlt dir das Recht.',
   'fern.nichtEingerichtet': 'Für den Pi ist noch kein Zugang hinterlegt.',

@@ -255,3 +255,28 @@ export function textNachTasten(text: string): string | null {
 
 /** Strg+V — nach dem Setzen der Ablage des Pi. */
 export const EINFUEGEN = `k 29 1\n${taste(47)}k 29 0\n`;
+
+/**
+ * Befehlszeilen in Nachrichten aufteilen, die der Chat-Server annimmt
+ * (unter 4096 Zeichen, siehe `eingabeGueltig` in fernleitung.ts). Ohne das
+ * ging ein eingefügter Absatz ab etwa 170 Zeichen komplett verloren — jede
+ * Taste sind zwei, mit Umschalt vier Zeilen. Geschnitten wird nur an
+ * Zeilenenden, damit jedes Stück für sich gültig bleibt.
+ */
+export function inStuecke(zeilen: string, max = 3500): string[] {
+  const stuecke: string[] = [];
+  let jetzt = '';
+  for (const z of zeilen.split('\n')) {
+    if (!z) continue;
+    if (jetzt && jetzt.length + z.length + 1 > max) { stuecke.push(jetzt); jetzt = ''; }
+    jetzt += `${z}\n`;
+  }
+  if (jetzt) stuecke.push(jetzt);
+  return stuecke;
+}
+
+/** Zeichen je Ablage-Runde. Der Server nimmt höchstens 6000 BYTES an
+ *  (ABLAGE_MAX in fernleitung.ts); ein Zeichen hat in UTF-8 bis zu vier,
+ *  also 1500. Längerer Text geht in mehreren Runden Ablage + Strg+V. */
+export const ABLAGE_STUECK = 1500;
+

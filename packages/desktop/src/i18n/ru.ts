@@ -1322,6 +1322,7 @@ export const ru = {
   'fern.verbindetAls': 'Подключение как {name}',
   'fern.browserOhneVideo': 'Этот браузер не может показать экран Pi. Нужны https-соединение и современный браузер (Safari начиная с iOS 16.4, Chrome или Edge).',
   'fern.tastatur': 'Клавиатура',
+  'fern.ablageUebernehmen': 'Взять буфер обмена Pi',
   'fern.verbinden': 'Подключиться',
   'fern.keinRecht': 'У вас нет на это прав.',
   'fern.nichtEingerichtet': 'Доступ к Pi ещё не сохранён.',

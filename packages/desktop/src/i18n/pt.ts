@@ -1308,6 +1308,7 @@ export const pt = {
   'fern.verbindetAls': 'A ligar como {name}',
   'fern.browserOhneVideo': 'Este navegador não consegue mostrar a tela do Pi. É preciso uma conexão https e um navegador atualizado (Safari a partir do iOS 16.4, Chrome ou Edge).',
   'fern.tastatur': 'Teclado',
+  'fern.ablageUebernehmen': 'Copiar a área de transferência do Pi',
   'fern.verbinden': 'Ligar',
   'fern.keinRecht': 'Você não tem permissão para isto.',
   'fern.nichtEingerichtet': 'Ainda não há acesso guardado para o Pi.',

@@ -1308,6 +1308,7 @@ export const sv = {
   'fern.verbindetAls': 'Ansluter som {name}',
   'fern.browserOhneVideo': 'Den här webbläsaren kan inte visa Pi:ns skärm. Det krävs en https-anslutning och en aktuell webbläsare (Safari från iOS 16.4, Chrome eller Edge).',
   'fern.tastatur': 'Tangentbord',
+  'fern.ablageUebernehmen': 'Hämta Pi:ns urklipp',
   'fern.verbinden': 'Anslut',
   'fern.keinRecht': 'Du har inte behörighet till det.',
   'fern.nichtEingerichtet': 'Ingen åtkomst är ännu sparad för Pi:n.',

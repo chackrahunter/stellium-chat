@@ -1322,6 +1322,7 @@ export const pl = {
   'fern.verbindetAls': 'Łączy jako {name}',
   'fern.browserOhneVideo': 'Ta przeglądarka nie może wyświetlić ekranu Pi. Potrzebne jest połączenie https i aktualna przeglądarka (Safari od iOS 16.4, Chrome lub Edge).',
   'fern.tastatur': 'Klawiatura',
+  'fern.ablageUebernehmen': 'Przejmij schowek Pi',
   'fern.verbinden': 'Połącz',
   'fern.keinRecht': 'Nie masz do tego uprawnień.',
   'fern.nichtEingerichtet': 'Dla Pi nie zapisano jeszcze dostępu.',

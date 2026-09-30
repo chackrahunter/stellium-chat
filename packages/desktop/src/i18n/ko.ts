@@ -1308,6 +1308,7 @@ export const ko = {
   'fern.verbindetAls': '{name}(으)로 연결 중',
   'fern.browserOhneVideo': '이 브라우저에서는 Pi 화면을 표시할 수 없습니다. https 연결과 최신 브라우저(iOS 16.4 이상의 Safari, Chrome 또는 Edge)가 필요합니다.',
   'fern.tastatur': '키보드',
+  'fern.ablageUebernehmen': 'Pi 클립보드 가져오기',
   'fern.verbinden': '연결',
   'fern.keinRecht': '이 작업 권한이 없습니다.',
   'fern.nichtEingerichtet': 'Pi 접속 정보가 아직 저장되지 않았습니다.',

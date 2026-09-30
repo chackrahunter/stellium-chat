@@ -1322,6 +1322,7 @@ export const cs = {
   'fern.verbindetAls': 'Připojuje se jako {name}',
   'fern.browserOhneVideo': 'Tento prohlížeč neumí zobrazit obrazovku Pi. Je potřeba spojení přes https a aktuální prohlížeč (Safari od iOS 16.4, Chrome nebo Edge).',
   'fern.tastatur': 'Klávesnice',
+  'fern.ablageUebernehmen': 'Převzít schránku Pi',
   'fern.verbinden': 'Připojit',
   'fern.keinRecht': 'K tomu nemáš oprávnění.',
   'fern.nichtEingerichtet': 'Pro Pi zatím není uložen přístup.',

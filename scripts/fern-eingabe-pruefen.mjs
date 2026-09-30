@@ -26,7 +26,7 @@ if (!process.env.FERN_EINGABE_TSX) {
 
 const wurzel = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const m = await import(pathToFileURL(path.join(wurzel, 'packages/desktop/src/lib/fern-eingabe.ts')).href);
-const { nachSchirm, ansichtNachziehen, Gesten, textNachTasten, EINFUEGEN, LANG_MS, ZIEH_SCHWELLE } = m;
+const { taste, nachSchirm, ansichtNachziehen, Gesten, textNachTasten, inStuecke, EINFUEGEN, LANG_MS, ZIEH_SCHWELLE, ABLAGE_STUECK } = m;
 
 let fehler = 0;
 const pruefe = (was, ok, zusatz = '') => {
@@ -209,6 +209,25 @@ pruefe('Einfügen = Strg (29) + V (47)',
 const fehlend = [];
 for (let c = 32; c < 127; c++) if (textNachTasten(String.fromCharCode(c)) === null) fehlend.push(String.fromCharCode(c));
 pruefe('alle 95 druckbaren ASCII-Zeichen sind abgedeckt', fehlend.length === 0, fehlend.join(' '));
+
+console.log('\nLange Texte');
+{
+  /* Der Server nimmt Nachrichten unter 4096 Zeichen an, jede Zeile muss
+     gültig sein (eingabeGueltig in fernleitung.ts). Bis eben ging alles ab
+     etwa 170 Zeichen in EINER Nachricht hinaus — und wurde verworfen. */
+  const text = 'Hallo Welt! '.repeat(60);           /* 720 Zeichen, mit Umschalt */
+  const zeilen = textNachTasten(text);
+  const stuecke = inStuecke(zeilen);
+  pruefe('ein langer Text wird geteilt', zeilen.length > 4096 && stuecke.length > 1,
+    `${zeilen.length} Zeichen → ${stuecke.length} Stücke`);
+  pruefe('jedes Stück passt durch den Server (unter 4096, mit \\n am Ende)',
+    stuecke.every((x) => x.length < 4096 && x.endsWith('\n')));
+  pruefe('jede Zeile bleibt ganz', stuecke.every((x) => x.slice(0, -1).split('\n').every((z) => /^k \d+ [01]$/.test(z))));
+  pruefe('zusammen ergeben sie genau den Text', stuecke.join('') === zeilen);
+  pruefe('ein kurzer Text bleibt ein Stück', inStuecke(taste(30)).length === 1);
+  pruefe('ein Ablage-Stück passt auch aus Vier-Byte-Zeichen unter 6000 Bytes',
+    Buffer.byteLength('👍'.repeat(ABLAGE_STUECK)) <= 6000, `${Buffer.byteLength('👍'.repeat(ABLAGE_STUECK))} Bytes`);
+}
 
 console.log(fehler
   ? `\n\x1b[31m${fehler} Prüfung(en) fehlgeschlagen\x1b[0m\n`

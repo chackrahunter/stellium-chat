@@ -14,13 +14,13 @@
  */
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
-import { AlertTriangle, ExternalLink, Keyboard, Loader2, Monitor, Power, Type, Users, X } from 'lucide-react';
+import { AlertTriangle, ClipboardPaste, ExternalLink, Keyboard, Loader2, Monitor, Power, Type, Users, X } from 'lucide-react';
 import { Shell } from './Panels.jsx';
 import { api } from '../net/api.js';
 import { fernImBrowser } from '../net/fern-browser.js';
 import {
-  ANSICHT_GANZ, EINFUEGEN, Gesten, LANG_MS, SONDERTASTEN, ansichtNachziehen, nachSchirm as punktNachSchirm,
-  taste, textNachTasten, type Ansicht, type Punkt,
+  ABLAGE_STUECK, ANSICHT_GANZ, EINFUEGEN, Gesten, LANG_MS, SONDERTASTEN, ansichtNachziehen, inStuecke,
+  nachSchirm as punktNachSchirm, taste, textNachTasten, type Ansicht, type Punkt,
 } from '../lib/fern-eingabe.js';
 import { useStore } from '../state/store.js';
 import { t } from '../i18n';
@@ -101,6 +101,9 @@ export function Fernsteuerung(
     zuschauer?: number; steuert?: boolean; steuerungBei?: string | null;
   } | null>(null);
   const [steuert, setSteuert] = useState(false);
+  /* Im Browser: was der Pi zuletzt kopiert hat, bis es jemand ausdrücklich
+     in die eigene Ablage übernimmt (net/fern-browser.ts). */
+  const [piAblage, setPiAblage] = useState<string | null>(null);
 
   const fern = useMemo(fernWeg, []);
   /* Telefon oder Tablett: Vollbild statt Tafel, Gesten statt Maus, eine
@@ -223,7 +226,7 @@ export function Fernsteuerung(
       setLage(z.lage);
       setFehler(z.fehler);
       if (z.lage === 'offen') dekoderRichten();
-      if (z.lage !== 'offen') { setSteuert(false); setInfo(null); }
+      if (z.lage !== 'offen') { setSteuert(false); setInfo(null); setPiAblage(null); }
     });
     const abInfo = fern.aufInfo((i: any) => {
       setInfo(i);
@@ -250,7 +253,8 @@ export function Fernsteuerung(
     void api.fernStand()
       .then(setStand)
       .catch(() => setStand({ hinterlegt: false, kennung: null, darf: false }));
-    return () => { abBild?.(); abZustand?.(); abInfo?.(); };
+    const abAblage = fern.aufAblage?.((text: string) => setPiAblage(text));
+    return () => { abBild?.(); abZustand?.(); abInfo?.(); abAblage?.(); };
   }, [fern, dekoderRichten]);
 
   useEffect(() => () => { try { dekoder.current?.close(); } catch { /* egal */ } }, []);
@@ -363,10 +367,15 @@ export function Fernsteuerung(
     const text = feld.value;
     feld.value = '';
     const zeilen = textNachTasten(text);
-    if (zeilen !== null) { schick(zeilen); return; }
+    if (zeilen !== null) { for (const stueck of inStuecke(zeilen)) schick(stueck); return; }
     /* ä, ß, Emoji: auf der US-Belegung des Pi gibt es dafür keine Taste.
        Also über die Ablage des Pi und Strg+V. */
-    if (steuertRef.current && fern?.ablage) { fern.ablage(text); schick(EINFUEGEN); }
+    if (!steuertRef.current || !fern?.ablage) return;
+    const zeichen = Array.from(text);
+    for (let i = 0; i < zeichen.length; i += ABLAGE_STUECK) {
+      fern.ablage(zeichen.slice(i, i + ABLAGE_STUECK).join(''));
+      schick(EINFUEGEN);
+    }
   };
 
   /* Zoom zurück, wenn die Verbindung endet — die nächste fängt ganz an. */
@@ -519,6 +528,22 @@ export function Fernsteuerung(
           aria-label={t('fern.tastatur')}
         >
           <Type size={14} />
+        </button>
+      )}
+      {/* Die Ablage des Pi landet im Browser nicht von selbst in der des
+          Telefons — erst auf diesen Druck. Der ist zugleich die Berührung,
+          ohne die Safari das Schreiben ohnehin nicht erlaubt. */}
+      {piAblage !== null && (
+        <button
+          type="button"
+          className="fern__knopf"
+          onClick={() => {
+            void navigator.clipboard?.writeText(piAblage).then(() => setPiAblage(null)).catch(() => { /* nicht erlaubt */ });
+          }}
+          title={t('fern.ablageUebernehmen')}
+          aria-label={t('fern.ablageUebernehmen')}
+        >
+          <ClipboardPaste size={14} />
         </button>
       )}
       {/* Nur im Hauptfenster der App: im Betrachter selbst wäre der Knopf

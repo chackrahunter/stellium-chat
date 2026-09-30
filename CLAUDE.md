@@ -88,7 +88,7 @@ node scripts/fern-frist-pruefen.mjs          # Fernsteuerung: alte Leitungsmessu
 node scripts/e2e-fern-handy.mjs              # Fernsteuerung: Chrome als iPhone
 ```
 
-Die letzten sieben brauchen keinen laufenden Server (`e2e-fern-handy` bringt
+Die letzten acht brauchen keinen laufenden Server (`e2e-fern-handy` bringt
 einen Probeserver mit und braucht Google Chrome und ffmpeg). `e2e-nachruesten` baut
 eine Datenbank nach dem Schema der letzten Fassung und startet den heutigen
 Server darauf. Alle anderen Läufe legen ihre Datenbank frisch an — dort bringt

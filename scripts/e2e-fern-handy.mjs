@@ -95,7 +95,12 @@ setInterval(() => rahmen(3, Buffer.from('15,0 B/s')), 500);
 let rest = '';
 process.stdin.on('data', (d) => {
   rest += String(d);
-  for (;;) { const i = rest.indexOf('\\n'); if (i < 0) break; const z = rest.slice(0, i); rest = rest.slice(i + 1); if (z) merk('befehl ' + z); }
+  for (;;) {
+    const i = rest.indexOf('\\n'); if (i < 0) break; const z = rest.slice(0, i); rest = rest.slice(i + 1);
+    if (z) merk('befehl ' + z);
+    /* Wie der echte: die neue Auswahl kommt als Rahmen 2 zurück. */
+    if (z.startsWith('a ')) rahmen(2, Buffer.from(z.slice(2), 'base64'));
+  }
 });
 process.on('SIGTERM', () => process.exit(0));
 `, { mode: 0o755 });
@@ -146,6 +151,7 @@ try {
 
   browser = await chromium.launch({ channel: 'chrome', headless: true });
   const ctx = await browser.newContext({ ...devices['iPhone 13'], locale: 'de-DE' });
+  await ctx.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: probe.S });
   const p = await ctx.newPage();
   const konsole = [];
   p.on('pageerror', (f) => konsole.push(String(f)));
@@ -157,6 +163,7 @@ try {
   }, [probe.S, probe.token]);
   await p.reload();
   await p.waitForSelector('.app', { timeout: 30_000 });
+  await p.evaluate(() => navigator.clipboard.writeText('vorher'));
 
   console.log('\nMenü');
   pruefe('das Gerät gilt als Telefon (pointer: coarse)', await p.evaluate(() => matchMedia('(pointer: coarse)').matches));
@@ -275,13 +282,31 @@ try {
     getippt === 'k 42 1,k 35 1,k 35 0,k 42 0,k 23 1,k 23 0,k 42 1,k 2 1,k 2 0,k 42 0,k 14 1,k 14 0,k 28 1,k 28 0', getippt);
   pruefe('das Feld bleibt leer (nichts für die Autokorrektur)',
     await p.evaluate(() => document.querySelector('.fern__eingabe').value === ''));
+  const langerText = 'abc def! '.repeat(40);
+  v = befehle().length;
+  await p.keyboard.insertText(langerText);
+  const erwarteteZeilen = [...langerText].reduce((n, z) => n + (/[a-z ]/.test(z) ? 2 : 4), 0);
+  const kZeilen = () => befehle().slice(v).filter((z) => z.startsWith('k ')).length;
+  await bis(() => kZeilen() >= erwarteteZeilen);
+  pruefe(`ein Text mit ${langerText.length} Zeichen kommt vollständig an (in Stücken)`,
+    kZeilen() === erwarteteZeilen, `${kZeilen()} von ${erwarteteZeilen} Zeilen`);
   v = befehle().length;
   await p.keyboard.insertText('Grüße');
-  await bis(() => befehle().slice(v).some((z) => z.startsWith('a ')));
+  await bis(() => befehle().slice(v).join(',').includes('k 29 1,k 47 1,k 47 0,k 29 0'));
   const ablage = befehle().slice(v).find((z) => z.startsWith('a '));
   pruefe('„Grüße" geht über die Ablage des Pi und Strg+V',
     ablage && Buffer.from(ablage.slice(2), 'base64').toString('utf8') === 'Grüße'
     && befehle().slice(v).join(',').includes('k 29 1,k 47 1,k 47 0,k 29 0'), befehle().slice(v).join(' | '));
+
+  console.log('\nAblage des Pi');
+  /* Der Pi meldet die neue Auswahl zurück (hier: „Grüße" von eben). Sie
+     darf die Ablage des Telefons nicht ungefragt überschreiben. */
+  const knopf = p.getByRole('button', { name: 'Ablage des Pi übernehmen' });
+  pruefe('ein Knopf bietet sie an', await bis(() => knopf.count().then((n) => n === 1)));
+  pruefe('…die Ablage des Telefons ist unverändert',
+    await p.evaluate(() => navigator.clipboard.readText()) !== 'Grüße');
+  await knopf.click();
+  pruefe('erst der Druck übernimmt sie', await bis(() => p.evaluate(() => navigator.clipboard.readText()).then((t) => t === 'Grüße')));
 
   console.log('\nRand');
   const ueber = await p.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);

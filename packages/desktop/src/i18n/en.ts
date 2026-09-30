@@ -1429,6 +1429,7 @@ export const en: Partial<Dictionary> = {
   'fern.verbindetAls': 'Connecting as {name}',
   'fern.browserOhneVideo': "This browser can't display the Pi's screen. It needs an https connection and a current browser (Safari from iOS 16.4, Chrome or Edge).",
   'fern.tastatur': 'Keyboard',
+  'fern.ablageUebernehmen': "Copy the Pi's clipboard",
   'fern.verbinden': 'Connect',
   'fern.keinRecht': 'You don\'t have permission for this.',
   'fern.nichtEingerichtet': 'No access has been stored for the Pi yet.',

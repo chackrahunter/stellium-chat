@@ -39,6 +39,7 @@ let zustand: Zustand = { lage: 'getrennt', fehler: '' };
 const bildHoerer = new Set<(d: Uint8Array) => void>();
 const zustandHoerer = new Set<(z: Zustand) => void>();
 const infoHoerer = new Set<(i: unknown) => void>();
+const ablageHoerer = new Set<(text: string) => void>();
 let empfangen = 0;
 let quittiertBis = 0;
 let letzteNachricht = 0;
@@ -101,9 +102,9 @@ function verbinden(): Promise<boolean> {
     } else if (n.art === 'info') {
       for (const h of infoHoerer) h(n.info);
     } else if (n.art === 'ablage' && typeof n.text === 'string') {
-      /* Safari erlaubt das Schreiben nur nach einer Berührung; klappt es
-         nicht, bleibt die Ablage des Telefons eben, wie sie war. */
-      void navigator.clipboard?.writeText(n.text).catch(() => { /* nicht erlaubt */ });
+      /* NICHT von selbst in die Ablage des Telefons: die Ansicht bietet sie
+         zum Übernehmen an, und erst ein Druck darauf schreibt sie. */
+      for (const h of ablageHoerer) h(n.text);
     }
   });
 
@@ -133,4 +134,5 @@ export const fernImBrowser = {
   aufBild: (ruf: (d: Uint8Array) => void) => { bildHoerer.add(ruf); return () => { bildHoerer.delete(ruf); }; },
   aufZustand: (ruf: (z: Zustand) => void) => { zustandHoerer.add(ruf); return () => { zustandHoerer.delete(ruf); }; },
   aufInfo: (ruf: (i: unknown) => void) => { infoHoerer.add(ruf); return () => { infoHoerer.delete(ruf); }; },
+  aufAblage: (ruf: (text: string) => void) => { ablageHoerer.add(ruf); return () => { ablageHoerer.delete(ruf); }; },
 };

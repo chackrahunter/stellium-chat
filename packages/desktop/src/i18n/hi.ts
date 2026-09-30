@@ -1308,6 +1308,7 @@ export const hi = {
   'fern.verbindetAls': '{name} के रूप में जुड़ रहा है',
   'fern.browserOhneVideo': 'यह ब्राउज़र Pi की स्क्रीन नहीं दिखा सकता। इसके लिए https कनेक्शन और नया ब्राउज़र चाहिए (iOS 16.4 से Safari, Chrome या Edge)।',
   'fern.tastatur': 'कीबोर्ड',
+  'fern.ablageUebernehmen': 'Pi का क्लिपबोर्ड कॉपी करें',
   'fern.verbinden': 'जोड़ें',
   'fern.keinRecht': 'आपको इसका अधिकार नहीं है।',
   'fern.nichtEingerichtet': 'Pi के लिए अभी कोई पहुँच सहेजी नहीं गई है।',
