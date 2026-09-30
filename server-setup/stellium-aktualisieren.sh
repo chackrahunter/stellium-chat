@@ -201,8 +201,12 @@ ok "stellium, stellium-zugang, stellium-tunnel, stellium-update"
 # Ist gar keine Einheit eingerichtet, passiert hier nichts: dieser Pi hat keine
 # Fernsteuerung, und das ist in Ordnung.
 schritt "Fernsteuerung"
+# Der Dateiname ist nicht festgelegt: der erste Pi wurde von Hand mit
+# `dienst.mjs` eingerichtet, spätere mit `fern-dienst.mjs`. Beides gilt — sonst
+# lief genau hier wochenlang „nicht eingerichtet — übersprungen" und der Dienst
+# blieb auf dem Stand vom 22.08.
 FERN_DIENST="$(systemctl cat stellium-fern.service 2>/dev/null \
-  | grep -oE '/[^[:space:]]*fern-dienst\.mjs' | head -1 || true)"
+  | grep -oE '/[^[:space:]]*(fern-)?dienst\.mjs' | head -1 || true)"
 if [[ -z "${FERN_DIENST:-}" || ! -f "$FERN_DIENST" ]]; then
   info "nicht eingerichtet — übersprungen"
 else
@@ -211,8 +215,11 @@ else
   for datei in fern-dienst.mjs anmeldung.mjs passwort.mjs; do
     FERN_QUELLE="$ZIEL/server-setup/fernsteuerung/dienst/$datei"
     [[ -f "$FERN_QUELLE" ]] || continue
-    cmp -s "$FERN_QUELLE" "$FERN_ORT/$datei" && continue
-    install -m 755 "$FERN_QUELLE" "$FERN_ORT/$datei"
+    # Der Dienst selbst landet unter dem Namen, den die Einheit startet.
+    ziel_datei="$datei"
+    [[ "$datei" == fern-dienst.mjs ]] && ziel_datei="$(basename "$FERN_DIENST")"
+    cmp -s "$FERN_QUELLE" "$FERN_ORT/$ziel_datei" && continue
+    install -m 755 "$FERN_QUELLE" "$FERN_ORT/$ziel_datei"
     FERN_NEU=1
   done
 
