@@ -472,8 +472,12 @@ function sendestau(sitzung) {
   sitzung.stauGelesen = jetzt;
   stauTabelleFrischen();
 
+  /* Steht ein Vermittler dazwischen (die Browser-Oberfläche über den
+     Chat-Server, siehe `vermittelt`), liegt der Stau nicht in UNSEREM
+     Sendepuffer — der Weg zum Server ist kurz und immer frei —, sondern
+     hinter ihm. Dann zählt, was er meldet. */
   const port = sitzung.ws?._socket?.remotePort;
-  const tx = port ? stauTabelle.get(port) : undefined;
+  const tx = vermittelt(sitzung)?.unterwegs ?? (port ? stauTabelle.get(port) : undefined);
   if (tx === undefined) { sitzung.stau = 0; return 0; }
   sitzung.stau = tx;
   /* Kurzer Verlauf für die Wachstumsprüfung. Fünf Messungen sind eine
@@ -499,10 +503,46 @@ function sendestau(sitzung) {
  * Fehlt `ss`, bleiben beide Werte leer — dann gilt wieder die alte Rechnung
  * ohne Rohrfüllung, und schlechter als vorher wird es dadurch nie.
  */
+/*
+ * Was ein Vermittler über die Leitung HINTER ihm meldet.
+ *
+ * Die Browser-Oberfläche erreicht den Pi nicht selbst: https-Seiten dürfen
+ * kein unverschlüsseltes ws:// öffnen. Sie geht über den Chat-Server
+ * (packages/server/src/http/fernleitung.ts), und der sitzt meist auf diesem
+ * Pi. Unsere eigenen Messungen — Sendepuffer, `ss` — sähen dann nur die
+ * Strecke zum Server: kein Stau, Laufzeit null, Durchsatz unbegrenzt. Die
+ * Regelung stellte auf Höchstrate, und der Rückstand wüchse unsichtbar beim
+ * Server und in nginx, statt hier verworfen zu werden.
+ *
+ * Deshalb meldet der Vermittler viermal je Sekunde, was er selbst sieht:
+ * gesendet minus vom Browser bestätigt, seine kürzeste Laufzeit zum Browser,
+ * den bestätigten Durchsatz. Nach drei Sekunden ohne Meldung zählt sie nicht
+ * mehr, dann gilt wieder die eigene Messung. Eine App, die direkt verbindet,
+ * schickt nichts davon; für sie ändert sich nichts.
+ */
+const VERMITTELT_FRIST_MS = 3000;
+
+function vermittelt(sitzung) {
+  const v = sitzung.vermittelt;
+  return v && Date.now() - v.stand < VERMITTELT_FRIST_MS ? v : null;
+}
+
+function zahl(w, max) {
+  const n = Number(w);
+  return Number.isFinite(n) && n >= 0 ? Math.min(n, max) : 0;
+}
+
 function leitungMessen(sitzung) {
   const jetzt = Date.now();
   if (jetzt - (sitzung.leitungGelesen ?? 0) < 2000) return;
   sitzung.leitungGelesen = jetzt;
+  const v = vermittelt(sitzung);
+  if (v) {
+    if (v.laufzeitMs) sitzung.laufzeitMs = v.laufzeitMs;
+    if (v.durchsatzKbit) sitzung.durchsatzKbit = v.durchsatzKbit;
+    sitzung.leitungStand = v.stand;
+    return;
+  }
   const port = sitzung.ws?._socket?.remotePort;
   if (!port) return;
   execFile('ss', ['-tni', `sport = :${PORT} and dport = :${port}`],
@@ -1003,6 +1043,17 @@ server.on('connection', (ws, anfrage) => {
           hostStarten(w);
           for (const s of sitzungen) s.rateWunsch = hostMax;
           rateAnHost();
+        } else if (w.art === 'leitung') {
+          /* Nur Zahlen, gedeckelt — eine Meldung kann die Regelung höchstens
+             drosseln lassen oder nicht, aber nichts anderes anstellen. Und
+             nur von einer Gegenstelle, die sich übers Passwort ausgewiesen
+             hat: vor dem Handschlag kommt hier nichts an. */
+          sitzung.vermittelt = {
+            unterwegs: zahl(w.unterwegs, 1e9),
+            laufzeitMs: zahl(w.laufzeitMs, 10_000),
+            durchsatzKbit: zahl(w.durchsatzKbit, 1e6),
+            stand: Date.now(),
+          };
         } else if (w.art === 'konto') {
           /* Kommt aus der App, NICHT aus dem Handschlag — der stand zu dem
              Zeitpunkt noch offen, hier ist die Leitung längst verschlüsselt.

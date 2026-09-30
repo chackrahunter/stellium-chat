@@ -327,6 +327,54 @@ Leitung, nie im Klartext-Handschlag davor. Ältere App-Fassungen kennen das
 Feld nicht — dann steht dort „unbekannt" statt eines Namens, und der
 Handschlag selbst bleibt unverändert möglich.
 
+## Im Browser und auf dem Telefon
+
+**Stand: 30.09.2026.** Die Fernsteuerung gibt es jetzt auch in der
+Browser-Oberfläche, auch auf dem iPhone in Safari — im Stern-Menü für jedes
+Konto mit `fern.zugriff`, dieselbe Regel wie in der App.
+
+Der Browser wählt **nicht** selbst zum Pi. Eine https-Seite darf kein
+unverschlüsseltes `ws://…:7788` öffnen (mixed content), und dafür einen
+zweiten TLS-Endpunkt auf dem Pi zu pflegen und die CSP zu öffnen, lohnt
+nicht. Stattdessen:
+
+    Browser ──wss (dieselbe Herkunft, über nginx)──▶ Chat-Server /api/fern/leitung
+                                                     │  Handschlag mit scrypt,
+                                                     │  Passwort aus dem Tresor
+                                                     ▼
+                                         ws://127.0.0.1:7788 (erst lokal,
+                                         dann die hinterlegte Adresse)
+
+Den Handschlag macht der **Chat-Server** (packages/server/src/http/
+fernleitung.ts), mit dem Passwort, das er ohnehin verschlüsselt aufbewahrt.
+Zum Browser gehen nur Bilder und Lagemeldungen, über die TLS-Leitung, die er
+zum Chat ohnehin hat — weder Passwort noch Adresse noch Sitzungsschlüssel.
+Den Namen im Dashboard setzt der Server aus dem angemeldeten Konto; der
+Browser kann keinen unterschieben.
+
+Weil der Chat-Server meist auf **diesem** Pi läuft, sähe der Dienst über
+seine eigenen Messungen nur die kurze, freie Strecke zum Server. Deshalb
+meldet der Vermittler viermal je Sekunde, was er selbst sieht — gesendet
+minus vom Browser bestätigt, kürzeste Laufzeit, Durchsatz —, als
+`N_STEUER {art: 'leitung', …}`. Der Dienst nimmt diese Werte statt der
+eigenen, solange sie frisch sind (3 s); danach gilt wieder die eigene
+Messung. Eine App, die direkt verbindet, schickt nichts davon. Ein älterer
+Dienst überliest die Meldung — dann regelt er auf Höchstrate, und bei einer
+schwachen Mobilverbindung staut es beim Server.
+
+Auf dem Telefon: Tippen = Klick, Ziehen = Maus ziehen, lange drücken =
+Rechtsklick, zwei Finger = zoomen/verschieben (oder rollen, solange nicht
+vergrößert), die Taste mit dem „T" öffnet die Bildschirmtastatur. Was es
+auf der US-Belegung des Pi nicht gibt (ä, ß, Emoji), geht über die Ablage
+des Pi und Strg+V. Die Ablage des Telefons selbst liest der Browser nicht
+mit — Safari fragt dafür jedes Mal nach.
+
+Nachgewiesen:
+
+    node scripts/fern-leitung-pruefen.mjs   Vermittler gegen den echten Dienst
+    node scripts/fern-eingabe-pruefen.mjs   Gesten und Tastatur, ohne Browser
+    node scripts/e2e-fern-handy.mjs         Chrome als iPhone, echtes H.264
+
 ## Wie es hinausgeht
 
 Port **7788**, freigegeben über NAT-PMP. In der Firewall des Pi eigens erlaubt

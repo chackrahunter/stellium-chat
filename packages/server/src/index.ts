@@ -15,6 +15,7 @@ import { registerPostGedaechtnis } from './http/postgedaechtnis.js';
 import { registerEinmalcode } from './http/einmalcode.js';
 import { registerPasswoerter } from './http/passwoerter.js';
 import { registerRechtstexte } from './http/rechtstexte.js';
+import { registerFernleitung } from './http/fernleitung.js';
 import { handleConnection, startBackgroundJobs, anwesenheitZuruecksetzen, verbindungen } from './ws/gateway.js';
 import {
   aiCapabilities, anbieterAusEinstellungen, dropForeignTranslations, warmUpModels,
@@ -81,6 +82,8 @@ async function main(): Promise<void> {
   app.register(async (scope) => {
     scope.get('/ws', { websocket: true }, (socket) => handleConnection(socket as any));
   });
+  /* Die Fernsteuerung für die Browser-Oberfläche — siehe http/fernleitung.ts. */
+  registerFernleitung(app);
 
   /* ── Oberfläche im Browser ─────────────────────────────────────
    *

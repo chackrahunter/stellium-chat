@@ -283,9 +283,12 @@ export function Rail() {
                'saved' öffnet dieselbe Tafel, aber gleich auf dem richtigen
                Reiter (siehe SearchOverlay.tsx, initialTab). */
             tun: () => setOverlay('saved') },
-          /* Nur in der installierten App: der Handschlag braucht scrypt aus
-             dem Hauptprozess, den es im Browser nicht gibt. */
-          ...(!imBrowser() ? [{ id: 'fern', symbol: <Monitor size={17} />, text: t('fern.titel'),
+          /* Wer `fern.zugriff` hat — in der App wie im Browser. Im Browser
+             macht der Chat-Server den Handschlag (http/fernleitung.ts), das
+             Passwort kommt dort gar nicht erst an. Ohne das Recht wiese der
+             Server ohnehin ab; ein Eintrag, der nur „keine Berechtigung"
+             sagt, hilft niemandem. */
+          ...(self?.permissions['fern.zugriff'] ? [{ id: 'fern', symbol: <Monitor size={17} />, text: t('fern.titel'),
             tun: () => setOverlay('fern') }] : []),
           /* Der zweite Faktor fürs Firmenkonto, im Chat statt auf einem
              fremden Telefon. */

@@ -187,3 +187,52 @@
    Das Seitenverhältnis bleibt gewahrt — die Leinwand hat ihre eigene Größe,
    `max-*` verkleinert nur gleichmäßig. */
 .fern-fenster .fern__schirm { max-height: 100%; max-width: 100%; }
+
+/* ── Auf dem Telefon ───────────────────────────────────────────
+   Vollbild über allem statt einer Tafel: auf sechs Zoll ist jeder Rand
+   Bild, das fehlt. Höhe und Lage folgen dem SICHTBAREN Ausschnitt
+   (--vv-hoehe/--vv-oben aus lib/tastatur.ts) — geht die Tastatur auf,
+   rückt der Schirm darüber, statt unter ihr zu verschwinden. Unten bleibt
+   die Wischzone frei (--rand-unten, siehe tokens.css): env() meldet hier 0,
+   weil index.html bewusst ohne viewport-fit=cover auskommt. */
+.fern-fenster--handy {
+  position: fixed;
+  inset-inline: 0;
+  top: var(--vv-oben, 0px);
+  z-index: 60;
+  height: var(--vv-hoehe, 100dvh);
+  padding: var(--sicher-oben) var(--sicher-rechts) var(--rand-unten) var(--sicher-links);
+}
+.fern-fenster--handy .fern-fenster__leiste { flex-wrap: wrap; gap: 6px; padding: 6px 8px; }
+.fern-fenster--handy .fern__buehne { border: 0; border-radius: 0; }
+.fern-fenster--handy .fern__knopf { height: 34px; }
+.fern-fenster--handy .fern__fehler { margin: 6px 8px 0; }
+
+/* Die Leinwand gehört den Fingern: kein Blättern, kein Doppeltipp-Zoom der
+   Seite — Zoomen und Verschieben macht die Ansicht selbst
+   (lib/fern-eingabe.ts). Der Ursprung oben links passt zur Rechnung dort. */
+.fern__schirm {
+  touch-action: none;
+  transform-origin: 0 0;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* Das Feld, das die Bildschirmtastatur öffnet. Unsichtbar, aber nicht
+   `display: none` — ein verstecktes Feld bekommt keinen Fokus, und ohne
+   Fokus keine Tastatur. 16px, sonst zoomt iOS beim Antippen hinein. Oben
+   statt unten, damit iOS die Seite nicht zu ihm hin verschiebt. */
+.fern__eingabe {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  border: 0;
+  padding: 0;
+  resize: none;
+  font-size: 16px;
+  caret-color: transparent;
+}

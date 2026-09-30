@@ -82,9 +82,13 @@ node scripts/e2e-nachruesten.mjs   # Server auf einer ALTEN Datenbank
 node scripts/schluesselwechsel-pruefen.mjs   # falsches Masterpasswort
 node scripts/notzugang-pruefen.mjs           # „3 von 5" — Notzugang
 node scripts/fern-mehrere-pruefen.mjs        # mehrere sehen dem Pi zu
+node scripts/fern-leitung-pruefen.mjs        # Fernsteuerung im Browser: Vermittler
+node scripts/fern-eingabe-pruefen.mjs        # Fernsteuerung: Gesten und Tastatur
+node scripts/e2e-fern-handy.mjs              # Fernsteuerung: Chrome als iPhone
 ```
 
-Die letzten vier brauchen keinen laufenden Server. `e2e-nachruesten` baut
+Die letzten sieben brauchen keinen laufenden Server (`e2e-fern-handy` bringt
+einen Probeserver mit und braucht Google Chrome und ffmpeg). `e2e-nachruesten` baut
 eine Datenbank nach dem Schema der letzten Fassung und startet den heutigen
 Server darauf. Alle anderen Läufe legen ihre Datenbank frisch an — dort bringt
 `CREATE TABLE` jede neue Spalte gleich mit, und ein Fehler in `db/migrate.ts`

@@ -12,10 +12,16 @@
  * Bilder in Schüben, und genau das fühlt sich hakelig an — auch wenn am Ende
  * dieselbe Zahl Bilder ankommt.
  */
-import { useEffect, useRef, useState, useCallback } from 'react';
-import { AlertTriangle, ExternalLink, Keyboard, Loader2, Monitor, Power, Users } from 'lucide-react';
+import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
+import { createPortal } from 'react-dom';
+import { AlertTriangle, ExternalLink, Keyboard, Loader2, Monitor, Power, Type, Users, X } from 'lucide-react';
 import { Shell } from './Panels.jsx';
 import { api } from '../net/api.js';
+import { fernImBrowser } from '../net/fern-browser.js';
+import {
+  ANSICHT_GANZ, EINFUEGEN, Gesten, LANG_MS, SONDERTASTEN, ansichtNachziehen, nachSchirm as punktNachSchirm,
+  taste, textNachTasten, type Ansicht, type Punkt,
+} from '../lib/fern-eingabe.js';
 import { useStore } from '../state/store.js';
 import { t } from '../i18n';
 import '../styles/fernsteuerung.css';
@@ -47,6 +53,20 @@ const TASTEN: Record<string, number> = {
 };
 
 const KNOPF: Record<number, number> = { 0: 272, 1: 274, 2: 273 };  /* links, mitte, rechts */
+
+const UMSCHALTER = new Set(['ShiftLeft', 'ShiftRight', 'ControlLeft', 'ControlRight', 'AltLeft', 'AltRight', 'MetaLeft', 'MetaRight']);
+
+/**
+ * Wer die Verbindung hält: in der App der Hauptprozess (preload.ts), im
+ * Browser der Chat-Server (net/fern-browser.ts). Beide haben dieselbe Form.
+ * Im Browser nur, wenn er H.264 überhaupt dekodieren kann — WebCodecs gibt es
+ * erst ab Safari 16.4 und nur auf https-Seiten.
+ */
+function fernWeg(): any {
+  const app = (window as any).stellium?.fern;
+  if (app) return app;
+  return typeof VideoDecoder !== 'undefined' ? fernImBrowser : null;
+}
 
 type Lage = 'getrennt' | 'verbindet' | 'meldet an' | 'offen' | 'fehler';
 
@@ -82,7 +102,15 @@ export function Fernsteuerung(
   } | null>(null);
   const [steuert, setSteuert] = useState(false);
 
-  const fern = (window as any).stellium?.fern;
+  const fern = useMemo(fernWeg, []);
+  /* Telefon oder Tablett: Vollbild statt Tafel, Gesten statt Maus, eine
+     Taste für die Bildschirmtastatur. */
+  const handy = useMemo(() => window.matchMedia?.('(pointer: coarse)').matches ?? false, []);
+  const [ansicht, setAnsicht] = useState<Ansicht>(ANSICHT_GANZ);
+  const ansichtRef = useRef(ansicht);
+  ansichtRef.current = ansicht;
+  const steuertRef = useRef(false);
+  const eingabeFeld = useRef<HTMLTextAreaElement>(null);
 
   /* ── Dekodieren ────────────────────────────────────────────── */
 
@@ -243,7 +271,8 @@ export function Fernsteuerung(
     return [Math.round(x * 65535), Math.round(y * 65535)];
   };
 
-  const schick = (zeile: string) => { if (steuert) fern?.eingabe(zeile); };
+  steuertRef.current = steuert;
+  const schick = (zeile: string) => { if (steuertRef.current) fern?.eingabe(zeile); };
 
   const beiBewegung = (e: React.MouseEvent) => {
     const p = nachSchirm(e);
@@ -268,18 +297,102 @@ export function Fernsteuerung(
     if (waagerecht) schick(`r 1 ${waagerecht.toFixed(2)}\n`);
   };
 
+  /* ── Finger ────────────────────────────────────────────────── */
+
+  /* Eine Gestenerkennung für die ganze Lebenszeit der Ansicht; sie liest
+     Steuerung und Zoom über Refs, damit sie nicht bei jedem Zeichnen neu
+     entsteht und mitten in einer Geste ihren Zustand verliert. */
+  const gesten = useMemo(() => new Gesten({
+    ort: (p: Punkt) => {
+      const c = leinwand.current;
+      return c && c.width ? punktNachSchirm(p.x, p.y, c.getBoundingClientRect()) : null;
+    },
+    senden: (zeilen: string) => schick(zeilen),
+    zoomen: (alt: Punkt, neu: Punkt, dAlt: number, dNeu: number) => {
+      const c = leinwand.current;
+      if (!c) return;
+      const a = ansichtRef.current;
+      /* Die unverschobene Lage der Leinwand zurückrechnen: der Rahmen, den
+         der Browser meldet, enthält den Zoom schon. */
+      const r = c.getBoundingClientRect();
+      const links = r.left - a.x, oben = r.top - a.y;
+      const neuA = ansichtNachziehen(a, r.width / a.s, r.height / a.s,
+        { x: alt.x - links, y: alt.y - oben }, { x: neu.x - links, y: neu.y - oben }, dAlt, dNeu);
+      ansichtRef.current = neuA;
+      setAnsicht(neuA);
+    },
+    vergroessert: () => ansichtRef.current.s > 1.01,
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }), []);
+
+  const beiFinger = (e: React.PointerEvent) => {
+    if (e.pointerType !== 'touch') return;
+    /* Ohne das schickt der Browser nach dem Tippen noch nachgemachte
+       Mausereignisse — der Klick käme doppelt. */
+    e.preventDefault();
+    const p = { x: e.clientX, y: e.clientY };
+    const jetzt = performance.now();
+    if (e.type === 'pointerdown') {
+      gesten.runter(e.pointerId, p, jetzt);
+      window.setTimeout(() => gesten.zeit(performance.now()), LANG_MS + 20);
+    } else if (e.type === 'pointermove') {
+      gesten.bewegt(e.pointerId, p, jetzt);
+    } else {
+      gesten.hoch(e.pointerId, p, jetzt, e.type === 'pointercancel');
+    }
+  };
+
+  /* ── Bildschirmtastatur ────────────────────────────────────── */
+
+  /* Sondertasten kommen als keydown — Rücktaste auf einem leeren Feld löst
+     gar kein `input` aus. Alles mit Strg/⌘/Alt geht an den allgemeinen
+     Tastenhörer weiter unten. */
+  const beiTaste = (e: React.KeyboardEvent) => {
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    const code = SONDERTASTEN[e.key];
+    if (code === undefined) return;
+    e.preventDefault();
+    schick(taste(code));
+  };
+
+  /* Getippter Text: das Feld wird sofort wieder geleert, damit iOS nichts
+     zum Autokorrigieren hat und jedes Zeichen genau einmal hinausgeht. */
+  const tippen = () => {
+    const feld = eingabeFeld.current;
+    if (!feld || !feld.value) return;
+    const text = feld.value;
+    feld.value = '';
+    const zeilen = textNachTasten(text);
+    if (zeilen !== null) { schick(zeilen); return; }
+    /* ä, ß, Emoji: auf der US-Belegung des Pi gibt es dafür keine Taste.
+       Also über die Ablage des Pi und Strg+V. */
+    if (steuertRef.current && fern?.ablage) { fern.ablage(text); schick(EINFUEGEN); }
+  };
+
+  /* Zoom zurück, wenn die Verbindung endet — die nächste fängt ganz an. */
+  useEffect(() => { if (lage !== 'offen') setAnsicht(ANSICHT_GANZ); }, [lage]);
+
   useEffect(() => {
     if (!steuert) return;
+    /* Was hier gedrückt wurde, wird hier auch losgelassen — und nur das.
+       Tippt man ins Feld der Bildschirmtastatur, übernimmt dort
+       `tippen()` die Zeichen; ein Loslassen ohne Drücken ginge sonst an
+       den Pi. */
+    const gedrueckt = new Set<number>();
+    const insFeld = (e: KeyboardEvent) => e.target === eingabeFeld.current
+      && !e.ctrlKey && !e.metaKey && !e.altKey && !UMSCHALTER.has(e.code);
     const runter = (e: KeyboardEvent) => {
       const code = TASTEN[e.code];
-      if (code === undefined) return;
+      if (code === undefined || insFeld(e)) return;
       e.preventDefault();
+      gedrueckt.add(code);
       fern?.eingabe(`k ${code} 1\n`);
     };
     const hoch = (e: KeyboardEvent) => {
       const code = TASTEN[e.code];
-      if (code === undefined) return;
+      if (code === undefined || !gedrueckt.has(code)) return;
       e.preventDefault();
+      gedrueckt.delete(code);
       fern?.eingabe(`k ${code} 0\n`);
     };
     window.addEventListener('keydown', runter, true);
@@ -309,6 +422,9 @@ export function Fernsteuerung(
   const verbinden = async () => {
     setFehler('');
     try {
+      /* Im Browser holt der Server selbst, was er braucht — Adresse und
+         Passwort kommen gar nicht erst hierher (net/fern-browser.ts). */
+      if (fern?.ueberServer) { await fern.verbinden(); return; }
       const zugang = await api.fernZugang();
       /* Der Anzeigename geht fürs Protokoll auf dem Pi mit — nicht mehr und
          nicht weniger als eine Behauptung, siehe electron/fernsteuerung.ts. */
@@ -324,7 +440,7 @@ export function Fernsteuerung(
       <Shell title={t('fern.titel')} icon={<Monitor size={16} />} onClose={onClose} width={520}>
         <div className="fern__leer">
           <Monitor size={32} />
-          <p>{t('fern.nurApp')}</p>
+          <p>{t('fern.browserOhneVideo')}</p>
         </div>
       </Shell>
     );
@@ -390,8 +506,24 @@ export function Fernsteuerung(
             : t('fern.steuerungBeiUnbekannt'))
           : steuert ? t('fern.steuertAn') : t('fern.steuertAus')}
       </button>
-      {/* Nur im Hauptfenster: im Betrachter selbst wäre der Knopf sinnlos. */}
-      {!eigenstaendig && (
+      {/* Die Bildschirmtastatur: nur ein Fokus auf das unsichtbare Feld —
+          iOS öffnet sie ausschließlich aus einer Berührung heraus, deshalb
+          genau hier im Klick und nicht in einem Effekt. */}
+      {handy && (
+        <button
+          type="button"
+          className="fern__knopf"
+          onClick={() => eingabeFeld.current?.focus()}
+          disabled={!steuert}
+          title={t('fern.tastatur')}
+          aria-label={t('fern.tastatur')}
+        >
+          <Type size={14} />
+        </button>
+      )}
+      {/* Nur im Hauptfenster der App: im Betrachter selbst wäre der Knopf
+          sinnlos, und im Browser gibt es kein zweites Fenster. */}
+      {!eigenstaendig && fern.fenster && (
         <button
           type="button"
           className="fern__knopf"
@@ -433,12 +565,31 @@ export function Fernsteuerung(
           <canvas
             ref={leinwand}
             className={`fern__schirm ${steuert ? 'fern__schirm--steuert' : ''}`}
+            style={ansicht.s > 1 ? { transform: `translate(${ansicht.x}px, ${ansicht.y}px) scale(${ansicht.s})` } : undefined}
             onMouseMove={beiBewegung}
             onMouseDown={(e) => beiKnopf(e, true)}
             onMouseUp={(e) => beiKnopf(e, false)}
             onWheel={beiRad}
             onContextMenu={(e) => e.preventDefault()}
+            onPointerDown={beiFinger}
+            onPointerMove={beiFinger}
+            onPointerUp={beiFinger}
+            onPointerCancel={beiFinger}
           />
+          {handy && (
+            <textarea
+              ref={eingabeFeld}
+              className="fern__eingabe"
+              aria-label={t('fern.tastatur')}
+              autoCapitalize="off"
+              autoComplete="off"
+              autoCorrect="off"
+              spellCheck={false}
+              onKeyDown={beiTaste}
+              onInput={(e) => { if (!(e.nativeEvent as InputEvent).isComposing) tippen(); }}
+              onCompositionEnd={tippen}
+            />
+          )}
           {lage !== 'offen' && (
             <div className="fern__hinweis">
               {lage === 'verbindet' || lage === 'meldet an'
@@ -459,9 +610,9 @@ export function Fernsteuerung(
   /* Im eigenen Fenster ohne Tafel: der Betrachter füllt dort alles, und ein
      Rahmen mit Schließkreuz wäre neben dem Fensterrahmen der zweite. Die
      Werkzeuge bleiben, sonst käme man an Steuern und Trennen nicht heran. */
-  if (eigenstaendig) {
-    return (
-      <div className="fern-fenster">
+  if (eigenstaendig || handy) {
+    const fenster = (
+      <div className={`fern-fenster ${handy ? 'fern-fenster--handy' : ''}`}>
         <div className="fern-fenster__leiste">
           <Monitor size={15} />
           <span className="fern-fenster__titel">{t('fern.titel')}</span>
@@ -470,10 +621,19 @@ export function Fernsteuerung(
           )}
           <span className="spacer" />
           {werkzeuge}
+          {handy && (
+            <button className="icon-btn" onClick={onClose} title={t('common.close')} aria-label={t('common.close')}>
+              <X size={17} />
+            </button>
+          )}
         </div>
         {inhalt}
       </div>
     );
+    /* Auf dem Telefon über allem, am <body> — aus demselben Grund wie bei
+       Shell (Panels.tsx): ein Vorfahr mit backdrop-filter machte `fixed`
+       sonst zunichte. */
+    return handy ? createPortal(fenster, document.body) : fenster;
   }
 
   return (
