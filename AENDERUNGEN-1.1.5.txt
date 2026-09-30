@@ -1,0 +1,1 @@
+Server: Die Fernsteuerung des Pi wird beim Update jetzt wirklich mit aufgefrischt (mehrere Zuschauer, Browser/iPhone-Weg)
