@@ -358,7 +358,9 @@ Was der Server dabei festhält (alles in fernleitung.ts, alles geprüft in
 - nur die eigene Herkunft (`Origin`, verglichen wird der Rechnername ohne
   Port — nginx reicht `Host` ohne Port weiter), sonst 4406; höchstens 2
   nicht angemeldete Verbindungen je Absender (`X-Real-IP` von nginx, nur
-  über Loopback geglaubt) und 64 insgesamt, 4 Leitungen insgesamt, 2 je
+  über Loopback geglaubt; ist auch er Loopback — Cloudflare-Tunnel ohne
+  `real_ip_header` —, gilt der Absender als unbekannt und nur die Grenze
+  über alle) und 64 insgesamt, 4 Leitungen insgesamt, 2 je
   Konto, 6 Versuche je Konto und Minute, 2 scrypt-Läufe gleichzeitig;
 - alle 30 s wird nachgesehen, ob Token und `fern.zugriff` noch gelten —
   Sperren, Löschen, Passwortwechsel und Entzug beenden auch eine laufende

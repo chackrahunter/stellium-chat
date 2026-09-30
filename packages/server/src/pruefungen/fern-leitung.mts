@@ -28,7 +28,7 @@ import { db, initDb } from '../db/index.js';
 import { WebSocketServer, WebSocket as WsKlient } from 'ws';
 import {
   registerFernleitung, bremseZuruecksetzen, ziele, eingabeGueltig, herkunftErlaubt, scryptPasst, ABLAGE_MAX,
-  absender, nurLoslassen,
+  absender, absenderBekannt, nurLoslassen,
 } from '../http/fernleitung.js';
 import * as users from '../services/users.js';
 import { signToken } from '../auth.js';
@@ -458,6 +458,8 @@ pruef('ohne Origin (kein Browser) — dann entscheidet das Token', herkunftErlau
 pruef('Absender: hinter nginx gilt X-Real-IP', absender('127.0.0.1', '203.0.113.9') === '203.0.113.9'
   && absender('::ffff:127.0.0.1', '203.0.113.9') === '203.0.113.9');
 pruef('…direkt verbunden nicht (sonst erfände jeder Absender)', absender('198.51.100.4', '203.0.113.9') === '198.51.100.4');
+pruef('Loopback als Absender gilt als unbekannt', !absenderBekannt(absender('127.0.0.1', undefined))
+  && !absenderBekannt(absender('127.0.0.1', '127.0.0.1')) && !absenderBekannt('::1') && absenderBekannt('203.0.113.9'));
 {
   /* Nicht angemeldete Verbindungen: zwei je Absender. Wer ohne Konto acht
      offen hält, sperrt damit nur sich selbst, nicht die anderen. */
@@ -478,6 +480,25 @@ pruef('…direkt verbunden nicht (sonst erfände jeder Absender)', absender('198
   pruef('ein anderer Absender kommt trotzdem an die Anmeldung', anderer.code === null, String(anderer.code));
   for (const b of [...acht, anderer]) b.zu();
   await bis(() => [...acht, anderer].every((b) => b.code !== null));
+}
+{
+  /* Hinter dem Cloudflare-Tunnel ohne real_ip in nginx: alle kommen als
+     127.0.0.1 — ohne X-Real-IP oder mit X-Real-IP 127.0.0.1. Dann ist der
+     Absender unbekannt, und zwei stumme Verbindungen dürfen den dritten
+     Besucher nicht aussperren. */
+  const loop = (kopf?: string) => {
+    const k = new WsKlient(LEITUNG, kopf ? { headers: { 'X-Real-IP': kopf } } : {});
+    const z = { code: null as number | null, zu: () => { try { k.close(); } catch { /* zu */ } } };
+    k.on('close', (c) => { z.code = c; });
+    k.on('error', () => { /* Code reicht */ });
+    return z;
+  };
+  const drei = [loop(), loop('127.0.0.1'), loop()];
+  await schlaf(400);
+  pruef('Tunnel: zwei stumme Verbindungen von 127.0.0.1 sperren den dritten Besucher nicht aus',
+    drei.every((b) => b.code === null), drei.map((b) => b.code ?? '·').join(' '));
+  for (const b of drei) b.zu();
+  await bis(() => drei.every((b) => b.code !== null));
 }
 {
   bremseZuruecksetzen();

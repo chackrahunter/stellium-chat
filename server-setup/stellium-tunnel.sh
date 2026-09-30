@@ -79,6 +79,16 @@ server {
   listen 127.0.0.1:$PORT_HTTP;
   server_name _;
 
+  # Hinter cloudflared kommt jede Anfrage von 127.0.0.1. Den echten Besucher
+  # nennt Cloudflare in CF-Connecting-IP; nur hier, wo nginx ausschließlich
+  # auf 127.0.0.1 lauscht und damit nur vom Tunnel erreichbar ist, darf dem
+  # Kopf geglaubt werden. Ohne das steht in X-Real-IP für alle 127.0.0.1, und
+  # Bremsen „je Absender" im Chat (http/fernleitung.ts) greifen nicht.
+  # NICHT in die Variante ohne Tunnel übernehmen: dort könnte jeder Client
+  # CF-Connecting-IP selbst setzen.
+  set_real_ip_from 127.0.0.1;
+  real_ip_header CF-Connecting-IP;
+
   include snippets/stellium-sicherheit.conf;
 
   location / {

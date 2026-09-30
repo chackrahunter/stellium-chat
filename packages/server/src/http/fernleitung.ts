@@ -143,10 +143,22 @@ const unangemeldetJe = new Map<string, number>();
  * könnte jeder, der den Server direkt erreicht, sich beliebig viele
  * Absender ausdenken.
  */
+const LOOPBACK = /^(127\.|::1$|::ffff:127\.)/;
 export function absender(remote: string | undefined, realIp: unknown): string {
   const r = remote ?? '?';
-  const lokal = /^(127\.|::1$|::ffff:127\.)/.test(r);
-  return lokal && typeof realIp === 'string' && realIp ? realIp : r;
+  return LOOPBACK.test(r) && typeof realIp === 'string' && realIp ? realIp : r;
+}
+
+/*
+ * Ist der Absender selbst Loopback, kennen wir ihn NICHT. So läuft
+ * chat.stellium.club: cloudflared → nginx auf 127.0.0.1 → Node; ohne
+ * `real_ip_header CF-Connecting-IP` in nginx steht dann in `X-Real-IP` für
+ * jeden Besucher 127.0.0.1. Eine Grenze „je Absender" wäre dort eine
+ * gemeinsame von zwei Plätzen für alle — zwei stumme Verbindungen, und
+ * niemand käme mehr herein. Dann gilt nur die Grenze über alle.
+ */
+export function absenderBekannt(wer: string): boolean {
+  return !LOOPBACK.test(wer) && wer !== '?';
 }
 let scryptLaeuft = 0;
 
@@ -280,7 +292,8 @@ async function leitung(browser: WsBuchse, req: FastifyRequest): Promise<void> {
      Adresse als der Server. */
   if (!herkunftErlaubt(req.headers.origin, req.headers.host)) { schliessen(browser, 4406); return; }
   const wer = absender(req.socket.remoteAddress, req.headers['x-real-ip']);
-  if (unangemeldet >= UNANGEMELDET_MAX || (unangemeldetJe.get(wer) ?? 0) >= UNANGEMELDET_JE_ABSENDER) {
+  if (unangemeldet >= UNANGEMELDET_MAX
+    || (absenderBekannt(wer) && (unangemeldetJe.get(wer) ?? 0) >= UNANGEMELDET_JE_ABSENDER)) {
     schliessen(browser, 4029);
     return;
   }
