@@ -1,0 +1,5 @@
+Fernsteuerung: mehrere können dem Pi gleichzeitig zusehen, eine abgerissene Verbindung sperrt die anderen nicht mehr aus
+Fernsteuerung: die App zeigt, wie viele zusehen und wer gerade steuert
+Posteingang: Post aus einem externen Postfach abholen (IMAP), ohne doppelte Mails
+Posteingang: SMS empfangen und beantworten
+Konten: Kontoidentität und Verbesserungen bei vertraulichen Daten
