@@ -279,10 +279,20 @@ function hostFreigebenWennLeer() {
   notaus.unref();
 }
 
+/*
+ * Wieviel ungelesen im Kanal zum Abgreifer liegen darf. Liest er nicht mehr
+ * mit (hängt am Compositor, ist überlastet), sammelte Node sonst jede Eingabe
+ * im Speicher, und wer steuert, könnte ihn damit beliebig füllen. Darüber
+ * wird verworfen — eine verlorene Mausbewegung stört niemanden, ein Dienst
+ * ohne Speicher alle.
+ */
+const HOST_STAU_MAX = 256 * 1024;
+
 /** Eine Befehlszeile an den Abgreifer. `writable` wird geprüft, weil `kind`
  *  nach einem Neustart kurz auf einen geschlossenen Kanal zeigt. */
 function hostSchreiben(zeile) {
   if (!host?.kind.stdin?.writable) return false;
+  if (host.kind.stdin.writableLength > HOST_STAU_MAX) return false;
   try { host.kind.stdin.write(zeile); return true; } catch { return false; }
 }
 
@@ -540,7 +550,11 @@ function leitungMessen(sitzung) {
   if (v) {
     if (v.laufzeitMs) sitzung.laufzeitMs = v.laufzeitMs;
     if (v.durchsatzKbit) sitzung.durchsatzKbit = v.durchsatzKbit;
-    sitzung.leitungStand = v.stand;
+    /* Frisch ist nur, was gerade gemessen wurde. Meldet der Vermittler noch
+       keinen Durchsatz (die ersten Sekunden, oder der Browser quittiert
+       nicht), bliebe ein alter Wert sonst als „frisch" stehen — genau der
+       Fehler, den LEITUNG_FRIST_MS verhindern soll. */
+    if (v.laufzeitMs && v.durchsatzKbit) sitzung.leitungStand = v.stand;
     return;
   }
   const port = sitzung.ws?._socket?.remotePort;
@@ -735,10 +749,12 @@ function hostRahmen(art, inhalt) {
       sitzung.bilder += 1;
     }
   } else if (art === H_ABLAGE) {
-    /* Die Zwischenablage des Pi geht an alle — sie ist Teil dessen, was man
-       sieht. Der Weg hinein ist die Gegenrichtung und darum dem vorbehalten,
-       der gerade steuert (siehe `N_ABLAGE` unten). */
-    for (const sitzung of sitzungen) senden(sitzung, N_ABLAGE, inhalt);
+    /* Die Zwischenablage des Pi geht nur an den, der steuert. Bis 09/2026
+       ging sie an alle — aber die Desktop-App schreibt sie ungefragt in die
+       Ablage des eigenen Rechners, und wer nur zusieht, hat nicht darum
+       gebeten, dass ein fremder Schreibtisch seine Ablage überschreibt.
+       Steuert niemand, hat auch niemand kopiert. */
+    if (steuerer && sitzungen.has(steuerer)) senden(steuerer, N_ABLAGE, inhalt);
   } else if (art === H_MELDUNG) {
     hostMeldung = String(inhalt);
     /* Bei jeder Meldung mitschreiben — so steht im Zustand immer der Stand

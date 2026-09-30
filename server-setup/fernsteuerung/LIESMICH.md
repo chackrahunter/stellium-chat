@@ -246,7 +246,7 @@ Gegenstelle von sich aus — dafür brauchte keine App eine neue Fassung.
 | Bild | an alle. Ein Abgriff, ein Kodierer — mehrere Zuschauer kosten Leitung, keine Rechenzeit. |
 | Bitrate | eine für alle, und es gilt die **kleinste** gewünschte. Ein Bild, das für den Langsamsten zu groß ist, erreicht ihn gar nicht; dem Schnellen kostet dieselbe Entscheidung nur Schärfe. |
 | Verworfene Bilder | je Zuschauer. Der Rückstand ist eine Eigenschaft seiner Leitung, nicht des Bildes — wer nicht nachkommt, verliert einzelne Bilder, ohne dass die anderen etwas merken. |
-| Zwischenablage Pi → alle | an alle, sie ist Teil dessen, was man sieht. |
+| Zwischenablage Pi → | nur an den Steuernden (seit 30.09.2026). Die App schreibt sie ungefragt in die Ablage des eigenen Rechners — das soll nicht jedem passieren, der nur zusieht. |
 | Zwischenablage → Pi | nur vom Steuernden. Die App schickt ihre Ablage von selbst, zweimal je Sekunde; vier Zuschauer würden die des Pi sonst im Sekundentakt gegenseitig überschreiben. |
 | Tastatur und Maus | nur vom Steuernden. |
 
@@ -352,6 +352,25 @@ zum Chat ohnehin hat — weder Passwort noch Adresse noch Sitzungsschlüssel.
 Den Namen im Dashboard setzt der Server aus dem angemeldeten Konto; der
 Browser kann keinen unterschieben.
 
+Was der Server dabei festhält (alles in fernleitung.ts, alles geprüft in
+`fern-leitung-pruefen`):
+
+- nur die eigene Herkunft (`Origin`); höchstens 8 nicht angemeldete
+  Verbindungen, 4 Leitungen insgesamt, 2 je Konto, 6 Versuche je Konto und
+  Minute, 2 scrypt-Läufe gleichzeitig;
+- alle 30 s wird nachgesehen, ob Token und `fern.zugriff` noch gelten —
+  Sperren, Löschen, Passwortwechsel und Entzug beenden auch eine laufende
+  Sitzung;
+- scrypt nur mit den festen Werten N=16384, r=8, p=1; schickt die
+  Gegenstelle im Gruß andere, wird abgebrochen, bevor gerechnet wird
+  (dasselbe jetzt auch in der Desktop-App);
+- vom Browser zum Pi nur die Befehle `z`, `t`, `r`, `k`, `m` mit Zahlen und
+  abschließendem Zeilenende, nie `a`, `b`, `s`; die Ablage höchstens 6000
+  Bytes; staut es zum Pi (über 256 KB), wird verworfen.
+
+Der Dienst selbst verwirft Eingaben, wenn der Abgreifer mehr als 256 KB
+ungelesen vor sich hat.
+
 Weil der Chat-Server meist auf **diesem** Pi läuft, sähe der Dienst über
 seine eigenen Messungen nur die kurze, freie Strecke zum Server. Deshalb
 meldet der Vermittler viermal je Sekunde, was er selbst sieht — gesendet
@@ -367,7 +386,8 @@ Rechtsklick, zwei Finger = zoomen/verschieben (oder rollen, solange nicht
 vergrößert), die Taste mit dem „T" öffnet die Bildschirmtastatur. Was es
 auf der US-Belegung des Pi nicht gibt (ä, ß, Emoji), geht über die Ablage
 des Pi und Strg+V. Die Ablage des Telefons selbst liest der Browser nicht
-mit — Safari fragt dafür jedes Mal nach.
+mit — Safari fragt dafür jedes Mal nach. Umgekehrt landet die Ablage des Pi
+nicht ungefragt im Telefon: ein Knopf bietet sie an.
 
 Nachgewiesen:
 

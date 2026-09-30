@@ -132,6 +132,16 @@ rahmen(1, schluesselbild());
 const bilder = setInterval(() => rahmen(1, zwischenbild()), 60);
 const meldung = setInterval(() => rahmen(3, Buffer.from('12,0 B/s · 900 kbit/s')), 250);
 
+/* Taub: liest stdin erst, wenn die Datei PROBE_TAUB auftaucht — ein
+   Abgreifer, der am Compositor hängt. Dann wird nur gezählt, nicht jede
+   Zeile protokolliert (es werden sehr viele). */
+const TAUB = process.env.PROBE_TAUB;
+let gezaehlt = 0;
+if (TAUB) {
+  process.stdin.pause();
+  const warte = setInterval(() => { if (fs.existsSync(TAUB)) { clearInterval(warte); process.stdin.resume(); } }, 50);
+  setInterval(() => { try { fs.writeFileSync(LOG + '.zahl', String(gezaehlt)); } catch {} }, 100);
+}
 let rest = '';
 process.stdin.on('data', (d) => {
   rest += String(d);
@@ -141,8 +151,12 @@ process.stdin.on('data', (d) => {
     const zeile = rest.slice(0, i);
     rest = rest.slice(i + 1);
     if (!zeile) continue;
+    if (TAUB) { gezaehlt += 1; continue; }
     merk('befehl ' + zeile);
     if (zeile[0] === 's') rahmen(1, schluesselbild());
+    /* Wie der echte: setzt jemand die Ablage, meldet der Compositor die
+       neue Auswahl zurück, und fern-host schickt sie als Rahmen 2. */
+    if (zeile.startsWith('a ')) rahmen(2, Buffer.from(zeile.slice(2), 'base64'));
   }
 });
 const aus = () => { merk('ende'); clearInterval(bilder); clearInterval(meldung); process.exit(0); };
@@ -364,6 +378,12 @@ pruefe('die Zwischenablage des Steuernden geht zum Pi', await bis(() => ablagen(
 await schlaf(250);
 pruefe('die des Zuschauers nicht — sonst überschreiben sich vier gegenseitig',
        !ablagen().includes('von Ben'), ablagen().join(' | '));
+/* Die Ablage des Pi zurück: nur an den, der steuert. Die Desktop-App
+   schreibt sie ungefragt in die Ablage des eigenen Rechners. */
+pruefe('die Ablage des Pi kommt beim Steuernden an', await bis(() => a.ablagen.includes('von Anna')));
+await schlaf(250);
+pruefe('…und nicht bei denen, die nur zusehen', !b.ablagen.length && !c.ablagen.length,
+       `Ben ${b.ablagen.length}, Cem ${c.ablagen.length}`);
 
 console.log('\nÜbergabe');
 a.steuer({ art: 'steuerung', an: false });
@@ -425,6 +445,43 @@ const g = await new Zuschauer('Gustl', ADRESSE, PASSWORT).verbinden();
 pruefe('der Nächste startet ihn neu', await bis(() => starts() === 2 && g.bilder > 0),
        `${starts()} Starts, ${g.bilder} Bilder`);
 g.trennen();
+
+/* ── 7. Ein Abgreifer, der nicht mehr liest ──────────────────── */
+
+console.log('\nDer Abgreifer hängt');
+{
+  /* Ein zweiter Dienst mit einem tauben Abgreifer: wer steuert, darf den
+     Dienst nicht beliebig mit Eingaben füllen, die niemand abholt. */
+  const taub = path.join(ordner, 'taub-los');
+  const HAFEN2 = await freierHafen();
+  const LOG2 = path.join(ordner, 'taub.log');
+  const ordner2 = path.join(ordner, 'zwei');
+  fs.mkdirSync(ordner2);
+  const k2 = kennungNeu(ordner2);
+  const dienst2 = spawn(process.execPath, [DIENST], {
+    env: { ...process.env, FERN_ORDNER: ordner2, FERN_HOST: abgreifer, FERN_PORT: String(HAFEN2),
+      PROBE_LOG: LOG2, PROBE_TAUB: taub },
+    stdio: ['ignore', 'ignore', 'pipe'],
+  });
+  let aus2 = '';
+  dienst2.stderr.on('data', (x) => { aus2 += x; });
+  await bis(() => aus2.includes('lauscht auf'));
+  const h = await new Zuschauer('Hanna', `ws://127.0.0.1:${HAFEN2}`, k2.klartext).verbinden();
+  h.steuer({ art: 'steuerung', an: true });
+  await bis(() => h.info()?.steuert === true);
+  const block = 'z 1 1\n'.repeat(650);
+  const BLOECKE = 2000;
+  for (let i = 0; i < BLOECKE; i++) h.eingabe(block);
+  await schlaf(1500);
+  fs.writeFileSync(taub, '');
+  const zahl = () => Number(fs.existsSync(LOG2 + '.zahl') ? fs.readFileSync(LOG2 + '.zahl', 'utf8') : 0);
+  let vorher = -1;
+  await bis(() => { const z = zahl(); const still = z === vorher && z > 0; vorher = z; return still; }, 15_000);
+  pruefe('der Dienst verwirft, statt alles für den Abgreifer zu puffern',
+         zahl() > 0 && zahl() < BLOECKE * 650 / 2, `${zahl()} von ${BLOECKE * 650} Zeilen angekommen`);
+  h.trennen();
+  dienst2.kill('SIGKILL');
+}
 
 /* ── Schluss ─────────────────────────────────────────────────── */
 

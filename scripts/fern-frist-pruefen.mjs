@@ -47,12 +47,21 @@ const umgebung = {
   sendestau: (s) => s.stau ?? 0,
   waechstStau: () => false,
   leitungMessen: () => {},
+  VERMITTELT_FRIST_MS: konstante('VERMITTELT_FRIST_MS'),
+  PORT: 7788,
+  execFile: () => { throw new Error('ss darf hier nicht laufen'); },
   rateAnHost: () => {},
   Date, Math,
 };
 vm.createContext(umgebung);
 vm.runInContext([funktion('leitungFrisch'), funktion('stauMasse'), funktion('rateWunschNachziehen')].join('\n'), umgebung);
 const { leitungFrisch, stauMasse, rateWunschNachziehen } = umgebung;
+/* leitungMessen in einem eigenen Zusammenhang — im ersten ist es durch eine
+   Attrappe ersetzt, damit rateWunschNachziehen kein `ss` startet. */
+const umgebung2 = { ...umgebung };
+vm.createContext(umgebung2);
+vm.runInContext([funktion('vermittelt'), funktion('leitungMessen')].join('\n'), umgebung2);
+const { leitungMessen: echtesLeitungMessen } = umgebung2;
 
 let fehler = 0;
 const pruefe = (was, ok, zusatz = '') => {
@@ -89,6 +98,22 @@ const hoch = (alter) => {
 };
 pruefe('frisch: auf den gemessenen Durchsatz', hoch(1000) === 6650, `${hoch(1000)}`);
 pruefe('veraltet: nur der kleine Schritt', hoch(frist + 5000) === 1080, `${hoch(frist + 5000)}`);
+
+console.log('\nMeldungen des Vermittlers (Browser-Weg)');
+{
+  /* Ein alter Durchsatz von vor zehn Sekunden, dazu eine frische Meldung,
+     die (noch) nichts gemessen hat. Die Meldung darf den alten Wert nicht
+     frisch machen. */
+  const alt = jetzt - frist - 4000;
+  const s = { durchsatzKbit: 7000, laufzeitMs: 40, leitungStand: alt,
+    vermittelt: { unterwegs: 0, laufzeitMs: 0, durchsatzKbit: 0, stand: Date.now() } };
+  echtesLeitungMessen(s);
+  pruefe('eine leere Meldung macht alte Werte nicht frisch', !leitungFrisch(s), `Stand vor ${Date.now() - s.leitungStand} ms`);
+  const t = { leitungStand: alt,
+    vermittelt: { unterwegs: 0, laufzeitMs: 30, durchsatzKbit: 2500, stand: Date.now() } };
+  echtesLeitungMessen(t);
+  pruefe('eine Meldung mit Messwerten schon', leitungFrisch(t) && t.durchsatzKbit === 2500 && t.laufzeitMs === 30);
+}
 
 console.log(fehler ? `\n\x1b[31m${fehler} Prüfung(en) rot\x1b[0m` : '\n\x1b[32mAlles grün\x1b[0m');
 process.exit(fehler ? 1 : 0);
