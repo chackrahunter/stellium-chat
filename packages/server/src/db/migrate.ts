@@ -202,6 +202,17 @@ const COLUMNS: { table: string; column: string; definition: string }[] = [
      post-lernen.ts behandelt eine solche Zeile wie jede andere ohne
      KI-Beteiligung, weil sich das Gegenteil nicht mehr beweisen lässt. */
   { table: 'mail_nachrichten', column: 'ki_art', definition: 'TEXT' },
+  /* Der wegübergreifende Dublettenschutz und die Herkunft — beide neu, seit
+     es einen ZWEITEN Weg in dieses Postfach gibt (services/postabruf.ts holt
+     Post aus einem fremden Postfach, der Worker liefert weiter an die eigene
+     Domäne). `abdruck` ist der Vergleichswert, an dem dieselbe Mail auf
+     beiden Wegen als dieselbe erkannt wird (services/post.ts,
+     abdruckBilden()); `quelle` sagt, über welchen der beiden sie kam.
+     Bestehende Zeilen bleiben in beiden Spalten NULL — deshalb ist der
+     eindeutige Index weiter unten partiell, und deshalb rechnet
+     dubletteFinden() für den Altbestand über message_id nach. */
+  { table: 'mail_nachrichten', column: 'abdruck', definition: 'TEXT' },
+  { table: 'mail_nachrichten', column: 'quelle',  definition: 'TEXT' },
 
   /* Einmalcodes: dieselben vier mit encryptField (crypto/pii.ts)
      verschlüsselten Felder wie im vollständigen CREATE TABLE weiter unten in
@@ -430,6 +441,14 @@ export function migrate(): void {
      wer sie vorher anmeldet, laesst die echte Mail lautlos als Dublette
      verschwinden. */
   zustell_schluessel TEXT,
+  /* Der weguebergreifende Dublettenschluessel: SHA-256 ueber Message-ID,
+     Absender, Betreff und Textanfang (services/post.ts, abdruckBilden()).
+     NICHT die nackte Message-ID -- siehe zustell_schluessel darueber fuer
+     den Grund, und den Blockkommentar dort fuer den Ausweg. */
+  abdruck      TEXT,
+  /* 'worker' oder 'abruf' -- ueber welchen der beiden Wege sie hereinkam.
+     NULL bei ausgehender Post und bei allem vor dieser Unterscheidung. */
+  quelle       TEXT,
   am           INTEGER NOT NULL,
   gelesen      INTEGER NOT NULL DEFAULT 0,
   /* Anhaenge liegen als JSON daneben: Name, Typ, Groesse und der Ort in der
@@ -464,6 +483,29 @@ export function migrate(): void {
     db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_mail_zustell ON mail_nachrichten(zustell_schluessel) WHERE zustell_schluessel IS NOT NULL');
   } catch (err) {
     console.warn('[db] Index idx_mail_zustell:', (err as Error).message);
+  }
+  /* Dieselbe Bauart, derselbe Zweck, nur für den ZWEITEN Weg: eindeutig,
+     damit die Entdublettung an der Datenbank hängt und nicht daran, dass
+     zwei Läufe zufällig nacheinander kommen. Der Abruf läuft im
+     Hintergrundtakt, während der Worker jederzeit einliefern kann — die
+     Abfrage in dubletteFinden() erspart nur die Ausnahme im Normalfall, den
+     Wettlauf entscheidet dieser Index.
+
+     Er kann NICHT an einem Altbestand scheitern: `abdruck` ist eben erst
+     entstanden und überall NULL, und der Index ist partiell (`WHERE abdruck
+     IS NOT NULL`). Trotzdem try/catch wie bei den Nachbarn — eine
+     Überraschung hier darf den Start nicht verweigern, nur melden.
+
+     Der zweite, NICHT eindeutige Index auf message_id ist der Preis für den
+     Altbestand: dubletteFinden() sucht dort die Zeilen, die vor `abdruck`
+     entstanden sind, und rechnet ihren Abdruck nach. Ohne ihn wäre das ein
+     voller Durchlauf über eine unbegrenzt wachsende Tabelle, bei JEDER
+     abgerufenen Mail. */
+  try {
+    db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_mail_abdruck ON mail_nachrichten(abdruck) WHERE abdruck IS NOT NULL');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_mail_message_id ON mail_nachrichten(message_id) WHERE message_id IS NOT NULL');
+  } catch (err) {
+    console.warn('[db] Indizes für den Dublettenschutz der Post:', (err as Error).message);
   }
   db.exec(`CREATE TABLE IF NOT EXISTS mail_partner (
   /* Der Suchwert: derselbe Blindindex wie bei Konten. Die Adresse selbst ist
@@ -640,6 +682,23 @@ export function migrate(): void {
       daten         TEXT NOT NULL,
       erstellt_am   INTEGER NOT NULL,
       PRIMARY KEY (notiz_id, user_id)
+    )`);
+  /* Die Kontoidentitaet — wortgleich mit schema.sql, aus demselben Grund wie
+     die Notiztabellen darüber. Ausführliche Begründung steht dort. Kurz: das
+     ECDH-Schlüsselpaar gehörte bisher einem GERAET, obwohl
+     vertraulich_schluessel es als Sache des Kontos führt. Hier liegt der
+     private Teil, verpackt mit dem Kontoschlüssel — damit öffnet ein zweites
+     Gerät private Dateien und vertrauliche Kanäle, ohne dass das erste je
+     online sein muss. */
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS identitaet_konto_pakete (
+      user_id       TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+      konto_fassung INTEGER NOT NULL,
+      alg           TEXT NOT NULL,
+      iv            TEXT NOT NULL,
+      daten         TEXT NOT NULL,
+      abdruck       TEXT NOT NULL,
+      erstellt_am   INTEGER NOT NULL
     )`);
   /* Der Anmeldenachweis — wortgleich mit schema.sql, aus demselben Grund wie
      die Notiztabellen darüber. Ausführliche Begründung steht dort. Kurz: der

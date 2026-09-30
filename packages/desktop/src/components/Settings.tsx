@@ -4,7 +4,7 @@ import { Bell, Check, Copy, Cpu, Eye, EyeOff, Globe, KeyRound, Loader2, Lock, Lo
 import { LANGUAGES, type AiCapabilities, type AiModelInfo } from '@stellium/shared';
 import { pushSynchronisieren, useStore } from '../state/store.js';
 import { useFokusfalle } from './Fokusfalle.jsx';
-import { api, serverUrl, setServerUrl, type KiZugangStand } from '../net/api.js';
+import { api, serverUrl, setServerUrl, type KiZugangStand, type PostAbrufStand, type SmsZugangStand } from '../net/api.js';
 import { Avatar } from './Avatar.jsx';
 import { Profilbild } from './Profilbild.jsx';
 import { languageInfo } from '../lib/format.js';
@@ -844,9 +844,20 @@ function SchluesselEinstellungen() {
      ob der Block überhaupt entsteht — ein Feld hinzustellen, dessen Speichern
      mit 403 endet, wäre eine Einladung ins Leere. */
   const darfKiVerwalten = Boolean(useStore((s) => s.self)?.permissions['ki.verwalten']);
+  /* Dieselbe Machart wie darüber. `sms.verwalten` und nicht `mail.verwalten`,
+     obwohl SMS im selben Posteingang landen — der Auth Token beglaubigt jede
+     eingehende SMS, das ist eine andere Frage als „darf das Postfach
+     einrichten" (shared/permissions.ts). */
+  const darfSmsVerwalten = Boolean(useStore((s) => s.self)?.permissions['sms.verwalten']);
 
   const [versand, setVersand] = useState('');
   const [eingang, setEingang] = useState('');
+  /* Der Gmail-Abruf. Die Adresse ist kein Geheimnis und startet deshalb — wie
+     die Patreon-Client-ID — mit dem hinterlegten Wert statt leer; das
+     App-Passwort bleibt immer leer, es kommt nie zurück. */
+  const [abrufStand, setAbrufStand] = useState<PostAbrufStand | null>(null);
+  const [abrufAdresse, setAbrufAdresse] = useState('');
+  const [abrufPasswort, setAbrufPasswort] = useState('');
   const [gumroad, setGumroad] = useState('');
   /* Die Client-ID ist kein Geheimnis (siehe GeheimFeld-Vergleich unten) und
      startet darum mit dem hinterlegten Wert statt leer. */
@@ -855,12 +866,24 @@ function SchluesselEinstellungen() {
   const [patreonAccessToken, setPatreonAccessToken] = useState('');
   const [patreonRefreshToken, setPatreonRefreshToken] = useState('');
   const [groq, setGroq] = useState('');
+  /* Der Twilio-Zugang. Die drei Zugangsdaten bleiben immer leer — sie kommen
+     nie zurück. Die Webhook-Wurzel ist kein Geheimnis und startet deshalb,
+     wie die Patreon-Client-ID, mit dem hinterlegten Wert. */
+  const [smsStand, setSmsStand] = useState<SmsZugangStand | null>(null);
+  const [smsSid, setSmsSid] = useState('');
+  const [smsToken, setSmsToken] = useState('');
+  const [smsNummer, setSmsNummer] = useState('');
+  const [smsWebhookBasis, setSmsWebhookBasis] = useState('');
   const [fernAdresse, setFernAdresse] = useState('');
   const [fernPasswort, setFernPasswort] = useState('');
   const [laeuft, setLaeuft] = useState(false);
 
   useEffect(() => {
     void api.postZugang().then(setPostStand).catch(() => {});
+    void api.postAbruf().then((stand) => {
+      setAbrufStand(stand);
+      setAbrufAdresse(stand.adresse ?? '');
+    }).catch(() => {});
     void api.verkaufZugang().then(setVerkaufStand).catch(() => {});
     void api.patreonZugang().then((stand) => {
       setPatreonStand(stand);
@@ -878,6 +901,16 @@ function SchluesselEinstellungen() {
   useEffect(() => {
     if (darfKiVerwalten) void api.kiZugang().then(setKiStand).catch(() => {});
   }, [darfKiVerwalten]);
+
+  /* Ein eigener Lauf aus demselben Grund wie der darüber: `darfSmsVerwalten`
+     steht beim ersten Bild noch nicht fest. */
+  useEffect(() => {
+    if (!darfSmsVerwalten) return;
+    void api.smsZugang().then((stand) => {
+      setSmsStand(stand);
+      setSmsWebhookBasis(stand.webhookBasis ?? '');
+    }).catch(() => {});
+  }, [darfSmsVerwalten]);
 
   /* Im Browser gewürfelt statt getippt: ein selbst ausgedachtes Wort ist
      kürzer und einfacher, als es aussieht. */
@@ -908,6 +941,21 @@ function SchluesselEinstellungen() {
            weiter, auch nachdem längst neu gespeichert wurde. */
         setPostStand(await api.postZugang());
         setVersand(''); setEingang('');
+        gespeichert = true;
+      }
+      /* Die Adresse steht dauerhaft im Feld (sie ist kein Geheimnis) — also
+         nur mitschicken, wenn sie sich WIRKLICH geändert hat. Sonst schriebe
+         jedes Speichern in diesem Reiter, auch für ein ganz anderes Feld, sie
+         stumm erneut fest. Dieselbe Überlegung wie bei der Patreon-Client-ID
+         weiter unten. */
+      const abrufAdresseBisher = abrufStand?.adresse ?? '';
+      const abrufAdresseWert = abrufAdresse.trim();
+      if (abrufAdresseWert !== abrufAdresseBisher || abrufPasswort.trim()) {
+        setAbrufStand(await api.postAbrufSetzen({
+          adresse: abrufAdresseWert !== abrufAdresseBisher ? abrufAdresseWert : undefined,
+          passwort: abrufPasswort.trim() || undefined,
+        }));
+        setAbrufPasswort('');
         gespeichert = true;
       }
       if (gumroad.trim()) {
@@ -946,6 +994,25 @@ function SchluesselEinstellungen() {
       if (groq.trim()) {
         setKiStand(await api.kiZugangSetzen(groq.trim()));
         setGroq('');
+        gespeichert = true;
+      }
+      /* Wie beim Gmail-Abruf und bei der Patreon-Client-ID: die Webhook-Wurzel
+         steht dauerhaft im Feld, also nur mitschicken, wenn sie sich WIRKLICH
+         geändert hat — sonst schriebe jedes Speichern in diesem Reiter sie
+         stumm erneut fest. Die drei Zugangsdaten gehen ohnehin nur mit, wenn
+         etwas eingetippt wurde. */
+      const smsBasisBisher = smsStand?.webhookBasis ?? '';
+      const smsBasisWert = smsWebhookBasis.trim();
+      if (smsSid.trim() || smsToken.trim() || smsNummer.trim() || smsBasisWert !== smsBasisBisher) {
+        const neuerSmsStand = await api.smsZugangSetzen({
+          sid: smsSid.trim() || undefined,
+          token: smsToken.trim() || undefined,
+          nummer: smsNummer.trim() || undefined,
+          webhookBasis: smsBasisWert !== smsBasisBisher ? smsBasisWert : undefined,
+        });
+        setSmsStand(neuerSmsStand);
+        setSmsWebhookBasis(neuerSmsStand.webhookBasis ?? '');
+        setSmsSid(''); setSmsToken(''); setSmsNummer('');
         gespeichert = true;
       }
       if (fernAdresse.trim() || fernPasswort.trim()) {
@@ -993,6 +1060,87 @@ function SchluesselEinstellungen() {
     }
   };
 
+  /**
+   * Den Twilio-Zugang entfernen — alle vier Angaben zugleich.
+   *
+   * ALLE VIER, nicht einzeln: ein halb entfernter Zugang ist schlimmer als
+   * gar keiner. Bliebe die Webhook-Adresse stehen, zeigte die Maske weiter
+   * eine Adresse an, hinter der kein Konto mehr steht; bliebe der Token
+   * stehen, beglaubigte der Server weiter SMS für ein Konto, das niemand mehr
+   * benutzt. Derselbe Grund, aus dem `abrufLoeschen()` auf dem Server die
+   * Merkposten mitnimmt.
+   */
+  const smsEntfernen = async () => {
+    setLaeuft(true);
+    try {
+      const stand = await api.smsZugangLoeschen();
+      setSmsStand(stand);
+      setSmsSid(''); setSmsToken(''); setSmsNummer(''); setSmsWebhookBasis('');
+      toast({ kind: 'ok', title: t('schluessel.gespeichert') });
+    } catch (err) {
+      toast({ kind: 'error', title: t('schluessel.speichernFehlgeschlagen'), body: (err as Error).message });
+    } finally {
+      setLaeuft(false);
+    }
+  };
+
+  /**
+   * Den Takt ein- oder ausschalten — sofort, ohne den Speichern-Knopf.
+   *
+   * Ein Schalter, der erst nach einem zweiten Klick woanders wirkt, ist keiner.
+   * Und anders als bei den Geheimnisfeldern gibt es hier nichts einzutippen,
+   * was verloren gehen könnte.
+   */
+  const abrufSchalten = async (aktiv: boolean) => {
+    setLaeuft(true);
+    try {
+      setAbrufStand(await api.postAbrufSetzen({ aktiv }));
+    } catch (err) {
+      toast({ kind: 'error', title: t('schluessel.speichernFehlgeschlagen'), body: (err as Error).message });
+    } finally {
+      setLaeuft(false);
+    }
+  };
+
+  /**
+   * Jetzt abrufen, ohne auf den Takt zu warten.
+   *
+   * Der einzige Weg, ein gerade eingetragenes App-Passwort SOFORT zu prüfen.
+   * Deshalb geht der Fehlschlag hier in eine sichtbare Meldung und nicht nur
+   * in den Stand: wer eben etwas eingetippt hat, will jetzt wissen, ob es
+   * stimmt, und nicht in fünf Minuten.
+   */
+  const abrufJetzt = async () => {
+    setLaeuft(true);
+    try {
+      const e = await api.postAbrufJetzt();
+      setAbrufStand(e);
+      toast({
+        kind: 'ok',
+        title: t('post.abrufErgebnis', { neu: String(e.aufgenommen), doppelt: String(e.doppelt) }),
+      });
+    } catch (err) {
+      toast({ kind: 'error', title: t('post.abrufFehlgeschlagen'), body: (err as Error).message });
+    } finally {
+      setLaeuft(false);
+    }
+  };
+
+  /** Zugang UND Merkposten wegräumen — siehe abrufLoeschen() auf dem Server
+      für den Grund, warum die Merkposten mitmüssen. */
+  const abrufEntfernen = async () => {
+    setLaeuft(true);
+    try {
+      const stand = await api.postAbrufLoeschen();
+      setAbrufStand(stand);
+      setAbrufAdresse(''); setAbrufPasswort('');
+    } catch (err) {
+      toast({ kind: 'error', title: t('schluessel.speichernFehlgeschlagen'), body: (err as Error).message });
+    } finally {
+      setLaeuft(false);
+    }
+  };
+
   /* Ein abgelaufener oder bald ablaufender Patreon-Token soll auffallen,
      nicht erst dann, wenn die Verkaufszahlen ohne Erklärung verschwinden.
      Ohne Ablaufdatum — heute immer, solange niemand die Erneuerung gebaut
@@ -1026,6 +1174,78 @@ function SchluesselEinstellungen() {
         </div>
         <p className="field__hint">{t('post.eingangHint')}</p>
       </div>
+
+      {/* ── Der ZWEITE Weg in den Posteingang ─────────────────────
+          Bewusst hier, direkt unter dem Postfach-Zugang, und nicht in einem
+          eigenen Reiter: es sind Zugangsdaten für dasselbe Postfach, nur von
+          der anderen Seite. Ein eigener Ort ließe die Frage offen, welche der
+          beiden Einrichtungen denn nun gilt — es gelten beide, gleichzeitig. */}
+      <h3 className="ai-section__title">{t('post.abrufUeberschrift')}</h3>
+      <p className="field__hint">{t('post.abrufHinweis')}</p>
+      <div className="field">
+        <label className="field__label">
+          {t('post.abrufAdresse')} · {abrufStand?.passwortHinterlegt ? t('post.bereit') : t('post.fehlt')}
+        </label>
+        {/* Ohne Platzhalter: die Beschriftung darüber sagt schon, was hier
+            hingehört, und ein Beispiel wäre ein weiterer fest verdrahteter
+            Text in einer Maske, die es in 22 Sprachen gibt. */}
+        <input className="input" autoComplete="off"
+               value={abrufAdresse} onChange={(e) => setAbrufAdresse(e.target.value)} />
+      </div>
+      <GeheimFeld label={t('post.abrufPasswort')} stand={abrufStand?.passwortHinterlegt}
+                  wert={abrufPasswort} setWert={setAbrufPasswort} platzhalter="xxxx xxxx xxxx xxxx" />
+      <p className="field__hint">{t('post.abrufPasswortHint')}</p>
+      {/* Die Zahlen kommen vom Server und stehen nicht ein zweites Mal hier —
+          sonst behauptete dieser Satz eines Tages ein Fenster, das der Abruf
+          längst anders rechnet (siehe PostAbrufStand in net/api.ts). */}
+      {abrufStand?.erstabrufTage !== undefined && !abrufStand.erstabrufErledigt && (
+        <p className="field__hint">
+          {t('post.abrufErstHinweis', {
+            tage: String(abrufStand.erstabrufTage),
+            anzahl: String(abrufStand.erstabrufHoechstens ?? 0),
+          })}
+        </p>
+      )}
+      {/* Der Rest erscheint erst, wenn wirklich ein Zugang hinterlegt ist:
+          ein Schalter „regelmäßig abrufen" über einem leeren Passwortfeld
+          verspräche eine Handlung, die es nicht gibt. */}
+      {abrufStand?.passwortHinterlegt && (
+        <>
+          <div className="field">
+            <label className="field__label" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <input type="checkbox" checked={abrufStand.aktiv} disabled={laeuft}
+                     onChange={(e) => void abrufSchalten(e.target.checked)} />
+              {t('post.abrufAktiv')}
+            </label>
+            <p className="field__hint">{t('post.abrufTaktHinweis')}</p>
+          </div>
+          <p className="field__hint">
+            {abrufStand.letzterErfolgAm
+              ? `${t('post.abrufLetzterLauf', { zeit: new Date(abrufStand.letzterErfolgAm).toLocaleString() })} `
+                + t('post.abrufErgebnis', {
+                  neu: String(abrufStand.zuletztAufgenommen),
+                  doppelt: String(abrufStand.zuletztDoppelt),
+                })
+              : t('post.abrufNie')}
+          </p>
+          {/* In Warnfarbe, weil es nur eine Bedeutung hat: seit diesem
+              Zeitpunkt kommt nichts mehr herein. Ohne diese Zeile sähe ein
+              stiller Abruf von außen aus wie ein Postfach ohne neue Post. */}
+          {abrufStand.letzterFehler && (
+            <p className="field__hint" style={{ color: 'var(--amber)' }}>
+              {t('post.abrufFehler', { fehler: abrufStand.letzterFehler })}
+            </p>
+          )}
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button className="btn" type="button" disabled={laeuft} onClick={() => void abrufJetzt()}>
+              <RefreshCw size={15} /> {t('post.abrufJetzt')}
+            </button>
+            <button className="btn" type="button" disabled={laeuft} onClick={() => void abrufEntfernen()}>
+              {t('post.abrufEntfernen')}
+            </button>
+          </div>
+        </>
+      )}
 
       <h3 className="ai-section__title">{t('schluessel.verkauf')}</h3>
       <GeheimFeld label={t('verkauf.token')} stand={verkaufStand?.hinterlegt}
@@ -1076,6 +1296,76 @@ function SchluesselEinstellungen() {
           über einem leeren Zugang nur ein 404 holen könnte. `key`, damit ein
           Speichern den aufgedeckten Stand von vorhin nicht überlebt. */}
       {darfFernVerwalten && fernStand?.hinterlegt && <FernZugangAnsehen key={fernFassung} />}
+
+      {/* ── SMS über Twilio ───────────────────────────────────────
+          ABSENT, nicht ausgegraut, für alle ohne `sms.verwalten` — dieselbe
+          Entscheidung wie beim Aufdeck-Block des Fernzugangs darüber und beim
+          Anbieter-Block darunter. */}
+      {darfSmsVerwalten && (
+        <>
+          <h3 className="ai-section__title">{t('schluessel.sms')}</h3>
+          <p className="field__hint">{t('sms.hinweis')}</p>
+          {/* Die beiden Eigenschaften von Dons Twilio-KONTO, fest in der
+              Maske statt nur in einer Fehlermeldung: ein Versand, der daran
+              scheitert, sähe sonst aus wie ein Programmfehler — und 10DLC
+              fällt bei Twilio oft erst im Zustellbericht auf, also gar nicht
+              in der Antwort auf das Senden. */}
+          <p className="field__hint">{t('sms.trialHinweis')}</p>
+          <p className="field__hint">{t('sms.zehnDlcHinweis')}</p>
+
+          <GeheimFeld label={t('sms.sid')} stand={smsStand?.sid.hinterlegt}
+                      wert={smsSid} setWert={setSmsSid} platzhalter="AC..." />
+          <GeheimFeld label={t('sms.token')} stand={smsStand?.token.hinterlegt}
+                      wert={smsToken} setWert={setSmsToken} />
+          <p className="field__hint">{t('sms.tokenHint')}</p>
+          <GeheimFeld label={t('sms.nummer')} stand={smsStand?.nummer.hinterlegt}
+                      wert={smsNummer} setWert={setSmsNummer} platzhalter="+15551234567" />
+          <p className="field__hint">{t('sms.nummerHint')}</p>
+
+          <div className="field">
+            <label className="field__label">
+              {t('sms.webhookBasis')} · {smsStand?.webhookBasis ? t('post.bereit') : t('post.fehlt')}
+            </label>
+            <input className="input" autoComplete="off" placeholder="https://"
+                   value={smsWebhookBasis} onChange={(e) => setSmsWebhookBasis(e.target.value)} />
+            <p className="field__hint">{t('sms.webhookBasisHint')}</p>
+          </div>
+
+          {/* DIE ADRESSE ZUM ABLESEN, vollständig und markierbar — nicht als
+              Satz, den jemand aus Hostnamen und Pfad zusammenreimt. Sie muss
+              zeichengenau in der Twilio-Console stehen, denn über genau sie
+              rechnet der Server die Signatur nach (http/smseingang.ts). Ein
+              `readOnly`-Eingabefeld statt eines Absatzes, weil sich sein
+              Inhalt in jedem System markieren und kopieren lässt, ohne dass
+              die Zeile umbricht. */}
+          {smsStand?.webhookAdresse
+            ? (
+              <div className="field">
+                <label className="field__label">{t('sms.webhookAdresse')}</label>
+                <input className="input" readOnly value={smsStand.webhookAdresse}
+                       onFocus={(e) => e.currentTarget.select()} />
+                <p className="field__hint">{t('sms.webhookAdresseHint')}</p>
+              </div>
+            )
+            : <p className="field__hint" style={{ color: 'var(--amber)' }}>{t('sms.webhookFehlt')}</p>}
+
+          {/* Der Stand des EINGANGS getrennt vom Versand: er braucht nur
+              Token und Adresse, und solange nur die eigene Nummer fehlt,
+              kommen SMS längst an. Eine Maske, die dann „nicht eingerichtet"
+              sagt, schickt jemanden auf die falsche Fährte. */}
+          <p className="field__hint">
+            {smsStand?.eingangBereit ? t('sms.eingangBereit') : t('sms.eingangFehlt')}
+          </p>
+          {/* Nur wenn wirklich etwas hinterlegt ist: ein Entfernen-Knopf über
+              einem leeren Zugang verspräche eine Handlung, die es nicht gibt. */}
+          {(smsStand?.sid.tresor || smsStand?.token.tresor || smsStand?.nummer.tresor
+            || smsStand?.webhookBasis) && (
+            <button className="btn" type="button" disabled={laeuft} onClick={() => void smsEntfernen()}>
+              {t('sms.entfernen')}
+            </button>
+          )}
+        </>
+      )}
 
       <h3 className="ai-section__title">{t('schluessel.anbieter')}</h3>
       <p className="field__hint">{t('schluessel.anbieterHinweis')}</p>

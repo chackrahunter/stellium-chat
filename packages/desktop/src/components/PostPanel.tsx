@@ -71,6 +71,13 @@ interface PostNachricht {
       solange für dieses Fach keine Frist gesetzt ist. Muss sichtbar sein,
       BEVOR sie zuschlägt — siehe VerlaufEintrag weiter unten. */
   verfaelltAm: number | null;
+  /** Über welchen der Wege sie hereinkam: `worker` an die Stellium-Domäne,
+      `abruf` aus dem Gmail-Postfach, `sms` über Twilio (services/post.ts,
+      `PostQuelle`). `null` bei ausgehender Post und bei allem, was vor dieser
+      Unterscheidung eintraf — dann steht schlicht nichts da. `sms` steht als
+      einziger Wert auch an AUSGEHENDEN Zeilen: bei Mail sagt die Richtung
+      schon alles, bei einer SMS nicht. */
+  quelle: 'worker' | 'abruf' | 'sms' | null;
 }
 
 interface PostFach {
@@ -784,11 +791,25 @@ export function PostPanel({ onClose }: { onClose: () => void }) {
 
   const senden = async () => {
     const text = antwortText.trim();
-    if (!text || !letzte || !zielAdresse || !antwortFach) return;
+    /* `antwortFach` ist für eine SMS bedeutungslos: sie geht von der
+       hinterlegten Twilio-Nummer hinaus, nicht aus einem Mailfach
+       (services/sms.ts). Ohne diese Ausnahme hinge die Antwort auf eine SMS
+       daran, dass ZUSÄTZLICH eine Maildomäne eingerichtet ist — `sendeFaecher`
+       ist sonst leer, `antwortFach` bleibt null, und der Knopf täte nichts,
+       ohne dass irgendwo stünde warum. Zwei Dinge, die nichts miteinander zu
+       tun haben. Welcher Weg es wird, entscheidet ohnehin der Server am
+       Empfänger (http/routes.ts, /api/post/senden). */
+    const istSms = letzte?.quelle === 'sms';
+    if (!text || !letzte || !zielAdresse || (!antwortFach && !istSms)) return;
     setSendenLaedt(true);
     try {
       await antwortSenden({
-        fach: antwortFach,
+        /* Leer nur im SMS-Fall — die Zeile darüber lässt eine Mail ohne Fach
+           gar nicht bis hierher kommen. Für eine SMS gibt es kein Absenderfach,
+           und der Server sieht es sich in diesem Zweig auch nicht an. Käme ein
+           leeres Fach doch je an einer Mail an, wiese `post.senden()` es mit
+           `post.unbekanntesFach` ab, statt aus irgendeiner Adresse zu schreiben. */
+        fach: antwortFach ?? '',
         an: zielAdresse,
         betreff: betreffVorschlag,
         text,
@@ -1214,9 +1235,12 @@ export function PostPanel({ onClose }: { onClose: () => void }) {
                 </div>
                 <div className="post__antwort-fuss">
                   <span className="muted post__antwort-hinweis">{t('post.sendenHinweis')}</span>
+                  {/* Dieselbe Ausnahme wie in senden() oben, und sie muss auch
+                      hier stehen: sonst bliebe der Knopf für eine SMS grau,
+                      obwohl das Antworten längst geht. */}
                   <button
                     className="btn btn--primary"
-                    disabled={!antwortText.trim() || !antwortFach || sendenLaedt}
+                    disabled={!antwortText.trim() || (!antwortFach && letzte?.quelle !== 'sms') || sendenLaedt}
                     onClick={() => void senden()}
                   >
                     {sendenLaedt ? <Loader2 size={14} className="spin" /> : <Send size={14} />}
@@ -1339,14 +1363,41 @@ function VerlaufEintrag({
             reicht kein `title` an das SVG durch (LucideProps kennt es nicht),
             eine Elternspanne mit Titel-Attribut zeigt denselben Hinweis beim
             Überfahren mit der Maus. */}
+        {/* Die Herkunft hängt am selben Hinweis wie die Richtung, statt ein
+            zweites Zeichen in die Zeile zu setzen: „eingegangen" und „woher"
+            sind dieselbe Auskunft, nur genauer. Ausgehende Post trägt keine
+            Herkunft — sie ist hier entstanden. */}
         <span
           className="post__eintrag-richtung"
-          title={n.richtung === 'ein' ? t('post.eingegangen') : t('post.ausgegangen')}
+          title={[
+            n.richtung === 'ein' ? t('post.eingegangen') : t('post.ausgegangen'),
+            n.quelle === 'worker' ? t('post.herkunftWorker') : null,
+            n.quelle === 'abruf' ? t('post.herkunftAbruf') : null,
+            n.quelle === 'sms' ? t('post.herkunftSms') : null,
+          ].filter(Boolean).join(' · ')}
           aria-hidden="true"
         >
           {n.richtung === 'ein' ? <ArrowDownLeft size={13} className="muted" /> : <ArrowUpRight size={13} className="muted" />}
         </span>
         <span className="post__eintrag-adresse truncate">{n.richtung === 'ein' ? n.von : n.an}</span>
+        {/* Sichtbar und nicht nur im Hinweis über dem Pfeil: wer wissen will,
+            ob eine Mail über die Stellium-Domäne kam oder aus dem
+            Gmail-Postfach geholt wurde, soll es LESEN können und nicht mit
+            der Maus danach suchen müssen. Nur beim Abruf — der andere Weg ist
+            der Normalfall, und ein Schild an jeder zweiten Zeile ist kein
+            Hinweis mehr, sondern Hintergrundrauschen. */}
+        {n.quelle === 'abruf' && (
+          <span className="muted" title={t('post.herkunftAbruf')}>{t('post.herkunftAbrufKurz')}</span>
+        )}
+        {/* Dasselbe Schild für den dritten Weg, aus demselben Grund: eine SMS
+            liest sich in der Liste anders als eine Mail (kein Betreff, eine
+            Nummer statt einer Adresse), und wer das nicht weiß, hält sie für
+            eine kaputte Mail. Anders als beim Gmail-Abruf hängt es auch an
+            der AUSGEHENDEN Zeile — sonst sähe die eigene SMS-Antwort im
+            Verlauf aus wie eine Mail, die nie ankam. */}
+        {n.quelle === 'sms' && (
+          <span className="muted" title={t('post.herkunftSms')}>{t('post.herkunftSmsKurz')}</span>
+        )}
         <span className="post__eintrag-zeit">{dateTime(n.am)}</span>
 
         {/* Weiterleiten, Archivieren/Entfernen (umkehrbar, ohne Rückfrage)

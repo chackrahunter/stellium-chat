@@ -168,3 +168,101 @@ export function zugangSetzen(
 export function zugangLoeschen(userId: string): void {
   for (const k of [S_DOMAENE, S_ABSENDER_ALT, S_NAME, S_VERSAND, S_EINGANG]) setSetting(k, null, userId);
 }
+
+/* ── Der ZWEITE Weg herein: ein fremdes Postfach abrufen ────────
+ *
+ * WARUM ES DAS GIBT, UND WARUM ES KEINE WEITERLEITUNG IST. An eine
+ * Gmail-Adresse kommt gewöhnliche Post — Bestätigungen, Codes, Firmenpost.
+ * Der naheliegende Weg wäre eine Weiterleitung bei Google an die
+ * Stellium-Domäne; sie ist ausdrücklich verworfen. Der Grund ist nicht
+ * Geschmack, sondern Arithmetik: ein Teil der Firmenpost, die an die
+ * Stellium-Domäne geht, liegt ZUSÄTZLICH in diesem Gmail-Postfach. Eine
+ * Weiterleitung lieferte davon jedes Stück ein zweites Mal ein, und der
+ * Posteingang zeigte alles doppelt. Also holt Stellium die Post selbst und
+ * entdublettet sie beim Aufnehmen (services/post.ts, `abdruckBilden()`).
+ *
+ * DER HOST STEHT NICHT HIER, SONDERN FEST IM CODE (services/postabruf.ts,
+ * `IMAP_HOST`). Er ist bewusst keine Einstellung: das hier hinterlegte
+ * Passwort geht bei jedem Lauf an genau diesen Rechner, und ein Feld, in das
+ * sich ein Rechnername eintragen lässt, ist ein Feld, mit dem sich das
+ * Passwort woandershin schicken lässt. Wer einen anderen Anbieter will,
+ * ändert eine Zeile Code — und niemand kann es aus der Ferne über eine
+ * Einstellung tun.
+ *
+ * DAS PASSWORT IST EIN APP-PASSWORT, kein Kontopasswort. Google lässt seit
+ * Jahren kein Kontopasswort mehr an IMAP; es braucht die
+ * Zwei-Faktor-Anmeldung und ein dort erzeugtes 16-stelliges App-Passwort.
+ * Erzeugen kann es nur der Kontoinhaber selbst — Stellium kennt es nicht und
+ * erzeugt es nicht, es wird hier nur entgegengenommen.
+ */
+
+/** Die Adresse des abzurufenden Postfachs — zugleich der IMAP-Benutzername.
+    Verschlüsselt wie jede andere Adresse im Haus (crypto/pii.ts), aber KEIN
+    Geheimnis im Sinne des Passworts: sie wird angezeigt, damit man sieht,
+    welches Postfach da eigentlich geleert wird. */
+const S_ABRUF_ADRESSE = 'mail.abruf.adresse';
+/** Das App-Passwort. Geht nie wieder hinaus — weder gekürzt noch maskiert. */
+const S_ABRUF_PASSWORT = 'mail.abruf.passwort';
+/** Ob der Takt läuft. Getrennt vom Passwort, damit sich der Abruf anhalten
+    lässt, ohne die Zugangsdaten wegzuwerfen und neu eintippen zu müssen. */
+const S_ABRUF_AKTIV = 'mail.abruf.aktiv';
+
+export interface AbrufZugang { adresse: string; passwort: string }
+
+/** Nur für den Abruf — niemals in eine Antwort geben. */
+export function abrufZugangLesen(): AbrufZugang | null {
+  const adresse = decryptField(getSetting(S_ABRUF_ADRESSE)).trim();
+  const passwort = decryptField(getSetting(S_ABRUF_PASSWORT));
+  if (!adresse || !passwort) return null;
+  return { adresse, passwort };
+}
+
+/** Ob der Takt laufen soll. Vorgabe ist AUS: ein frisch eingetragener Zugang
+    beginnt nicht von selbst, ein fremdes Postfach leerzulesen. */
+export function abrufAktiv(): boolean {
+  return getSetting(S_ABRUF_AKTIV) === '1';
+}
+
+/** Was man ohne Geheimnisse über den Abruf sagen darf. */
+export function abrufStand(): {
+  adresse: string | null; passwortHinterlegt: boolean; aktiv: boolean;
+} {
+  return {
+    adresse: decryptField(getSetting(S_ABRUF_ADRESSE)).trim() || null,
+    /* Am gespeicherten Wert geprüft, nicht am entschlüsselten — derselbe
+       Fallstrick wie bei `versandBereit` oben: decryptField() gibt für ein
+       fehlendes Feld '' zurück und nie `null`. */
+    passwortHinterlegt: getSetting(S_ABRUF_PASSWORT) !== null,
+    aktiv: abrufAktiv(),
+  };
+}
+
+export function abrufSetzen(
+  werte: { adresse?: string; passwort?: string; aktiv?: boolean },
+  userId: string,
+): void {
+  /* Wie oben: leere Felder lassen den bisherigen Wert stehen, damit sich der
+     Takt ein- und ausschalten lässt, ohne das Passwort noch einmal
+     einzugeben (das man nirgends mehr ablesen kann). */
+  if (werte.adresse) setSetting(S_ABRUF_ADRESSE, encryptField(werte.adresse.trim().toLowerCase()), userId);
+  if (werte.passwort) {
+    /* Google zeigt das App-Passwort in vier Vierergruppen mit Leerzeichen an
+       ("abcd efgh ijkl mnop"), erwartet es beim Anmelden aber ohne. Wer es
+       kopiert, kopiert die Leerzeichen mit — und bekäme sonst eine
+       Fehlermeldung, die nach einem falschen Passwort aussieht, obwohl das
+       richtige dasteht. */
+    setSetting(S_ABRUF_PASSWORT, encryptField(werte.passwort.replace(/\s+/g, '')), userId);
+  }
+  if (werte.aktiv !== undefined) setSetting(S_ABRUF_AKTIV, werte.aktiv ? '1' : '0', userId);
+}
+
+/** Zugang UND Merkposten wegräumen. Die Merkposten müssen mit: bliebe die
+    zuletzt gesehene UID stehen, holte ein später eingetragener Zugang (ein
+    anderes Postfach!) nur noch alles ab dieser Nummer — also so gut wie
+    nichts, ohne dass jemand sähe, warum. */
+export function abrufLoeschen(userId: string): void {
+  for (const k of [S_ABRUF_ADRESSE, S_ABRUF_PASSWORT, S_ABRUF_AKTIV]) setSetting(k, null, userId);
+  for (const k of ['mail.abruf.uidvalidity', 'mail.abruf.letzteUid', 'mail.abruf.stand']) {
+    setSetting(k, null, userId);
+  }
+}

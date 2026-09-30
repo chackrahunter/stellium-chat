@@ -61,6 +61,8 @@ export type PermissionKey =
   | 'mail.lesen'
   | 'mail.senden'
   | 'mail.verwalten'
+  /* SMS */
+  | 'sms.verwalten'
   /* Fernzugriff */
   | 'fern.zugriff'
   | 'fern.verwalten'
@@ -172,6 +174,35 @@ export const PERMISSIONS: PermissionInfo[] = [
   { key: 'mail.lesen', group: 'post', labelDe: 'Postfach lesen' },
   { key: 'mail.senden', group: 'post', labelDe: 'Post senden und beantworten' },
   { key: 'mail.verwalten', group: 'post', ownerOnly: true, labelDe: 'Postfach einrichten' },
+
+  /* Den Twilio-Zugang hinterlegen — Account SID, Auth Token und die eigene
+     Nummer (services/smszugang.ts, Route /api/sms/zugang). Dieselbe Klasse
+     wie `mail.verwalten` direkt darüber und wie `ki.verwalten`: ein Recht auf
+     ein GEHEIMNIS, und jedes solche Recht im Haus heißt `<bereich>.verwalten`
+     und ist `ownerOnly`.
+
+     BEWUSST NICHT UNTER `mail.verwalten` MITGENOMMEN, obwohl SMS im selben
+     Posteingang landen. Der Auth Token ist nicht nur ein Versandschlüssel: er
+     ist zugleich der HMAC-Schlüssel, an dem die Beglaubigung JEDER eingehenden
+     SMS hängt (http/smseingang.ts). Wer ihn austauschen darf, entscheidet
+     damit, wessen Nachrichten dieser Server künftig als echt ansieht — das ist
+     eine andere Frage als „darf das Postfach einrichten", und sie verdient
+     eine eigene Antwort. Umgekehrt soll jemand den Mailversand einrichten
+     dürfen, ohne dafür an das Telefonkonto zu kommen.
+
+     LESEN UND ANTWORTEN BLEIBEN BEI `mail.lesen`/`mail.senden`: eine SMS ist
+     im Posteingang eine Nachricht wie jede andere, und ein zweites Leserecht
+     daneben hieße, dass jemand die halbe Liste sieht.
+
+     ADMINISTRATOREN BEKOMMEN ES TROTZDEM, über `ADMIN = ALLE.filter(...)`
+     weiter unten — hier ausdrücklich entschieden und nicht bloß über den
+     Opt-out durchgerutscht (der Kommentar dort verlangt genau diese
+     Entscheidung). Dieselbe Abwägung wie bei `ki.verwalten`: ein Administrator
+     trägt bereits `fern.zugriff` und `fern.verwalten` und kommt damit an die
+     Maschine und an ihre Umgebung, in der `TWILIO_AUTH_TOKEN` stehen kann.
+     `ownerOnly` erfüllt seinen Zweck trotzdem: VERGEBEN darf dieses Recht
+     allein der Inhaber. */
+  { key: 'sms.verwalten', group: 'post', ownerOnly: true, labelDe: 'SMS-Zugang einrichten' },
 
   { key: 'verkauf.verwalten', group: 'system', ownerOnly: true, labelDe: 'Verkaufszugang einrichten' },
 

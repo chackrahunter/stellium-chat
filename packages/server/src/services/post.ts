@@ -16,6 +16,7 @@
  * an die geschrieben wurde. `support@` und `billing@` landen im selben
  * Postfach und sind trotzdem getrennt zu lesen.
  */
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { pipeline } from 'node:stream/promises';
@@ -30,7 +31,23 @@ import * as ablage from './ablage.js';
 import { saubererDateiname } from '../util/dateiname.js';
 import type { MailAnhang } from '@stellium/shared';
 
-const VERSAND_ENDE = 'https://api.resend.com/emails';
+/**
+ * Wohin der Versand geht.
+ *
+ * Fest verdrahtet war das bis hierher — und damit war der einzige Weg, den
+ * `senden()` tatsächlich benutzt, für keinen Prüflauf messbar: entweder man
+ * schickt echte Post an Resend, oder man prüft gar nicht. `GROQ_BASE_URL`
+ * gibt es aus genau diesem Grund schon (siehe src/pruefungen/ki-schluessel.mts,
+ * „Warum ein Doppelgänger und nicht die echte Schnittstelle"), und der
+ * Wächter des Postabrufs braucht dieselbe Möglichkeit, um zu belegen, dass
+ * eine Antwort auf abgerufene Post mit dem richtigen Empfänger und den
+ * richtigen Verlaufskopfzeilen hinausgeht.
+ *
+ * Es ist KEINE Einstellung und steht in keiner Oberfläche: wer sie setzen
+ * will, braucht Zugriff auf die Umgebung des Serverprozesses — und wer den
+ * hat, kann ohnehin alles. Ohne die Variable gilt unverändert Resend.
+ */
+const VERSAND_ENDE = process.env.RESEND_ENDE?.trim() || 'https://api.resend.com/emails';
 
 export class PostFehler extends Error {
   constructor(public code: string, nachricht: string, public status = 502) {
@@ -63,6 +80,10 @@ export interface Nachricht {
       solange für dieses Fach keine Frist gesetzt ist. Siehe fristenStand()
       weiter unten; muss in der Oberfläche sichtbar sein, BEVOR sie zuschlägt. */
   verfaelltAm: number | null;
+  /** Auf welchem Weg sie hereinkam — siehe `PostQuelle` weiter unten. `null`
+      bei ausgehender Post und bei allem, was vor dieser Unterscheidung
+      eingetroffen ist. */
+  quelle: PostQuelle | null;
 }
 
 interface Zeile {
@@ -71,6 +92,7 @@ interface Zeile {
   referenzen: string | null; thread_id: string | null; am: number;
   gelesen: number; anhaenge: string | null;
   archiviert_am: number | null; entfernt_am: number | null;
+  quelle: string | null;
 }
 
 /** Millisekunden je Tag — für die Aufbewahrungsfrist weiter unten. */
@@ -118,6 +140,11 @@ function auspacken(z: Zeile, fristTage?: Map<string, number>): Nachricht {
     archiviertAm: z.archiviert_am,
     entferntAm: z.entfernt_am,
     verfaelltAm: frist ? z.am + frist * TAG_MS : null,
+    /* Nur die beiden bekannten Werte gehen hinaus. Ein unbekannter Eintrag
+       (eine ältere oder neuere Fassung, ein Eingriff von Hand) wird zu
+       `null` und damit zu „unbekannt", statt als Wort in die Oberfläche
+       durchzuschlagen, die ihn nicht übersetzen kann. */
+    quelle: z.quelle === 'worker' || z.quelle === 'abruf' || z.quelle === 'sms' ? z.quelle : null,
   };
 }
 
@@ -183,6 +210,168 @@ export interface EingangRoh {
   antwortAn?: unknown; betreff?: unknown; text?: unknown; html?: unknown;
   messageId?: unknown; referenzen?: unknown; pruefung?: unknown; am?: unknown;
   anhaenge?: unknown;
+}
+
+/**
+ * Auf welchem Weg eine Mail hereinkam. Steht in der Datenbank und geht bis in
+ * die Oberfläche durch, damit man einer Nachricht ansehen kann, woher sie
+ * stammt — `'worker'` ist der Cloudflare-Weg an die eigene Domäne,
+ * `'abruf'` das aus einem fremden Postfach geholte Stück Post
+ * (services/postabruf.ts). Alte Zeilen und ausgehende Post tragen `null`;
+ * das ist kein dritter Fall, sondern schlicht „von vor dieser Unterscheidung".
+ *
+ * `'sms'` ist der dritte Weg (services/sms.ts, http/smseingang.ts) und der
+ * einzige, der auch an einer AUSGEHENDEN Zeile steht: bei Mail sagt die
+ * Richtung schon alles, bei einer SMS nicht — ohne diesen Eintrag sähe eine
+ * gesendete SMS im Verlauf aus wie eine gesendete Mail.
+ */
+export type PostQuelle = 'worker' | 'abruf' | 'sms';
+
+/* ── Dublettenfreiheit ─────────────────────────────────────────
+ *
+ * DAS PROBLEM. Seit es zwei Wege in dieses Postfach gibt, kann DIESELBE Mail
+ * zweimal ankommen: einmal über den Cloudflare-Worker an die Stellium-Domäne,
+ * einmal aus dem abgerufenen Fremdpostfach, in dem sie ebenfalls liegt. Der
+ * `zustell_schluessel` hilft dabei nicht — er ist ein SHA-256 über den RUMPF,
+ * den der Worker schickt (siehe dessen `zustellSchluessel()`), und den kann
+ * der Abruf nicht nachbilden: er sieht die rohe Mail, nicht das JSON des
+ * Workers. Zwei Wege, zwei Schlüssel, zwei Zeilen.
+ *
+ * WARUM NICHT EINFACH DIE MESSAGE-ID. Weil genau davor der Kommentar an
+ * `zustell_schluessel` in db/schema.sql warnt, und zwar zu Recht: eine
+ * Message-ID ist bei vielen Systemen vorhersagbar. Wer die nächste
+ * Rechnungs-ID eines Lieferanten errät, meldet sie vorher an — und die echte
+ * Rechnung verschwindet lautlos als Dublette. Ein `UNIQUE`-Index auf
+ * `message_id` wäre also keine Sicherung, sondern eine Zustellsperre zum
+ * Mitnehmen.
+ *
+ * WAS STATTDESSEN VERGLICHEN WIRD: die Message-ID UND der Absender UND der
+ * Betreff UND der Anfang des Textes, alles zusammen zu einem SHA-256. Damit
+ * kippt der Angriff: es genügt nicht mehr, eine Kennung zu erraten — man
+ * müsste den INHALT der noch nicht eingetroffenen Mail kennen. Wer den kennt,
+ * gewinnt durch das Unterdrücken nichts mehr. Und in die andere Richtung
+ * bleibt die Sperre scharf: dieselbe Mail über zwei Wege ergibt zweimal
+ * denselben Abdruck, denn all diese Felder sind Teil der Mail selbst und
+ * ändern sich auf dem Zustellweg nicht.
+ *
+ * OHNE MESSAGE-ID GIBT ES KEINEN ABDRUCK — `null`, und damit keine
+ * Entdublettung. Solche Mails gibt es (Formulare, Geräte, alte Software), und
+ * für sie ist zweimal anzeigen das kleinere Übel: ohne eine weltweit
+ * eindeutige Kennung bliebe als Vergleich nur der Inhalt, und zwei echte,
+ * verschiedene Mails mit gleichem Betreff und gleichem Text an denselben
+ * Empfänger sind kein Widerspruch, sondern Alltag (zwei Mahnungen, zwei
+ * Bestellbestätigungen). Eine davon zu verschlucken wäre schlimmer als beide
+ * zu zeigen.
+ *
+ * WAS DAS FACH NICHT TUT: es geht NICHT in den Abdruck ein. Das hat eine
+ * sichtbare Folge, und sie ist eine Entscheidung, kein Versehen: eine Mail,
+ * die an ZWEI eigene Fächer zugleich ging (etwa `support@` und `billing@`),
+ * lieferte der Worker bisher zweimal ein und sie stand in beiden Ordnern.
+ * Ab jetzt steht sie einmal da, im Fach der zuerst eingegangenen Zustellung.
+ * Der Grund für diesen Preis: die abgerufene Kopie derselben Mail landet
+ * nicht zwingend im selben Fach — sie trägt das Fach nur, wenn eine der
+ * eigenen Adressen in `To:`/`Cc:` steht (siehe postabruf.ts,
+ * `empfaengerBestimmen()`). Stünde das Fach im Abdruck, fiele der
+ * Dublettenschutz genau dort aus, wofür er gebaut ist.
+ *
+ * WAS BLEIBT (ehrlich): weicht auch nur ein Zeichen des normalisierten
+ * Textes zwischen den beiden Wegen ab, entstehen zwei verschiedene Abdrücke
+ * und die Mail steht zweimal da. Genau deshalb normalisiert `normal()` hart
+ * — alle Zwischenräume weg, klein geschrieben: Zeilenumbrüche sind das, was
+ * sich auf dem Weg durch Weiterleitungen und Kodierungen wirklich ändert,
+ * Buchstaben nicht. Und wenn es doch passiert, steht die Mail zweimal da
+ * statt gar nicht. Diese Reihenfolge ist im ganzen Postfach dieselbe: lieber
+ * gekürzt oder doppelt zustellen als verlieren.
+ */
+
+/** Wie viel vom Text in den Abdruck eingeht. Genug, dass zwei verschiedene
+    Mails auseinanderfallen; wenig genug, dass eine unterschiedliche Kappung
+    auf den beiden Wegen (der Worker kappt anders als der Abruf) nichts
+    ausmacht. */
+const ABDRUCK_TEXT_MAX = 4000;
+
+/** Alles weg, was ein Zustellweg verändern darf: Groß-/Kleinschreibung und
+    jede Art von Zwischenraum. Ein weicher Umbruch in quoted-printable, eine
+    andere Zeilenbreite, ein zusätzliches CR — nichts davon soll aus derselben
+    Mail zwei machen. */
+function normal(wert: string): string {
+  return wert.toLowerCase().replace(/\s+/g, '');
+}
+
+/** Aus HTML das Wesentliche, wenn es gar keinen Textteil gab. Kein Parser,
+    nur die Tags heraus — es geht nicht um Darstellung, sondern darum, dass
+    zwei Kopien derselben Mail dieselbe Zeichenfolge ergeben. */
+function ohneTags(wert: string): string {
+  return wert.replace(/<[^>]*>/g, ' ');
+}
+
+/**
+ * Der Abdruck einer eingehenden Mail — `null`, wenn sie keine brauchbare
+ * Message-ID trägt (siehe Blockkommentar oben).
+ *
+ * Die Felder gehen mit `\n` getrennt ein, damit sich Grenzen nicht
+ * verschieben lassen: ohne Trenner ergäbe „ab" + „c" denselben Abdruck wie
+ * „a" + „bc".
+ */
+export function abdruckBilden(felder: {
+  messageId: string | null; von: string; betreff: string; text: string; html: string | null;
+}): string | null {
+  if (!felder.messageId) return null;
+  const koerper = (normal(felder.text) || normal(ohneTags(felder.html ?? ''))).slice(0, ABDRUCK_TEXT_MAX);
+  return crypto.createHash('sha256')
+    .update([
+      'abdruck1',
+      felder.messageId,
+      felder.von.toLowerCase(),
+      normal(felder.betreff),
+      koerper,
+    ].join('\n'), 'utf8')
+    .digest('hex');
+}
+
+/**
+ * Liegt zu diesem Abdruck schon eine Mail? Dann ihre Kennung, sonst `null`.
+ *
+ * ZWEI SCHRITTE, UND DER ZWEITE IST NICHT ÜBERFLÜSSIG. Der erste sucht über
+ * die Spalte `abdruck` — der Normalfall, ein Indexzugriff. Der zweite fängt
+ * den Altbestand: jede Zeile, die vor dieser Änderung entstanden ist, hat
+ * `abdruck IS NULL`, und der Erstabruf holt genau 30 Tage zurück, also
+ * mitten in diesen Altbestand hinein. Ohne den zweiten Schritt stünde alles,
+ * was in diesen 30 Tagen über den Worker kam, nach dem ersten Abruf doppelt
+ * da — beim einzigen Lauf, bei dem es am meisten auffiele.
+ *
+ * Der Altbestand wird dabei GEHEILT: findet der zweite Schritt eine Zeile,
+ * bekommt sie ihren Abdruck nachgetragen. Damit schrumpft die Nacharbeit von
+ * selbst, statt für immer zu bleiben. Schlägt das Nachtragen fehl (zwei alte
+ * Zeilen sind wirklich Dubletten und teilen sich einen Abdruck — dann greift
+ * der eindeutige Index), ist das kein Fehler dieses Aufrufs: die Frage
+ * „schon da?" ist trotzdem beantwortet.
+ */
+function dubletteFinden(abdruck: string, messageId: string): string | null {
+  const direkt = db.get<{ id: string }>(
+    'SELECT id FROM mail_nachrichten WHERE abdruck = ? LIMIT 1', abdruck);
+  if (direkt) return direkt.id;
+
+  const alte = db.all<{ id: string; von: string; betreff: string; text: string; html: string | null }>(
+    `SELECT id, von, betreff, text, html FROM mail_nachrichten
+      WHERE message_id = ? AND abdruck IS NULL AND richtung = 'ein' LIMIT 20`, messageId);
+  for (const z of alte) {
+    const nachgerechnet = abdruckBilden({
+      messageId,
+      von: entschluesseln(z.von),
+      betreff: entschluesseln(z.betreff),
+      text: entschluesseln(z.text),
+      html: z.html ? entschluesseln(z.html) : null,
+    });
+    if (nachgerechnet !== abdruck) continue;
+    try {
+      db.run('UPDATE mail_nachrichten SET abdruck = ? WHERE id = ?', abdruck, z.id);
+    } catch (err) {
+      console.warn('[post] Abdruck ließ sich nicht nachtragen:', (err as Error).message);
+    }
+    return z.id;
+  }
+  return null;
 }
 
 /**
@@ -312,8 +501,9 @@ function anhaengeVorbereiten(rohListe: unknown[]): AnhangVorbereitet[] {
   });
 }
 
-export function eingangAufnehmen(roh: EingangRoh, zustellSchluessel?: string):
-{ id: string; doppelt: boolean } {
+export function eingangAufnehmen(
+  roh: EingangRoh, zustellSchluessel?: string, quelle: PostQuelle = 'worker',
+): { id: string; doppelt: boolean } {
   /* Idempotenz am Zustellschlüssel des Workers, nicht an der Message-ID des
      Absenders. Der eindeutige Index in der Datenbank ist die eigentliche
      Sperre; diese Abfrage erspart nur die Ausnahme im Normalfall. */
@@ -327,6 +517,22 @@ export function eingangAufnehmen(roh: EingangRoh, zustellSchluessel?: string):
   const bestaetigt = istBestaetigt(roh.pruefung);
   const messageId = messageIdPruefen(roh.messageId);
   const referenzen = referenzenPruefen(roh.referenzen);
+
+  /* Der WEGÜBERGREIFENDE Dublettenschutz. Er steht hier und nicht in der
+     Route, aus demselben Grund wie alles andere in diesem Abschnitt: eine
+     zweite Stelle, die später einliest, käme sonst an ihm vorbei — und genau
+     das ist der Abruf aus dem Fremdpostfach. Die Felder, die eingehen, sind
+     dieselben, die gleich unten verschlüsselt gespeichert werden, in
+     derselben gekappten Form: sonst rechnete `dubletteFinden()` beim
+     Nachrechnen alter Zeilen mit anderen Werten als beim Anlegen neuer. */
+  const betreff = kappen(roh.betreff, 998);
+  const text = kappen(roh.text, 1024 * 1024);
+  const html = roh.html ? kappen(roh.html, 4 * 1024 * 1024) : null;
+  const abdruck = abdruckBilden({ messageId, von, betreff, text, html });
+  if (abdruck && messageId) {
+    const schonDa = dubletteFinden(abdruck, messageId);
+    if (schonDa) return { id: schonDa, doppelt: true };
+  }
 
   /* Zeit klemmen. Ein Wert nahe MAX_SAFE_INTEGER heftete die Nachricht wegen
      `ORDER BY am DESC` dauerhaft an die Spitze und zerstörte das
@@ -344,31 +550,79 @@ export function eingangAufnehmen(roh: EingangRoh, zustellSchluessel?: string):
   const vorbereitet = anhaengeVorbereiten(rohAnhaenge);
   const id = newId('po_');
 
-  db.run(
-    `INSERT INTO mail_nachrichten
-       (id, fach, richtung, von, an, betreff, text, html,
-        message_id, referenzen, thread_id, umschlag_von, antwort_an, pruefung,
-        zustell_schluessel, am, gelesen, anhaenge)
-     VALUES (?,?,'ein',?,?,?,?,?,?,?,?,?,?,?,?,?,0,?)`,
-    id, fachPruefen(roh.an),
-    verschluesseln(von), verschluesseln(nurAdresse(kappen(roh.an, 320))),
-    verschluesseln(kappen(roh.betreff, 998)), verschluesseln(kappen(roh.text, 1024 * 1024)),
-    roh.html ? verschluesseln(kappen(roh.html, 4 * 1024 * 1024)) : null,
-    messageId, referenzen, threadId,
-    verschluesseln(nurAdresse(kappen(roh.umschlagVon, 320))),
-    roh.antwortAn ? verschluesseln(nurAdresse(kappen(roh.antwortAn, 320))) : null,
-    kappen(roh.pruefung, 2000) || null,
-    zustellSchluessel ?? null,
-    am,
-    /* Die Übersicht -- verschlüsselt wie jedes andere Feld dieser Nachricht
-       (siehe anhaengeAuspacken() oben). `id` verweist auf `mail_anhaenge`, wo
-       der eigentliche Inhalt liegt; ohne Bytes bleibt `id` null UND
-       `uebergross` macht das für die Oberfläche sichtbar, statt den Anhang
-       einfach verschwinden zu lassen. */
-    verschluesseln(JSON.stringify(vorbereitet.map((v) => ({
-      name: v.name, typ: v.typ, groesse: v.groesse, uebergross: v.uebergross, id: v.attId,
-    })))),
-  );
+  /**
+   * Der WETTLAUF, den die Abfrage oben nicht abdeckt.
+   *
+   * Zwischen `dubletteFinden()` und diesem INSERT liegt kein Schloss: der
+   * Worker kann einliefern, während der Abruf gerade dieselbe Mail
+   * verarbeitet. Genau dafür gibt es den eindeutigen Index
+   * (`idx_mail_abdruck`, db/migrate.ts) — er ist die eigentliche Sperre, die
+   * Abfrage erspart nur die Ausnahme im Normalfall. Ohne diesen Fang würde
+   * daraus ein 500 für den Worker, und der leitet die Mail nach drei
+   * Versuchen an das private Ersatzpostfach weiter (siehe http/posteingang.ts).
+   * Eine Dublette ist aber kein Fehler, sondern erledigte Arbeit.
+   *
+   * Dasselbe gilt für `idx_mail_zustell`: zwei Anfragen des Workers mit
+   * demselben Zustellschlüssel gleichzeitig.
+   */
+  const einfuegen = (): void => {
+    db.run(
+      `INSERT INTO mail_nachrichten
+         (id, fach, richtung, von, an, betreff, text, html,
+          message_id, referenzen, thread_id, umschlag_von, antwort_an, pruefung,
+          zustell_schluessel, abdruck, quelle, am, gelesen, anhaenge)
+       VALUES (?,?,'ein',?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0,?)`,
+      id, fachPruefen(roh.an),
+      verschluesseln(von), verschluesseln(nurAdresse(kappen(roh.an, 320))),
+      verschluesseln(betreff), verschluesseln(text),
+      html ? verschluesseln(html) : null,
+      messageId, referenzen, threadId,
+      verschluesseln(nurAdresse(kappen(roh.umschlagVon, 320))),
+      roh.antwortAn ? verschluesseln(nurAdresse(kappen(roh.antwortAn, 320))) : null,
+      kappen(roh.pruefung, 2000) || null,
+      zustellSchluessel ?? null,
+      abdruck,
+      quelle,
+      am,
+      /* Die Übersicht -- verschlüsselt wie jedes andere Feld dieser Nachricht
+         (siehe anhaengeAuspacken() oben). `id` verweist auf `mail_anhaenge`, wo
+         der eigentliche Inhalt liegt; ohne Bytes bleibt `id` null UND
+         `uebergross` macht das für die Oberfläche sichtbar, statt den Anhang
+         einfach verschwinden zu lassen. */
+      verschluesseln(JSON.stringify(vorbereitet.map((v) => ({
+        name: v.name, typ: v.typ, groesse: v.groesse, uebergross: v.uebergross, id: v.attId,
+      })))),
+    );
+  };
+
+  try {
+    einfuegen();
+  } catch (err) {
+    /* Nur der Eindeutigkeitsbruch gilt als Dublette. Jeder andere
+       Datenbankfehler geht unverändert weiter nach oben — ihn hier
+       stillschweigend als „schon da" auszugeben, hieße Post zu verlieren
+       und dabei Erfolg zu melden. */
+    const text = (err as Error).message ?? '';
+    if (!/UNIQUE constraint failed/i.test(text)) throw err;
+    /* Die Zwischendateien der Anhänge räumen: die Mail, zu der sie gehören,
+       gibt es in dieser Zeile nicht — und ohne die Elternzeile entsteht auch
+       keine mail_anhaenge-Zeile, die sie später aufräumen würde. */
+    for (const v of vorbereitet) {
+      if (v.tempPfad) try { fs.rmSync(v.tempPfad, { force: true }); } catch { /* nie entstanden */ }
+    }
+    const schonDa = abdruck
+      ? db.get<{ id: string }>('SELECT id FROM mail_nachrichten WHERE abdruck = ? LIMIT 1', abdruck)
+      : null;
+    const ueberSchluessel = zustellSchluessel
+      ? db.get<{ id: string }>(
+        'SELECT id FROM mail_nachrichten WHERE zustell_schluessel = ? LIMIT 1', zustellSchluessel)
+      : null;
+    const treffer = schonDa ?? ueberSchluessel;
+    /* Kein Treffer bei einem Eindeutigkeitsbruch wäre ein Widerspruch — dann
+       lieber laut scheitern als eine Kennung erfinden, die niemand kennt. */
+    if (!treffer) throw err;
+    return { id: treffer.id, doppelt: true };
+  }
 
   /* Erst JETZT, NACH der Zeile oben: mail_anhaenge.mail_id zeigt per
      Fremdschlüssel auf mail_nachrichten(id) (ON DELETE CASCADE, schema.sql

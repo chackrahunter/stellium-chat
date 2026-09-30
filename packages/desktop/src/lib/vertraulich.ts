@@ -6,7 +6,14 @@ import {
   type DateiHuelle, type DateiUmschlag, type SchluesselPaket, type ServerEvent,
 } from '@stellium/shared';
 import { socket } from '../net/socket.js';
-import { dateiUrl } from '../net/api.js';
+import { api, dateiUrl } from '../net/api.js';
+/* RINGSCHLUSS, UND ER IST HARMLOS: lib/kontoschluessel.ts bindet b64u/unb64u
+   aus dieser Datei ein, diese Datei bindet die drei Funktionen der
+   Kontoidentität von dort ein. Beide Module tun beim Laden nichts
+   miteinander — sie definieren nur — und rufen einander erst zur Laufzeit.
+   Der Ringschluss, den der Kopf dieser Datei bei i18n/index.js beschreibt,
+   war ein anderer: dort lief beim Laden Arbeit an. */
+import { hatKontoSchluessel, identitaetAuspacken, identitaetPacken } from './kontoschluessel.js';
 import { useStore } from '../state/store.js';
 import { spracheDesSystems, translate, type TranslationKey } from '../i18n/kern.js';
 
@@ -125,6 +132,21 @@ let meineId: string | null = null;
 let privatSchluessel: CryptoKey | null = null;
 let oeffentlichJwk: string | null = null;
 
+/* DAS ALTE PAAR DIESES GERÄTS — nur noch zum AUSPACKEN.
+ *
+ * Seit es die Kontoidentität gibt (schluesselBereitstellen() unten), gehört
+ * das Schlüsselpaar dem Konto und nicht mehr dem Gerät. Ein Gerät, das schon
+ * eines hatte, wirft es dabei aber NICHT weg: alles, was es vor der
+ * Umstellung selbst verschlossen hat — allen voran seine privaten Dateien,
+ * deren Schlüssel im Umschlag der Datei steckt und nirgendwo sonst — hängt
+ * an genau diesem Paar. Eine Umstellung, die Daten kostet, ist keine.
+ *
+ * Zum VERPACKEN wird es nie wieder benutzt. Sonst entstünde neben der
+ * Kontoidentität stillschweigend ein zweiter Bestand, den kein anderes Gerät
+ * öffnen kann — der Fehler, gegen den die Kontoidentität gerade gebaut wird.
+ * `null`, wenn es dasselbe Paar ist (der Normalfall). */
+let geraeteSchluessel: CryptoKey | null = null;
+
 /** Öffentliche Teile der anderen — kommen vom Server, wenn wir fragen. */
 const fremdeSchluessel = new Map<string, string>();
 
@@ -206,26 +228,101 @@ export async function abdruckVon(jwkText: string): Promise<string> {
  * Schlüsselpaar kostet Millisekunden; darauf zu warten, bis es gebraucht wird,
  * kostet den Moment, in dem es gebraucht wird.
  */
-export async function schluesselBereitstellen(): Promise<{ abdruck: string; neu: boolean }> {
+export async function schluesselBereitstellen(): Promise<{ abdruck: string; neu: boolean; ausKonto: boolean }> {
   const vorhanden = holen(SCHL_PRIVAT);
   const oeffentlich = holen(SCHL_OEFFENTLICH);
 
+  let eigenerPrivatText: string;
   if (vorhanden && oeffentlich) {
     privatSchluessel = await privatEinlesen(vorhanden);
     oeffentlichJwk = oeffentlich;
+    eigenerPrivatText = vorhanden;
   } else {
     const paar = await paarErzeugen();
     const priv = await crypto.subtle.exportKey('jwk', paar.privateKey);
     const pub = await crypto.subtle.exportKey('jwk', paar.publicKey);
     privatSchluessel = paar.privateKey;
     oeffentlichJwk = JSON.stringify(pub);
-    ablegen(SCHL_PRIVAT, JSON.stringify(priv));
+    eigenerPrivatText = JSON.stringify(priv);
+    ablegen(SCHL_PRIVAT, eigenerPrivatText);
     ablegen(SCHL_OEFFENTLICH, oeffentlichJwk);
   }
+  /* Das eigene Paar bleibt als Rückfall zum AUSPACKEN stehen, auch wenn
+     gleich die Kontoidentität übernimmt. Warum, steht bei
+     `geraeteSchluessel` weiter oben; kurz: die privaten Dateien dieses
+     Geräts hängen daran und nirgendwo sonst. */
+  geraeteSchluessel = privatSchluessel;
+
+  const ausKonto = await identitaetUebernehmen(eigenerPrivatText);
 
   const abdruck = await abdruckVon(oeffentlichJwk);
   socket.send({ t: 'vertraulich:schluessel-melden', jwk: oeffentlichJwk, abdruck });
-  return { abdruck, neu: !vorhanden };
+  return { abdruck, neu: !vorhanden, ausKonto };
+}
+
+/**
+ * Die Identität des KONTOS holen — oder die eigene dazu machen.
+ *
+ * DER SCHRITT, DER „AUF JEDEM GERÄT VERFÜGBAR" ÜBERHAUPT MÖGLICH MACHT.
+ * Ohne ihn hat ein frisch eingerichtetes Gerät ein eigenes Schlüsselpaar,
+ * und damit ist jedes `kanal_schluessel_pakete` des Kontos für es
+ * unbrauchbar und jede private Datei zu — für immer, denn nachtragen könnte
+ * das nur ein anderes Gerät, das gerade laufen müsste. Genau das soll nicht
+ * nötig sein.
+ *
+ * Drei Ausgänge:
+ *
+ *   Es liegt eine Identität und sie geht auf  ->  übernehmen.
+ *   Es liegt keine                            ->  die eigene anbieten.
+ *   Angebot abgelehnt (ein anderes Gerät war
+ *   schneller)                                ->  dessen Identität übernehmen.
+ *
+ * Der dritte ist der, auf den es ankommt: der Server überschreibt nie (siehe
+ * services/kontoidentitaet.ts) und gibt zurück, was GILT. Zwei Geräte, die
+ * sich gleichzeitig anmelden, landen deshalb zwangsläufig bei demselben Paar
+ * statt sich gegenseitig auszusperren.
+ *
+ * OHNE KONTOSCHLÜSSEL PASSIERT HIER NICHTS. Es gibt dann nichts, womit sich
+ * die Identität ver- oder entpacken ließe; das Gerät arbeitet mit seinem
+ * eigenen Paar weiter, so wie vor diesem Umbau. Ein Fehlschlag am Netz
+ * ebenso — er darf keine Anmeldung aufhalten, und beim nächsten Start wird
+ * es nachgeholt.
+ *
+ * Gibt zurück, ob dieses Gerät jetzt auf der Kontoidentität rechnet.
+ */
+async function identitaetUebernehmen(eigenerPrivatText: string): Promise<boolean> {
+  if (!meineId || !hatKontoSchluessel() || !privatSchluessel || !oeffentlichJwk) return false;
+  try {
+    const { paket } = await api.kontoIdentitaet();
+    let jwkText = paket ? await identitaetAuspacken(paket, meineId) : null;
+
+    if (!jwkText) {
+      const angebot = await identitaetPacken(
+        eigenerPrivatText, meineId, await abdruckVon(oeffentlichJwk),
+      );
+      if (!angebot) return false;
+      const antwort = await api.kontoIdentitaetHinterlegen(angebot);
+      /* Kam das eigene Angebot zurück, gilt es — dann ist nichts zu
+         übernehmen und `privatSchluessel` steht schon richtig. Verglichen
+         wird der Abdruck und nicht das Chiffrat: dasselbe JWK ergibt bei
+         jedem Verpacken andere Bytes (frisches IV), derselbe öffentliche
+         Teil aber immer denselben Abdruck. */
+      if (antwort.paket.abdruck === angebot.abdruck) return true;
+      jwkText = await identitaetAuspacken(antwort.paket, meineId);
+      if (!jwkText) return false;
+    }
+
+    const uebernommen = await privatEinlesen(jwkText);
+    const uebernommenJwk = JSON.stringify(oeffentlicherAnteil(JSON.parse(jwkText) as Record<string, unknown>));
+    privatSchluessel = uebernommen;
+    oeffentlichJwk = uebernommenJwk;
+    return true;
+  } catch (err) {
+    /* Wie beim Kontoschlüssel: ein Server, der gerade nicht antwortet, darf
+       keine Anmeldung verhindern. Der Geräteweg trägt weiter. */
+    console.warn('[kontoidentitaet]', (err as Error).message);
+    return false;
+  }
 }
 
 export function habeSchluessel(): boolean {
@@ -288,6 +385,37 @@ export function eigenerPrivaterSchluessel(): CryptoKey | null {
 export async function gemeinsamerSchluessel(fremdJwk: string, kontext: string): Promise<CryptoKey> {
   if (!privatSchluessel) throw new Error(txt('fehler.keinSchluesselpaar'));
   return gemeinsamerSchluesselMit(privatSchluessel, fremdJwk, kontext, 'stellium/vertraulich/paket/v1');
+}
+
+/**
+ * Die privaten Teile, mit denen dieses Gerät AUFMACHEN darf — in der
+ * Reihenfolge, in der sie probiert werden.
+ *
+ * Zuerst die Kontoidentität, dann das alte Paar dieses Geräts. Der zweite
+ * Eintrag ist der Grund für diese Funktion: nach der Umstellung auf die
+ * Kontoidentität liegen im Bestand Pakete und private Dateien, die noch
+ * gegen den ALTEN öffentlichen Teil gerechnet wurden. Sie sind nicht
+ * verloren — sie brauchen nur den zweiten Schlüssel.
+ *
+ * VERPACKT wird ausschließlich mit dem ersten. Diese Liste ist die Antwort
+ * auf „womit kann ich es aufbekommen?", nie auf „womit schließe ich zu?".
+ */
+function privateTeile(): CryptoKey[] {
+  const teile: CryptoKey[] = [];
+  if (privatSchluessel) teile.push(privatSchluessel);
+  if (geraeteSchluessel && geraeteSchluessel !== privatSchluessel) teile.push(geraeteSchluessel);
+  return teile;
+}
+
+/** Dieselbe Ableitung wie {@link gemeinsamerSchluessel}, aber für JEDEN
+ *  privaten Teil aus {@link privateTeile} — zum Aufmachen, nicht zum
+ *  Zuschließen. */
+async function gemeinsameSchluesselZumOeffnen(fremdJwk: string, kontext: string): Promise<CryptoKey[]> {
+  const teile = privateTeile();
+  if (!teile.length) throw new Error(txt('fehler.keinSchluesselpaar'));
+  return Promise.all(teile.map(
+    (t) => gemeinsamerSchluesselMit(t, fremdJwk, kontext, 'stellium/vertraulich/paket/v1'),
+  ));
 }
 
 /**
@@ -355,11 +483,21 @@ export async function paketPacken(
 export async function paketAuspacken(paket: SchluesselPaket, kontext: string): Promise<CryptoKey> {
   const fremdJwk = fremdeSchluessel.get(paket.von);
   if (!fremdJwk) throw new Error(txt('fehler.absenderSchluesselFehlt'));
-  const huelle = await gemeinsamerSchluessel(fremdJwk, kontext);
-  const roh = await crypto.subtle.decrypt(
-    { name: 'AES-GCM', iv: unb64u(paket.iv) }, huelle, unb64u(paket.daten),
-  );
-  return crypto.subtle.importKey('raw', roh, { name: 'AES-GCM', length: 256 }, true, ['encrypt', 'decrypt']);
+  /* Der Reihe nach, nicht „der eine oder gar nichts": ein Paket, das vor der
+     Umstellung auf die Kontoidentität für das alte Paar dieses Geräts
+     gerechnet wurde, geht nur mit jenem auf. AES-GCM sagt selbst, ob es
+     stimmt — geraten wird hier nichts. */
+  const huellen = await gemeinsameSchluesselZumOeffnen(fremdJwk, kontext);
+  let letzter: unknown;
+  for (const huelle of huellen) {
+    try {
+      const roh = await crypto.subtle.decrypt(
+        { name: 'AES-GCM', iv: unb64u(paket.iv) }, huelle, unb64u(paket.daten),
+      );
+      return await crypto.subtle.importKey('raw', roh, { name: 'AES-GCM', length: 256 }, true, ['encrypt', 'decrypt']);
+    } catch (err) { letzter = err; }
+  }
+  throw letzter instanceof Error ? letzter : new Error(txt('fehler.keinSchluesselpaar'));
 }
 
 /** Öffentliche Teile anfordern und warten, bis sie da sind. */
@@ -608,6 +746,24 @@ export async function mitCodeWiederherstellen(codeRoh: string): Promise<boolean>
  * sich (x und y); es genügt, den privaten Anteil d wegzulassen. Das erspart
  * es, den öffentlichen Teil ein zweites Mal zu sichern.
  */
+/**
+ * Der öffentliche Anteil eines privaten JWK — dasselbe Objekt ohne `d`.
+ *
+ * Ein privates JWK trägt die Koordinaten des öffentlichen Punktes ohnehin bei
+ * sich (x und y); es genügt, den privaten Anteil wegzulassen. `key_ops` fliegt
+ * mit raus, weil dort die Rechte des PRIVATEN Teils stehen und ein
+ * öffentlicher damit nicht einzulesen wäre.
+ *
+ * Zwei Verwendungen, eine Rechnung: {@link abgeleiteterOeffentlicher} unten
+ * macht daraus einen Schlüssel, kontoSchluesselZumOeffnen() weiter oben einen
+ * JWK-Text. Zweimal dasselbe abzuschreiben ist genau die Bauart, an der eine
+ * Ableitung eines Tages auseinanderläuft.
+ */
+function oeffentlicherAnteil(privatJwk: JsonWebKey | Record<string, unknown>): Record<string, unknown> {
+  const { d: _d, key_ops: _ops, ...rest } = privatJwk as Record<string, unknown>;
+  return rest;
+}
+
 async function abgeleiteterOeffentlicher(privatJwk: string): Promise<CryptoKey> {
   const { d, key_ops: _ops, ...rest } = JSON.parse(privatJwk) as Record<string, unknown>;
   void d; void _ops;
@@ -818,6 +974,30 @@ async function kontoSchluessel(): Promise<CryptoKey> {
   return gemeinsamerSchluessel(oeffentlichJwk, kontoKontext(meineId ?? ''));
 }
 
+/**
+ * Dieselben Schlüssel zum AUFMACHEN — einer je privatem Teil.
+ *
+ * Das ECDH-Geheimnis „mit sich selbst" rechnet mit dem eigenen privaten UND
+ * dem eigenen öffentlichen Teil; beide gehören zu DEMSELBEN Paar. Ein Gerät
+ * mit zwei Paaren (Kontoidentität und altes eigenes) hat deshalb zwei
+ * verschiedene Dateischlüssel, und eine private Datei aus der Zeit vor der
+ * Umstellung geht nur mit dem zweiten auf.
+ *
+ * Der öffentliche Teil wird dafür AUS DEM PRIVATEN abgeleitet und nicht aus
+ * `oeffentlichJwk` genommen: das ist immer der der geltenden Identität, und
+ * mit ihm käme für das alte Paar ein Geheimnis heraus, das niemand je
+ * gerechnet hat.
+ */
+async function kontoSchluesselZumOeffnen(): Promise<CryptoKey[]> {
+  const teile = privateTeile();
+  if (!teile.length) throw new Error(txt('fehler.keinSchluesselpaar'));
+  const kontext = kontoKontext(meineId ?? '');
+  return Promise.all(teile.map(async (t) => {
+    const eigenJwk = JSON.stringify(oeffentlicherAnteil(await crypto.subtle.exportKey('jwk', t)));
+    return gemeinsamerSchluesselMit(t, eigenJwk, kontext, 'stellium/vertraulich/paket/v1');
+  }));
+}
+
 /** Die Hülle für eine private Datei in der Ablage — nur für dieses Konto. */
 export function kontoHuelle(): DateiHuelle {
   if (!meineId) throw new Error(txt('fehler.keinSchluesselpaar'));
@@ -848,6 +1028,16 @@ async function huellenSchluessel(huelle: DateiHuelle): Promise<CryptoKey> {
   const key = kanalSchluessel.get(kanalKey(huelle.channelId, huelle.fassung));
   if (!key) throw new Error(txt('fehler.kanalSchluesselFehlt'));
   return key;
+}
+
+/** Alle Schlüssel, mit denen sich eine Datei dieser Hülle AUFMACHEN lässt —
+ *  zum Zuschließen bleibt es bei {@link huellenSchluessel}. */
+async function huellenSchluesselZumOeffnen(huelle: DateiHuelle): Promise<CryptoKey[]> {
+  if (huelle.art === 'konto') {
+    if (huelle.userId !== meineId) throw new Error(txt('fehler.dateiNichtFuerDich'));
+    return kontoSchluesselZumOeffnen();
+  }
+  return [await huellenSchluessel(huelle)];
 }
 
 /** Lässt sich eine Datei mit dieser Hülle auf diesem Gerät gerade öffnen? */
@@ -940,12 +1130,24 @@ export async function dateiEntschluesseln(
   const umschlag = umschlagLesen(dec.decode(bytes.slice(0, trenner)), (s) => dec.decode(unb64u(s)));
   if (!umschlag) throw new Error(txt('fehler.dateiKopfUnlesbar'));
 
-  const huelleKey = await huellenSchluessel(umschlag.huelle);
   const beigabe = enc.encode(JSON.stringify(umschlag.huelle));
-  const rohSchluessel = await crypto.subtle.decrypt(
-    { name: 'AES-GCM', iv: unb64u(umschlag.schluesselIv), additionalData: beigabe },
-    huelleKey, unb64u(umschlag.schluessel),
-  );
+  /* Der Reihe nach über alle Schlüssel, die zu dieser Hülle gehören — bei
+     einer privaten Datei sind das die Kontoidentität und, wenn dieses Gerät
+     schon eines hatte, sein altes Paar. Eine Datei von vor der Umstellung
+     geht nur mit dem zweiten auf; ohne diesen Durchlauf wäre sie ab dem Tag
+     der Umstellung für immer zu, obwohl der Schlüssel dafür noch hier liegt. */
+  const rohSchluessel = await (async () => {
+    let letzter: unknown;
+    for (const huelleKey of await huellenSchluesselZumOeffnen(umschlag.huelle)) {
+      try {
+        return await crypto.subtle.decrypt(
+          { name: 'AES-GCM', iv: unb64u(umschlag.schluesselIv), additionalData: beigabe },
+          huelleKey, unb64u(umschlag.schluessel),
+        );
+      } catch (err) { letzter = err; }
+    }
+    throw letzter instanceof Error ? letzter : new Error(txt('fehler.dateiKopfUnlesbar'));
+  })();
   const dateiKey = await crypto.subtle.importKey(
     'raw', rohSchluessel, { name: 'AES-GCM', length: 256 }, false, ['decrypt'],
   );
@@ -1052,6 +1254,10 @@ export function schluesselAllesVergessen(): void {
   meineId = null;
   privatSchluessel = null;
   oeffentlichJwk = null;
+  /* Auch das Rückfallpaar: es ist ein privater Schlüssel wie jeder andere,
+     und mit ihm ließen sich die privaten Dateien des abgemeldeten Kontos
+     weiter öffnen, solange er im Speicher steht. */
+  geraeteSchluessel = null;
   fremdeSchluessel.clear();
   kanalSchluessel.clear();
   kanalFassung.clear();

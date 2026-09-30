@@ -458,6 +458,90 @@ export function passwortKontoKontext(eintragId: string, fassung: number): string
  *  irgendeiner anderen Ableitung aus demselben Schlüssel zusammenfällt. */
 export const KONTO_ABDRUCK_VORSPANN = 'stellium/konto/abdruck/v1';
 
+/* ── Die Kontoidentität ────────────────────────────────────────────────────
+
+   DIE LETZTE STELLE, AN DER EIN KONTO NOCH AM GERÄT HING
+
+   `notiz_konto_pakete` und `passwort_konto_pakete` lösen das Problem für
+   Notizen und den Tresor: ein zweites Gerät packt sie mit dem Kontoschlüssel
+   aus, ohne dass das erste je online sein muss. Für zwei Datenarten galt das
+   NICHT, und zwar aus demselben Grund, aus dem es die Kontopakete überhaupt
+   gibt:
+
+     · PRIVATE DATEIEN. Ihr Hüllenschlüssel ist ein ECDH-Geheimnis des
+       Schlüsselpaars MIT SICH SELBST (`stellium/datei/konto/<userId>`,
+       lib/vertraulich.ts). Auf einem Gerät mit einem anderen Paar kommt ein
+       anderer Schlüssel heraus — die Datei bleibt für immer zu. Es gibt für
+       sie kein Kontopaket, das man nachreichen könnte: der Dateischlüssel
+       steht IM Umschlag der Datei, nicht in einer Tabelle.
+
+     · VERTRAULICHE KANÄLE. `kanal_schluessel_pakete` hält eine Zeile je
+       (Kanal, Fassung, KONTO), gerechnet wurde sie aber gegen den
+       öffentlichen Teil EINES Geräts. Ein zweites Gerät mit eigenem Paar kann
+       sie nicht öffnen, und ein neues Paket kann nur schreiben, wer den
+       Kanalschlüssel schon hat — also ein anderes Gerät, das gerade online
+       sein müsste. Genau das soll nicht nötig sein.
+
+   DIE ANTWORT IST NICHT „NOCH EINE PAKETTABELLE", SONDERN EINE EBENE TIEFER
+
+   Beide Fälle haben dieselbe Ursache: das ECDH-Schlüsselpaar gehört einem
+   GERÄT, während `vertraulich_schluessel` (eine Zeile je Konto) so tut, als
+   gehörte es dem Konto. Also gehört es ab jetzt wirklich dem Konto: der
+   private Teil wird mit dem Kontoschlüssel verpackt und liegt beim Server.
+   Wer das Passwort kennt, holt ihn auf jedem Gerät zurück — und mit ihm ALLES,
+   was an ihm hängt: private Dateien, Kanalpakete, Notizpakete des Geräteweges,
+   Freigaben, Notzugangs-Anteile.
+
+   Eine Pakettabelle je Datenart hätte das nicht geleistet. Für private Dateien
+   gäbe es nichts einzutragen (der Schlüssel steckt im Umschlag), und für
+   Kanäle bräuchte jedes Nachtragen ein Gerät, das den Kanalschlüssel schon
+   hat. Die Identität selbst zu übertragen ist der einzige Weg, der ohne ein
+   zweites laufendes Gerät auskommt.
+
+   WAS DER SERVER DABEI SIEHT: Bytes. Der private Teil ist mit einem Schlüssel
+   verschlossen, den nur das Passwort hergibt (KONTO_RUNDEN PBKDF2), und das
+   Passwort erreicht den Server seit dem Anmeldenachweis weiter unten gar
+   nicht mehr.
+
+   WER ZUERST SCHREIBT, GILT. Der Server nimmt genau EIN Paket je
+   Kontoschlüsselfassung an und überschreibt es nie (services/kontoidentitaet.ts).
+   Ohne diese Regel machte ein frisch eingerichtetes Gerät, das sein eigenes
+   Paar hochlädt, die Kanalpakete aller anderen unbrauchbar. Ein Gerät, dessen
+   Angebot abgelehnt wird, bekommt das GÜLTIGE Paket zurück und übernimmt es.
+
+   UND DAS ALTE PAAR STIRBT NICHT. Ein Gerät, das schon eines hatte, behält es
+   als RÜCKFALL zum Auspacken (nicht zum Verpacken). Sonst wären genau die
+   privaten Dateien unlesbar, die es selbst vor der Umstellung angelegt hat —
+   eine Umstellung, die Daten kostet, ist keine. */
+
+/**
+ * Der private ECDH-Teil eines Kontos, verpackt mit dem Kontoschlüssel.
+ *
+ * `abdruck` ist der Abdruck des ÖFFENTLICHEN Teils in derselben Form wie
+ * `vertraulich_schluessel.abdruck` — vier Vierergruppen zum Vorlesen. Er
+ * steht offen dabei, weil er ohnehin offen dasteht, und erlaubt jedem Gerät
+ * zu prüfen, dass es nach dem Auspacken wirklich die Identität in der Hand
+ * hat, die der Server als öffentlichen Teil führt.
+ *
+ * `kontoFassung` hat denselben Zweck wie in {@link KontoPaket}: ein Gerät mit
+ * veraltetem Kontoschlüssel darf keine Zeile schreiben, die richtig aussieht
+ * und sich nie öffnen lässt.
+ */
+export interface IdentitaetPaket {
+  alg: string;
+  kontoFassung: number;
+  iv: string;
+  daten: string;
+  abdruck: string;
+}
+
+/** Der Kontext der Ableitung aus dem Kontoschlüssel. Eigener Text, damit die
+ *  Hülle der Identität mit keiner Notiz- und keiner Tresorhülle
+ *  zusammenfällt — dieselbe Regel wie bei {@link notizKontoKontext}. */
+export function identitaetKontoKontext(userId: string): string {
+  return `stellium/identitaet/konto/${userId}`;
+}
+
 /* ── Der Anmeldenachweis ───────────────────────────────────────────────────
 
    DAS LOCH, DAS DIESER ABSCHNITT ZUSTOPFT

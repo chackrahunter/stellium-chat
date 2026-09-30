@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" fill="none">
+  <!-- Stellium — farbige Fassung fuer App-Symbole auf dunklem Grund. -->
+  <path d="M13.96 50.51 A40 40 0 0 1 20.05 38.03" stroke="#4a4f87" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M20.05 38.03 A40 40 0 0 1 40.05 23.50" stroke="#5a5fa0" stroke-width="3.4" stroke-linecap="round"/>
+  <circle cx="13.96" cy="50.51" r="3" fill="#7c5cff"/>
+  <circle cx="20.05" cy="38.03" r="6.5" fill="#5b8cff"/>
+  <circle cx="40.05" cy="23.50" r="13" fill="#eef1fb"/>
+</svg>

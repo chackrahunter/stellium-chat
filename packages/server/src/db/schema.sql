@@ -944,6 +944,56 @@ CREATE TABLE IF NOT EXISTS notiz_konto_pakete (
 );
 CREATE INDEX IF NOT EXISTS idx_notiz_konto_pakete_user ON notiz_konto_pakete(user_id);
 
+/* Die KONTOIDENTITAET — der private ECDH-Teil, verpackt mit dem Kontoschlüssel.
+
+   WARUM ES DIESE TABELLE GIBT, obwohl es die beiden Kontopakettabellen schon
+   gibt: sie lösen das Problem je Datensatz, und für zwei Datenarten geht das
+   grundsätzlich nicht.
+
+     · Eine PRIVATE DATEI trägt ihren Schlüssel im eigenen Umschlag, nicht in
+       einer Tabelle. Es gibt nichts, wozu man ein Kontopaket nachtragen
+       könnte. Ihr Hüllenschlüssel ist ein ECDH-Geheimnis des Schlüsselpaars
+       mit sich selbst — auf einem Gerät mit anderem Paar kommt ein anderer
+       heraus, und die Datei bleibt für immer zu.
+
+     · Ein VERTRAULICHER KANAL könnte eines bekommen, aber nur von einem
+       Gerät, das den Kanalschlüssel schon hat. Genau das ist die Bedingung,
+       die hier wegfallen soll: „ohne dass das Gerät online sein muss, auf dem
+       es angelegt wurde".
+
+   Die Ursache liegt eine Ebene tiefer und ist bei beiden dieselbe: das
+   Schlüsselpaar gehört einem GERAET, während vertraulich_schluessel (eine
+   Zeile je Konto) so tut, als gehörte es dem Konto. Diese Tabelle macht die
+   Behauptung wahr — der private Teil wird mit dem Kontoschlüssel verpackt und
+   liegt hier. Wer das Passwort kennt, holt ihn auf jedem Gerät zurück, und
+   mit ihm alles, was daran hängt.
+
+   WER ZUERST SCHREIBT, GILT — services/kontoidentitaet.ts überschreibt diese
+   Zeile nie. Ohne diese Regel machte ein frisch eingerichtetes Gerät, das
+   sein eigenes Paar hochlädt, jedes bestehende Kanalpaket unbrauchbar. Ein
+   abgewiesenes Gerät bekommt die gültige Zeile zurück und übernimmt sie.
+
+   `konto_fassung` hat denselben Zweck wie in notiz_konto_pakete, und die
+   Zeile steht aus demselben Grund in KONTO_PAKET_TABELLEN
+   (services/kontoverwerfen.ts): mit einem ERSETZTEN Kontoschlüssel ist sie
+   nicht mehr zu öffnen, und eine Zeile, die richtig aussieht und es nicht
+   ist, ist schlimmer als keine. Nach dem Wegräumen trägt das erste Gerät mit
+   Schlüsselpaar sie neu ein.
+
+   `abdruck` ist der Abdruck des ÖFFENTLICHEN Teils, dieselbe Form wie
+   vertraulich_schluessel.abdruck. Er verrät nichts (er steht dort ohnehin
+   offen) und erlaubt jedem Gerät zu prüfen, dass es nach dem Auspacken
+   wirklich die Identität hat, die der Server als öffentlichen Teil führt. */
+CREATE TABLE IF NOT EXISTS identitaet_konto_pakete (
+  user_id       TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  konto_fassung INTEGER NOT NULL,
+  alg           TEXT NOT NULL,
+  iv            TEXT NOT NULL,
+  daten         TEXT NOT NULL,
+  abdruck       TEXT NOT NULL,
+  erstellt_am   INTEGER NOT NULL
+);
+
 /* Der Anmeldenachweis — damit das Passwort den Server gar nicht erst erreicht.
 
    WARUM ES DIESE TABELLE GIBT: `konto_schluessel` darüber ruht darauf, dass
@@ -1218,6 +1268,14 @@ CREATE TABLE IF NOT EXISTS mail_nachrichten (
      wer sie vorher anmeldet, laesst die echte Mail lautlos als Dublette
      verschwinden. */
   zustell_schluessel TEXT,
+  /* Der weguebergreifende Dublettenschluessel: SHA-256 ueber Message-ID,
+     Absender, Betreff und Textanfang (services/post.ts, abdruckBilden()).
+     NICHT die nackte Message-ID -- siehe zustell_schluessel darueber fuer
+     den Grund, und den Blockkommentar dort fuer den Ausweg. */
+  abdruck      TEXT,
+  /* 'worker' oder 'abruf' -- ueber welchen der beiden Wege sie hereinkam.
+     NULL bei ausgehender Post und bei allem vor dieser Unterscheidung. */
+  quelle       TEXT,
   am           INTEGER NOT NULL,
   gelesen      INTEGER NOT NULL DEFAULT 0,
   /* Anhaenge liegen als JSON daneben: Name, Typ, Groesse und der Ort in der

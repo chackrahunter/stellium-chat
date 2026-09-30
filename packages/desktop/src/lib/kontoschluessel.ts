@@ -1,8 +1,9 @@
 import {
   KONTO_ABDRUCK_VORSPANN, KONTO_KDF, KONTO_PAKET_ALG, KONTO_RUNDEN,
   NOTZUGANG_ANTEILE, NOTZUGANG_SCHWELLE,
+  identitaetKontoKontext,
   kontoKekKontext, notizKontoKontext, notzugangKekKontext, passwortKontoKontext,
-  type KontoPaket, type KontoSchluesselBlob, type NotzugangHuelle,
+  type IdentitaetPaket, type KontoPaket, type KontoSchluesselBlob, type NotzugangHuelle,
 } from '@stellium/shared';
 import { api } from '../net/api.js';
 import { b64u, unb64u } from './vertraulich.js';
@@ -440,6 +441,85 @@ export async function passwortKontoAuspacken(
     { name: 'AES-GCM', iv: unb64u(paket.iv) }, huelle, unb64u(paket.daten),
   );
   return crypto.subtle.importKey('raw', roh, { name: 'AES-GCM', length: 256 }, true, ['encrypt', 'decrypt']);
+}
+
+/* ── Die Kontoidentität ───────────────────────────────────────────────────
+ *
+ * Dieselbe Rechnung wie bei den beiden Pakettypen darüber, eigener Kontext —
+ * und ein anderer Inhalt: nicht 32 Byte Schlüssel, sondern der private
+ * ECDH-Teil als JWK-Text.
+ *
+ * WOFÜR, in einem Satz: private Dateien und vertrauliche Kanäle hängen am
+ * Schlüsselpaar, nicht an einer Tabelle — für sie lässt sich kein Kontopaket
+ * nachtragen. Also wandert das Paar selbst ans Konto. Die ausführliche
+ * Begründung steht bei IdentitaetPaket in shared/vertraulich.ts.
+ *
+ * KEIN eigener Kontext je Datensatz wie bei notizHuelle(): es gibt genau
+ * einen Datensatz je Konto und Fassung. Das IV wird trotzdem frisch gewürfelt
+ * — nicht weil es hier einen zweiten Aufruf gäbe, sondern weil eine Rechnung,
+ * die ihr IV aus einer Annahme über die Aufrufhäufigkeit bezieht, genau dann
+ * bricht, wenn jemand die Annahme später ändert. */
+
+async function identitaetHuelle(userId: string): Promise<CryptoKey> {
+  if (!kontoRoh) throw new Error('kein Kontoschlüssel');
+  const zwischen = await crypto.subtle.importKey('raw', kontoRoh, 'HKDF', false, ['deriveKey']);
+  return crypto.subtle.deriveKey(
+    {
+      name: 'HKDF', hash: 'SHA-256',
+      salt: await sha256(identitaetKontoKontext(userId)),
+      info: enc.encode('stellium/identitaet/konto/v1'),
+    },
+    zwischen, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt'],
+  );
+}
+
+/**
+ * Den privaten Teil dieses Geräts für das Konto verpacken.
+ *
+ * `null`, wenn dieses Gerät gerade keinen Kontoschlüssel hat — dann gibt es
+ * nichts, womit sich verpacken ließe, und ein Paket, das niemand öffnen
+ * kann, ist schlimmer als keines.
+ *
+ * `abdruck` ist der Abdruck des ÖFFENTLICHEN Teils (abdruckVon() in
+ * lib/vertraulich.ts), nicht des privaten: er steht beim Server ohnehin
+ * offen, und ein Gerät kann daran nach dem Auspacken prüfen, dass es
+ * wirklich die Identität in der Hand hat, die als öffentlicher Teil geführt
+ * wird.
+ */
+export async function identitaetPacken(
+  privatJwkText: string, userId: string, abdruck: string,
+): Promise<IdentitaetPaket | null> {
+  if (!hatKontoSchluessel()) return null;
+  const huelle = await identitaetHuelle(userId);
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const daten = await crypto.subtle.encrypt(
+    { name: 'AES-GCM', iv }, huelle, enc.encode(privatJwkText),
+  );
+  return {
+    alg: KONTO_PAKET_ALG, kontoFassung: kontoFassungHier,
+    iv: b64u(iv), daten: b64u(new Uint8Array(daten)), abdruck,
+  };
+}
+
+/**
+ * Und wieder auf. `null` statt eines Wurfs, weil der Fehlschlag hier kein
+ * Programmfehler ist: ein Paket aus einer früheren Kontoschlüsselfassung
+ * geht nicht auf, und die Antwort darauf ist „dann eben der Geräteweg", nicht
+ * „Abbruch der Anmeldung".
+ */
+export async function identitaetAuspacken(
+  paket: IdentitaetPaket, userId: string,
+): Promise<string | null> {
+  if (!hatKontoSchluessel() || paket.kontoFassung !== kontoFassungHier) return null;
+  try {
+    const huelle = await identitaetHuelle(userId);
+    const roh = await crypto.subtle.decrypt(
+      { name: 'AES-GCM', iv: unb64u(paket.iv) }, huelle, unb64u(paket.daten),
+    );
+    return new TextDecoder().decode(roh);
+  } catch {
+    return null;
+  }
 }
 
 /* ── Der Notzugang: eine ZWEITE Hülle um denselben Schlüssel ───────────────

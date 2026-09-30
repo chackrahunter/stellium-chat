@@ -50,8 +50,19 @@ import { db } from '../db/index.js';
  * Die Liste ist deshalb eine Liste und keine zweite abgeschriebene
  * DELETE-Zeile — und pruefungen/passwort-tresor.mts prüft sie gegen die
  * Tabellen, die der Kontoweg tatsächlich beschreibt.
+ *
+ * `identitaet_konto_pakete` steht seit der Kontoidentität dabei und gehört
+ * hierher wie die beiden anderen: dort liegt der private ECDH-Teil, verpackt
+ * mit dem Kontoschlüssel. Nach einem Ersatz wäre er nicht mehr zu öffnen —
+ * und eine Zeile, die eine Identität behauptet, die niemand mehr auspacken
+ * kann, ist der schlimmste der drei Fälle: sie hinge nicht an einem einzelnen
+ * Datensatz, sondern an allem, was am Schlüsselpaar hängt. Weggeräumt trägt
+ * das erste Gerät mit Paar sie neu ein (lib/vertraulich.ts,
+ * schluesselBereitstellen()).
  */
-const KONTO_PAKET_TABELLEN = ['notiz_konto_pakete', 'passwort_konto_pakete'] as const;
+const KONTO_PAKET_TABELLEN = [
+  'notiz_konto_pakete', 'passwort_konto_pakete', 'identitaet_konto_pakete',
+] as const;
 
 /** Für die Prüfläufe: dieselbe Liste, damit eine Probe sie nicht abschreiben muss. */
 export const kontoPaketTabellen: readonly string[] = KONTO_PAKET_TABELLEN;

@@ -488,6 +488,30 @@ export const config = {
        Benachrichtigungen abzuschalten, aber sinnvoll, ihn zu ersetzen. */
     subject: str('VAPID_SUBJECT', 'mailto:admin@stellium.chat'),
   },
+
+  /**
+   * Twilio — SMS herein und hinaus (services/sms.ts, http/smseingang.ts).
+   *
+   * ALLE DREI SIND GETTER, aus genau dem Grund, der bei `groq.apiKey` weiter
+   * oben ausführlich steht: sie sind über die Oberfläche änderbar
+   * (services/smszugang.ts, Route /api/sms/zugang), und ein einmal
+   * ausgerechneter Wert fröre den Stand vom Serverstart ein. Ein gewechselter
+   * Auth Token wirkte dann erst beim Neustart — und bis dahin wiese der
+   * Webhook jede echte SMS als „Signatur falsch" ab, ohne dass irgendetwas
+   * kaputt aussähe.
+   *
+   * ANDERS ALS BEI GROQ ist danach nichts neu zu bauen: weder der Versand
+   * noch die Signaturprüfung hält eine Instanz mit eingebackenem Schlüssel —
+   * beide lesen bei jedem Aufruf hier.
+   */
+  twilio: {
+    get accountSid(): string { return secret('TWILIO_ACCOUNT_SID', 'twilio_sid'); },
+    /** Passwort für den Versand UND HMAC-Schlüssel für die Beglaubigung
+        eingehender Webhooks — siehe http/smseingang.ts. */
+    get authToken(): string { return secret('TWILIO_AUTH_TOKEN', 'twilio_token'); },
+    /** Die eigene Nummer, aus der SMS hinausgehen (E.164). */
+    get nummer(): string { return secret('TWILIO_NUMMER', 'twilio_nummer'); },
+  },
 } as const;
 
 /** Ist ein Schlüsselpaar da, mit dem sich überhaupt etwas verschicken lässt? */

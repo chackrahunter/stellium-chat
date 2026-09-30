@@ -22,6 +22,7 @@ import {
 import { ensureSeed } from './seed.js';
 import { ensureAssistant, repairAssistantChats } from './services/assistant.js';
 import * as stimme from './services/stimme.js';
+import * as postabruf from './services/postabruf.js';
 
 const app = Fastify({
   logger: { level: process.env.LOG_LEVEL ?? 'warn' },
@@ -137,6 +138,14 @@ async function main(): Promise<void> {
   anwesenheitZuruecksetzen();
   const stopJobs = startBackgroundJobs();
 
+  /* Post aus dem abgerufenen Fremdpostfach holen — der zweite Weg in den
+     Posteingang (services/postabruf.ts, dort auch die Begründung des Takts).
+     Der Takt läuft unabhängig davon, ob ein Zugang hinterlegt ist: er fragt
+     das bei jedem Durchgang selbst nach, damit ein in der Oberfläche
+     eingetragener Zugang ohne Neustart wirkt — dieselbe Zusage wie beim
+     Groq-Schlüssel. */
+  const stopAbruf = postabruf.beobachten();
+
   /**
    * Herunterfahren — mit Frist.
    *
@@ -161,6 +170,7 @@ async function main(): Promise<void> {
     faehrtHerunter = true;
     console.log(`\n[server] ${signal} — fahre herunter…`);
     stopJobs();
+    stopAbruf();
 
     // Der Notausgang. `unref()`, damit die Frist den Prozess nicht ihrerseits
     // am Leben hält, falls alles andere längst fertig ist.

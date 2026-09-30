@@ -1,6 +1,7 @@
 import type {
   AiCapabilities, AiModelInfo, AiModelSelection, AnmeldeNachweisBlob, AnmeldeSalz,
-  FluechtigesPaket, GlossaryEntry, KontoPaket, KontoSchluesselBlob, ManagedUser,
+  FluechtigesPaket, GlossaryEntry, IdentitaetPaket, KontoPaket, KontoSchluesselBlob,
+  ManagedUser,
   MemberRole, Message, NotzugangAnfrage, NotzugangAnteilBlob, NotzugangAufgabe,
   NotzugangHuelle, NotzugangProtokollZeile, NotzugangStand,
   OneTimeCredential, PasswortOffenlegung, Passworteintrag,
@@ -253,6 +254,85 @@ export interface KiZugangStand {
   tresorZustand: 'aus' | 'offen' | 'verschlossen';
 }
 
+/**
+ * Was der Server über den Gmail-Abruf sagen darf.
+ *
+ * Die ADRESSE steht drin, das PASSWORT nie — auch nicht gekürzt, auch nicht
+ * als Länge. Dieselbe Linie wie bei `KiZugangStand` darüber und beim
+ * Postfach-Zugang: was man versehentlich weiterreichen kann, ist kein
+ * Geheimnis mehr. Die Adresse gehört auf die andere Seite dieser Linie, sonst
+ * wüsste niemand, welches Postfach da eigentlich geleert wird.
+ */
+export interface PostAbrufStand {
+  adresse: string | null;
+  passwortHinterlegt: boolean;
+  /** Ob der Takt läuft. Getrennt vom Passwort, damit sich der Abruf anhalten
+      lässt, ohne die Zugangsdaten wegzuwerfen. */
+  aktiv: boolean;
+  letzterLaufAm: number | null;
+  letzterErfolgAm: number | null;
+  /** Solange hier ein Satz steht, kommt nichts mehr herein. */
+  letzterFehler: string | null;
+  zuletztAufgenommen: number;
+  zuletztDoppelt: number;
+  /** Ob schon einmal abgerufen wurde — davon hängt ab, ob der Hinweis auf das
+      Fenster des Erstabrufs noch etwas Bevorstehendes beschreibt. */
+  erstabrufErledigt: boolean;
+  /** Die Grenzen des ersten Abrufs, wie der Server sie WIRKLICH anwendet.
+      Sie kommen von dort und stehen nicht ein zweites Mal im Text der
+      Oberfläche — sonst behauptete die Maske eines Tages ein Fenster, das der
+      Server längst anders rechnet. */
+  erstabrufTage?: number;
+  erstabrufHoechstens?: number;
+  naechsterLaufIn: number | null;
+}
+
+/**
+ * Was der Server über den Twilio-Zugang sagen darf.
+ *
+ * KEINER DER DREI WERTE steht drin — weder Account SID noch Auth Token noch
+ * die eigene Nummer, auch nicht gekürzt. Nur ihr Stand, in derselben Form wie
+ * beim Groq-Schlüssel (`KiZugangStand` oben): hinterlegt ja/nein, und woher
+ * der greifende Wert kommt.
+ *
+ * DIE WEBHOOK-ADRESSE STEHT AUF DER ANDEREN SEITE DIESER LINIE, und zwar
+ * nicht aus Nachlässigkeit: sie ist der einzige Wert hier, den ein Mensch
+ * ABLESEN muss — er trägt sie in der Twilio-Console ein. Sie zu verbergen
+ * hieße, ihn sie aus Hostnamen und Pfad zusammenreimen zu lassen, und ein
+ * einziges Zeichen daneben lässt jede Signaturprüfung fehlschlagen, ohne dass
+ * irgendwo stünde warum.
+ */
+export interface SmsZugangStand {
+  sid: GeheimStandAussen;
+  token: GeheimStandAussen;
+  nummer: GeheimStandAussen;
+  /** Die Wurzel, wie sie jemand eingetragen hat — für das Eingabefeld. */
+  webhookBasis: string | null;
+  /** Die vollständige Adresse für die Twilio-Console. `null`, solange keine
+      Wurzel hinterlegt ist; dann nimmt der Endpunkt gar nichts an, denn ohne
+      sie lässt sich keine Signatur nachrechnen. */
+  webhookAdresse: string | null;
+  /** Alle drei Zugangsdaten da? Erst dann geht eine SMS hinaus. */
+  sendenBereit: boolean;
+  /** Token UND Adresse da? Erst dann kommt eine SMS herein. Getrennt
+      gemeldet, damit die Maske nicht „nicht eingerichtet" sagt, während
+      längst SMS ankommen. */
+  eingangBereit: boolean;
+  verschluesselt: boolean;
+}
+
+/** Dieselbe Auskunft wie `KiZugangStand`, nur für einen einzelnen Wert —
+    siehe `GeheimStand` in packages/server/src/config.ts. Hier eigens benannt,
+    weil der Twilio-Zugang gleich drei davon nebeneinander führt. */
+export interface GeheimStandAussen {
+  hinterlegt: boolean;
+  quelle: 'umgebung' | 'tresor' | null;
+  umgebung: boolean;
+  tresor: boolean;
+  schreibbar: boolean;
+  tresorZustand: 'aus' | 'offen' | 'verschlossen';
+}
+
 export interface GumroadUebersicht {
   stand: number;
   hatDaten: boolean;
@@ -380,6 +460,26 @@ export const api = {
   kontoSchluesselHinterlegen: (blob: KontoSchluesselBlob) =>
     request<{ fassung: number }>('/api/konto/schluessel', {
       method: 'POST', body: JSON.stringify(blob),
+    }),
+
+  /* ── Die Kontoidentität ───────────────────────────────────────
+     Der private ECDH-Teil des Kontos, verpackt mit dem Kontoschlüssel.
+     Ohne sie hängen private Dateien und vertrauliche Kanäle am
+     Schlüsselpaar EINES Geräts — Begründung bei IdentitaetPaket in
+     shared/vertraulich.ts.
+
+     `kontoIdentitaetHinterlegen` gibt zurück, was ab jetzt GILT, und nicht
+     zwingend das Angebotene: wer zuerst schreibt, gilt (siehe
+     services/kontoidentitaet.ts). Die Rückgabe ist deshalb auszuwerten und
+     nicht wegzuwerfen. */
+
+  kontoIdentitaet: () => request<{
+    paket: IdentitaetPaket | null;
+  }>('/api/konto/identitaet'),
+
+  kontoIdentitaetHinterlegen: (paket: IdentitaetPaket) =>
+    request<{ paket: IdentitaetPaket }>('/api/konto/identitaet', {
+      method: 'POST', body: JSON.stringify({ paket }),
     }),
 
   /* ── Notzugang: „3 von 5" ─────────────────────────────────────
@@ -839,6 +939,42 @@ export const api = {
     domaene?: string; name?: string; versandSchluessel?: string; eingangGeheimnis?: string;
   }) => request<{ versandBereit: boolean; eingangBereit: boolean }>(
     '/api/post/zugang', { method: 'POST', body: JSON.stringify(werte) }),
+
+  /* Der ZWEITE Weg in den Posteingang: ein fremdes Gmail-Postfach abholen
+     (services/postabruf.ts auf dem Server). Dieselbe Trennung wie oben — die
+     Adresse kommt zurück (man soll sehen, welches Postfach geleert wird), das
+     App-Passwort nie, auch nicht gekürzt.
+
+     `letzterFehler` ist das wichtigste Feld dieser Antwort: solange dort ein
+     Satz steht, kommt nichts mehr herein, und ohne diese Zeile würde das
+     niemand bemerken — ein Abruf, der still nichts mehr holt, sieht von außen
+     aus wie ein Postfach ohne neue Post. */
+  postAbruf: () => request<PostAbrufStand>('/api/post/abruf'),
+  postAbrufSetzen: (werte: { adresse?: string; passwort?: string; aktiv?: boolean }) =>
+    request<PostAbrufStand>('/api/post/abruf', { method: 'POST', body: JSON.stringify(werte) }),
+  postAbrufLoeschen: () => request<PostAbrufStand>('/api/post/abruf', { method: 'DELETE' }),
+  /* Ohne auf den Takt zu warten — der einzige Weg, ein frisch eingetragenes
+     App-Passwort sofort zu prüfen. Der Fehlschlag kommt als gewöhnlicher
+     Fehler der Anfrage zurück und gehört in eine Meldung, nicht ins Nichts. */
+  postAbrufJetzt: () => request<PostAbrufStand & {
+    aufgenommen: number; doppelt: number; uebersprungen: number; erstabruf: boolean;
+  }>('/api/post/abruf/jetzt', { method: 'POST' }),
+
+  /* SMS über Twilio — der dritte Weg in denselben Posteingang
+     (packages/server/src/services/sms.ts). Dieselbe Trennung wie oben: die
+     Webhook-Adresse kommt zurück, weil sie abgelesen werden muss, die drei
+     Zugangsdaten nie.
+
+     Es gibt hier bewusst KEIN `smsSenden`: eine SMS geht über `postSenden`
+     hinaus wie jede Antwort auch. Der Server erkennt am Empfänger, ob daraus
+     eine Mail oder eine SMS wird (http/routes.ts, /api/post/senden) — eine
+     zweite Funktion hier hieße, dass die Oberfläche diese Frage ein zweites
+     Mal beantworten müsste und die beiden Antworten eines Tages auseinander
+     gehen. */
+  smsZugang: () => request<SmsZugangStand>('/api/sms/zugang'),
+  smsZugangSetzen: (werte: { sid?: string; token?: string; nummer?: string; webhookBasis?: string }) =>
+    request<SmsZugangStand>('/api/sms/zugang', { method: 'POST', body: JSON.stringify(werte) }),
+  smsZugangLoeschen: () => request<SmsZugangStand>('/api/sms/zugang', { method: 'DELETE' }),
 
   /* `kennung` ist OPTIONAL, und das ist keine Nachlässigkeit im Typ: der
      Server lässt das Feld weg, wenn dem Konto `fern.zugriff` fehlt (siehe

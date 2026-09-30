@@ -6,13 +6,15 @@ import { pipeline } from 'node:stream/promises';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import {
   normalizeLang, LANGUAGES, PROBLEMBERICHT_STATUS,
-  type AnmeldeNachweisBlob, type FluechtigesPaket, type KontoSchluesselBlob,
+  type AnmeldeNachweisBlob, type FluechtigesPaket, type IdentitaetPaket,
+  type KontoSchluesselBlob,
   type NotzugangAnteilBlob, type NotzugangHuelle,
 } from '@stellium/shared';
 import { signToken, verifyPassword, verifyToken, verifyTokenFrisch } from '../auth.js';
 import * as users from '../services/users.js';
 import * as praesenz from '../services/praesenz.js';
 import * as kontoschluessel from '../services/kontoschluessel.js';
+import * as kontoidentitaet from '../services/kontoidentitaet.js';
 import * as anmeldenachweis from '../services/anmeldenachweis.js';
 import * as notzugang from '../services/notzugang.js';
 import * as push from '../services/push.js';
@@ -39,6 +41,9 @@ import * as files from '../services/files.js';
 import * as releases from '../services/releases.js';
 import * as fernzugang from '../services/fernzugang.js';
 import * as mailzugang from '../services/mailzugang.js';
+import * as postabruf from '../services/postabruf.js';
+import * as smszugang from '../services/smszugang.js';
+import * as sms from '../services/sms.js';
 import * as verkaufzugang from '../services/verkaufzugang.js';
 import * as kizugang from '../services/kizugang.js';
 import * as patreon from '../services/patreon.js';
@@ -51,6 +56,7 @@ import * as postSichtung from '../services/post-sichtung.js';
 import * as postEntwurfKi from '../services/post-entwurf-ki.js';
 import * as partnerGruppen from '../services/post-partnergruppen.js';
 import { registerPostEingang } from './posteingang.js';
+import { registerSmsEingang } from './smseingang.js';
 import { downloadSeite, systemErkennen } from './download/seite.js';
 
 import { broadcastAll, onlineUserIds, sitzungenBeenden, verbindungen } from '../ws/gateway.js';
@@ -1084,6 +1090,48 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const blob = req.body as KontoSchluesselBlob;
     try {
       return { fassung: kontoschluessel.hinterlegen(userId, blob) };
+    } catch (err) {
+      return weiterreichen(reply, 400, err);
+    }
+  });
+
+  /* ── Die Kontoidentität ─────────────────────────────────────
+     Der private ECDH-Teil des Kontos, verpackt mit dem Kontoschlüssel. Ohne
+     sie hängen private Dateien und vertrauliche Kanäle am Schlüsselpaar EINES
+     Geräts — die ausführliche Begründung steht in
+     services/kontoidentitaet.ts und bei IdentitaetPaket in
+     shared/vertraulich.ts.
+
+     Eigene Route und kein Feld in GET /api/konto/schluessel darüber, obwohl
+     beides im selben Augenblick gebraucht wird: jene Route wird auch dann
+     gerufen, wenn es noch gar keinen Kontoschlüssel gibt (die App muss ja
+     erst herausfinden, ob einer da ist), und ein Feld, das dann immer `null`
+     wäre, lüde dazu ein, aus der Null „es gibt keine Identität" zu lesen —
+     dabei heißt sie dort „ich konnte noch gar nicht nachsehen". Genau diese
+     Verwechslung hat beim Notzugang schon einmal alles weggeräumt. */
+
+  /** Die geltende Identität abholen. `null` heißt: es gibt noch keine. */
+  app.get('/api/konto/identitaet', async (req, reply) => {
+    const userId = requireUser(req);
+    /* Wie beim Kontoschlüssel darüber und aus demselben Grund: die Hülle ist
+       das Material, gegen das ein Rateangriff auf das Passwort läuft. */
+    keinZwischenspeicher(reply);
+    return { paket: kontoidentitaet.holen(userId) };
+  });
+
+  /**
+   * Eine Identität anbieten. Zurück kommt die, die ab jetzt GILT — nicht
+   * zwingend die angebotene.
+   *
+   * Wer zuerst schreibt, gilt (services/kontoidentitaet.ts). Ein Gerät, das
+   * hier sein eigenes Paar anbietet und ein fremdes zurückbekommt,
+   * übernimmt es und behält seines als Rückfall zum Auspacken.
+   */
+  app.post('/api/konto/identitaet', async (req, reply) => {
+    const userId = requireUser(req);
+    const paket = (req.body as { paket?: IdentitaetPaket })?.paket as IdentitaetPaket;
+    try {
+      return { paket: kontoidentitaet.hinterlegen(userId, paket) };
     } catch (err) {
       return weiterreichen(reply, 400, err);
     }
@@ -2953,6 +3001,30 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       return fehler(reply, 400, 'fehler.unvollstaendig', 'Empfänger und Text sind nötig.');
     }
     try {
+      /* DIE WEICHE ZWISCHEN MAIL UND SMS — am Empfänger, nicht an einem
+         zweiten Knopf in der Oberfläche.
+         ·  Sie ist eindeutig: E.164 verlangt „+" und Ziffern, `EINE_ADRESSE`
+            in post.ts verlangt „@" mit Punkt dahinter. Kein Wert erfüllt
+            beides, die Weiche hat keine Mitte (services/sms.ts,
+            `istTelefonnummer()`).
+         ·  Sie steht HIER und nicht in der Oberfläche, damit „Antworten" für
+            eine SMS derselbe Handgriff bleibt wie für eine Mail: die
+            Antwort geht an den Absender der Ursprungsnachricht, und was das
+            für ein Absender ist, weiß der Server ohnehin besser.
+         ·  `betreff`, `fach`, `textKi` und `anhaenge` fallen für eine SMS
+            weg — es gibt sie dort schlicht nicht. Das Schreibfenster füllt
+            trotzdem einen Betreff („Re: "); ihn hier zu ignorieren ist
+            richtiger, als ihn dem Text voranzustellen und dem Empfänger
+            Zeichen aus seinem Kontingent zu nehmen.
+         ·  `mail.senden` genügt: eine SMS zu beantworten ist keine
+            Einrichtungsentscheidung, sondern tägliche Arbeit am selben
+            Posteingang. Das eigene Recht `sms.verwalten` schützt die
+            ZUGANGSDATEN, nicht das Antworten.
+         Ein PostFehler von dort trägt Kennung und Status genauso wie einer
+         aus post.senden() — der Fang unten übersetzt beide gleich. */
+      if (sms.istTelefonnummer(k.an)) {
+        return await sms.senden({ an: k.an, text: k.text }, userId);
+      }
       return await post.senden({
         fach: k.fach, an: k.an, betreff: k.betreff ?? '', text: k.text, textKi: k.textKi,
         antwortAuf: k.antwortAuf,
@@ -3403,6 +3475,10 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
    * Begründung aus dem Bedrohungsmodell im Dateikopf dort.
    */
   registerPostEingang(app);
+  /* Der dritte Weg von außen in den Posteingang — dieselbe Machart wie die
+     Zeile darüber, dasselbe Bedrohungsmodell, ein anderer Nachweis: Twilio
+     signiert statt ein Wort mitzuschicken (siehe http/smseingang.ts). */
+  registerSmsEingang(app);
 
   /* ── Verkauf: der Gumroad-Schlüssel ──────────────────────────
      Ohne ihn kennt die Konsole nur die öffentlichen Zahlen. Hinterlegen darf
@@ -3670,6 +3746,179 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     requirePermission(userId, 'mail.verwalten');
     mailzugang.zugangLoeschen(userId);
     return mailzugang.zugangStand();
+  });
+
+  /* ── Postfach: der Abruf aus einem fremden Postfach ───────────
+     Dieselbe Machart wie /api/post/zugang darüber und wie /api/ki/zugang:
+     hinterlegen darf ein Recht, ANSEHEN kann es niemand. Zurück kommt die
+     Adresse (die soll man sehen — sonst weiß niemand, welches Postfach da
+     geleert wird) und sonst nur Wahrheitswerte, Zahlen und Zeitpunkte. Das
+     App-Passwort geht nie hinaus, auch nicht gekürzt.
+
+     `mail.verwalten`, nicht `mail.lesen`: ein zweites Postfach anzuzapfen ist
+     eine Einrichtungsentscheidung mit einem fremden Zugangsschlüssel daran,
+     keine tägliche Arbeit am Postfach. Dieselbe Schwelle wie beim
+     Postfach-Zugang selbst. */
+  app.get('/api/post/abruf', async (req) => {
+    const userId = requireUser(req);
+    requirePermission(userId, 'mail.verwalten');
+    return {
+      ...mailzugang.abrufStand(),
+      ...postabruf.laufStand(),
+      /* Damit die Oberfläche die Grenze des Erstabrufs NENNEN kann, statt sie
+         zu behaupten: die Zahlen stehen an einer Stelle (postabruf.ts) und
+         gehen von dort in den Text, nicht zweimal von Hand geschrieben. */
+      erstabrufTage: postabruf.ERSTABRUF_TAGE,
+      erstabrufHoechstens: postabruf.ERSTABRUF_MAX,
+    };
+  });
+
+  /** Eine einzelne Mailadresse — dasselbe Muster wie beim Versandempfänger
+      (EINE_ADRESSE in services/post.ts). Geprüft hier in der Route, aus
+      demselben Grund wie die Domänenform darüber. */
+  const ABRUF_ADRESSE = /^[^\s@,;:<>"'()[\]\\]+@[^\s@,;:<>"'()[\]\\]+\.[^\s@,;:<>"'()[\]\\]{2,}$/;
+
+  app.post('/api/post/abruf', async (req, reply) => {
+    const userId = requireUser(req);
+    requirePermission(userId, 'mail.verwalten');
+    const körper = req.body as { adresse?: string; passwort?: string; aktiv?: boolean };
+    if (körper?.adresse && !ABRUF_ADRESSE.test(körper.adresse.trim())) {
+      return fehler(reply, 400, 'post.abrufAdresseUngueltig',
+        'Das ist keine einzelne, gültige Mailadresse.');
+    }
+    /* Googles App-Passwörter sind 16 Zeichen, in vier Vierergruppen
+       angezeigt. Die Leerzeichen entfernt der Dienst (siehe abrufSetzen());
+       hier wird nur gemessen, ob überhaupt etwas Passwortartiges dasteht —
+       ein versehentlich abgeschnittener Wert soll nicht als „gespeichert"
+       durchgehen und dann bei Google als falsches Passwort auffallen. */
+    if (körper?.passwort && körper.passwort.replace(/\s+/g, '').length < 16) {
+      return fehler(reply, 400, 'post.abrufPasswortKurz',
+        'Ein Google-App-Passwort hat 16 Zeichen.');
+    }
+    mailzugang.abrufSetzen(körper ?? {}, userId);
+    return { ...mailzugang.abrufStand(), ...postabruf.laufStand() };
+  });
+
+  app.delete('/api/post/abruf', async (req) => {
+    const userId = requireUser(req);
+    requirePermission(userId, 'mail.verwalten');
+    mailzugang.abrufLoeschen(userId);
+    return { ...mailzugang.abrufStand(), ...postabruf.laufStand() };
+  });
+
+  /**
+   * Jetzt sofort abrufen, ohne auf den Takt zu warten.
+   *
+   * Der einzige Weg, ein frisch eingetragenes Passwort zu PRÜFEN, ohne fünf
+   * Minuten zu warten und danach in einem Protokoll nachzusehen. Der
+   * Fehlschlag geht deshalb als Text zurück und nicht nur ins Protokoll —
+   * „Anmeldung abgelehnt" ist die Antwort, die jemand braucht, der gerade
+   * ein App-Passwort eingetippt hat.
+   *
+   * Zwei Läufe gleichzeitig gibt es nicht (`einLauf()` weist den zweiten ab):
+   * sonst könnte ein Knopfdruck mitten in den Takt fallen und dieselbe Mail
+   * zweimal verarbeiten — was zwar an der Entdublettung scheitern würde, aber
+   * unnötig ist.
+   */
+  app.post('/api/post/abruf/jetzt', async (req, reply) => {
+    const userId = requireUser(req);
+    requirePermission(userId, 'mail.verwalten');
+    try {
+      const e = await postabruf.einLauf();
+      return { ...e, ...mailzugang.abrufStand(), ...postabruf.laufStand() };
+    } catch (err) {
+      /* Die Kennung des Dienstes geht mit, damit die App den Grund in ihrer
+         eigenen Sprache zeigt — dieselbe Machart wie bei /api/ki/zugang.
+         Trägt der Fehler keine (ein Netzfehler gegen Gmail etwa), bleibt die
+         allgemeine Kennung und der Satz daneben ist der einzige Hinweis. */
+      const { code, werte } = kennungVon(err);
+      return reply.code(400).send({
+        error: (err as Error).message, code: code ?? 'post.abrufFehlgeschlagen', werte,
+      });
+    }
+  });
+
+  /* ── SMS: der Twilio-Zugang ────────────────────────────────────
+     Dieselbe Machart wie /api/ki/zugang und /api/post/abruf: hinterlegen darf
+     ein Recht, ANSEHEN kann es niemand. Zurück kommen nur Wahrheitswerte und
+     die Webhook-Adresse — die soll man lesen können, denn Don trägt sie von
+     Hand in der Twilio-Console ein (siehe services/smszugang.ts,
+     `webhookAdresse()`).
+
+     `sms.verwalten` und nicht `mail.verwalten`: der Auth Token ist zugleich
+     der Schlüssel, an dem die Beglaubigung jeder eingehenden SMS hängt — die
+     ausführliche Begründung steht bei der Rechtedefinition selbst
+     (shared/permissions.ts). */
+  app.get('/api/sms/zugang', async (req) => {
+    const userId = requireUser(req);
+    requirePermission(userId, 'sms.verwalten');
+    return smszugang.zugangStand();
+  });
+
+  /** Eine Twilio-Konto-Kennung: „AC" und 32 Hexziffern. Geprüft hier in der
+      Route, nicht im Dienst — dieselbe Aufteilung wie bei der Domänenform
+      unter /api/post/zugang und der Adressform unter /api/post/abruf. */
+  const TWILIO_SID = /^AC[0-9a-f]{32}$/;
+  /** Ein Auth Token ist bei Twilio 32 Hexziffern lang. Absichtlich lockerer
+      geprüft (nur Länge und erlaubte Zeichen): das Format eines fremden
+      Dienstes zu erzwingen, hieße, dass eine Umstellung dort hier zu einer
+      Fehlermeldung wird, die niemand versteht. Was diese Prüfung wirklich
+      verhindert, ist der häufige Fall — ein beim Kopieren abgeschnittener
+      Wert, der sonst als „gespeichert" durchginge und erst bei Twilio als
+      falsches Passwort auffiele. */
+  const TWILIO_TOKEN = /^[0-9a-zA-Z]{20,64}$/;
+  /** Die öffentlich erreichbare Wurzel dieses Servers. HTTPS ist Pflicht und
+      keine Empfehlung: über HTTP wäre die Signatur, die auf dem Weg
+      mitgelesen werden kann, kein Nachweis mehr. Kein Fragezeichen, kein
+      Doppelkreuz — Twilio signiert die vollständige Adresse einschließlich
+      Abfrageteil, und ein hier hinterlegter Abfrageteil ginge in die
+      Rechnung ein, ohne dass ihn jemand vermutet. */
+  const WEBHOOK_BASIS = /^https:\/\/[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+(:\d{1,5})?(\/[^\s?#]*)?$/i;
+
+  app.post('/api/sms/zugang', async (req, reply) => {
+    const userId = requireUser(req);
+    requirePermission(userId, 'sms.verwalten');
+    const körper = req.body as {
+      sid?: string; token?: string; nummer?: string; webhookBasis?: string;
+    };
+    if (körper?.sid && !TWILIO_SID.test(körper.sid.trim())) {
+      return fehler(reply, 400, 'sms.sidUngueltig',
+        'Eine Twilio-Konto-Kennung beginnt mit „AC" und hat 34 Zeichen.');
+    }
+    if (körper?.token && !TWILIO_TOKEN.test(körper.token.trim())) {
+      return fehler(reply, 400, 'sms.tokenUngueltig',
+        'Das sieht nicht nach einem vollständigen Auth Token aus.');
+    }
+    if (körper?.nummer && !smszugang.E164.test(körper.nummer.trim())) {
+      return fehler(reply, 400, 'sms.nummerUngueltig',
+        'Die eigene Nummer muss im Format +15551234567 stehen (E.164).');
+    }
+    if (körper?.webhookBasis && !WEBHOOK_BASIS.test(körper.webhookBasis.trim())) {
+      return fehler(reply, 400, 'sms.webhookUngueltig',
+        'Das muss eine https-Adresse ohne Frage- und Rautezeichen sein.');
+    }
+    try {
+      smszugang.zugangSetzen(körper ?? {}, userId);
+      return smszugang.zugangStand();
+    } catch (err) {
+      /* Die Kennung des Dienstes geht mit, damit die App den Grund in ihrer
+         eigenen Sprache zeigt (fehler.tresorOhneMasterpasswort bzw.
+         fehler.tresorSchreibprobe) — wortgleich mit /api/ki/zugang. */
+      const { code, werte } = kennungVon(err);
+      return reply.code(400).send({ error: (err as Error).message, code, werte });
+    }
+  });
+
+  app.delete('/api/sms/zugang', async (req, reply) => {
+    const userId = requireUser(req);
+    requirePermission(userId, 'sms.verwalten');
+    try {
+      smszugang.zugangLoeschen(userId);
+      return smszugang.zugangStand();
+    } catch (err) {
+      const { code, werte } = kennungVon(err);
+      return reply.code(400).send({ error: (err as Error).message, code, werte });
+    }
   });
 
   app.post('/api/fern/zugang', async (req) => {
