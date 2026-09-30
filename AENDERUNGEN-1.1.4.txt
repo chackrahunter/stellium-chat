@@ -1,0 +1,3 @@
+Fernsteuerung des Pi jetzt auch im Browser und auf dem iPhone: tippen, ziehen, zoomen, langes Drücken = Rechtsklick, Bildschirmtastatur
+Fernsteuerung: Zwischenablage des Pi nur für den, der steuert, und nur auf Knopfdruck
+Fernsteuerung: sicherer (Rechte werden laufend geprüft, Eingaben begrenzt) und stabilere Regelung
