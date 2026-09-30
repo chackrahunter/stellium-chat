@@ -1583,6 +1583,7 @@ export const pl = {
   'fern.fehler.zuVieleVersuche': 'Zbyt wiele nieudanych prób — poczekaj chwilę',
   'fern.fehler.zeitUeberschritten': 'Przekroczono limit czasu logowania',
   'fern.fehler.allgemein': 'Nie udało się połączyć',
+  'fern.fehler.herkunft': 'Ta strona działa pod innym adresem niż serwer — otwórz bezpośrednio adres serwera.',
   'msg.read': 'Przeczytano',
   'msg.readAt': 'Przeczytano o {time}',
   'msg.readByCount': 'przeczytano {n} razy',

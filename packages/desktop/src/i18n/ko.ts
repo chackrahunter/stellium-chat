@@ -1569,6 +1569,7 @@ export const ko = {
   'fern.fehler.zuVieleVersuche': '시도 횟수 초과 — 잠시 기다려 주세요',
   'fern.fehler.zeitUeberschritten': '로그인 시간 초과',
   'fern.fehler.allgemein': '연결에 실패했습니다',
+  'fern.fehler.herkunft': '이 페이지는 서버와 다른 주소에서 실행 중입니다. 서버 주소를 직접 여세요.',
   'msg.read': '읽음',
   'msg.readAt': '{time}에 읽음',
   'msg.readByCount': '{n}명 읽음',

@@ -1569,6 +1569,7 @@ export const nl = {
   'fern.fehler.zuVieleVersuche': 'Te veel mislukte pogingen — even wachten',
   'fern.fehler.zeitUeberschritten': 'Time‑out bij aanmelden',
   'fern.fehler.allgemein': 'Verbinding kon niet tot stand komen',
+  'fern.fehler.herkunft': 'Deze pagina draait onder een ander adres dan de server — open het serveradres rechtstreeks.',
   'msg.read': 'Gelezen',
   'msg.readAt': 'Gelezen om {time}',
   'msg.readByCount': '{n} gelezen',

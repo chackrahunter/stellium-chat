@@ -1569,6 +1569,7 @@ export const ja = {
   'fern.fehler.zuVieleVersuche': '試行回数が多すぎます — 少し待ってください',
   'fern.fehler.zeitUeberschritten': 'サインインがタイムアウトしました',
   'fern.fehler.allgemein': '接続に失敗しました',
+  'fern.fehler.herkunft': 'このページはサーバーと異なるアドレスで動いています。サーバーのアドレスを直接開いてください。',
   'msg.read': '既読',
   'msg.readAt': '{time} に既読',
   'msg.readByCount': '{n} 人が既読',

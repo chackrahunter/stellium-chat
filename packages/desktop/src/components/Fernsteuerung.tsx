@@ -19,7 +19,7 @@ import { Shell } from './Panels.jsx';
 import { api } from '../net/api.js';
 import { fernImBrowser } from '../net/fern-browser.js';
 import {
-  ABLAGE_STUECK, ANSICHT_GANZ, EINFUEGEN, Gesten, LANG_MS, SONDERTASTEN, ansichtNachziehen, inStuecke,
+  ANSICHT_GANZ, Gesten, LANG_MS, SONDERTASTEN, ablageRunden, ansichtNachziehen, inStuecke,
   nachSchirm as punktNachSchirm, taste, textNachTasten, type Ansicht, type Punkt,
 } from '../lib/fern-eingabe.js';
 import { useStore } from '../state/store.js';
@@ -371,11 +371,7 @@ export function Fernsteuerung(
     /* ä, ß, Emoji: auf der US-Belegung des Pi gibt es dafür keine Taste.
        Also über die Ablage des Pi und Strg+V. */
     if (!steuertRef.current || !fern?.ablage) return;
-    const zeichen = Array.from(text);
-    for (let i = 0; i < zeichen.length; i += ABLAGE_STUECK) {
-      fern.ablage(zeichen.slice(i, i + ABLAGE_STUECK).join(''));
-      schick(EINFUEGEN);
-    }
+    void ablageRunden(text, (t) => fern.ablage(t), schick);
   };
 
   /* Zoom zurück, wenn die Verbindung endet — die nächste fängt ganz an. */

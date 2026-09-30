@@ -1569,6 +1569,7 @@ export const da = {
   'fern.fehler.zuVieleVersuche': 'For mange fejlforsøg — vent et øjeblik',
   'fern.fehler.zeitUeberschritten': 'Tidsgrænse ved login',
   'fern.fehler.allgemein': 'Kunne ikke oprette forbindelse',
+  'fern.fehler.herkunft': 'Denne side kører under en anden adresse end serveren — åbn serverens adresse direkte.',
   'msg.read': 'Læst',
   'msg.readAt': 'Læst kl. {time}',
   'msg.readByCount': '{n} læst',

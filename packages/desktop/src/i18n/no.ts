@@ -1569,6 +1569,7 @@ export const no = {
   'fern.fehler.zuVieleVersuche': 'For mange mislykkede forsøk – vent litt',
   'fern.fehler.zeitUeberschritten': 'Tidsavbrudd ved pålogging',
   'fern.fehler.allgemein': 'Kunne ikke koble til',
+  'fern.fehler.herkunft': 'Denne siden kjører under en annen adresse enn serveren — åpne serveradressen direkte.',
   'msg.read': 'Lest',
   'msg.readAt': 'Lest {time}',
   'msg.readByCount': '{n} lest',

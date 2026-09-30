@@ -26,7 +26,7 @@ if (!process.env.FERN_EINGABE_TSX) {
 
 const wurzel = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const m = await import(pathToFileURL(path.join(wurzel, 'packages/desktop/src/lib/fern-eingabe.ts')).href);
-const { taste, nachSchirm, ansichtNachziehen, Gesten, textNachTasten, inStuecke, EINFUEGEN, LANG_MS, ZIEH_SCHWELLE, ABLAGE_STUECK } = m;
+const { ablageRunden, ABLAGE_PAUSE_MS, taste, nachSchirm, ansichtNachziehen, Gesten, textNachTasten, inStuecke, EINFUEGEN, LANG_MS, ZIEH_SCHWELLE, ABLAGE_STUECK } = m;
 
 let fehler = 0;
 const pruefe = (was, ok, zusatz = '') => {
@@ -227,6 +227,22 @@ console.log('\nLange Texte');
   pruefe('ein kurzer Text bleibt ein Stück', inStuecke(taste(30)).length === 1);
   pruefe('ein Ablage-Stück passt auch aus Vier-Byte-Zeichen unter 6000 Bytes',
     Buffer.byteLength('👍'.repeat(ABLAGE_STUECK)) <= 6000, `${Buffer.byteLength('👍'.repeat(ABLAGE_STUECK))} Bytes`);
+}
+
+console.log('\nAblage-Runden');
+{
+  /* Strg+V holt die Ablage auf dem Pi asynchron ab. Die nächste Runde darf
+     sie erst nach einer Pause überschreiben, sonst überholen sich Stücke. */
+  const ablauf = [];
+  await ablageRunden('ä'.repeat(ABLAGE_STUECK * 2 + 10), (t) => ablauf.push(`ablage ${[...t].length}`),
+    (z) => ablauf.push(z === EINFUEGEN ? 'strg+v' : '?'), async (ms) => { ablauf.push(`warte ${ms}`); });
+  pruefe('drei Runden, zwischen jeder eine Pause',
+    gleich(ablauf, [`ablage ${ABLAGE_STUECK}`, 'strg+v', `warte ${ABLAGE_PAUSE_MS}`, `ablage ${ABLAGE_STUECK}`, 'strg+v',
+      `warte ${ABLAGE_PAUSE_MS}`, 'ablage 10', 'strg+v']), ablauf.join(' → '));
+  pruefe('die Pause ist lang genug (mindestens 150 ms)', ABLAGE_PAUSE_MS >= 150);
+  const kurz = [];
+  await ablageRunden('ß', (t) => kurz.push(t), () => kurz.push('v'), async () => { kurz.push('warte'); });
+  pruefe('eine Runde: keine Pause', gleich(kurz, ['ß', 'v']));
 }
 
 console.log(fehler

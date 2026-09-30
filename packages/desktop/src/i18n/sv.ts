@@ -1569,6 +1569,7 @@ export const sv = {
   'fern.fehler.zuVieleVersuche': 'För många misslyckade försök – vänta en stund',
   'fern.fehler.zeitUeberschritten': 'Tidsgränsen för inloggning överskreds',
   'fern.fehler.allgemein': 'Kunde inte ansluta',
+  'fern.fehler.herkunft': 'Den här sidan körs under en annan adress än servern — öppna serverns adress direkt.',
   'msg.read': 'Läst',
   'msg.readAt': 'Läst {time}',
   'msg.readByCount': '{n} lästa',

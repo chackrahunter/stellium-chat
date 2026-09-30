@@ -1569,6 +1569,7 @@ export const fi = {
   'fern.fehler.zuVieleVersuche': 'Liian monta epäonnistunutta yritystä — odota hetki',
   'fern.fehler.zeitUeberschritten': 'Kirjautuminen aikakatkaistu',
   'fern.fehler.allgemein': 'Yhteyttä ei saatu muodostettua',
+  'fern.fehler.herkunft': 'Tämä sivu toimii eri osoitteessa kuin palvelin — avaa palvelimen osoite suoraan.',
   'msg.read': 'Luettu',
   'msg.readAt': 'Luettu {time}',
   'msg.readByCount': '{n} luettu',

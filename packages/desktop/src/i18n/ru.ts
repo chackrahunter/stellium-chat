@@ -1583,6 +1583,7 @@ export const ru = {
   'fern.fehler.zuVieleVersuche': 'Слишком много попыток — подождите',
   'fern.fehler.zeitUeberschritten': 'Время ожидания входа истекло',
   'fern.fehler.allgemein': 'Не удалось установить соединение',
+  'fern.fehler.herkunft': 'Эта страница открыта по другому адресу, чем сервер, — откройте адрес сервера напрямую.',
   'msg.read': 'Прочитано',
   'msg.readAt': 'Прочитано в {time}',
   'msg.readByCount': 'Прочитано: {n}',

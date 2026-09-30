@@ -1583,6 +1583,7 @@ export const cs = {
   'fern.fehler.zuVieleVersuche': 'Příliš mnoho neúspěšných pokusů — počkej chvíli',
   'fern.fehler.zeitUeberschritten': 'Časový limit při přihlašování',
   'fern.fehler.allgemein': 'Spojení se nepodařilo navázat',
+  'fern.fehler.herkunft': 'Tato stránka běží na jiné adrese než server — otevřete prosím adresu serveru přímo.',
   'msg.read': 'Přečteno',
   'msg.readAt': 'Přečteno v {time}',
   'msg.readByCount': '{n} přečteno',

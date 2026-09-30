@@ -1597,6 +1597,7 @@ export const ar = {
   'fern.fehler.zuVieleVersuche': 'محاولات كثيرة — انتظر لحظة',
   'fern.fehler.zeitUeberschritten': 'انتهت مهلة تسجيل الدخول',
   'fern.fehler.allgemein': 'فشل الاتصال',
+  'fern.fehler.herkunft': 'تعمل هذه الصفحة على عنوان مختلف عن الخادم — يُرجى فتح عنوان الخادم مباشرة.',
   'msg.read': 'مقروء',
   'msg.readAt': 'قُرئ في {time}',
   'msg.readByCount': 'قُرئ من قبل {n}',

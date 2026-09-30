@@ -1569,6 +1569,7 @@ export const zh = {
   'fern.fehler.zuVieleVersuche': '尝试次数过多——请稍候',
   'fern.fehler.zeitUeberschritten': '登录超时',
   'fern.fehler.allgemein': '无法建立连接',
+  'fern.fehler.herkunft': '此页面运行在与服务器不同的地址下——请直接打开服务器地址。',
   'msg.read': '已读',
   'msg.readAt': '已读于 {time}',
   'msg.readByCount': '已被 {n} 人阅读',

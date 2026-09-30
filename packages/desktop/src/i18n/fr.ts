@@ -1569,6 +1569,7 @@ export const fr = {
   'fern.fehler.zuVieleVersuche': 'Trop de tentatives — attendez un instant',
   'fern.fehler.zeitUeberschritten': 'Délai d’attente dépassé lors de la connexion',
   'fern.fehler.allgemein': 'Connexion impossible',
+  'fern.fehler.herkunft': "Cette page tourne sous une autre adresse que le serveur — ouvre directement l'adresse du serveur.",
   'msg.read': 'Lu',
   'msg.readAt': 'Lu à {time}',
   'msg.readByCount': 'Lu par {n}',

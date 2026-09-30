@@ -1569,6 +1569,7 @@ export const tr = {
   'fern.fehler.zuVieleVersuche': 'Çok fazla deneme — kısa bir süre bekleyin',
   'fern.fehler.zeitUeberschritten': 'Oturum zaman aşımına uğradı',
   'fern.fehler.allgemein': 'Bağlantı kurulamadı',
+  'fern.fehler.herkunft': 'Bu sayfa sunucudan farklı bir adreste çalışıyor — lütfen sunucu adresini doğrudan açın.',
   'msg.read': 'Okundu',
   'msg.readAt': '{time}’de okundu',
   'msg.readByCount': '{n} kişi okudu',

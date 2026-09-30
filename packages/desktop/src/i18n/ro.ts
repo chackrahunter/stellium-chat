@@ -1576,6 +1576,7 @@ export const ro = {
   'fern.fehler.zuVieleVersuche': 'Prea multe încercări — așteaptă puțin',
   'fern.fehler.zeitUeberschritten': 'Timpul de conectare a expirat',
   'fern.fehler.allgemein': 'Conexiune eșuată',
+  'fern.fehler.herkunft': 'Această pagină rulează la altă adresă decât serverul — deschide direct adresa serverului.',
   'msg.read': 'Citit',
   'msg.readAt': 'Citit la {time}',
   'msg.readByCount': '{n} citit',

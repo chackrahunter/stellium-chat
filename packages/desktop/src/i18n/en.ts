@@ -1702,6 +1702,7 @@ export const en: Partial<Dictionary> = {
   'fern.fehler.zuVieleVersuche': 'Too many attempts — wait a moment',
   'fern.fehler.zeitUeberschritten': 'Sign-in timed out',
   'fern.fehler.allgemein': 'Could not connect',
+  'fern.fehler.herkunft': 'This page runs under a different address than the server — please open the server address directly.',
 
   /* Read receipts */
   'msg.read': 'Read',

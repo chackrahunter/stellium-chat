@@ -1569,6 +1569,7 @@ export const hi = {
   'fern.fehler.zuVieleVersuche': 'बहुत अधिक प्रयास — थोड़ी देर प्रतीक्षा करें',
   'fern.fehler.zeitUeberschritten': 'साइन‑इन का समय समाप्त',
   'fern.fehler.allgemein': 'कनेक्शन स्थापित नहीं हो सका',
+  'fern.fehler.herkunft': 'यह पेज सर्वर से अलग पते पर चल रहा है — कृपया सर्वर का पता सीधे खोलें।',
   'msg.read': 'पढ़ा गया',
   'msg.readAt': '{time} पर पढ़ा गया',
   'msg.readByCount': '{n} पढ़े',

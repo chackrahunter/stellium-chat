@@ -1569,6 +1569,7 @@ export const pt = {
   'fern.fehler.zuVieleVersuche': 'Muitas tentativas falhas — aguarde um momento',
   'fern.fehler.zeitUeberschritten': 'Tempo de login esgotado',
   'fern.fehler.allgemein': 'Não foi possível conectar',
+  'fern.fehler.herkunft': 'Esta página está rodando em um endereço diferente do servidor — abra o endereço do servidor diretamente.',
   'msg.read': 'Lido',
   'msg.readAt': 'Lido em {time}',
   'msg.readByCount': '{n} lidos',

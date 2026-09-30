@@ -1734,6 +1734,7 @@ export const de = {
   'fern.fehler.zuVieleVersuche': 'Zu viele Fehlversuche — kurz warten',
   'fern.fehler.zeitUeberschritten': 'Zeitüberschreitung bei der Anmeldung',
   'fern.fehler.allgemein': 'Verbindung nicht zustande gekommen',
+  'fern.fehler.herkunft': 'Diese Seite läuft unter einer anderen Adresse als der Server — bitte die Serveradresse direkt öffnen.',
 
   /* Lesebestätigungen */
   'msg.read': 'Gelesen',

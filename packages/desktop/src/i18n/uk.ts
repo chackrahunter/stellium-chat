@@ -1583,6 +1583,7 @@ export const uk = {
   'fern.fehler.zuVieleVersuche': 'Занадто багато спроб — зачекайте',
   'fern.fehler.zeitUeberschritten': 'Час очікування при вході вичерпано',
   'fern.fehler.allgemein': 'Не вдалося підключитися',
+  'fern.fehler.herkunft': 'Ця сторінка відкрита за іншою адресою, ніж сервер, — відкрийте адресу сервера напряму.',
   'msg.read': 'Прочитано',
   'msg.readAt': 'Прочитано о {time}',
   'msg.readByCount': 'Прочитали {n}',

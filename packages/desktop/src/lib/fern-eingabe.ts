@@ -280,3 +280,22 @@ export function inStuecke(zeilen: string, max = 3500): string[] {
  *  also 1500. Längerer Text geht in mehreren Runden Ablage + Strg+V. */
 export const ABLAGE_STUECK = 1500;
 
+/*
+ * Wie lange zwischen zwei Ablage-Runden gewartet wird. Strg+V holt die
+ * Ablage auf dem Pi ASYNCHRON ab — kommt die nächste Runde zu früh, fügt die
+ * Anwendung schon deren Text ein, und die Stücke überholen sich.
+ */
+export const ABLAGE_PAUSE_MS = 150;
+
+/** Text über die Ablage des Pi und Strg+V, in Runden mit Pause dazwischen. */
+export async function ablageRunden(
+  text: string, ablage: (t: string) => void, schick: (z: string) => void,
+  warte: (ms: number) => Promise<void> = (ms) => new Promise((r) => setTimeout(r, ms)),
+): Promise<void> {
+  const zeichen = Array.from(text);
+  for (let i = 0; i < zeichen.length; i += ABLAGE_STUECK) {
+    if (i) await warte(ABLAGE_PAUSE_MS);
+    ablage(zeichen.slice(i, i + ABLAGE_STUECK).join(''));
+    schick(EINFUEGEN);
+  }
+}

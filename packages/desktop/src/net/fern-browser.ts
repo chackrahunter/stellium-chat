@@ -27,6 +27,7 @@ const GRUENDE: Record<number, string> = {
   4401: 'fern.fehler.allgemein',
   4403: 'fern.keinRecht',
   4404: 'fern.nichtEingerichtet',
+  4406: 'fern.fehler.herkunft',
   4504: 'fern.fehler.keineAntwort',
 };
 

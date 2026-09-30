@@ -1569,6 +1569,7 @@ export const it = {
   'fern.fehler.zuVieleVersuche': 'Troppi tentativi falliti — attendi un attimo',
   'fern.fehler.zeitUeberschritten': 'Timeout durante l\'accesso',
   'fern.fehler.allgemein': 'Connessione non riuscita',
+  'fern.fehler.herkunft': "Questa pagina gira su un indirizzo diverso da quello del server: apri direttamente l'indirizzo del server.",
   'msg.read': 'Letto',
   'msg.readAt': 'Letto alle {time}',
   'msg.readByCount': '{n} letti',

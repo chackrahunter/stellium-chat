@@ -1569,6 +1569,7 @@ export const es = {
   'fern.fehler.zuVieleVersuche': 'Demasiados intentos fallidos — espera un momento',
   'fern.fehler.zeitUeberschritten': 'Tiempo de espera al iniciar sesión agotado',
   'fern.fehler.allgemein': 'No se pudo establecer la conexión',
+  'fern.fehler.herkunft': 'Esta página se ejecuta en una dirección distinta a la del servidor: abre directamente la dirección del servidor.',
   'msg.read': 'Leído',
   'msg.readAt': 'Leído a las {time}',
   'msg.readByCount': 'Leído por {n}',
