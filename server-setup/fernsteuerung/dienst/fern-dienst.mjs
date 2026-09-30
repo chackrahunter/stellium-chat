@@ -599,6 +599,12 @@ function waechstStau(sitzung) {
  * `rohr` unvermeidlich — es ist die Strecke selbst. Nur was darüber liegt,
  * wartet wirklich irgendwo und kostet zusätzliche Verzögerung.
  */
+/* Ob die letzte Messung aus `ss` (oder vom Chat-Server) noch gilt. Ohne
+   Stand oder älter als LEITUNG_FRIST_MS zählt sie nicht mehr. */
+function leitungFrisch(sitzung, jetzt = Date.now()) {
+  return jetzt - (sitzung.leitungStand ?? 0) <= LEITUNG_FRIST_MS;
+}
+
 function stauMasse(sitzung) {
   const unterwegs = sendestau(sitzung) + (sitzung.ws?.bufferedAmount ?? 0);
   const ziel      = hostRate || hostMax || 2000;
@@ -609,9 +615,12 @@ function stauMasse(sitzung) {
      unsichtbar. Genau das war zu sehen: Ziel 6000, tatsächlich 2900, und
      der Rückstand wuchs unbemerkt auf über 300 KB. Deshalb der kleinere
      der beiden Werte. */
-  const kbit      = Math.min(ziel, sitzung.durchsatzKbit || ziel);
+  /* Veraltete Messwerte zählen nicht: dann Zielrate und keine Rohrfüllung,
+     also die strenge Rechnung (siehe LEITUNG_FRIST_MS). */
+  const frisch    = leitungFrisch(sitzung);
+  const kbit      = frisch ? Math.min(ziel, sitzung.durchsatzKbit || ziel) : ziel;
   const bytesJeS  = kbit * 1000 / 8;
-  const rohr      = bytesJeS * ((sitzung.laufzeitMs ?? 0) / 1000);
+  const rohr      = frisch ? bytesJeS * ((sitzung.laufzeitMs ?? 0) / 1000) : 0;
   const erlaubt   = Math.max(STAU_MINDEST, bytesJeS * STAU_ZEIT_S);
   return { unterwegs, stau: Math.max(0, unterwegs - rohr), erlaubt };
 }
@@ -654,7 +663,7 @@ function rateWunschNachziehen(sitzung) {
        2500 auf 6000 kbit/s wären das elf Schritte, also gut zwanzig
        Sekunden weiches Bild nach jeder Störung. Die 0,95 lassen Abstand,
        damit die Messung nicht ihre eigene Obergrenze bestätigt. */
-    const gemessen = sitzung.durchsatzKbit ? Math.round(sitzung.durchsatzKbit * 0.95) : 0;
+    const gemessen = sitzung.durchsatzKbit && leitungFrisch(sitzung) ? Math.round(sitzung.durchsatzKbit * 0.95) : 0;
     neu = Math.max(Math.round(jetzige * 1.08), gemessen);
   }
   neu = Math.max(400, Math.min(hostMax, neu));

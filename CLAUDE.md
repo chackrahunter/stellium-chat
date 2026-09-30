@@ -84,6 +84,7 @@ node scripts/notzugang-pruefen.mjs           # „3 von 5" — Notzugang
 node scripts/fern-mehrere-pruefen.mjs        # mehrere sehen dem Pi zu
 node scripts/fern-leitung-pruefen.mjs        # Fernsteuerung im Browser: Vermittler
 node scripts/fern-eingabe-pruefen.mjs        # Fernsteuerung: Gesten und Tastatur
+node scripts/fern-frist-pruefen.mjs          # Fernsteuerung: alte Leitungsmessungen verfallen
 node scripts/e2e-fern-handy.mjs              # Fernsteuerung: Chrome als iPhone
 ```
 
