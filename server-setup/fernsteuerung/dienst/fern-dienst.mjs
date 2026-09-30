@@ -292,7 +292,14 @@ const HOST_STAU_MAX = 256 * 1024;
  *  nach einem Neustart kurz auf einen geschlossenen Kanal zeigt. */
 function hostSchreiben(zeile) {
   if (!host?.kind.stdin?.writable) return false;
-  if (host.kind.stdin.writableLength > HOST_STAU_MAX) return false;
+  if (host.kind.stdin.writableLength > HOST_STAU_MAX) {
+    /* Verworfen wird nur, was bewegt oder drückt. Ein LOSLASSEN geht immer
+       durch — sonst bliebe auf dem Pi eine Taste oder die Maustaste
+       gedrückt, bis jemand sie noch einmal anfasst. */
+    const los = String(zeile).split('\n').filter((z) => /^[kt] \d+ 0$/.test(z));
+    if (!los.length) return false;
+    zeile = los.map((z) => `${z}\n`).join('');
+  }
   try { host.kind.stdin.write(zeile); return true; } catch { return false; }
 }
 
@@ -537,9 +544,12 @@ function vermittelt(sitzung) {
   return v && Date.now() - v.stand < VERMITTELT_FRIST_MS ? v : null;
 }
 
+/* `null` bleibt `null`: „noch nicht gemessen" ist etwas anderes als 0 —
+   0 ms Laufzeit ist auf demselben Rechner ein echter Wert. */
 function zahl(w, max) {
+  if (w === null || w === undefined) return null;
   const n = Number(w);
-  return Number.isFinite(n) && n >= 0 ? Math.min(n, max) : 0;
+  return Number.isFinite(n) && n >= 0 ? Math.min(n, max) : null;
 }
 
 function leitungMessen(sitzung) {
@@ -548,13 +558,16 @@ function leitungMessen(sitzung) {
   sitzung.leitungGelesen = jetzt;
   const v = vermittelt(sitzung);
   if (v) {
-    if (v.laufzeitMs) sitzung.laufzeitMs = v.laufzeitMs;
-    if (v.durchsatzKbit) sitzung.durchsatzKbit = v.durchsatzKbit;
-    /* Frisch ist nur, was gerade gemessen wurde. Meldet der Vermittler noch
-       keinen Durchsatz (die ersten Sekunden, oder der Browser quittiert
-       nicht), bliebe ein alter Wert sonst als „frisch" stehen — genau der
-       Fehler, den LEITUNG_FRIST_MS verhindern soll. */
-    if (v.laufzeitMs && v.durchsatzKbit) sitzung.leitungStand = v.stand;
+    /* Beide oder keiner, und nur gemessene: frisch ist nur, was gerade
+       gemessen wurde. Meldet der Vermittler noch keinen Durchsatz (die
+       ersten Sekunden), bliebe sonst ein alter Wert als „frisch" stehen —
+       genau der Fehler, den LEITUNG_FRIST_MS verhindern soll. `!= null`,
+       nicht wahrheitswertig: 0 ms Laufzeit über Loopback ist gültig. */
+    if (v.laufzeitMs != null && v.durchsatzKbit != null) {
+      sitzung.laufzeitMs = v.laufzeitMs;
+      sitzung.durchsatzKbit = v.durchsatzKbit;
+      sitzung.leitungStand = v.stand;
+    }
     return;
   }
   const port = sitzung.ws?._socket?.remotePort;
@@ -1074,7 +1087,7 @@ server.on('connection', (ws, anfrage) => {
              nur von einer Gegenstelle, die sich übers Passwort ausgewiesen
              hat: vor dem Handschlag kommt hier nichts an. */
           sitzung.vermittelt = {
-            unterwegs: zahl(w.unterwegs, 1e9),
+            unterwegs: zahl(w.unterwegs, 1e9) ?? 0,
             laufzeitMs: zahl(w.laufzeitMs, 10_000),
             durchsatzKbit: zahl(w.durchsatzKbit, 1e6),
             stand: Date.now(),

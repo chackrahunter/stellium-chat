@@ -106,9 +106,19 @@ console.log('\nMeldungen des Vermittlers (Browser-Weg)');
      frisch machen. */
   const alt = jetzt - frist - 4000;
   const s = { durchsatzKbit: 7000, laufzeitMs: 40, leitungStand: alt,
-    vermittelt: { unterwegs: 0, laufzeitMs: 0, durchsatzKbit: 0, stand: Date.now() } };
+    vermittelt: { unterwegs: 0, laufzeitMs: null, durchsatzKbit: null, stand: Date.now() } };
   echtesLeitungMessen(s);
   pruefe('eine leere Meldung macht alte Werte nicht frisch', !leitungFrisch(s), `Stand vor ${Date.now() - s.leitungStand} ms`);
+  const halb = { durchsatzKbit: 7000, laufzeitMs: 40, leitungStand: alt,
+    vermittelt: { unterwegs: 0, laufzeitMs: 25, durchsatzKbit: null, stand: Date.now() } };
+  echtesLeitungMessen(halb);
+  pruefe('eine halbe Meldung auch nicht — und übernimmt nichts',
+    !leitungFrisch(halb) && halb.laufzeitMs === 40 && halb.durchsatzKbit === 7000, JSON.stringify(halb));
+  /* Über Loopback ist 0 ms eine echte Laufzeit, keine fehlende. */
+  const loop = { leitungStand: alt,
+    vermittelt: { unterwegs: 0, laufzeitMs: 0, durchsatzKbit: 3000, stand: Date.now() } };
+  echtesLeitungMessen(loop);
+  pruefe('Laufzeit 0 ms zählt als gemessen', leitungFrisch(loop) && loop.laufzeitMs === 0 && loop.durchsatzKbit === 3000);
   const t = { leitungStand: alt,
     vermittelt: { unterwegs: 0, laufzeitMs: 30, durchsatzKbit: 2500, stand: Date.now() } };
   echtesLeitungMessen(t);

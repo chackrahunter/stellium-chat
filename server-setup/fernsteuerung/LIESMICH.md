@@ -355,9 +355,11 @@ Browser kann keinen unterschieben.
 Was der Server dabei festhält (alles in fernleitung.ts, alles geprüft in
 `fern-leitung-pruefen`):
 
-- nur die eigene Herkunft (`Origin`); höchstens 8 nicht angemeldete
-  Verbindungen, 4 Leitungen insgesamt, 2 je Konto, 6 Versuche je Konto und
-  Minute, 2 scrypt-Läufe gleichzeitig;
+- nur die eigene Herkunft (`Origin`, verglichen wird der Rechnername ohne
+  Port — nginx reicht `Host` ohne Port weiter), sonst 4406; höchstens 2
+  nicht angemeldete Verbindungen je Absender (`X-Real-IP` von nginx, nur
+  über Loopback geglaubt) und 64 insgesamt, 4 Leitungen insgesamt, 2 je
+  Konto, 6 Versuche je Konto und Minute, 2 scrypt-Läufe gleichzeitig;
 - alle 30 s wird nachgesehen, ob Token und `fern.zugriff` noch gelten —
   Sperren, Löschen, Passwortwechsel und Entzug beenden auch eine laufende
   Sitzung;
@@ -366,10 +368,13 @@ Was der Server dabei festhält (alles in fernleitung.ts, alles geprüft in
   (dasselbe jetzt auch in der Desktop-App);
 - vom Browser zum Pi nur die Befehle `z`, `t`, `r`, `k`, `m` mit Zahlen und
   abschließendem Zeilenende, nie `a`, `b`, `s`; die Ablage höchstens 6000
-  Bytes; staut es zum Pi (über 256 KB), wird verworfen.
+  Bytes; staut es zum Pi (über 256 KB), wird verworfen — außer Loslassen
+  (`k … 0`, `t … 0`), das geht immer durch.
 
 Der Dienst selbst verwirft Eingaben, wenn der Abgreifer mehr als 256 KB
-ungelesen vor sich hat.
+ungelesen vor sich hat, ebenfalls mit Ausnahme des Loslassens. Meldungen des
+Vermittlers übernimmt er nur, wenn sie Laufzeit und Durchsatz beide tragen
+(0 ms Laufzeit zählt als gemessen).
 
 Weil der Chat-Server meist auf **diesem** Pi läuft, sähe der Dienst über
 seine eigenen Messungen nur die kurze, freie Strecke zum Server. Deshalb

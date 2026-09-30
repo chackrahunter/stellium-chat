@@ -88,7 +88,12 @@ const GLEICHZEITIG_JE_KONTO = 2;
    erst anmeldet, soll keine Verbindungen horten können. */
 const LEITUNGEN_GESAMT = 4;
 const SCRYPT_GLEICHZEITIG = 2;
-const UNANGEMELDET_MAX = 8;
+/* Nicht angemeldete Verbindungen: je Absender zwei — mehr braucht kein
+   Browser —, und über alle nur als Notbremse. Eine rein globale Grenze
+   (bis eben 8) hieß: wer ohne Konto acht Verbindungen offen hält, sperrt
+   alle anderen aus. */
+const UNANGEMELDET_JE_ABSENDER = 2;
+const UNANGEMELDET_MAX = 64;
 
 /* Wie oft eine offene Leitung nachsieht, ob das Konto noch darf — Sperren,
    Löschen, Passwortwechsel und der Entzug von `fern.zugriff` sollen auch
@@ -106,6 +111,10 @@ export function eingabeGueltig(zeilen: unknown): zeilen is string {
   return zeilen.slice(0, -1).split('\n').every((z) => ZEILE.test(z));
 }
 export const ABLAGE_MAX = 6000;
+/** Aus Befehlszeilen nur die, die etwas loslassen (`k … 0`, `t … 0`). */
+export function nurLoslassen(zeilen: string): string {
+  return zeilen.split('\n').filter((z) => /^[kt] \d+ 0$/.test(z)).map((z) => `${z}\n`).join('');
+}
 /* Staut es schon auf dem Weg zum Pi, sind weitere Eingaben nur Rückstau. */
 const EINGABE_STAU_MAX = 256 * 1024;
 
@@ -125,6 +134,20 @@ const versuche = new Map<string, number[]>();
 const offeneLeitungen = new Map<string, number>();
 let leitungenGesamt = 0;
 let unangemeldet = 0;
+const unangemeldetJe = new Map<string, number>();
+
+/**
+ * Wer verbindet. Hinter nginx (stellium-proxy.conf) kommt jede Verbindung
+ * von 127.0.0.1, der echte Absender steht in `X-Real-IP`. Dem Kopf wird nur
+ * geglaubt, wenn die Verbindung wirklich vom eigenen Rechner kommt — sonst
+ * könnte jeder, der den Server direkt erreicht, sich beliebig viele
+ * Absender ausdenken.
+ */
+export function absender(remote: string | undefined, realIp: unknown): string {
+  const r = remote ?? '?';
+  const lokal = /^(127\.|::1$|::ffff:127\.)/.test(r);
+  return lokal && typeof realIp === 'string' && realIp ? realIp : r;
+}
 let scryptLaeuft = 0;
 
 /** Nur exportiert für die Prüfung: Zähler zwischen zwei Läufen leeren. */
@@ -152,9 +175,13 @@ export function herkunftErlaubt(origin: string | undefined, host: string | undef
   let o: URL;
   try { o = new URL(origin); } catch { return false; }
   if (!host) return false;
-  if (o.host === host) return true;
+  /* Nur der Rechnername, ohne Port: nginx setzt `Host $host`, und das trägt
+     keinen Port — läuft HTTPS auf 8443 (der Installer weicht dorthin aus,
+     wenn 443 belegt ist), stünde der Port nur in der Herkunft. */
+  const name = host.replace(/:\d+$/, '');
+  if (o.hostname === name) return true;
   const loop = (h: string) => /^(localhost|127\.0\.0\.1|\[::1\])$/.test(h);
-  return loop(o.hostname) && loop(host.replace(/:\d+$/, ''));
+  return loop(o.hostname) && loop(name);
 }
 
 function darfVersuchen(userId: string): boolean {
@@ -248,9 +275,17 @@ function schliessen(browser: WsBuchse, code: number): void {
 }
 
 async function leitung(browser: WsBuchse, req: FastifyRequest): Promise<void> {
-  if (!herkunftErlaubt(req.headers.origin, req.headers.host)) { schliessen(browser, 4403); return; }
-  if (unangemeldet >= UNANGEMELDET_MAX) { schliessen(browser, 4029); return; }
+  /* Eigener Code: „kein Recht" wäre hier falsch, das Konto ist gar nicht
+     gefragt worden. Meist heißt es, die Seite läuft unter einer anderen
+     Adresse als der Server. */
+  if (!herkunftErlaubt(req.headers.origin, req.headers.host)) { schliessen(browser, 4406); return; }
+  const wer = absender(req.socket.remoteAddress, req.headers['x-real-ip']);
+  if (unangemeldet >= UNANGEMELDET_MAX || (unangemeldetJe.get(wer) ?? 0) >= UNANGEMELDET_JE_ABSENDER) {
+    schliessen(browser, 4029);
+    return;
+  }
   unangemeldet += 1;
+  unangemeldetJe.set(wer, (unangemeldetJe.get(wer) ?? 0) + 1);
   /* 1. Anmelden — das Token geht in der ersten Nachricht, nicht in der
      Adresse: Adressen landen in Protokollen (nginx, Fastify). */
   const anmeldung = await new Promise<{ token?: string } | null>((fertig) => {
@@ -263,6 +298,8 @@ async function leitung(browser: WsBuchse, req: FastifyRequest): Promise<void> {
     browser.once('close', () => { clearTimeout(frist); fertig(null); });
   });
   unangemeldet -= 1;
+  const rest = (unangemeldetJe.get(wer) ?? 1) - 1;
+  if (rest > 0) unangemeldetJe.set(wer, rest); else unangemeldetJe.delete(wer);
   const token = typeof anmeldung?.token === 'string' ? anmeldung.token : '';
   const userId = token ? verifyToken(token) : null;
   if (!userId) { schliessen(browser, 4401); return; }
@@ -328,14 +365,16 @@ async function leitung(browser: WsBuchse, req: FastifyRequest): Promise<void> {
      unbemerkt hier und in nginx, statt dort, wo er verworfen wird. */
   let gesendet = 0;
   let quittiert = 0;
-  let laufzeitMs = 0;
+  /* `null` heißt: noch nicht gemessen. 0 ms ist auf demselben Rechner ein
+     echter Wert und darf davon nicht zu unterscheiden verloren gehen. */
+  let laufzeitMs: number | null = null;
   const durchsatzProben: Array<[number, number]> = [];
   let pingAb = 0;
   let pongOffen = false;
   browser.on('pong', () => {
     pongOffen = false;
     const ms = Date.now() - pingAb;
-    laufzeitMs = laufzeitMs ? Math.min(laufzeitMs, ms) : ms;
+    laufzeitMs = laufzeitMs === null ? ms : Math.min(laufzeitMs, ms);
   });
   let rechteGeprueft = Date.now();
   const rechtePruefen = () => {
@@ -358,7 +397,7 @@ async function leitung(browser: WsBuchse, req: FastifyRequest): Promise<void> {
     durchsatzProben.push([jetzt, quittiert]);
     while (durchsatzProben.length > 1 && jetzt - durchsatzProben[0][0] > 3000) durchsatzProben.shift();
     const [t0, q0] = durchsatzProben[0];
-    const durchsatzKbit = jetzt - t0 >= 1000 ? Math.round((quittiert - q0) * 8 / (jetzt - t0)) : 0;
+    const durchsatzKbit = jetzt - t0 >= 1000 ? Math.round((quittiert - q0) * 8 / (jetzt - t0)) : null;
     anPi(N_STEUER, Buffer.from(JSON.stringify({
       art: 'leitung', unterwegs: Math.max(0, gesendet - quittiert), laufzeitMs, durchsatzKbit,
     }), 'utf8'));
@@ -456,10 +495,14 @@ async function leitung(browser: WsBuchse, req: FastifyRequest): Promise<void> {
     try { n = JSON.parse(String(roh)); } catch { return; }
     if (n.art === 'q' && typeof n.n === 'number' && n.n >= quittiert && n.n <= gesendet) {
       quittiert = n.n;
+    } else if (n.art === 'eingabe' && eingabeGueltig(n.zeilen)) {
+      /* Staut es zum Pi, wäre jede weitere Bewegung nur Rückstau — aber ein
+         LOSLASSEN darf nie verloren gehen, sonst bleibt auf dem Pi eine Taste
+         oder die Maustaste gedrückt. */
+      const zeilen = buchse.bufferedAmount > EINGABE_STAU_MAX ? nurLoslassen(n.zeilen) : n.zeilen;
+      if (zeilen) anPi(N_EINGABE, Buffer.from(zeilen, 'utf8'));
     } else if (buchse.bufferedAmount > EINGABE_STAU_MAX) {
       /* Der Pi kommt nicht nach — alles Weitere wäre nur Rückstau. */
-    } else if (n.art === 'eingabe' && eingabeGueltig(n.zeilen)) {
-      anPi(N_EINGABE, Buffer.from(n.zeilen, 'utf8'));
     } else if (n.art === 'steuer' && n.wunsch && STEUER_ERLAUBT.has(String(n.wunsch.art))) {
       /* Neu gebaut statt weitergereicht: nur das eine Feld, das es braucht. */
       anPi(N_STEUER, Buffer.from(JSON.stringify({ art: 'steuerung', an: (n.wunsch as { an?: unknown }).an === true }), 'utf8'));

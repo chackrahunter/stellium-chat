@@ -28,6 +28,7 @@ import { db, initDb } from '../db/index.js';
 import { WebSocketServer, WebSocket as WsKlient } from 'ws';
 import {
   registerFernleitung, bremseZuruecksetzen, ziele, eingabeGueltig, herkunftErlaubt, scryptPasst, ABLAGE_MAX,
+  absender, nurLoslassen,
 } from '../http/fernleitung.js';
 import * as users from '../services/users.js';
 import { signToken } from '../auth.js';
@@ -78,7 +79,7 @@ pruef('kein ws/wss: gar nichts', ziele('http://203.0.113.7:7788').length === 0 &
 
 const wurzel = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..');
 const DIENST = path.join(wurzel, 'server-setup/fernsteuerung/dienst/fern-dienst.mjs');
-const { kennungNeu, grussBauen, antwortPruefen } = await import(path.join(wurzel, 'server-setup/fernsteuerung/dienst/anmeldung.mjs'));
+const { kennungNeu, grussBauen, antwortPruefen, Schatulle: PiSchatulle } = await import(path.join(wurzel, 'server-setup/fernsteuerung/dienst/anmeldung.mjs'));
 
 /* scrypt zählen: wie oft, und wie viele gleichzeitig. Der Vermittler schlägt
    `crypto.scrypt` bei jedem Aufruf nach, also greift das Ersetzen hier. */
@@ -321,7 +322,10 @@ const falschKennung = kennungNeu(falschOrdner);
 fs.rmSync(falschOrdner, { recursive: true, force: true });
 const falscherPi = new WebSocketServer({ port: 0, host: '127.0.0.1' });
 await new Promise((r) => falscherPi.on('listening', r));
-const falsch = { modus: 'boese' as 'boese' | 'taub', empfangen: 0, buchse: null as null | { _socket: net.Socket } };
+const falsch = {
+  modus: 'boese' as 'boese' | 'taub', empfangen: 0, buchse: null as null | { _socket: net.Socket },
+  eingaben: [] as string[],
+};
 falscherPi.on('connection', (ws) => {
   let hs: any = null;
   ws.on('message', (roh) => {
@@ -333,7 +337,9 @@ falscherPi.on('connection', (ws) => {
       return;
     }
     if (!hs.fertig) {
-      hs.fertig = antwortPruefen(hs, JSON.parse(text)).ok;
+      const urteil = antwortPruefen(hs, JSON.parse(text));
+      hs.fertig = urteil.ok;
+      hs.herein = new PiSchatulle(urteil.schluessel, 'mac');
       ws.send(JSON.stringify({ art: 'offen' }));
       if (falsch.modus === 'taub') {
         falsch.buchse = ws as unknown as { _socket: net.Socket };
@@ -342,6 +348,8 @@ falscherPi.on('connection', (ws) => {
       return;
     }
     falsch.empfangen += 1;
+    const paket = hs.herein?.auf(Buffer.from(roh as Buffer));
+    if (paket?.art === 4) falsch.eingaben.push(paket.inhalt.toString('utf8'));
   });
 });
 const falschAdresse = `ws://127.0.0.1:${(falscherPi.address() as net.AddressInfo).port}`;
@@ -410,6 +418,10 @@ for (const [was, zeilen] of [
   const block = 'z 1 1\n'.repeat(650);
   const GESENDET = 3000;
   for (let i = 0; i < GESENDET; i++) b.senden({ art: 'eingabe', zeilen: block });
+  /* Mitten im Stau: eine Taste und die Maustaste loslassen. Das darf nie
+     verworfen werden — sonst bleiben sie auf dem Pi gedrückt. Die Bewegung
+     davor schon. */
+  b.senden({ art: 'eingabe', zeilen: 'z 9 9\nk 30 0\nt 272 0\n' });
   /* Warten, bis der Vermittler alles gelesen hat, dann den Pi wieder lesen
      lassen und abwarten, bis nichts mehr kommt. */
   await schlaf(1500);
@@ -418,6 +430,10 @@ for (const [was, zeilen] of [
   await bis(() => { const still = zuletzt === falsch.empfangen; zuletzt = falsch.empfangen; return still && zuletzt > 0; }, 15_000);
   pruef('staut es zum Pi, verwirft der Vermittler statt zu puffern',
     falsch.empfangen > 0 && falsch.empfangen < GESENDET / 2, `${falsch.empfangen} von ${GESENDET} angekommen`);
+  pruef('…aber ein Loslassen kommt trotzdem an, ohne die Bewegung davor',
+    falsch.eingaben.includes('k 30 0\nt 272 0\n'), falsch.eingaben.filter((e) => !e.startsWith('z 1 1')).join(' | '));
+  pruef('nurLoslassen behält genau k … 0 und t … 0',
+    nurLoslassen('z 1 1\nk 30 1\nk 30 0\nt 272 1\nt 272 0\nr 0 1.00\n') === 'k 30 0\nt 272 0\n');
   b.zu();
 }
 
@@ -425,6 +441,11 @@ for (const [was, zeilen] of [
 
 console.log('\n10) Herkunft und Grenzen');
 pruef('eigene Herkunft', herkunftErlaubt('https://chat.example', 'chat.example'));
+/* nginx setzt `Host $host` — ohne Port. Läuft HTTPS auf 8443, steht der
+   Port nur in der Herkunft. */
+pruef('HTTPS auf 8443 hinter nginx (Host ohne Port)', herkunftErlaubt('https://chat.example:8443', 'chat.example'));
+pruef('…und mit Port im Host', herkunftErlaubt('https://chat.example:8443', 'chat.example:8443'));
+pruef('fremder Rechner mit gleichem Port nicht', !herkunftErlaubt('https://boese.example:8443', 'chat.example'));
 pruef('fremde Herkunft nicht', !herkunftErlaubt('https://boese.example', 'chat.example'));
 pruef('„null" (file:, Sandbox) nicht', !herkunftErlaubt('null', 'chat.example'));
 pruef('Entwicklung: Loopback zu Loopback', herkunftErlaubt('http://localhost:5173', '127.0.0.1:8787'));
@@ -432,17 +453,31 @@ pruef('ohne Origin (kein Browser) — dann entscheidet das Token', herkunftErlau
 {
   const fremd = new WsKlient(LEITUNG, { origin: 'https://boese.example' });
   const code = await new Promise<number>((r) => fremd.on('close', (c) => r(c)));
-  pruef('Upgrade von fremder Seite → 4403', code === 4403, String(code));
+  pruef('Upgrade von fremder Seite → 4406 (eigener Code, nicht „kein Recht")', code === 4406, String(code));
 }
+pruef('Absender: hinter nginx gilt X-Real-IP', absender('127.0.0.1', '203.0.113.9') === '203.0.113.9'
+  && absender('::ffff:127.0.0.1', '203.0.113.9') === '203.0.113.9');
+pruef('…direkt verbunden nicht (sonst erfände jeder Absender)', absender('198.51.100.4', '203.0.113.9') === '198.51.100.4');
 {
-  /* Nicht angemeldete Verbindungen: höchstens acht gleichzeitig. */
-  const stumm = Array.from({ length: 9 }, () => new Browser(null));
-  await bis(() => stumm.some((b) => b.code !== null), 3000);
-  pruef('die neunte stumme Verbindung wird sofort abgewiesen (4029)',
-    stumm.filter((b) => b.code === 4029).length === 1 && stumm.filter((b) => b.code === null).length === 8,
-    stumm.map((b) => b.code ?? '·').join(' '));
-  for (const b of stumm) b.zu();
-  await bis(() => stumm.every((b) => b.code !== null));
+  /* Nicht angemeldete Verbindungen: zwei je Absender. Wer ohne Konto acht
+     offen hält, sperrt damit nur sich selbst, nicht die anderen. */
+  const stumm = (ip: string) => {
+    const k = new WsKlient(LEITUNG, { headers: { 'X-Real-IP': ip } });
+    const z = { code: null as number | null, zu: () => { try { k.close(); } catch { /* zu */ } } };
+    k.on('close', (c) => { z.code = c; });
+    k.on('error', () => { /* Code reicht */ });
+    return z;
+  };
+  const acht = Array.from({ length: 8 }, () => stumm('10.0.0.1'));
+  await bis(() => acht.filter((b) => b.code === 4029).length === 6, 3000);
+  pruef('ein Absender: zwei offen, die übrigen sechs sofort 4029',
+    acht.filter((b) => b.code === 4029).length === 6 && acht.filter((b) => b.code === null).length === 2,
+    acht.map((b) => b.code ?? '·').join(' '));
+  const anderer = stumm('10.0.0.2');
+  await schlaf(300);
+  pruef('ein anderer Absender kommt trotzdem an die Anmeldung', anderer.code === null, String(anderer.code));
+  for (const b of [...acht, anderer]) b.zu();
+  await bis(() => [...acht, anderer].every((b) => b.code !== null));
 }
 {
   bremseZuruecksetzen();

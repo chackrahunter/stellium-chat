@@ -151,7 +151,9 @@ process.stdin.on('data', (d) => {
     const zeile = rest.slice(0, i);
     rest = rest.slice(i + 1);
     if (!zeile) continue;
-    if (TAUB) { gezaehlt += 1; continue; }
+    /* Nur Loslassen wird protokolliert — daran prüft der Lauf, dass es
+       auch im Stau durchkommt. */
+    if (TAUB) { gezaehlt += 1; if (/^[kt] \\d+ 0$/.test(zeile)) merk('befehl ' + zeile); continue; }
     merk('befehl ' + zeile);
     if (zeile[0] === 's') rahmen(1, schluesselbild());
     /* Wie der echte: setzt jemand die Ablage, meldet der Compositor die
@@ -472,6 +474,8 @@ console.log('\nDer Abgreifer hängt');
   const block = 'z 1 1\n'.repeat(650);
   const BLOECKE = 2000;
   for (let i = 0; i < BLOECKE; i++) h.eingabe(block);
+  /* Loslassen mitten im Stau muss trotzdem ankommen. */
+  h.eingabe('z 5 5\nt 272 0\n');
   await schlaf(1500);
   fs.writeFileSync(taub, '');
   const zahl = () => Number(fs.existsSync(LOG2 + '.zahl') ? fs.readFileSync(LOG2 + '.zahl', 'utf8') : 0);
@@ -479,6 +483,8 @@ console.log('\nDer Abgreifer hängt');
   await bis(() => { const z = zahl(); const still = z === vorher && z > 0; vorher = z; return still; }, 15_000);
   pruefe('der Dienst verwirft, statt alles für den Abgreifer zu puffern',
          zahl() > 0 && zahl() < BLOECKE * 650 / 2, `${zahl()} von ${BLOECKE * 650} Zeilen angekommen`);
+  const los = () => (fs.existsSync(LOG2) ? fs.readFileSync(LOG2, 'utf8') : '');
+  pruefe('…ein Loslassen aber nie', await bis(() => los().includes('befehl t 272 0')), los().trim().split('\n').slice(-3).join(' | '));
   h.trennen();
   dienst2.kill('SIGKILL');
 }
