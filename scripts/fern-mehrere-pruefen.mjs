@@ -76,6 +76,32 @@ const pruefe = (was, bedingung, zusatz = '') => {
 };
 const schlaf = (ms) => new Promise((r) => setTimeout(r, ms));
 
+/*
+ * Auf einen ZUSTAND warten, nicht auf eine Zeit.
+ *
+ * Hier standen feste Pausen (`schlaf(500)`, dann prüfen). Einzeln lief das
+ * immer grün; im vollen Auslieferungslauf, wo parallel gebaut und geprüft
+ * wird, scheiterte „jeder sieht, dass drei zusehen" einmal: die Lagemeldung
+ * mit der Drei kam nach der Pause statt davor. Das ist kein Fehler des
+ * Dienstes, sondern einer der Prüfung — sie hat Geschwindigkeit gemessen,
+ * wo sie Verhalten messen sollte.
+ *
+ * Jetzt wird bis zu einer großzügigen Frist nachgesehen, ob der erwartete
+ * Zustand eintritt. Im Normalfall kostet das nicht mehr als vorher (es geht
+ * weiter, sobald er da ist); unter Last wartet es, statt rot zu werden.
+ * Feste Pausen bleiben nur dort, wo das Ausbleiben von etwas geprüft wird
+ * — ein „kommt nicht an" lässt sich nicht abwarten, nur absitzen.
+ */
+const FRIST_MS = 8000;
+async function bis(bedingung, fristMs = FRIST_MS) {
+  const ende = Date.now() + fristMs;
+  while (Date.now() < ende) {
+    if (bedingung()) return true;
+    await schlaf(25);
+  }
+  return bedingung();
+}
+
 /* ── Der nachgemachte Abgreifer ──────────────────────────────── */
 
 /*
@@ -144,7 +170,7 @@ class Zuschauer {
       this.ws = ws;
       if (!this.roh) ws.binaryType = 'arraybuffer';
       let phase = 'gruss';
-      const frist = setTimeout(() => schade(new Error(`${this.name}: keine Antwort`)), 8000);
+      const frist = setTimeout(() => schade(new Error(`${this.name}: keine Antwort`)), 20_000);
 
       const daten = (roh) => {
         const alsText = () => (typeof roh === 'string' ? roh : Buffer.from(roh).toString('utf8'));
@@ -280,22 +306,29 @@ const [a, b, c] = await Promise.all([
   new Zuschauer('Cem', ADRESSE, PASSWORT).verbinden(),
 ]);
 pruefe('alle drei sind offen', a.offen && b.offen && c.offen);
-await schlaf(500);
-pruefe('alle drei bekommen Bilder', a.bilder > 0 && b.bilder > 0 && c.bilder > 0,
+pruefe('alle drei bekommen Bilder', await bis(() => a.bilder > 0 && b.bilder > 0 && c.bilder > 0),
        `${a.bilder} / ${b.bilder} / ${c.bilder}`);
 pruefe('jeder hat ein Schlüsselbild bekommen',
-       a.schluesselbilder > 0 && b.schluesselbilder > 0 && c.schluesselbilder > 0,
+       await bis(() => a.schluesselbilder > 0 && b.schluesselbilder > 0 && c.schluesselbilder > 0),
        `${a.schluesselbilder} / ${b.schluesselbilder} / ${c.schluesselbilder}`);
 pruefe('genau EIN Abgriff für alle', starts() === 1, `${starts()} Start(s)`);
 pruefe('die Dazugekommenen haben ein Bild angefordert',
-       befehle().filter((z) => z === 's').length >= 2);
-pruefe('der Zustand zählt drei', zustand().zuschauer === 3, JSON.stringify(zustand().zuschauer));
-pruefe('und nennt alle drei Namen', (zustand().namen ?? []).length === 3,
+       await bis(() => befehle().filter((z) => z === 's').length >= 2));
+pruefe('der Zustand zählt drei', await bis(() => zustand().zuschauer === 3), JSON.stringify(zustand().zuschauer));
+/* Die Namen kommen erst NACH dem Handschlag über die verschlüsselte Leitung
+   (`konto`) — sie können also später dastehen als die Zahl. */
+pruefe('und nennt alle drei Namen', await bis(() => (zustand().namen ?? []).length === 3),
        (zustand().namen ?? []).join(', '));
+/* Wer „Anna" ist, entscheidet die Reihenfolge, in der die drei Handschläge
+   fertig werden — und die ist bei drei gleichzeitigen scrypt-Rechnungen
+   nicht festgelegt. Geprüft wird darum, dass der Erste der Liste genannt
+   wird, nicht welcher Name das ist. */
 pruefe('`verbunden` steht weiter für die ältere Anzeige',
-       zustand().verbunden === true && zustand().konto === 'Anna', zustand().konto ?? '—');
+       await bis(() => zustand().verbunden === true && zustand().konto === (zustand().namen ?? [])[0]),
+       zustand().konto ?? '—');
 pruefe('jeder sieht, dass drei zusehen',
-       a.info()?.zuschauer === 3 && c.info()?.zuschauer === 3);
+       await bis(() => [a, b, c].every((z) => z.info()?.zuschauer === 3)),
+       [a, b, c].map((z) => z.info()?.zuschauer ?? '—').join(' / '));
 
 /* ── 2. Der vierte ───────────────────────────────────────────── */
 
@@ -309,62 +342,68 @@ pruefe('die drei anderen merken nichts davon', a.offen && b.offen && c.offen);
 
 console.log('\nTastatur und Maus');
 a.steuer({ art: 'steuerung', an: true });
-await schlaf(150);
+/* Erst weiter, wenn der Pi Anna die Steuerung bestätigt hat — sonst könnte
+   Bens Eingabe unten die freie Maus zuerst erwischen. */
+pruefe('der Steuernde weiß es', await bis(() => a.info()?.steuert === true));
 a.eingabe('z 100 200\n');
 b.eingabe('z 900 900\n');
+pruefe('die Eingabe des Steuernden kommt an', await bis(() => befehle().includes('z 100 200')));
+/* Das Ausbleiben lässt sich nicht abwarten. Bens Zeile ging im selben
+   Augenblick hinaus wie Annas; ist Annas angekommen, hatte seine dieselbe
+   Zeit — die kurze Nachfrist deckt nur die Reihenfolge zweier Leitungen ab. */
 await schlaf(250);
-pruefe('die Eingabe des Steuernden kommt an', befehle().includes('z 100 200'));
 pruefe('die des Zuschauers nicht', !befehle().includes('z 900 900'));
-pruefe('der Steuernde weiß es', a.info()?.steuert === true);
-pruefe('der Zuschauer weiß, wer steuert', b.info()?.steuerungBei === 'Anna',
+pruefe('der Zuschauer weiß, wer steuert', await bis(() => b.info()?.steuerungBei === 'Anna'),
        String(b.info()?.steuerungBei));
 
 a.ablage('von Anna');
 b.ablage('von Ben');
+const ablagen = () => befehle().filter((z) => z.startsWith('a '))
+  .map((z) => Buffer.from(z.slice(2), 'base64').toString('utf8'));
+pruefe('die Zwischenablage des Steuernden geht zum Pi', await bis(() => ablagen().includes('von Anna')));
 await schlaf(250);
-const ablagen = befehle().filter((z) => z.startsWith('a '));
-const entschluesselt = ablagen.map((z) => Buffer.from(z.slice(2), 'base64').toString('utf8'));
-pruefe('die Zwischenablage des Steuernden geht zum Pi', entschluesselt.includes('von Anna'));
 pruefe('die des Zuschauers nicht — sonst überschreiben sich vier gegenseitig',
-       !entschluesselt.includes('von Ben'), entschluesselt.join(' | '));
+       !ablagen().includes('von Ben'), ablagen().join(' | '));
 
 console.log('\nÜbergabe');
 a.steuer({ art: 'steuerung', an: false });
-await schlaf(200);
+await bis(() => a.info()?.steuert === false);
 b.steuer({ art: 'steuerung', an: true });
-await schlaf(200);
+await bis(() => b.info()?.steuert === true);
 b.eingabe('z 111 222\n');
-await schlaf(250);
-pruefe('nach dem Abgeben darf der Nächste', befehle().includes('z 111 222'));
-pruefe('und der Erste nicht mehr', b.info()?.steuert === true && a.info()?.steuert === false);
+pruefe('nach dem Abgeben darf der Nächste', await bis(() => befehle().includes('z 111 222')));
+pruefe('und der Erste nicht mehr', await bis(() => b.info()?.steuert === true && a.info()?.steuert === false));
 
 console.log('\nWer nichts tut, gibt die Maus nach der Frist frei');
+/* Die Frist selbst muss verstreichen — das ist das Geprüfte. Danach aber
+   nicht auf die eine Zeile hoffen, sondern nachschieben, bis der Pi sie
+   annimmt: unter Last kann die erste noch knapp vor Ablauf der Frist
+   ankommen und zu Recht verworfen werden. */
 await schlaf(RUHE_MS + 300);
-c.eingabe('z 333 444\n');
-await schlaf(250);
-pruefe('der Nächste kommt dran, ohne jemanden anzurufen', befehle().includes('z 333 444'));
+const cDran = await bis(() => { c.eingabe('z 333 444\n'); return befehle().includes('z 333 444'); });
+pruefe('der Nächste kommt dran, ohne jemanden anzurufen', cDran);
 
 /* ── 4. Der stille Zuschauer ─────────────────────────────────── */
 
 console.log('\nLebenszeichen');
 const stillVorher = a.bilder;
+/* Hier ist die Zeit das Geprüfte: mehrere Lebenszeichen-Fristen lang still
+   sein und trotzdem verbunden bleiben. */
 await schlaf(PING_MS * 3 + 200);
 pruefe('wer nur zusieht, bleibt verbunden (ping wird beantwortet)',
-       a.offen && a.bilder > stillVorher, `${a.bilder - stillVorher} Bilder dazu`);
+       a.offen && await bis(() => a.bilder > stillVorher), `${a.bilder - stillVorher} Bilder dazu`);
 
 /* ── 5. Der Fehler, um den es ging ───────────────────────────── */
 
 console.log('\nEine Verbindung reißt ab, ohne sich abzumelden');
 b.trennen(); c.trennen();
-await schlaf(200);
+await bis(() => zustand().zuschauer === 1);
 const geist = await new Zuschauer('Geist', ADRESSE, PASSWORT, { roh: true }).verbinden();
-await schlaf(200);
-pruefe('zwei sehen zu', zustand().zuschauer === 2, String(zustand().zuschauer));
+pruefe('zwei sehen zu', await bis(() => zustand().zuschauer === 2), String(zustand().zuschauer));
 geist.kabelZiehen();
 pruefe('gleich nach dem Abriss zählt der Pi ihn noch mit', zustand().zuschauer === 2);
-await schlaf(PING_MS * 3 + 400);
 pruefe('nach zwei Fristen ohne Antwort ist der Platz frei',
-       zustand().zuschauer === 1, String(zustand().zuschauer));
+       await bis(() => zustand().zuschauer === 1), String(zustand().zuschauer));
 
 console.log('\nUnd die Plätze werden wieder vergeben');
 const [e, f] = await Promise.all([
@@ -379,13 +418,11 @@ pruefe('der Abgriff läuft die ganze Zeit derselbe', starts() === 1, `${starts()
 
 console.log('\nDer Letzte macht das Licht aus');
 a.trennen(); e.trennen(); f.trennen();
-await schlaf(600);
-pruefe('der Abgriff ist beendet', protokoll().includes('ende'));
-pruefe('der Zustand sagt: niemand', zustand().verbunden === false && zustand().zuschauer === 0);
+pruefe('der Abgriff ist beendet', await bis(() => protokoll().includes('ende')));
+pruefe('der Zustand sagt: niemand', await bis(() => zustand().verbunden === false && zustand().zuschauer === 0));
 
 const g = await new Zuschauer('Gustl', ADRESSE, PASSWORT).verbinden();
-await schlaf(400);
-pruefe('der Nächste startet ihn neu', starts() === 2 && g.bilder > 0,
+pruefe('der Nächste startet ihn neu', await bis(() => starts() === 2 && g.bilder > 0),
        `${starts()} Starts, ${g.bilder} Bilder`);
 g.trennen();
 
