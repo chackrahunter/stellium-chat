@@ -39,17 +39,36 @@
  * mehr hinterher.
  */
 import crypto from 'node:crypto';
-import { promisify } from 'node:util';
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { WebSocket as WsBuchse } from 'ws';
 import { verifyToken } from '../auth.js';
 import * as users from '../services/users.js';
 import * as store from '../services/store.js';
 import * as fernzugang from '../services/fernzugang.js';
 
-const scrypt = promisify(crypto.scrypt) as (
-  pw: string, salz: Buffer, laenge: number, optionen: crypto.ScryptOptions,
-) => Promise<Buffer>;
+/*
+ * scrypt mit FESTEN Werten — denselben wie in anmeldung.mjs.
+ *
+ * Der Gruß des Pi trägt sie zwar mit, aber zu diesem Zeitpunkt hat sich die
+ * Gegenstelle noch nicht ausgewiesen. Wer sich als Pi ausgibt, könnte sonst
+ * N, r, p und maxmem vorgeben und den Chat-Server mit einer einzigen
+ * Verbindung Gigabytes rechnen lassen. Weicht der Gruß ab, wird abgebrochen,
+ * bevor gerechnet wird.
+ */
+const SCRYPT = Object.freeze({ N: 16384, r: 8, p: 1 });
+export function scryptPasst(angabe: unknown): boolean {
+  if (angabe === undefined) return true;
+  if (!angabe || typeof angabe !== 'object') return false;
+  const a = angabe as Record<string, unknown>;
+  return Object.keys(a).every((k) => k === 'N' || k === 'r' || k === 'p')
+    && a.N === SCRYPT.N && a.r === SCRYPT.r && a.p === SCRYPT.p;
+}
+
+/* Beim Aufruf nachschlagen, nicht beim Laden festhalten — so kann die
+   Prüfung zählen, wie oft gerechnet wird (fern-leitung.mts). */
+function scrypt(pw: string, salz: Buffer): Promise<Buffer> {
+  return new Promise((fertig, schade) => crypto.scrypt(pw, salz, 32, SCRYPT, (f, k) => (f ? schade(f) : fertig(k))));
+}
 
 const KURVE = 'prime256v1';
 const N_BILD = 1, N_ABLAGE = 2, N_INFO = 3, N_EINGABE = 4, N_STEUER = 5;
@@ -64,6 +83,31 @@ const STEUER_ERLAUBT = new Set(['steuerung']);
    einen Grund zu haben, und der Pi nimmt ohnehin nur vier Zuschauer. */
 const VERSUCHE_JE_MINUTE = 6;
 const GLEICHZEITIG_JE_KONTO = 2;
+/* Grenzen über alle Konten: der Pi nimmt ohnehin nur vier Zuschauer, scrypt
+   kostet je Lauf 16 MB und einen Faden des Threadpools, und wer gar nicht
+   erst anmeldet, soll keine Verbindungen horten können. */
+const LEITUNGEN_GESAMT = 4;
+const SCRYPT_GLEICHZEITIG = 2;
+const UNANGEMELDET_MAX = 8;
+
+/* Wie oft eine offene Leitung nachsieht, ob das Konto noch darf — Sperren,
+   Löschen, Passwortwechsel und der Entzug von `fern.zugriff` sollen auch
+   eine Sitzung beenden, die schon läuft. Für die Prüfung verkürzbar. */
+const RECHTE_PRUEF_MS = Math.max(100, Number(process.env.FERN_RECHTE_PRUEF_MS ?? 30_000));
+
+/* Was vom Browser zum Pi darf. Eine Nachricht ist ein oder mehrere Befehle,
+   jeder mit `\n` abgeschlossen, und NUR diese Formen — genau die, die die
+   Ansicht erzeugt (Fernsteuerung.tsx, lib/fern-eingabe.ts). `a` (Ablage),
+   `b` (Bitrate) und `s` (Schlüsselbild) sind Sache des Dienstes, nicht des
+   Browsers. */
+const ZEILE = /^(z \d{1,5} \d{1,5}|t \d{1,4} [01]|k \d{1,4} [01]|r [01] -?\d{1,6}(\.\d{1,2})?|m \d{1,10} \d{1,10} \d{1,10} \d{1,10})$/;
+export function eingabeGueltig(zeilen: unknown): zeilen is string {
+  if (typeof zeilen !== 'string' || zeilen.length >= 4096 || !zeilen.endsWith('\n')) return false;
+  return zeilen.slice(0, -1).split('\n').every((z) => ZEILE.test(z));
+}
+export const ABLAGE_MAX = 6000;
+/* Staut es schon auf dem Weg zum Pi, sind weitere Eingaben nur Rückstau. */
+const EINGABE_STAU_MAX = 256 * 1024;
 
 /* Wie lange die Anmeldenachricht auf sich warten lassen darf. */
 const ANMELDE_FRIST_MS = 5000;
@@ -79,9 +123,39 @@ const RUECKSTAND_HART = 8 * 1024 * 1024;
 
 const versuche = new Map<string, number[]>();
 const offeneLeitungen = new Map<string, number>();
+let leitungenGesamt = 0;
+let unangemeldet = 0;
+let scryptLaeuft = 0;
 
 /** Nur exportiert für die Prüfung: Zähler zwischen zwei Läufen leeren. */
-export function bremseZuruecksetzen(): void { versuche.clear(); offeneLeitungen.clear(); }
+export function bremseZuruecksetzen(): void { versuche.clear(); }
+
+/** Ein Platz für scrypt — wer keinen bekommt, wartet kurz. Die Aufbaufrist
+ *  der Leitung begrenzt das Warten. */
+async function scryptPlatz(): Promise<() => void> {
+  while (scryptLaeuft >= SCRYPT_GLEICHZEITIG) await new Promise((r) => setTimeout(r, 25));
+  scryptLaeuft += 1;
+  let frei = false;
+  return () => { if (!frei) { frei = true; scryptLaeuft -= 1; } };
+}
+
+/**
+ * Nur die eigene Herkunft. Eine fremde Seite, in der jemand angemeldet ist,
+ * kann das Token zwar nicht lesen — aber ein Browser schickt bei WebSockets
+ * keine CORS-Prüfung mit, also gehört die Tür hier zu. Ohne `Origin` kommt
+ * kein Browser (Prüfläufe, Werkzeuge); die kommen ohnehin nur mit Token
+ * weiter. In der Entwicklung liegt die Oberfläche auf einem anderen Port
+ * desselben Rechners — Loopback zu Loopback ist erlaubt.
+ */
+export function herkunftErlaubt(origin: string | undefined, host: string | undefined): boolean {
+  if (!origin) return true;
+  let o: URL;
+  try { o = new URL(origin); } catch { return false; }
+  if (!host) return false;
+  if (o.host === host) return true;
+  const loop = (h: string) => /^(localhost|127\.0\.0\.1|\[::1\])$/.test(h);
+  return loop(o.hostname) && loop(host.replace(/:\d+$/, ''));
+}
 
 function darfVersuchen(userId: string): boolean {
   const jetzt = Date.now();
@@ -173,7 +247,10 @@ function schliessen(browser: WsBuchse, code: number): void {
   try { browser.close(code); } catch { /* schon zu */ }
 }
 
-async function leitung(browser: WsBuchse): Promise<void> {
+async function leitung(browser: WsBuchse, req: FastifyRequest): Promise<void> {
+  if (!herkunftErlaubt(req.headers.origin, req.headers.host)) { schliessen(browser, 4403); return; }
+  if (unangemeldet >= UNANGEMELDET_MAX) { schliessen(browser, 4029); return; }
+  unangemeldet += 1;
   /* 1. Anmelden — das Token geht in der ersten Nachricht, nicht in der
      Adresse: Adressen landen in Protokollen (nginx, Fastify). */
   const anmeldung = await new Promise<{ token?: string } | null>((fertig) => {
@@ -185,10 +262,13 @@ async function leitung(browser: WsBuchse): Promise<void> {
     });
     browser.once('close', () => { clearTimeout(frist); fertig(null); });
   });
-  const userId = typeof anmeldung?.token === 'string' ? verifyToken(anmeldung.token) : null;
+  unangemeldet -= 1;
+  const token = typeof anmeldung?.token === 'string' ? anmeldung.token : '';
+  const userId = token ? verifyToken(token) : null;
   if (!userId) { schliessen(browser, 4401); return; }
   if (!users.may(userId, 'fern.zugriff')) { schliessen(browser, 4403); return; }
-  if ((offeneLeitungen.get(userId) ?? 0) >= GLEICHZEITIG_JE_KONTO || !darfVersuchen(userId)) {
+  if ((offeneLeitungen.get(userId) ?? 0) >= GLEICHZEITIG_JE_KONTO || leitungenGesamt >= LEITUNGEN_GESAMT
+    || !darfVersuchen(userId)) {
     schliessen(browser, 4029);
     return;
   }
@@ -197,10 +277,12 @@ async function leitung(browser: WsBuchse): Promise<void> {
   if (!zugang || !kandidaten.length) { schliessen(browser, 4404); return; }
 
   offeneLeitungen.set(userId, (offeneLeitungen.get(userId) ?? 0) + 1);
+  leitungenGesamt += 1;
   let abgemeldet = false;
   const abmelden = () => {
     if (abgemeldet) return;
     abgemeldet = true;
+    leitungenGesamt -= 1;
     const n = (offeneLeitungen.get(userId) ?? 1) - 1;
     if (n > 0) offeneLeitungen.set(userId, n); else offeneLeitungen.delete(userId);
   };
@@ -255,13 +337,21 @@ async function leitung(browser: WsBuchse): Promise<void> {
     const ms = Date.now() - pingAb;
     laufzeitMs = laufzeitMs ? Math.min(laufzeitMs, ms) : ms;
   });
+  let rechteGeprueft = Date.now();
+  const rechtePruefen = () => {
+    rechteGeprueft = Date.now();
+    if (verifyToken(token) === userId && users.may(userId, 'fern.zugriff')) return;
+    schliessen(browser, 4403);
+    try { buchse.close(); } catch { /* zu */ }
+  };
   const lebenszeichen = setInterval(() => {
+    if (Date.now() - rechteGeprueft >= RECHTE_PRUEF_MS) rechtePruefen();
     /* Zwei unbeantwortete Fragen — der Browser ist weg (Telefon gesperrt,
        Netz gewechselt). Den Platz auf dem Pi sofort freigeben, statt dessen
        eigene 20 Sekunden abzuwarten. */
     if (pongOffen && Date.now() - pingAb > 10_000) { try { browser.terminate(); } catch { /* weg */ } return; }
     if (!pongOffen) { pongOffen = true; pingAb = Date.now(); try { browser.ping(); } catch { /* weg */ } }
-  }, 2000);
+  }, Math.min(2000, RECHTE_PRUEF_MS));
   const melder = setInterval(() => {
     if (phase !== 'offen') return;
     const jetzt = Date.now();
@@ -293,11 +383,15 @@ async function leitung(browser: WsBuchse): Promise<void> {
         try {
           const gruss = JSON.parse(alsText());
           if (gruss.art !== 'gruss') throw new Error('unerwartet');
+          if (!scryptPasst(gruss.scrypt)) throw new Error('scrypt-Werte');
           const salz = Buffer.from(String(gruss.salz), 'base64');
           const nonce = Buffer.from(String(gruss.nonce), 'base64');
           /* Asynchron: scrypt kostet hier ~16 MB und spürbare Rechenzeit —
              synchron hielte es für diese Dauer den ganzen Chat an. */
-          const passSchluessel = await scrypt(zugang.passwort, salz, 32, gruss.scrypt ?? { N: 16384, r: 8, p: 1 });
+          const frei = await scryptPlatz();
+          let passSchluessel: Buffer;
+          try { passSchluessel = await scrypt(zugang.passwort, salz); } finally { frei(); }
+          if (browser.readyState !== browser.OPEN) { try { buchse.close(); } catch { /* zu */ } return; }
           const gemeinsam = paar.computeSecret(Buffer.from(String(gruss.oeffentlich), 'base64'));
           const schluessel = sitzungsschluessel(gemeinsam, passSchluessel, nonce);
           const erwartet = crypto.createHmac('sha256', schluessel).update(nonce).update('pi').digest();
@@ -362,11 +456,14 @@ async function leitung(browser: WsBuchse): Promise<void> {
     try { n = JSON.parse(String(roh)); } catch { return; }
     if (n.art === 'q' && typeof n.n === 'number' && n.n >= quittiert && n.n <= gesendet) {
       quittiert = n.n;
-    } else if (n.art === 'eingabe' && typeof n.zeilen === 'string' && n.zeilen.length < 4096) {
+    } else if (buchse.bufferedAmount > EINGABE_STAU_MAX) {
+      /* Der Pi kommt nicht nach — alles Weitere wäre nur Rückstau. */
+    } else if (n.art === 'eingabe' && eingabeGueltig(n.zeilen)) {
       anPi(N_EINGABE, Buffer.from(n.zeilen, 'utf8'));
     } else if (n.art === 'steuer' && n.wunsch && STEUER_ERLAUBT.has(String(n.wunsch.art))) {
-      anPi(N_STEUER, Buffer.from(JSON.stringify(n.wunsch), 'utf8'));
-    } else if (n.art === 'ablage' && typeof n.text === 'string' && n.text.length < 1024 * 1024) {
+      /* Neu gebaut statt weitergereicht: nur das eine Feld, das es braucht. */
+      anPi(N_STEUER, Buffer.from(JSON.stringify({ art: 'steuerung', an: (n.wunsch as { an?: unknown }).an === true }), 'utf8'));
+    } else if (n.art === 'ablage' && typeof n.text === 'string' && Buffer.byteLength(n.text, 'utf8') <= ABLAGE_MAX) {
       anPi(N_ABLAGE, Buffer.from(n.text, 'utf8'));
     }
   });
@@ -378,8 +475,8 @@ async function leitung(browser: WsBuchse): Promise<void> {
 
 export function registerFernleitung(app: FastifyInstance): void {
   app.register(async (scope) => {
-    scope.get('/api/fern/leitung', { websocket: true }, (socket) => {
-      void leitung(socket as unknown as WsBuchse).catch(() => schliessen(socket as unknown as WsBuchse, 1011));
+    scope.get('/api/fern/leitung', { websocket: true }, (socket, req) => {
+      void leitung(socket as unknown as WsBuchse, req).catch(() => schliessen(socket as unknown as WsBuchse, 1011));
     });
   });
 }

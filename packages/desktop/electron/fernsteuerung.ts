@@ -37,6 +37,8 @@ import { t } from './i18n.js';
  */
 
 const KURVE = 'prime256v1';
+/* Dieselben Werte wie in server-setup/fernsteuerung/dienst/anmeldung.mjs. */
+const SCRYPT = Object.freeze({ N: 16384, r: 8, p: 1 });
 
 /* Nachrichtenarten auf der Leitung — dieselben Zahlen wie im Pi-Dienst. */
 const N_BILD = 1, N_ABLAGE = 2, N_INFO = 3, N_EINGABE = 4, N_STEUER = 5;
@@ -430,7 +432,18 @@ async function verbinden(adresse: string, pw: string, konto: string): Promise<vo
 
         const salz = Buffer.from(gruss.salz, 'base64');
         const nonce = Buffer.from(gruss.nonce, 'base64');
-        const passSchluessel = crypto.scryptSync(passwort, salz, 32, gruss.scrypt ?? { N: 16384, r: 8, p: 1 });
+        /* Feste Werte, nie die aus dem Gruß: der Pi hat sich zu diesem
+           Zeitpunkt noch nicht ausgewiesen, und wer sich als Pi ausgibt,
+           könnte mit einem großen N oder maxmem den Hauptprozess — und
+           damit die ganze App — für lange Zeit festhalten. Weicht der Gruß
+           ab, ist das kein Pi mit diesem Dienst. */
+        const angabe = gruss.scrypt;
+        if (angabe !== undefined && (typeof angabe !== 'object' || angabe === null
+          || Object.keys(angabe).some((k) => k !== 'N' && k !== 'r' && k !== 'p')
+          || angabe.N !== SCRYPT.N || angabe.r !== SCRYPT.r || angabe.p !== SCRYPT.p)) {
+          throw new Error('fern.fehler.unerwarteteAntwort');
+        }
+        const passSchluessel = crypto.scryptSync(passwort, salz, 32, SCRYPT);
         const gemeinsam = paar!.computeSecret(Buffer.from(gruss.oeffentlich, 'base64'));
         const schluessel = sitzungsschluessel(gemeinsam, passSchluessel, nonce);
 

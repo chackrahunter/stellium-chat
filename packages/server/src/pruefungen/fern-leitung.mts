@@ -25,7 +25,11 @@ import { fileURLToPath } from 'node:url';
 import Fastify from 'fastify';
 import websocket from '@fastify/websocket';
 import { db, initDb } from '../db/index.js';
-import { registerFernleitung, bremseZuruecksetzen, ziele } from '../http/fernleitung.js';
+import { WebSocketServer, WebSocket as WsKlient } from 'ws';
+import {
+  registerFernleitung, bremseZuruecksetzen, ziele, eingabeGueltig, herkunftErlaubt, scryptPasst, ABLAGE_MAX,
+} from '../http/fernleitung.js';
+import * as users from '../services/users.js';
 import { signToken } from '../auth.js';
 import * as fernzugang from '../services/fernzugang.js';
 
@@ -74,7 +78,21 @@ pruef('kein ws/wss: gar nichts', ziele('http://203.0.113.7:7788').length === 0 &
 
 const wurzel = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..');
 const DIENST = path.join(wurzel, 'server-setup/fernsteuerung/dienst/fern-dienst.mjs');
-const { kennungNeu } = await import(path.join(wurzel, 'server-setup/fernsteuerung/dienst/anmeldung.mjs'));
+const { kennungNeu, grussBauen, antwortPruefen } = await import(path.join(wurzel, 'server-setup/fernsteuerung/dienst/anmeldung.mjs'));
+
+/* scrypt zählen: wie oft, und wie viele gleichzeitig. Der Vermittler schlägt
+   `crypto.scrypt` bei jedem Aufruf nach, also greift das Ersetzen hier. */
+const scryptEcht = crypto.scrypt;
+const scryptZahl = { laeufe: 0, jetzt: 0, hoechstens: 0, bremse: 0 };
+(crypto as unknown as { scrypt: unknown }).scrypt = (...a: unknown[]) => {
+  const ruf = a[a.length - 1] as (f: Error | null, k: Buffer) => void;
+  scryptZahl.laeufe += 1;
+  scryptZahl.jetzt += 1;
+  scryptZahl.hoechstens = Math.max(scryptZahl.hoechstens, scryptZahl.jetzt);
+  (scryptEcht as unknown as (...b: unknown[]) => void)(...a.slice(0, -1), (f: Error | null, k: Buffer) => {
+    setTimeout(() => { scryptZahl.jetzt -= 1; ruf(f, k); }, scryptZahl.bremse);
+  });
+};
 
 const ordner = fs.mkdtempSync(path.join(os.tmpdir(), 'fern-leitung-'));
 const kennung = kennungNeu(ordner);
@@ -114,7 +132,10 @@ async function freierHafen(): Promise<number> {
 }
 const HAFEN = await freierHafen();
 const dienst = spawn(process.execPath, [DIENST], {
-  env: { ...process.env, FERN_ORDNER: ordner, FERN_HOST: abgreifer, FERN_PORT: String(HAFEN), PROBE_LOG: LOG },
+  /* Acht Plätze statt vier: sonst wiese beim Prüfen der Gesamtgrenze des
+     Vermittlers schon der Pi ab, und die Prüfung sagte nichts. */
+  env: { ...process.env, FERN_ORDNER: ordner, FERN_HOST: abgreifer, FERN_PORT: String(HAFEN), PROBE_LOG: LOG,
+    FERN_ZUSCHAUER: '8' },
   stdio: ['ignore', 'ignore', 'pipe'],
 });
 let dienstAusgabe = '';
@@ -259,7 +280,192 @@ console.log('\n6) Aufräumen');
 a.zu();
 pruef('schließt der Browser, gibt der Pi den Platz frei', await bis(() => zustand().zuschauer === 0));
 
-console.log('\n7) Bremse und Fehler');
+/* ── 7) Widerruf während einer laufenden Leitung ──────────────────── */
+
+console.log('\n7) Widerruf');
+{
+  bremseZuruecksetzen();
+  const wer = konto('Widerruf Probe', 'fern.zugriff');
+  const b = new Browser(signToken(wer));
+  pruef('Leitung steht', await bis(() => b.offen()));
+  db.run(`DELETE FROM user_permissions WHERE user_id = ?`, wer);
+  pruef('fern.zugriff entzogen → die offene Leitung wird geschlossen (4403)', await bis(() => b.code === 4403, 5000), String(b.code));
+
+  const zwei = konto('Sperre Probe', 'fern.zugriff');
+  const c = new Browser(signToken(zwei));
+  pruef('Leitung steht', await bis(() => c.offen()));
+  users.setDisabled(zwei, true);
+  pruef('Konto gesperrt → geschlossen (4403)', await bis(() => c.code === 4403, 5000), String(c.code));
+
+  const drei = konto('Kennwort Probe', 'fern.zugriff');
+  const d = new Browser(signToken(drei));
+  pruef('Leitung steht', await bis(() => d.offen()));
+  /* Passwortwechsel: ältere Tokens gelten ab `sitzungen_ab` nicht mehr. */
+  db.run(`UPDATE users SET sitzungen_ab = ? WHERE id = ?`, Date.now() + 1, drei);
+  pruef('Passwortwechsel → geschlossen (4403)', await bis(() => d.code === 4403, 5000), String(d.code));
+  pruef('…und der Pi hat die Plätze wieder frei', await bis(() => zustand().zuschauer === 0));
+}
+
+/* ── 8) Ein falscher Pi, der scrypt-Werte vorgibt ─────────────────── */
+
+console.log('\n8) scrypt-Werte der Gegenstelle');
+pruef('die Werte des Pi passen', scryptPasst({ N: 16384, r: 8, p: 1 }) && scryptPasst(undefined));
+pruef('größeres N, p oder ein maxmem nicht',
+  !scryptPasst({ N: 1 << 20, r: 8, p: 1 }) && !scryptPasst({ N: 16384, r: 8, p: 16 })
+  && !scryptPasst({ N: 16384, r: 8, p: 1, maxmem: 2 ** 31 }) && !scryptPasst('x') && !scryptPasst(null));
+
+/* Eine Gegenstelle, die sich wie der Pi meldet. Mit `boese` gibt sie andere
+   scrypt-Werte vor; mit `taub` hört sie nach dem Handschlag auf zu lesen. */
+const falschOrdner = fs.mkdtempSync(path.join(os.tmpdir(), 'fern-falsch-'));
+const falschKennung = kennungNeu(falschOrdner);
+fs.rmSync(falschOrdner, { recursive: true, force: true });
+const falscherPi = new WebSocketServer({ port: 0, host: '127.0.0.1' });
+await new Promise((r) => falscherPi.on('listening', r));
+const falsch = { modus: 'boese' as 'boese' | 'taub', empfangen: 0, buchse: null as null | { _socket: net.Socket } };
+falscherPi.on('connection', (ws) => {
+  let hs: any = null;
+  ws.on('message', (roh) => {
+    const text = String(roh);
+    if (!hs) {
+      hs = grussBauen(falschKennung, JSON.parse(text));
+      if (falsch.modus === 'boese') hs.hinaus.scrypt = { N: 16384, r: 8, p: 16, maxmem: 2 ** 31 };
+      ws.send(JSON.stringify(hs.hinaus));
+      return;
+    }
+    if (!hs.fertig) {
+      hs.fertig = antwortPruefen(hs, JSON.parse(text)).ok;
+      ws.send(JSON.stringify({ art: 'offen' }));
+      if (falsch.modus === 'taub') {
+        falsch.buchse = ws as unknown as { _socket: net.Socket };
+        (ws as unknown as { _socket: net.Socket })._socket.pause();
+      }
+      return;
+    }
+    falsch.empfangen += 1;
+  });
+});
+const falschAdresse = `ws://127.0.0.1:${(falscherPi.address() as net.AddressInfo).port}`;
+{
+  bremseZuruecksetzen();
+  fernzugang.zugangSetzen({ adresse: falschAdresse, passwort: falschKennung.klartext }, 'pruefer');
+  const vorher = scryptZahl.laeufe;
+  const b = new Browser(signToken(mitRecht));
+  await bis(() => b.code !== null);
+  pruef('Gruß mit p=16 und maxmem → Abbruch', b.code === 4000, String(b.code));
+  pruef('…ohne dass scrypt überhaupt gerechnet hat', scryptZahl.laeufe === vorher, `${scryptZahl.laeufe - vorher} Läufe`);
+  const quelle = fs.readFileSync(path.join(wurzel, 'packages/desktop/electron/fernsteuerung.ts'), 'utf8');
+  pruef('die Desktop-App reicht die Werte aus dem Gruß ebenfalls nicht weiter',
+    !/scryptSync\([^)]*gruss/.test(quelle) && /scryptSync\(passwort, salz, 32, SCRYPT\)/.test(quelle));
+}
+
+/* ── 9) Was vom Browser zum Pi darf ───────────────────────────────── */
+
+console.log('\n9) Eingaben: nur was die Ansicht erzeugt');
+pruef('Zeiger, Knopf, Taste, Rollen, Umschalter gehen',
+  eingabeGueltig('z 1 2\nt 272 1\nk 30 0\nr 0 -7.50\nm 1 0 0 0\n'));
+for (const [was, zeilen] of [
+  ['Ablage-Befehl (a)', 'a eA==\n'], ['Bitrate (b)', 'b100\n'], ['Schlüsselbild (s)', 's\n'],
+  ['ohne abschließendes \\n', 'z 1 2'], ['gültig + ungültig gemischt', 'z 1 2\nq\n'],
+  ['leere Zeile', 'z 1 2\n\n'], ['Text statt Zahl', 'z eins 2\n'], ['zu lang', `${'z 1 1\n'.repeat(700)}`],
+] as const) pruef(`abgewiesen: ${was}`, !eingabeGueltig(zeilen));
+{
+  bremseZuruecksetzen();
+  fernzugang.zugangSetzen({ adresse: ADRESSE, passwort: PASSWORT }, 'pruefer');
+  const b = new Browser(signToken(mitRecht));
+  await bis(() => b.offen());
+  b.senden({ art: 'steuer', wunsch: { art: 'steuerung', an: true } });
+  await bis(() => b.info()?.steuert === true);
+  const sVorher = befehle().filter((z) => z === 's').length;
+  for (const z of ['a eA==\n', 'b 1\n', 's\n', 'z 11 11', 'z 12 12\nq\n']) b.senden({ art: 'eingabe', zeilen: z });
+  b.senden({ art: 'eingabe', zeilen: 'z 13 13\n' });
+  await bis(() => befehle().includes('z 13 13'));
+  const neu = befehle();
+  pruef('nur die gültige Nachricht kommt beim Pi an',
+    !neu.includes('a eA==') && !neu.includes('b 1') && neu.filter((z) => z === 's').length === sVorher
+    && !neu.includes('z 11 11') && !neu.includes('z 12 12'), neu.slice(-6).join(' | '));
+  const lang = 'x'.repeat(ABLAGE_MAX);
+  b.senden({ art: 'ablage', text: `${lang}y` });
+  b.senden({ art: 'ablage', text: lang });
+  const b64 = (t: string) => `a ${Buffer.from(t).toString('base64')}`;
+  await bis(() => befehle().includes(b64(lang)));
+  pruef(`Ablage bis ${ABLAGE_MAX} Bytes geht, darüber nicht`,
+    befehle().includes(b64(lang)) && !befehle().includes(b64(`${lang}y`)));
+  const umlaute = 'ä'.repeat(ABLAGE_MAX / 2 + 1);
+  b.senden({ art: 'ablage', text: umlaute });
+  b.senden({ art: 'eingabe', zeilen: 'z 14 14\n' });
+  await bis(() => befehle().includes('z 14 14'));
+  await schlaf(200);
+  pruef('…gezählt in Bytes, nicht in Zeichen (fern-host verwirft Zeilen über 8 KB)', !befehle().includes(b64(umlaute)));
+  b.zu();
+  await bis(() => zustand().zuschauer === 0);
+}
+{
+  /* Der Pi liest nicht mehr — dann darf der Vermittler nicht alles puffern. */
+  bremseZuruecksetzen();
+  falsch.modus = 'taub';
+  falsch.empfangen = 0;
+  fernzugang.zugangSetzen({ adresse: falschAdresse, passwort: falschKennung.klartext }, 'pruefer');
+  const b = new Browser(signToken(mitRecht));
+  pruef('Leitung zum tauben Pi steht', await bis(() => b.offen()));
+  const block = 'z 1 1\n'.repeat(650);
+  const GESENDET = 3000;
+  for (let i = 0; i < GESENDET; i++) b.senden({ art: 'eingabe', zeilen: block });
+  /* Warten, bis der Vermittler alles gelesen hat, dann den Pi wieder lesen
+     lassen und abwarten, bis nichts mehr kommt. */
+  await schlaf(1500);
+  falsch.buchse?._socket.resume();
+  let zuletzt = -1;
+  await bis(() => { const still = zuletzt === falsch.empfangen; zuletzt = falsch.empfangen; return still && zuletzt > 0; }, 15_000);
+  pruef('staut es zum Pi, verwirft der Vermittler statt zu puffern',
+    falsch.empfangen > 0 && falsch.empfangen < GESENDET / 2, `${falsch.empfangen} von ${GESENDET} angekommen`);
+  b.zu();
+}
+
+/* ── 10) Herkunft und Grenzen über alle Konten ────────────────────── */
+
+console.log('\n10) Herkunft und Grenzen');
+pruef('eigene Herkunft', herkunftErlaubt('https://chat.example', 'chat.example'));
+pruef('fremde Herkunft nicht', !herkunftErlaubt('https://boese.example', 'chat.example'));
+pruef('„null" (file:, Sandbox) nicht', !herkunftErlaubt('null', 'chat.example'));
+pruef('Entwicklung: Loopback zu Loopback', herkunftErlaubt('http://localhost:5173', '127.0.0.1:8787'));
+pruef('ohne Origin (kein Browser) — dann entscheidet das Token', herkunftErlaubt(undefined, 'chat.example'));
+{
+  const fremd = new WsKlient(LEITUNG, { origin: 'https://boese.example' });
+  const code = await new Promise<number>((r) => fremd.on('close', (c) => r(c)));
+  pruef('Upgrade von fremder Seite → 4403', code === 4403, String(code));
+}
+{
+  /* Nicht angemeldete Verbindungen: höchstens acht gleichzeitig. */
+  const stumm = Array.from({ length: 9 }, () => new Browser(null));
+  await bis(() => stumm.some((b) => b.code !== null), 3000);
+  pruef('die neunte stumme Verbindung wird sofort abgewiesen (4029)',
+    stumm.filter((b) => b.code === 4029).length === 1 && stumm.filter((b) => b.code === null).length === 8,
+    stumm.map((b) => b.code ?? '·').join(' '));
+  for (const b of stumm) b.zu();
+  await bis(() => stumm.every((b) => b.code !== null));
+}
+{
+  bremseZuruecksetzen();
+  fernzugang.zugangSetzen({ adresse: ADRESSE, passwort: PASSWORT }, 'pruefer');
+  const konten = [0, 1, 2].map((i) => signToken(konto(`Grenze ${i}`, 'fern.zugriff')));
+  /* scrypt künstlich langsam: dann laufen die Handschläge sicher
+     gleichzeitig, und man sieht, ob mehr als zwei auf einmal rechnen. */
+  scryptZahl.bremse = 300;
+  scryptZahl.hoechstens = 0;
+  const vier = [konten[0], konten[0], konten[1], konten[1]].map((t) => new Browser(t));
+  pruef('vier Leitungen kommen zustande', await bis(() => vier.every((b) => b.offen()), 15_000),
+    vier.map((b) => b.code ?? b.lagen.at(-1)).join(' '));
+  pruef('dabei rechnen höchstens zwei scrypt gleichzeitig', scryptZahl.hoechstens <= 2, `${scryptZahl.hoechstens} gleichzeitig`);
+  scryptZahl.bremse = 0;
+  const fuenfte = new Browser(konten[2]);
+  await bis(() => fuenfte.code !== null);
+  pruef('die fünfte Leitung über alle Konten → 4029', fuenfte.code === 4029, String(fuenfte.code));
+  for (const b of vier) b.zu();
+  await bis(() => zustand().zuschauer === 0);
+}
+falscherPi.close();
+
+console.log('\n11) Bremse und Fehler');
 {
   bremseZuruecksetzen();
   const token = signToken(mitRecht);

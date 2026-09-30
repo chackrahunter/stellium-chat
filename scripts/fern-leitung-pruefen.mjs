@@ -23,7 +23,9 @@ const ordner = fs.mkdtempSync(path.join(os.tmpdir(), 'stellium-fern-leitung-'));
 try {
   execFileSync('npx', ['tsx', 'src/pruefungen/fern-leitung.mts'], {
     cwd: path.join(wurzel, 'packages/server'),
-    env: { ...process.env, DATA_DIR: ordner },
+    /* Die Rechte einer offenen Leitung alle 300 ms statt alle 30 s prüfen —
+       sonst dauerte der Widerruf-Abschnitt eine halbe Minute. */
+    env: { ...process.env, DATA_DIR: ordner, FERN_RECHTE_PRUEF_MS: '300' },
     stdio: 'inherit',
   });
 } catch {
