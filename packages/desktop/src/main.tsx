@@ -10,6 +10,7 @@ import { updatesVerbinden } from './lib/updates.js';
 import { auffrischenVerbinden } from './lib/auffrischen.js';
 import { sichereBereicheVerbinden } from './lib/sichere-bereiche.js';
 import { tastaturVerbinden } from './lib/tastatur.js';
+import { schubladeGesteVerbinden } from './lib/schublade-geste.js';
 import { meldewegPruefen, meldewegVorbereiten } from './lib/benachrichtigung.js';
 import './styles/app.css';
 /* Nach app.css, nicht davor: die mobile Ansicht baut auf app.css auf
@@ -38,6 +39,8 @@ sichereBereicheVerbinden();
 /* iOS legt die Tastatur ÜBER die Seite statt sie zu verkleinern —
    diese Zeile macht die sichtbare Höhe als --vv-hoehe verfügbar. */
 tastaturVerbinden();
+/* Die Schublade auf dem Telefon vom Rand aufziehen und wegwischen. */
+schubladeGesteVerbinden();
 /* Einmal nachsehen, ob das System Benachrichtigungen überhaupt annimmt —
    sonst behaupten die Einstellungen etwas, das nicht stimmt. */
 meldewegPruefen();

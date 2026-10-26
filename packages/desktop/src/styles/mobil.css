@@ -414,6 +414,16 @@
   }
   .app--schublade .schublade-schleier { opacity: 1; pointer-events: auto; }
 
+  /* Solange der Finger zieht (lib/schublade-geste.ts), bestimmt er die
+     Stellung — ein Übergang liefe ihr nur hinterher. Sichtbar auch aus der
+     geschlossenen Stellung heraus, sonst zöge man an etwas Unsichtbarem. */
+  .schublade-zieht .rail,
+  .schublade-zieht .sidebar,
+  .schublade-zieht .schublade-schleier {
+    transition: none;
+    visibility: visible;
+  }
+
 
   /* ══ THREAD ═══════════════════════════════════════════════════
      Als Vollbild darüber — eine vierte Spalte gibt es hier nicht. */

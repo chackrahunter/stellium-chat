@@ -86,10 +86,12 @@ node scripts/fern-leitung-pruefen.mjs        # Fernsteuerung im Browser: Vermitt
 node scripts/fern-eingabe-pruefen.mjs        # Fernsteuerung: Gesten und Tastatur
 node scripts/fern-frist-pruefen.mjs          # Fernsteuerung: alte Leitungsmessungen verfallen
 node scripts/e2e-fern-handy.mjs              # Fernsteuerung: Chrome als iPhone
+node scripts/schublade-geste-pruefen.mjs     # Telefon: Schublade folgt dem Finger
 ```
 
-Die letzten acht brauchen keinen laufenden Server (`e2e-fern-handy` bringt
-einen Probeserver mit und braucht Google Chrome und ffmpeg). `e2e-nachruesten` baut
+Die letzten neun brauchen keinen laufenden Server (`e2e-fern-handy` und
+`schublade-geste-pruefen` bringen einen Probeserver mit; `e2e-fern-handy`
+braucht dazu Google Chrome und ffmpeg). `e2e-nachruesten` baut
 eine Datenbank nach dem Schema der letzten Fassung und startet den heutigen
 Server darauf. Alle anderen Läufe legen ihre Datenbank frisch an — dort bringt
 `CREATE TABLE` jede neue Spalte gleich mit, und ein Fehler in `db/migrate.ts`
