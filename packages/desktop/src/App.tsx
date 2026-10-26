@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Loader2, WifiOff } from 'lucide-react';
 import { useStore } from './state/store.js';
@@ -53,7 +53,7 @@ import { PostPanel } from './components/PostPanel.jsx';
 import { PostMeldungen } from './components/PostMeldungen.jsx';
 import { UpdateBanner, UpdateWillkommen, ServerWartung } from './components/UpdateBanner.jsx';
 import { MeldungBitte } from './components/MeldungBitte.jsx';
-import { DownloadHinweis } from './components/DownloadHinweis.jsx';
+import { DownloadHinweis, downloadTorGilt } from './components/DownloadHinweis.jsx';
 import { Toasts } from './components/Toasts.jsx';
 import { Fangkorb } from './components/Fangkorb.jsx';
 import { FreigabenDialog, VorfallDialog, WiederherstellungHinweis } from './components/Vertraulich.jsx';
@@ -100,9 +100,13 @@ export function App() {
      gesetzt werden, und beim Schließen ginge die Einführung sonst sofort
      wieder auf. */
   const angemeldet = Boolean(self && !self.mustChangePassword && !self.mustCompleteProfile);
+  /* Das Download-Tor geht vor: erst wenn es weg ist, kommt die Einführung.
+     Führt sein Knopf ins Download-Fenster, wartet sie, bis auch das zu ist —
+     setOverlay('tour') hätte es sonst sofort ersetzt. */
+  const [downloadTor, setDownloadTor] = useState(downloadTorGilt);
   useEffect(() => {
-    if (angemeldet && !tourBereitsGesehen()) useStore.getState().setOverlay('tour');
-  }, [angemeldet]);
+    if (angemeldet && !downloadTor && !overlay && !tourBereitsGesehen()) useStore.getState().setOverlay('tour');
+  }, [angemeldet, downloadTor, overlay]);
 
   /* Tastenkürzel */
   useEffect(() => {
@@ -272,7 +276,9 @@ export function App() {
         <UpdateBanner />
         <MeldungBitte />
         <NotzugangHinweis />
-        <DownloadHinweis />
+        <AnimatePresence>
+          {downloadTor && <DownloadHinweis key="tor" onWeiter={() => setDownloadTor(false)} />}
+        </AnimatePresence>
         <div className={clsx('app', threadParentId && 'app--thread', schubladeOffen && 'app--schublade')}>
         <Rail />
         <Sidebar />
