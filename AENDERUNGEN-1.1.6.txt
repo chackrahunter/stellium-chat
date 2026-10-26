@@ -1,0 +1,6 @@
+Enter schickt auf Japanisch, Chinesisch und Koreanisch keine halben Wörter mehr ab, „Für alle zurücknehmen“ fragt vorher nach, und Menüs an Nachrichten und im Eingabefeld schließen auf dem Telefon mit einem Tipp daneben.
+Mit „Transparenz reduzieren“ werden die Flächen deckend, mit „Kontrast erhöhen“ werden Linien und Nebentexte kräftiger, und das Logo pulsiert nicht mehr endlos.
+Auf dem Telefon lässt sich die Kanalliste vom linken Rand aufziehen und mit einem Wisch wieder schließen.
+Beim ersten Anmelden im Browser kommt erst der Hinweis auf die App und danach die Einführung, statt dass beide übereinander aufgehen.
+Die Einstellungen für SMS und Schlüssel erscheinen in allen 22 Sprachen statt auf Deutsch, und die Rückfrage vor dem Zurücknehmen einer Nachricht ist übersetzt.
+Die Prüfung der Einmalcode-Ablage läuft auch unter Node 26, das den bisherigen TypeScript-Schalter nicht mehr kennt.
