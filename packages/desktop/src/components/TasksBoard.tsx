@@ -16,6 +16,7 @@ import { PruefListe } from './PruefListe.jsx';
 import { ProjektDialog } from './ProjektDialog.jsx';
 import { ContextMenu, type MenuEintrag, type MenuPosition } from './ContextMenu.jsx';
 import { clsx, dateTime, dayLabel, relativeTime } from '../lib/format.js';
+import { istEnter } from '../lib/enter.js';
 
 const SPALTEN_FARBE: Record<TaskStatus, string> = {
   pending: 'var(--text-dim)',
@@ -507,7 +508,7 @@ function TaskDialog({ onClose, vorgabe }: {
         <input
           className="input" value={title} autoFocus
           onChange={(e) => setTitle(e.target.value)}
-          onKeyDown={(e) => { if (e.key === 'Enter') absenden(); }}
+          onKeyDown={(e) => { if (istEnter(e)) absenden(); }}
         />
       </div>
 
@@ -712,7 +713,7 @@ function TaskDetail({ task, onClose, onDelete }: { task: Task; onClose: () => vo
           className="input" value={kommentar} placeholder={t('tasks.comment')}
           onChange={(e) => setKommentar(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === 'Enter' && kommentar.trim()) {
+            if (istEnter(e) && kommentar.trim()) {
               commentTask(task.id, kommentar.trim());
               setKommentar('');
             }

@@ -6,6 +6,7 @@ import { useFokusfalle } from './Fokusfalle.jsx';
 import { useT, spracheName } from '../i18n/index.js';
 import { kanalName } from '../lib/format.js';
 import { Avatar } from './Avatar.jsx';
+import { istEnter } from '../lib/enter.js';
 
 interface Item {
   id: string;
@@ -106,7 +107,7 @@ export function QuickSwitcher({ onClose }: { onClose: () => void }) {
   const onKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'ArrowDown') { e.preventDefault(); setIndex((i) => (i + 1) % Math.max(1, filtered.length)); }
     if (e.key === 'ArrowUp') { e.preventDefault(); setIndex((i) => (i - 1 + filtered.length) % Math.max(1, filtered.length)); }
-    if (e.key === 'Enter') { e.preventDefault(); filtered[index]?.run(); }
+    if (istEnter(e)) { e.preventDefault(); filtered[index]?.run(); }
     if (e.key === 'Escape') onClose();
   };
 

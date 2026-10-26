@@ -52,6 +52,7 @@ import { Shell } from './Panels.jsx';
 import { ApiError, serverUrl, token } from '../net/api.js';
 import { clsx, relativeTime } from '../lib/format.js';
 import { kollidiertMitEingebautemAnzeigenamen } from '../lib/partnergruppen-name.js';
+import { istEnter } from '../lib/enter.js';
 
 /* ── Abruf — eigener, kleiner Ersatz für request() aus net/api.ts ────
    Siehe Dateikopf: net/api.ts wird an anderer Stelle bearbeitet, und diese
@@ -380,7 +381,7 @@ export function PartnerGruppenPanel({ onClose }: { onClose: () => void }) {
                   placeholder={t('partnerGruppen.neueGruppePlatzhalter')}
                   onChange={(e) => setNeuerName(e.target.value)}
                   onKeyDown={(e) => {
-                    if (e.key === 'Enter') void gruppeAnlegen();
+                    if (istEnter(e)) void gruppeAnlegen();
                     if (e.key === 'Escape') { setNeuOffen(false); setNeuerName(''); }
                   }}
                 />
@@ -424,7 +425,7 @@ export function PartnerGruppenPanel({ onClose }: { onClose: () => void }) {
                   maxLength={30}
                   onChange={(e) => setUmbenennenName(e.target.value)}
                   onKeyDown={(e) => {
-                    if (e.key === 'Enter') void gruppeUmbenennenSpeichern();
+                    if (istEnter(e)) void gruppeUmbenennenSpeichern();
                     if (e.key === 'Escape') setUmbenennenOffen(false);
                   }}
                 />

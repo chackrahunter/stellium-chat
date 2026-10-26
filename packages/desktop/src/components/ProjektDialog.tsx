@@ -5,6 +5,7 @@ import { useStore } from '../state/store.js';
 import { useT, type TranslationKey } from '../i18n/index.js';
 import { Shell } from './Panels.jsx';
 import { clsx } from '../lib/format.js';
+import { istEnter } from '../lib/enter.js';
 
 /**
  * Projekte anlegen und verwalten.
@@ -70,7 +71,7 @@ export function ProjektDialog({ onClose }: { onClose: () => void }) {
           autoFocus
           placeholder={t('projekte.namePlaceholder')}
           onChange={(e) => setName(e.target.value)}
-          onKeyDown={(e) => { if (e.key === 'Enter') anlegen(); }}
+          onKeyDown={(e) => { if (istEnter(e)) anlegen(); }}
         />
       </div>
 

@@ -7,6 +7,7 @@ import { useFokusfalle } from './Fokusfalle.jsx';
 import { useT, t , currentUiLanguage } from '../i18n/index.js';
 import { Avatar } from './Avatar.jsx';
 import { kanalName } from '../lib/format.js';
+import { istEnter } from '../lib/enter.js';
 
 /* ── Weiterleiten ─────────────────────────────────────────────── */
 
@@ -163,7 +164,7 @@ export function PollDialog({ channelId, onClose }: { channelId: string; onClose:
                 placeholder={t('poll.option', { n: i + 1 })}
                 onChange={(e) => setOptions((prev) => prev.map((o, n) => (n === i ? e.target.value : o)))}
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter' && i === options.length - 1 && options.length < 12) {
+                  if (istEnter(e) && i === options.length - 1 && options.length < 12) {
                     setOptions((prev) => [...prev, '']);
                   }
                 }}

@@ -32,6 +32,7 @@ import { PostFristAnzeige } from './PostFristAnzeige.jsx';
 import { ApiError, serverUrl, token } from '../net/api.js';
 import { clsx, dateTime, fileSize, relativeTime } from '../lib/format.js';
 import { dringlichkeitFarbe } from '../lib/post-farben.js';
+import { istEnter } from '../lib/enter.js';
 
 /* ── Die Daten, wie post.ts sie liefert ────────────────────────────
    Lokal noch einmal erklärt statt aus dem Serverpaket importiert: das
@@ -1188,7 +1189,7 @@ export function PostPanel({ onClose }: { onClose: () => void }) {
                   value={antwortText}
                   onChange={(e) => setAntwortText(e.target.value)}
                   onKeyDown={(e) => {
-                    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); void senden(); }
+                    if ((e.metaKey || e.ctrlKey) && istEnter(e)) { e.preventDefault(); void senden(); }
                   }}
                   rows={3}
                 />

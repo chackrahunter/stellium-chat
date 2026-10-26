@@ -25,6 +25,7 @@ import { useKlartext, useVerschlosseneDatei } from './Vertraulich.jsx';
 import { emojiVorschlaege, useEmojiKatalog } from '../emoji/katalog.js';
 import { kiVorschlaegeAnfordern, useKiVorschlag } from '../state/emoji-vorschlaege.js';
 import type { TranslationKey } from '../i18n/index.js';
+import { istEnter } from '../lib/enter.js';
 
 interface Props {
   message: Message;
@@ -90,10 +91,31 @@ export const MessageItem = memo(function MessageItem({ message, grouped, inThrea
   }, [menuOpen, moreOrten]);
 
   // Auch bei kleinem oder verändertem Fenster an der richtigen Stelle bleiben.
+  /* Und zugehen, ohne etwas wählen zu müssen. Bisher schloss nur das
+     Wegfahren der Maus — auf dem Telefon gibt es das nicht, das Menü blieb
+     über dem Verlauf stehen, bis man irgendeinen Eintrag antippte. Jetzt
+     schließt ein Tipp daneben und Escape, wie beim Reaktionsmenü unten. */
   useEffect(() => {
     if (!menuOpen) return;
+    const beiAussen = (e: PointerEvent) => {
+      const ziel = e.target as Node;
+      if (moreBtnRef.current?.contains(ziel) || moreMenuRef.current?.contains(ziel)) return;
+      setMenuOpen(false);
+    };
+    const beiTaste = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      e.stopPropagation();
+      setMenuOpen(false);
+      moreBtnRef.current?.focus();
+    };
     window.addEventListener('resize', moreOrten);
-    return () => window.removeEventListener('resize', moreOrten);
+    document.addEventListener('pointerdown', beiAussen);
+    document.addEventListener('keydown', beiTaste, true);
+    return () => {
+      window.removeEventListener('resize', moreOrten);
+      document.removeEventListener('pointerdown', beiAussen);
+      document.removeEventListener('keydown', beiTaste, true);
+    };
   }, [menuOpen, moreOrten]);
 
   /* Entschlüsselt wird beim Anzeigen. In gewöhnlichen Kanälen kommt der Text
@@ -313,7 +335,7 @@ export const MessageItem = memo(function MessageItem({ message, grouped, inThrea
               autoFocus
               onChange={(e) => setDraft(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submitEdit(); }
+                if (istEnter(e) && !e.shiftKey) { e.preventDefault(); submitEdit(); }
                 if (e.key === 'Escape') { setEditing(false); setDraft(klartext); }
               }}
             />
@@ -555,7 +577,13 @@ export const MessageItem = memo(function MessageItem({ message, grouped, inThrea
                       ? `${t('msg.deleteForAll')} · ${t('msg.minutesLeft', { n: restLoeschen })}`
                       : t('msg.deleteForAll')}
                     danger
-                    onClick={() => { deleteMessage(message.id, 'all'); setMenuOpen(false); }}
+                    onClick={() => {
+                      setMenuOpen(false);
+                      /* Für alle heißt endgültig — und der Eintrag steht direkt
+                         über „Für mich löschen“. Ein Verrutschen darf nicht
+                         die Nachricht im ganzen Kanal tilgen. */
+                      if (confirm(t('msg.deleteForAllConfirm'))) deleteMessage(message.id, 'all');
+                    }}
                   />
                 )}
                 <MenuItem
@@ -858,9 +886,15 @@ function AnhangKachel({ anhang, imKanal }: { anhang: Attachment; imKanal: string
           src={adresse}
           alt={name}
           loading="lazy"
-          width={anhang.width ?? undefined}
-          height={anhang.height ?? undefined}
+          /* Die Anzeigegröße hier ausrechnen, nicht dem Stylesheet überlassen:
+             max-width und max-height kappen jede Seite für sich. Ein Hochformat
+             von 3000×4000 kam so als 380×300 heraus — gequetscht. */
+          {...bildmass(anhang.width, anhang.height)}
           onClick={() => setLightbox(adresse)}
+          /* Auch ohne Maus zu öffnen: das Bild ist der einzige Weg zur großen Ansicht. */
+          role="button"
+          tabIndex={0}
+          onKeyDown={(e) => { if (istEnter(e) || e.key === ' ') { e.preventDefault(); setLightbox(adresse); } }}
         />
         {ausOffenerZeit && (
           <span
@@ -891,4 +925,11 @@ function AnhangKachel({ anhang, imKanal }: { anhang: Attachment; imKanal: string
       </div>
     </a>
   );
+}
+
+/** Breite und Höhe für ein Bild im Verlauf: höchstens 380×300, Seitenverhältnis bleibt. */
+function bildmass(breite?: number | null, hoehe?: number | null): { width?: number; height?: number } {
+  if (!breite || !hoehe) return {};
+  const faktor = Math.min(1, 380 / breite, 300 / hoehe);
+  return { width: Math.round(breite * faktor), height: Math.round(hoehe * faktor) };
 }

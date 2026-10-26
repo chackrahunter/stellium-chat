@@ -75,6 +75,7 @@ import { ApiError, serverUrl, token } from '../net/api.js';
 import { fileSize } from '../lib/format.js';
 import { textKiNachTextaenderung } from '../lib/post-schreiben-entwurf.js';
 import '../styles/post-schreiben.css';
+import { istEnter } from '../lib/enter.js';
 
 /* ── Abruf ───────────────────────────────────────────────────────
    Ein eigener, kleiner Ersatz für `request()` aus net/api.ts — aus demselben
@@ -440,7 +441,7 @@ function SchreibFenster({ onClose, onGesendet }: { onClose: () => void; onGesend
               setTextKi((bisher) => textKiNachTextaenderung(bisher, wert));
             }}
             onKeyDown={(e) => {
-              if ((e.metaKey || e.ctrlKey) && e.key === 'Enter' && !sendenGesperrt) { e.preventDefault(); void senden(); }
+              if ((e.metaKey || e.ctrlKey) && istEnter(e) && !sendenGesperrt) { e.preventDefault(); void senden(); }
             }}
           />
         </div>
@@ -495,7 +496,7 @@ function SchreibFenster({ onClose, onGesendet }: { onClose: () => void; onGesend
               autoFocus
               placeholder={t('post.kiThemaPlatzhalter')}
               onChange={(e) => setThema(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter') void kiSchreiben(); }}
+              onKeyDown={(e) => { if (istEnter(e)) void kiSchreiben(); }}
             />
             <div className="hstack gap-2">
               <button className="btn btn--primary" disabled={!thema.trim() || kiLaedt} onClick={() => void kiSchreiben()}>

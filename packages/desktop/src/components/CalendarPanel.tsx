@@ -11,6 +11,7 @@ import { Avatar } from './Avatar.jsx';
 import { Shell } from './Panels.jsx';
 import { PruefListe } from './PruefListe.jsx';
 import { clsx, localTimeFor } from '../lib/format.js';
+import { istEnter } from '../lib/enter.js';
 
 /* TypeScript kennt Intl.Locale.weekInfo noch nicht (Stand TS 5.9), obwohl
    Electron/Chromium es längst liefert — kurze Ergänzung des Typs statt eines
@@ -386,7 +387,7 @@ function EventDialog({ start, onClose }: { start: number; onClose: () => void })
         <input
           className="input" value={title} autoFocus
           onChange={(e) => setTitle(e.target.value)}
-          onKeyDown={(e) => { if (e.key === 'Enter') absenden(); }}
+          onKeyDown={(e) => { if (istEnter(e)) absenden(); }}
         />
       </div>
 

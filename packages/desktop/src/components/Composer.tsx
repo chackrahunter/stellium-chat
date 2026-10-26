@@ -17,6 +17,7 @@ import { VoiceRecorder } from './VoiceRecorder.jsx';
 import { clsx, fileSize, languageInfo, restzeit } from '../lib/format.js';
 import { bildVerkleinern } from '../lib/bilder.js';
 import { dateiVerschluesseln, kanalHuelle } from '../lib/vertraulich.js';
+import { istEnter } from '../lib/enter.js';
 
 interface Props {
   channelId: string;
@@ -67,6 +68,7 @@ export function Composer({ channelId, parentId = null, placeholder, autoFocus }:
   const [recording, setRecording] = useState(false);
 
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const toneRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   /**
    * Welcher Anhang zu welcher schon verschickten Nachricht gehört.
@@ -444,7 +446,12 @@ export function Composer({ channelId, parentId = null, placeholder, autoFocus }:
     if (!clean && ready.length === 0 && pending.length === 0) return;
 
     const command = handleSlashCommand(clean, channelId);
-    if (command.handled) { setText(''); return; }
+    if (command.handled) {
+      setText('');
+      // Sonst stand der Befehl nach dem nächsten Kanalwechsel wieder im Feld.
+      useStore.getState().saveDraft(channelId, parentId, '');
+      return;
+    }
 
     /* Nicht mehr warten, bis der letzte Anhang oben ist: die Nachricht geht
        sofort hinaus, mit dem, was schon fertig ist. Was noch hochlädt, holt
@@ -470,6 +477,24 @@ export function Composer({ channelId, parentId = null, placeholder, autoFocus }:
     useStore.getState().clearSmartReplies();
   };
 
+  /* Das Ton-Menü schloss nur beim Wegfahren der Maus. Auf dem Telefon blieb
+     es über dem Eingabefeld stehen, bis man einen Ton wählte. */
+  useEffect(() => {
+    if (!toneOpen) return;
+    const beiAussen = (e: PointerEvent) => {
+      if (!toneRef.current?.contains(e.target as Node)) setToneOpen(false);
+    };
+    const beiTaste = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') { e.stopPropagation(); setToneOpen(false); }
+    };
+    document.addEventListener('pointerdown', beiAussen);
+    document.addEventListener('keydown', beiTaste, true);
+    return () => {
+      document.removeEventListener('pointerdown', beiAussen);
+      document.removeEventListener('keydown', beiTaste, true);
+    };
+  }, [toneOpen]);
+
   const applyTone = async (tone: RewriteTone) => {
     if (!text.trim()) return;
     setToneOpen(false);
@@ -489,10 +514,10 @@ export function Composer({ channelId, parentId = null, placeholder, autoFocus }:
     if (mentionMatches.length > 0) {
       if (e.key === 'ArrowDown') { e.preventDefault(); setMentionIndex((i) => (i + 1) % mentionMatches.length); return; }
       if (e.key === 'ArrowUp') { e.preventDefault(); setMentionIndex((i) => (i - 1 + mentionMatches.length) % mentionMatches.length); return; }
-      if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); applyMention(mentionMatches[mentionIndex].einsetzen); return; }
+      if (istEnter(e) || e.key === 'Tab') { e.preventDefault(); applyMention(mentionMatches[mentionIndex].einsetzen); return; }
       if (e.key === 'Escape') { setMentionQuery(null); setAutoArt(null); return; }
     }
-    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); }
+    if (istEnter(e) && !e.shiftKey) { e.preventDefault(); submit(); }
   };
 
   const canSend = text.trim().length > 0 || attachments.length > 0;
@@ -722,7 +747,7 @@ export function Composer({ channelId, parentId = null, placeholder, autoFocus }:
           )}
 
           {ai?.assistant && !vertraulich && (
-            <div style={{ position: 'relative' }}>
+            <div ref={toneRef} style={{ position: 'relative' }}>
               <button
                 className="icon-btn icon-btn--sm"
                 onClick={() => setToneOpen((v) => !v)}
@@ -747,7 +772,7 @@ export function Composer({ channelId, parentId = null, placeholder, autoFocus }:
                       <button
                         key={ton}
                         onClick={() => void applyTone(ton)}
-                        style={{ display: 'block', width: '100%', padding: '7px 10px', borderRadius: 6, textAlign: 'left', fontSize: 13.5 }}
+                        style={{ display: 'block', width: '100%', padding: '7px 10px', borderRadius: 6, textAlign: 'start', fontSize: 13.5 }}
                         onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; }}
                         onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
                       >{t(`tone.${ton}` as never)}</button>
@@ -761,7 +786,10 @@ export function Composer({ channelId, parentId = null, placeholder, autoFocus }:
           <button
             className="icon-btn icon-btn--sm"
             onClick={() => setScheduleOpen(true)}
-            disabled={!canSend}
+            /* Geplant wird nur Text — der Server nimmt für später keine
+               Anhänge an. Mit `canSend` ging der Knopf auch bei bloßen
+               Anhängen auf, und die verschwanden dann stillschweigend. */
+            disabled={!text.trim()}
             title={t('composer.scheduleLater')}
             aria-label={t('composer.scheduleLater')}
           >
@@ -856,6 +884,8 @@ export function Composer({ channelId, parentId = null, placeholder, autoFocus }:
             onPick={(sendAt) => {
               useStore.getState().schedule({ channelId, text: text.trim(), sendAt, parentId });
               setText('');
+              // Sonst kam der eingeplante Text beim nächsten Kanalwechsel als Entwurf zurück.
+              useStore.getState().saveDraft(channelId, parentId, '');
               setScheduleOpen(false);
               useStore.getState().toast({ kind: 'ok', title: t('toast.scheduled'), body: t('composer.scheduleHint') });
             }}
@@ -964,12 +994,15 @@ function ScheduleDialog({ onClose, onPick }: { onClose: () => void; onPick: (sen
               className="input"
               type="datetime-local"
               value={custom}
+              min={jetztFuersFeld()}
               onChange={(e) => setCustom(e.target.value)}
             />
           </div>
           <button
             className="btn btn--primary btn--block"
-            disabled={!custom}
+            /* Eine Zeit in der Vergangenheit tat bisher nichts — der Knopf
+               blieb anklickbar und schwieg. Jetzt ist er gar nicht erst an. */
+            disabled={!(new Date(custom).getTime() > Date.now())}
             onClick={() => {
               const ts = new Date(custom).getTime();
               if (Number.isFinite(ts) && ts > Date.now()) onPick(ts);
@@ -981,6 +1014,13 @@ function ScheduleDialog({ onClose, onPick }: { onClose: () => void; onPick: (sen
       </motion.div>
     </div>
   );
+}
+
+/** Jetzt im Format von datetime-local — Ortszeit, ohne Sekunden. */
+function jetztFuersFeld(): string {
+  const d = new Date();
+  d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+  return d.toISOString().slice(0, 16);
 }
 
 function msUntilTomorrow(hour: number): number {

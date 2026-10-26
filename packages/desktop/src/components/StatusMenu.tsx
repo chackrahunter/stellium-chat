@@ -10,6 +10,7 @@ import { dayLabel, sameDay, timeOfDay } from '../lib/format.js';
 import { Avatar } from './Avatar.jsx';
 import '../styles/status.css';
 import { sichereRaender } from '../lib/klemmen.js';
+import { istEnter } from '../lib/enter.js';
 
 /**
  * Das eigene Profilbild mit Statusmenü.
@@ -560,7 +561,7 @@ export function StatusMenu() {
               placeholder={t('status.msgPlaceholder')}
               aria-label={t('status.msgTitle')}
               onChange={(e) => setEntwurf(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); meldungSpeichern(); } }}
+              onKeyDown={(e) => { if (istEnter(e)) { e.preventDefault(); meldungSpeichern(); } }}
             />
             {(entwurf || zeichen) && (
               <button

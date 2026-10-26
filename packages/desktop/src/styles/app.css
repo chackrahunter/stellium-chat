@@ -454,7 +454,9 @@ a:hover { text-decoration: underline; }
 .group__head .chev { transition: transform var(--t-base) var(--ease-out); }
 .group__head[aria-expanded='false'] .chev { transform: rotate(-90deg); }
 .group__add { margin-inline-start: auto; opacity: 0; transition: opacity var(--t-fast); }
-.group:hover .group__add { opacity: 1; }
+.group:hover .group__add, .group__add:focus-visible { opacity: 1; }
+/* Ohne Maus gibt es kein Überfahren — dort war das Plus nie zu sehen. */
+@media (hover: none) { .group__add { opacity: 1; } }
 
 .chan {
   position: relative;
@@ -614,7 +616,8 @@ a:hover { text-decoration: underline; }
   opacity: 0; transition: opacity var(--t-fast);
   padding-top: 5px; font-variant-numeric: tabular-nums;
 }
-.msg--grouped:hover .msg__time-hover { opacity: 1; }
+.msg--grouped:hover .msg__time-hover,
+.msg--grouped.msg--aktionen .msg__time-hover { opacity: 1; }
 
 .msg__head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; margin-bottom: 1px; }
 .msg__author { font-weight: 700; font-size: 14.5px; letter-spacing: -0.01em; }
@@ -754,6 +757,10 @@ a:hover { text-decoration: underline; }
 
 .attachments { display: flex; flex-wrap: wrap; gap: var(--sp-2); margin-top: var(--sp-2); }
 .att-img {
+  /* Breite und Höhe kommen als Attribute aus MessageItem (bildmass), schon
+     ins Seitenverhältnis gerechnet. height: auto lässt die Höhe mitgehen,
+     wenn die Breite auf dem Telefon an max-width: 100 % stößt. */
+  height: auto;
   max-width: 380px; max-height: 300px;
   border-radius: var(--r-md);
   border: 1px solid var(--line);

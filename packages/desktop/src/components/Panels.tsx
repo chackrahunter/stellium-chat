@@ -11,6 +11,7 @@ import { api } from '../net/api.js';
 import { Avatar } from './Avatar.jsx';
 import { currentUiLanguage, t } from '../i18n/index.js';
 import { kanalName, languageInfo, localTimeFor, relativeTime } from '../lib/format.js';
+import { istEnter } from '../lib/enter.js';
 
 /* ── Neuer Kanal ────────────────────────────────────────────── */
 
@@ -38,7 +39,7 @@ export function NewChannelDialog({ onClose }: { onClose: () => void }) {
           autoFocus
           placeholder={t('channel.namePlaceholder')}
           onChange={(e) => setName(e.target.value)}
-          onKeyDown={(e) => { if (e.key === 'Enter') submit(); }}
+          onKeyDown={(e) => { if (istEnter(e)) submit(); }}
         />
         <p className="field__hint">{t('channel.nameHint')}</p>
       </div>

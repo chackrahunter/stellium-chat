@@ -12,6 +12,7 @@ import { Avatar } from './Avatar.jsx';
 import { Shell } from './Panels.jsx';
 import { PruefListe } from './PruefListe.jsx';
 import { clsx, relativeTime } from '../lib/format.js';
+import { istEnter } from '../lib/enter.js';
 
 const STATUS_FARBE: Record<IdeaStatus, string> = {
   new: 'var(--blue)',
@@ -266,7 +267,7 @@ function IdeaDialog({ onClose }: { onClose: () => void }) {
         <input
           className="input" value={title} autoFocus placeholder={t('ideas.titlePlaceholder')}
           onChange={(e) => setTitle(e.target.value)}
-          onKeyDown={(e) => { if (e.key === 'Enter') absenden(); }}
+          onKeyDown={(e) => { if (istEnter(e)) absenden(); }}
         />
       </div>
 
@@ -431,7 +432,7 @@ function IdeaDetail({ idea, onClose }: { idea: Idea; onClose: () => void }) {
           className="input" value={text} placeholder={t('ideas.commentPlaceholder')}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === 'Enter' && text.trim()) { commentIdea(idea.id, text.trim()); setText(''); }
+            if (istEnter(e) && text.trim()) { commentIdea(idea.id, text.trim()); setText(''); }
           }}
         />
         <button
