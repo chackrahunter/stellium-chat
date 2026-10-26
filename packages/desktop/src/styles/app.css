@@ -286,11 +286,12 @@ a:hover { text-decoration: underline; }
   background: var(--grad-nebula);
   box-shadow: var(--glow);
   margin-bottom: var(--sp-2);
-  animation: logo-pulse 5s ease-in-out infinite;
-}
-@keyframes logo-pulse {
-  0%, 100% { box-shadow: 0 0 0 1px rgba(124,92,255,.3), 0 8px 30px -8px rgba(124,92,255,.45); }
-  50%      { box-shadow: 0 0 0 1px rgba(34,211,238,.4), 0 10px 40px -6px rgba(34,211,238,.55); }
+  /* Hier pulsierte das Leuchten endlos im Fünf-Sekunden-Takt. Zweimal
+     ungünstig: box-shadow ist keine Eigenschaft, die der Compositor allein
+     bewegt — jedes Bild malte die Leiste neu, auch wenn niemand hinsah. Und
+     ein langsames, nie endendes Schwingen um 0,2 Hz ist genau das, wovor
+     Apples Richtlinien zur Bewegungsempfindlichkeit warnen: es zieht den
+     Blick in den Rand, ohne etwas mitzuteilen. Das Logo steht jetzt still. */
 }
 .rail__spacer { flex: 1; }
 
@@ -567,11 +568,7 @@ a:hover { text-decoration: underline; }
   -webkit-overflow-scrolling: touch;
   /* Bewusst kein scroll-behavior: smooth — das automatische Nachrücken bei
      neuen Nachrichten würde sonst animieren und hinterherhinken. Der
-     "nach unten"-Knopf scrollt gezielt weich, das reicht.
-     Dazu Trägheitsscrollen und eine eigene Scroll-Kette, damit das Rad nicht
-     an das Fenster dahinter durchschlägt. */
-  -webkit-overflow-scrolling: touch;
-  overscroll-behavior: contain;
+     "nach unten"-Knopf scrollt gezielt weich, das reicht. */
 }
 
 .daybar {
@@ -1808,12 +1805,8 @@ button.msg__author:hover { color: var(--violet-soft); text-decoration: underline
 .rail-btn__dot, .chan__badge { animation: badge-in 0.3s var(--ease-spring); }
 
 /* Kanalwechsel weich einblenden */
-.stream > div { animation: none; }
 .main > .stream { animation: fade-in 0.28s var(--ease-out); }
 @keyframes fade-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
-
-/* Der Senden-Knopf bekommt beim Tippen leichten Auftrieb */
-.send-btn:not(:disabled) { animation: none; }
 
 /* Tooltips für die Aktionsleiste */
 [data-tip] { position: relative; }

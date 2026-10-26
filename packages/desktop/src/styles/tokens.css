@@ -193,3 +193,49 @@
   --sp-4: 12px;
   --sp-5: 16px;
 }
+
+/* ── Weniger Transparenz ─────────────────────────────────────
+   macOS, iOS und Windows kennen die Einstellung „Transparenz reduzieren“ —
+   für Menschen, denen Text auf durchscheinendem, unruhigem Grund schwer
+   lesbar ist. Stellium bestand bisher fast nur aus Glas über einem
+   bewegten Sternenhimmel und überhörte sie. Jetzt werden die Flächen
+   deckend, mit dem Ton, den das Glas im Mittel ohnehin hatte, und der
+   Weichzeichner fällt weg — er hat ohne Durchblick nichts mehr zu tun. */
+@media (prefers-reduced-transparency: reduce) {
+  :root, [data-theme='dark'] {
+    --bg-panel:    #0c0f1d;
+    --bg-panel-2:  #111527;
+    --bg-input:    #0f1222;
+    --bg-elevated: #121526;
+  }
+  [data-theme='light'] {
+    --bg-panel:    #fbfcfe;
+    --bg-panel-2:  #ffffff;
+    --bg-input:    #ffffff;
+    --bg-elevated: #ffffff;
+  }
+  *, *::before, *::after {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+}
+
+/* ── Mehr Kontrast ───────────────────────────────────────────
+   Die Haarlinien (7,5 % Weiß) und der gedämpfte Nebentext (42 %) sind auf
+   dem dunklen Grund mit Absicht leise. Wer im System „Kontrast erhöhen“
+   eingestellt hat, sieht sie kaum noch — ihm gehören klare Kanten und
+   Text, der ohne Zusammenkneifen lesbar ist. */
+@media (prefers-contrast: more) {
+  :root, [data-theme='dark'] {
+    --line:        rgba(255, 255, 255, 0.22);
+    --line-strong: rgba(255, 255, 255, 0.38);
+    --tx-mid:      rgba(238, 241, 251, 0.88);
+    --tx-lo:       rgba(238, 241, 251, 0.70);
+  }
+  [data-theme='light'] {
+    --line:        rgba(14, 20, 48, 0.26);
+    --line-strong: rgba(14, 20, 48, 0.42);
+    --tx-mid:      rgba(16, 20, 44, 0.86);
+    --tx-lo:       rgba(16, 20, 44, 0.68);
+  }
+}
