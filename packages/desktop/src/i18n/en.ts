@@ -81,6 +81,7 @@ export const en: Partial<Dictionary> = {
   'msg.edit': 'Edit',
   'msg.delete': 'Delete',
   'msg.deleteForAll': 'Retract for everyone',
+  'msg.deleteForAllConfirm': 'Retract this message for everyone? This can\'t be undone.',
   'msg.deleteForMe': 'Hide for me only',
   'msg.hiddenForYou': 'Hidden for you',
   'msg.editExpired': 'Editing no longer possible',

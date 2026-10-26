@@ -88,6 +88,7 @@ export const de = {
   'msg.edit': 'Bearbeiten',
   'msg.delete': 'Löschen',
   'msg.deleteForAll': 'Für alle zurücknehmen',
+  'msg.deleteForAllConfirm': 'Diese Nachricht für alle zurücknehmen? Das lässt sich nicht rückgängig machen.',
   'msg.deleteForMe': 'Nur für mich ausblenden',
   'msg.hiddenForYou': 'Für dich ausgeblendet',
   'msg.editExpired': 'Bearbeiten nicht mehr möglich',
