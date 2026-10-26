@@ -37,15 +37,19 @@ import { spawnSync } from 'node:child_process';
    `secrets.ts` schreibt `constructor(private readonly file: string)` — eine
    TypeScript-Eigenart, die Node im bloßen Abstreif-Betrieb nicht auflösen
    kann (es müsste Code ERZEUGEN, nicht nur weglassen). Mit
-   `--experimental-transform-types` kann es das.
+   `--experimental-transform-types` konnte es das — Node 26 kennt den Schalter
+   nicht mehr und bricht mit "bad option" ab, bevor eine Zeile läuft. tsx
+   (ohnehin die Grundlage von `npm run dev` im Server) erzeugt den Code
+   stattdessen.
 
    Statt den Schalter in die Anleitung zu schreiben, wo ihn jeder Zweite
    vergisst, startet sich der Lauf einmal selbst neu. Ein Aufruf, kein
    Merkzettel. */
-if (!process.execArgv.some((a) => a.includes('transform-types'))) {
+const TS_SCHALTER = ['--import', 'tsx'];
+if (!process.execArgv.includes('tsx')) {
   const erneut = spawnSync(
     process.execPath,
-    ['--experimental-transform-types', '--no-warnings', fileURLToPath(import.meta.url), ...process.argv.slice(2)],
+    [...TS_SCHALTER, '--no-warnings', fileURLToPath(import.meta.url), ...process.argv.slice(2)],
     { stdio: 'inherit' },
   );
   process.exit(erneut.status ?? 1);
@@ -384,7 +388,7 @@ pruefe('… und meldet hier `true`, solange eines gesetzt ist',
    STELLIUM_MASTER_PASSPHRASE nie gesetzt hatte (Begründung ganz oben bei
    OHNE_MASTERPASSWORT) — dieser hier hat es längst getan. Also ein
    Kindprozess mit EINMALCODE_PRUEFEN_OHNE_MP=1, derselbe Wiedereinstieg wie
-   beim --experimental-transform-types-Neustart oben, nur mit eigenem
+   beim tsx-Neustart oben, nur mit eigenem
    Schalter statt eigenem Flag. Seine eigenen ✓/✗-Zeilen erscheinen hier
    unverändert im Protokoll; nur sein Endstand fließt in DIESEN Lauf mit
    ein, damit ein Fehlschlag dort auch den Gesamtlauf rot macht. */
@@ -395,7 +399,7 @@ pruefe('… und meldet hier `true`, solange eines gesetzt ist',
 const { STELLIUM_MASTER_PASSPHRASE: _weglassen, ...kindUmgebung } = process.env;
 const kind = spawnSync(
   process.execPath,
-  ['--experimental-transform-types', '--no-warnings', fileURLToPath(import.meta.url)],
+  [...TS_SCHALTER, '--no-warnings', fileURLToPath(import.meta.url)],
   {
     env: {
       ...kindUmgebung,
