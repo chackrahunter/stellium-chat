@@ -31,7 +31,7 @@ export function registerWebbesuch(app: FastifyInstance): void {
   app.post('/api/besuch', { bodyLimit: 2048 }, async (req, reply) => {
     reply.code(204);
     if (!HERKUNFT.has(kopf(req, 'origin') ?? '')) return;
-    let k: { p?: unknown; a?: unknown } = {};
+    let k: { p?: unknown; a?: unknown; i?: unknown; w?: unknown } = {};
     try {
       k = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body as typeof k) ?? {};
     } catch { return; }
@@ -39,7 +39,9 @@ export function registerWebbesuch(app: FastifyInstance): void {
       adresse: adresse(req),
       browser: kopf(req, 'user-agent') ?? '',
       pfad: k.p,
+      seite: k.i,
       aufruf: k.a === 1,
+      weg: k.w === 1,
     });
   });
 }

@@ -26,8 +26,13 @@ export function tagVon(ms: number = Date.now()): string {
   return TAGFORMAT.format(ms);
 }
 
-const LIVE_MS = 5 * 60_000;
-const JE_MINUTE = 30;          // mehr Signale je Adresse und Minute sind kein Mensch
+/* „Gerade da" zählt offene Seiten, nicht Personen: jede geöffnete Seite
+   trägt eine Zufallskennung, die nur in ihrem Speicher lebt, meldet sich alle
+   15 Sekunden und beim Schließen oder Wegschalten ab. Wer ohne Abmeldung
+   verschwindet (Akku leer, Netz weg), fällt nach 45 Sekunden heraus — ein
+   verlorenes Lebenszeichen hält das aus. */
+const LIVE_MS = 45_000;
+const JE_MINUTE = 120;         // mehr Signale je Adresse und Minute sind kein Mensch (ein Netz kann viele Geräte haben)
 
 let salz = { tag: '', wert: '' };
 const heuteGesehen = new Set<string>();
@@ -57,8 +62,12 @@ export interface Signal {
   adresse: string;
   browser: string;
   pfad: unknown;
+  /** Zufallskennung der offenen Seite. */
+  seite?: unknown;
   /** true beim Öffnen der Seite, false beim Lebenszeichen danach. */
   aufruf: boolean;
+  /** true, wenn die Seite geschlossen oder weggeschaltet wurde. */
+  weg?: boolean;
 }
 
 /** Ein Signal verbuchen. Was nicht von Leitwert kommt, wird still verworfen. */
@@ -77,7 +86,9 @@ export function aufnehmen(s: Signal): void {
   }
 
   const k = kennung(s.adresse, s.browser);
-  live.set(k, jetzt);
+  const seite = typeof s.seite === 'string' && /^[a-z0-9-]{8,40}$/i.test(s.seite) ? s.seite : k;
+  if (s.weg) { live.delete(seite); return; }
+  live.set(seite, jetzt);
   const tag = tagVon(jetzt);
   if (!heuteGesehen.has(k)) {
     // ponytail: nach einem Neustart des Servers zählt, wer heute schon da war, ein zweites Mal — selten, und besser als Kennungen auf die Platte zu schreiben.
