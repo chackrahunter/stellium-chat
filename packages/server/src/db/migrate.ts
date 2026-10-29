@@ -279,7 +279,7 @@ export function migrate(): void {
     )`);
   db.exec('CREATE INDEX IF NOT EXISTS idx_praesenz_tag ON praesenz_tage(tag)');
 
-  /* Besucher von stellium.club — siehe schema.sql. */
+  /* Besucher von Leitwert — siehe schema.sql. */
   db.exec(`
     CREATE TABLE IF NOT EXISTS webbesuch_tage (
       tag    TEXT NOT NULL,

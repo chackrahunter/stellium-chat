@@ -85,7 +85,7 @@ async function main(): Promise<void> {
   });
   /* Die Fernsteuerung für die Browser-Oberfläche — siehe http/fernleitung.ts. */
   registerFernleitung(app);
-  /* Besucher von stellium.club — siehe services/webbesuch.ts. */
+  /* Besuchersignal von Leitwert — siehe services/webbesuch.ts. */
   registerWebbesuch(app);
 
   /* ── Oberfläche im Browser ─────────────────────────────────────

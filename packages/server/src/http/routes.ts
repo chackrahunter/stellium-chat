@@ -19,6 +19,7 @@ import * as anmeldenachweis from '../services/anmeldenachweis.js';
 import * as notzugang from '../services/notzugang.js';
 import * as push from '../services/push.js';
 import * as systemwerte from '../services/systemwerte.js';
+import * as webbesuch from '../services/webbesuch.js';
 import { may } from '../services/users.js';
 import { KONTO_KATEGORIEN } from '@stellium/shared';
 import {
@@ -2531,9 +2532,13 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
          Weggelassen statt geleert: ein Feld, das null ist, sieht aus wie
          "es gibt gerade nichts". Fehlt es, ist klar, dass hier jemand
          etwas nicht sehen darf. */
-      if (users.may(wer, 'verkauf.sehen')) return { da: true, werte: alles };
+      /* Leitwert zählt der Chat-Server selbst (services/webbesuch.ts) — bei
+         jeder Anfrage frisch, damit die Tafel im Takt ihrer Abfrage
+         mitläuft, statt am Zwischenstand der Konsole zu hängen. */
+      const leitwert = webbesuch.zahlen();
+      if (users.may(wer, 'verkauf.sehen')) return { da: true, werte: { ...alles, leitwert } };
       const { abo: _abo, kaufquote: _kaufquote, ...ohneGeld } = alles;
-      return { da: true, werte: ohneGeld };
+      return { da: true, werte: { ...ohneGeld, leitwert } };
     } catch (f) {
       return fehler(reply, 503, 'fehler.systemwerte',
         `Die Systemwerte sind gerade nicht zu holen: ${(f as Error).message}`);

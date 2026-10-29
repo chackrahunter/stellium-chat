@@ -1102,9 +1102,9 @@ CREATE TABLE IF NOT EXISTS praesenz_tage (
 );
 CREATE INDEX IF NOT EXISTS idx_praesenz_tag ON praesenz_tage(tag);
 
-/* Besucher von stellium.club als Tagessummen — keine Adressen, keine
-   Kennungen (siehe services/webbesuch.ts). art: besucher, aufrufe, pfad,
-   land, sprache, geraet; bei den ersten beiden ist wert leer. */
+/* Besucher von Leitwert als Tagessummen — keine Adressen, keine Kennungen
+   (siehe services/webbesuch.ts). art: besucher, aufrufe; wert bleibt leer
+   und hält den Platz frei, falls einmal etwas aufgeschlüsselt wird. */
 CREATE TABLE IF NOT EXISTS webbesuch_tage (
   tag    TEXT NOT NULL,
   art    TEXT NOT NULL,

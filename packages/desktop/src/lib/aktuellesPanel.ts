@@ -67,7 +67,6 @@ export function aktuellesPanel(): ProblemberichtBereich {
     case 'settings':
       return 'einstellungen';
     case 'system':
-    case 'besucher':
     case 'fern':
       return 'verwaltung';
     case null:
