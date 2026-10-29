@@ -28,7 +28,7 @@ import { geld, prozent } from '../lib/format.js';
  * Balkens.
  */
 
-function Zeile({ name, wert, ton }: { name: string; wert: React.ReactNode; ton?: 'gut' | 'warn' }) {
+export function Zeile({ name, wert, ton }: { name: string; wert: React.ReactNode; ton?: 'gut' | 'warn' }) {
   return (
     <div className="syszeile">
       <span className="syszeile__name">{name}</span>
@@ -37,13 +37,13 @@ function Zeile({ name, wert, ton }: { name: string; wert: React.ReactNode; ton?:
   );
 }
 
-function Notiz({ text, ton }: { text: string; ton?: 'warn' }) {
+export function Notiz({ text, ton }: { text: string; ton?: 'warn' }) {
   return <div className={`sys__notiz ${ton ? `sys__notiz--${ton}` : ''}`}>{text}</div>;
 }
 
 /* Ein großer Wert, drei nebeneinander am Kopf jedes Anbieterblocks — der
    Puls auf einen Blick, bevor die Einzelheiten darunter folgen. */
-function Kennzahl({ label, wert }: { label: string; wert: string }) {
+export function Kennzahl({ label, wert }: { label: string; wert: string }) {
   return (
     <div className="verkauf__kennzahl">
       <div className="verkauf__kennzahlWert">{wert}</div>
@@ -62,7 +62,7 @@ function monatLabel(monat: string): string {
  *  Idee wie balken() in stellium-konsole.mjs, nur als HTML/CSS statt
  *  Terminalzeichen. Absichtlich kein Diagramm aus einer Bibliothek: für eine
  *  Handvoll Monatswerte wäre das mehr Gewicht als Nutzen. */
-function Balkenreihe({ eintraege }: { eintraege: { label: string; wert: number; text: string }[] }) {
+export function Balkenreihe({ eintraege }: { eintraege: { label: string; wert: number; text: string }[] }) {
   const max = Math.max(1, ...eintraege.map((e) => Math.abs(e.wert)));
   return (
     <div className="verkauf__balken">

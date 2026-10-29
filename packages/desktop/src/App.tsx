@@ -49,6 +49,7 @@ import { useProblemberichteUi } from './state/problemberichte.js';
 import { DownloadPanel } from './components/DownloadPanel.jsx';
 import { Fernsteuerung } from './components/Fernsteuerung.jsx';
 import { SystemPanel } from './components/SystemPanel.jsx';
+import { BesucherPanel } from './components/BesucherPanel.jsx';
 import { PostPanel } from './components/PostPanel.jsx';
 import { PostMeldungen } from './components/PostMeldungen.jsx';
 import { UpdateBanner, UpdateWillkommen, ServerWartung } from './components/UpdateBanner.jsx';
@@ -356,6 +357,7 @@ export function App() {
         {overlay === 'download' && <DownloadPanel key="download" onClose={closeOverlay} />}
         {overlay === 'fern' && <Fernsteuerung key="fern" onClose={closeOverlay} />}
         {overlay === 'system' && <SystemPanel key="system" onClose={closeOverlay} />}
+        {overlay === 'besucher' && <BesucherPanel key="besucher" onClose={closeOverlay} />}
         {overlay === 'post' && <PostPanel key="post" onClose={closeOverlay} />}
         {overlay === 'postMeldungen' && <PostMeldungen key="postMeldungen" onClose={closeOverlay} />}
         {overlay === 'notizen' && <NotizenPanel key="notizen" onClose={closeOverlay} />}

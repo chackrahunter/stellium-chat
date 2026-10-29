@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { Bell, Bookmark, Bot, Brain, Bug, CalendarDays, Download, FolderOpen, Gauge, Inbox, KeyRound, Landmark, LifeBuoy, Lightbulb, ListChecks, Lock, Mail, MailSearch, MessageSquare, Monitor, NotebookPen, Settings, ShieldCheck, ShoppingBag, Sparkles, Star, Users } from 'lucide-react';
+import { Bell, Bookmark, Bot, Brain, Bug, CalendarDays, Download, FolderOpen, Gauge, Globe, Inbox, KeyRound, Landmark, LifeBuoy, Lightbulb, ListChecks, Lock, Mail, MailSearch, MessageSquare, Monitor, NotebookPen, Settings, ShieldCheck, ShoppingBag, Sparkles, Star, Users } from 'lucide-react';
 import { useStore } from '../state/store.js';
 import { useT, type TranslationKey } from '../i18n/index.js';
 import { imBrowser } from './DownloadPanel.jsx';
@@ -344,6 +344,10 @@ export function Rail() {
               tun: () => useVerkaufMeldungenUi.getState().oeffnen() }] : []),
           ...(darfSystem ? [{ id: 'system', symbol: <Gauge size={17} />, text: t('system.titel'),
             tun: () => setOverlay('system') }] : []),
+          /* Website-Besucher — dieselbe Schwelle wie die Systemwerte, deren
+             Webseiten-Kachel sie ausführlich zeigt. */
+          ...(darfSystem ? [{ id: 'besucher', symbol: <Globe size={17} />, text: t('besucher.titel'),
+            tun: () => setOverlay('besucher') }] : []),
           ...(self?.permissions['user.manage'] ? [{ id: 'team', symbol: <ShieldCheck size={17} />, text: t('nav.team'),
             tun: () => setOverlay('team') }] : []),
           /* Kunden, Firmen, Bewerber und so weiter einordnen — ein

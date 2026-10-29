@@ -1102,6 +1102,17 @@ CREATE TABLE IF NOT EXISTS praesenz_tage (
 );
 CREATE INDEX IF NOT EXISTS idx_praesenz_tag ON praesenz_tage(tag);
 
+/* Besucher von stellium.club als Tagessummen — keine Adressen, keine
+   Kennungen (siehe services/webbesuch.ts). art: besucher, aufrufe, pfad,
+   land, sprache, geraet; bei den ersten beiden ist wert leer. */
+CREATE TABLE IF NOT EXISTS webbesuch_tage (
+  tag    TEXT NOT NULL,
+  art    TEXT NOT NULL,
+  wert   TEXT NOT NULL,
+  anzahl INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (tag, art, wert)
+);
+
 /* ── Post ──────────────────────────────────────────────────
    Was die KI aus einer eingegangenen Mail gemacht hat. Der Text der Mail
    selbst steht NICHT hier: er liegt bei Gmail und wird von dort geholt.

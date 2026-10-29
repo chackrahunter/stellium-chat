@@ -62,7 +62,7 @@ export type Overlay =
   | null | 'quick' | 'search' | 'settings' | 'newChannel' | 'glossary'
   | 'catchup' | 'schedule' | 'people' | 'poll' | 'reminders' | 'models' | 'team'
   | 'channelSettings' | 'tour' | 'tasks' | 'calendar' | 'files' | 'taskExtract' | 'protocol' | 'ideas' | 'download'
-  | 'fern' | 'system' | 'post' | 'notizen'
+  | 'fern' | 'system' | 'besucher' | 'post' | 'notizen'
   | 'vorfall' | 'freigaben'
   /** Der Reiter „Post-Sichtung" — was die KI aus eingegangener Firmenpost
       gemacht hat, siehe PostMeldungen.tsx. Neben 'post' und nicht darin

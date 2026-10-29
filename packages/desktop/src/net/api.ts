@@ -832,6 +832,9 @@ export const api = {
   /* Die Werte des Servers. `da: false` heißt nicht Fehler, sondern: auf
      diesem Rechner gibt es die Serverkonsole nicht. */
   system: () => request<{ da: boolean; werte?: unknown }>('/api/systemwerte'),
+  /* Besucher von stellium.club — Signal der Seite plus „insgesamt" aus dem
+     Protokoll, siehe server http/webbesuch.ts. */
+  webbesuch: () => request<Webbesuch>('/api/webbesuch'),
 
   /* ── Problemberichte ──────────────────────────────────────────
      Der volle Vertrag steht in http/routes.ts (Server) — hier nur die
@@ -1045,3 +1048,13 @@ export const api = {
 };
 
 export { ApiError };
+
+type Rangliste = [string, number][];
+interface Zeitraumzahlen { besucher: number; aufrufe: number }
+export interface Webbesuch {
+  jetzt: number;
+  seit: string | null;
+  heute: Zeitraumzahlen; tage7: Zeitraumzahlen; tage30: Zeitraumzahlen; gesamt: Zeitraumzahlen;
+  seiten: Rangliste; laender: Rangliste; sprachen: Rangliste; geraete: Rangliste;
+  protokoll: { gesamt: { seit: string; besucher: number; seiten: number }; stand: number } | null;
+}

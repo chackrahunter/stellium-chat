@@ -16,6 +16,7 @@ import { registerEinmalcode } from './http/einmalcode.js';
 import { registerPasswoerter } from './http/passwoerter.js';
 import { registerRechtstexte } from './http/rechtstexte.js';
 import { registerFernleitung } from './http/fernleitung.js';
+import { registerWebbesuch } from './http/webbesuch.js';
 import { handleConnection, startBackgroundJobs, anwesenheitZuruecksetzen, verbindungen } from './ws/gateway.js';
 import {
   aiCapabilities, anbieterAusEinstellungen, dropForeignTranslations, warmUpModels,
@@ -84,6 +85,8 @@ async function main(): Promise<void> {
   });
   /* Die Fernsteuerung für die Browser-Oberfläche — siehe http/fernleitung.ts. */
   registerFernleitung(app);
+  /* Besucher von stellium.club — siehe services/webbesuch.ts. */
+  registerWebbesuch(app);
 
   /* ── Oberfläche im Browser ─────────────────────────────────────
    *

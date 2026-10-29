@@ -2085,7 +2085,7 @@ export const de = {
   'post.domaeneUngueltig': 'Das sieht nicht nach einer Domäne aus — ohne „@", ohne Leerzeichen, etwa „stellium.club".',
 
   /* -- Gedaechtnis der Firmenpost ---------------------------------
-     Reiter: was die KI über das Unternehmen weiß und was sie sich merken
+     Reiter — was die KI über das Unternehmen weiß und was sie sich merken
      möchte. Server: services/post-wissen.ts, http/postgedaechtnis.ts.
      Ansehen mit mail.lesen, entscheiden mit mail.verwalten. */
   'gedaechtnis.nav': 'Gedächtnis',
@@ -2601,4 +2601,27 @@ export const de = {
   'fehler.problemberichtLeer': 'Bitte trage ein, was du erwartet hast und was stattdessen passiert ist.',
   'fehler.problemberichtErledigt': 'Dieser Bericht ist schon erledigt.',
   'fehler.problemberichtStatusUnbekannt': 'Unbekannter Status "{status}".',
+
+  /* ── Website-Besucher (BesucherPanel.tsx) ── */
+  'besucher.titel': 'Website-Besucher',
+  'besucher.tage7': '7 Tage',
+  'besucher.tage30': '30 Tage',
+  'besucher.gesamt': 'Insgesamt',
+  'besucher.zeitraeume': 'Zeiträume',
+  'besucher.seiten': 'Beliebteste Seiten',
+  'besucher.laender': 'Länder',
+  'besucher.sprachen': 'Sprachen der Seite',
+  'besucher.geraete': 'Geräte',
+  'besucher.geraet.mobil': 'Telefon',
+  'besucher.geraet.tablet': 'Tablet',
+  'besucher.geraet.desktop': 'Computer',
+  'besucher.unbekannt': 'Unbekannt',
+  'besucher.andere': 'Andere Seiten',
+  'besucher.seit': 'Das Signal der Seite zählt seit {datum}.',
+  'besucher.protokoll': 'Insgesamt seit {datum}',
+  'besucher.protokollHinweis': 'Aus dem Server-Protokoll, Stand {zeit}',
+  'besucher.leer': 'Noch keine Besuche gezählt.',
+  'besucher.erklaerung': '„Gerade da“ heißt: in den letzten 5 Minuten aktiv. Über mehrere Tage zählt jeder einmal pro Tag. Ohne Cookies, es werden keine Adressen gespeichert.',
+  'besucher.alleAnsehen': 'Alle Besucherzahlen ansehen',
+  'besucher.letzte30': 'Letzte 30 Tage',
 } as const;

@@ -279,6 +279,16 @@ export function migrate(): void {
     )`);
   db.exec('CREATE INDEX IF NOT EXISTS idx_praesenz_tag ON praesenz_tage(tag)');
 
+  /* Besucher von stellium.club — siehe schema.sql. */
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS webbesuch_tage (
+      tag    TEXT NOT NULL,
+      art    TEXT NOT NULL,
+      wert   TEXT NOT NULL,
+      anzahl INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (tag, art, wert)
+    )`);
+
   /* Anonyme Umfragen: Sperre gegen Mehrfachabstimmen, getrennt von der
      Zählung (poll_options.votes oben). Siehe schema.sql für die Begründung. */
   db.exec(`

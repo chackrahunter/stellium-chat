@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import { Shell } from './Panels.jsx';
 import { VerkaufDetailPanel } from './VerkaufDetailPanel.jsx';
+import { BesucherPanel } from './BesucherPanel.jsx';
 import { useT, currentUiLanguage } from '../i18n';
 import { api } from '../net/api.js';
 import { fileSize, geld, zeitspanne } from '../lib/format.js';
@@ -126,6 +127,7 @@ export function SystemPanel({ onClose }: { onClose: () => void }) {
      Zeile einfach aus, statt die ganze Verkaufskachel zu stören. */
   const [patreon, setPatreon] = useState<Werte | null>(null);
   const [detailOffen, setDetailOffen] = useState(false);
+  const [besucherOffen, setBesucherOffen] = useState(false);
   const laeuft = useRef(true);
 
   useEffect(() => {
@@ -296,6 +298,9 @@ export function SystemPanel({ onClose }: { onClose: () => void }) {
               <Zeile name={t('system.fehler5xx')} ton={(w.heute?.f5xx ?? 0) > 0 ? 'warn' : undefined}
                      wert={zahl(w.heute?.f5xx ?? 0)} />
               <Zeile name={t('system.uebertragen')} wert={fileSize(w.heute?.bytes ?? 0)} />
+              <button type="button" className="btn btn--ghost btn--sm sys__mehr" onClick={() => setBesucherOffen(true)}>
+                {t('besucher.alleAnsehen')} <ChevronRight size={13} />
+              </button>
             </section>
           )}
 
@@ -400,6 +405,7 @@ export function SystemPanel({ onClose }: { onClose: () => void }) {
         {inhalt()}
       </Shell>
       {detailOffen && <VerkaufDetailPanel onClose={() => setDetailOffen(false)} />}
+      {besucherOffen && <BesucherPanel onClose={() => setBesucherOffen(false)} />}
     </>
   );
 }
