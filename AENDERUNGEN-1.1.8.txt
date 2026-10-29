@@ -1,0 +1,1 @@
+Der Server zählt die Besucher von Leitwert jetzt wirklich – die Fassung 1.1.7 war auf dem Server noch ein Zwischenstand.
