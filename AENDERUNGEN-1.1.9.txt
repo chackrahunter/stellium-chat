@@ -1,0 +1,1 @@
+„Gerade da“ bei Leitwert zählt jetzt jede offene Seite und springt in Echtzeit: wer die Seite schließt oder wegschaltet, verschwindet sofort aus der Zahl.
